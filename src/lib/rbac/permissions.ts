@@ -6,17 +6,17 @@
  * second line of defence; the two must be kept in agreement.
  *
  * Two rules that are easy to get wrong and are asserted in the tests:
- *   1. RECEPTIONIST never gains clinical-note access, at any clinic, ever.
- *   2. CLINIC_ADMIN is an OPERATIONAL role. It never reads a doctor's
+ *   1. RECEPTIONIST never gains clinical-note access, at any location, ever.
+ *   2. LOCATION_ADMIN is an OPERATIONAL role. It never reads a doctor's
  *      private notes. There is no admin override.
  */
 
-export const CLINIC_ROLES = ["DOCTOR", "RECEPTIONIST", "CLINIC_ADMIN"] as const;
-export type ClinicRole = (typeof CLINIC_ROLES)[number];
+export const LOCATION_ROLES = ["DOCTOR", "RECEPTIONIST", "LOCATION_ADMIN"] as const;
+export type LocationRole = (typeof LOCATION_ROLES)[number];
 
 export const RESOURCES = [
-  "clinic",
-  "clinic_member",
+  "practice_location",
+  "location_member",
   "doctor_profile",
   "patient",
   "patient_clinical", // allergies, conditions, clinical flags
@@ -36,7 +36,7 @@ export type Resource = (typeof RESOURCES)[number];
 export const ACTIONS = ["read", "create", "update", "delete"] as const;
 export type Action = (typeof ACTIONS)[number];
 
-type Matrix = Record<ClinicRole, Partial<Record<Resource, readonly Action[]>>>;
+type Matrix = Record<LocationRole, Partial<Record<Resource, readonly Action[]>>>;
 
 const R = ["read"] as const;
 const RW = ["read", "create", "update"] as const;
@@ -49,8 +49,8 @@ const NONE = [] as const;
  */
 const MATRIX: Matrix = {
   DOCTOR: {
-    clinic: R,
-    clinic_member: R,
+    practice_location: R,
+    location_member: R,
     doctor_profile: RW,
     patient: RW,
     patient_clinical: RW,
@@ -67,8 +67,8 @@ const MATRIX: Matrix = {
   },
 
   RECEPTIONIST: {
-    clinic: R,
-    clinic_member: NONE,
+    practice_location: R,
+    location_member: NONE,
     doctor_profile: R,
     patient: RW,
     // Read-only on allergies/conditions: reception must be able to see a
@@ -86,9 +86,9 @@ const MATRIX: Matrix = {
     ai_assistant: NONE,
   },
 
-  CLINIC_ADMIN: {
-    clinic: RW,
-    clinic_member: RWD,
+  LOCATION_ADMIN: {
+    practice_location: RW,
+    location_member: RWD,
     doctor_profile: R,
     patient: RW,
     patient_clinical: R,
@@ -109,10 +109,10 @@ const MATRIX: Matrix = {
  * Can `role` perform `action` on `resource`?
  *
  * This answers the ROLE question only. Callers must separately establish that
- * the row belongs to the caller's active clinic — see requireClinicContext.
+ * the row belongs to the caller's active clinic — see requireLocationContext.
  * Both checks are required; neither is sufficient alone.
  */
-export function can(role: ClinicRole, action: Action, resource: Resource): boolean {
+export function can(role: LocationRole, action: Action, resource: Resource): boolean {
   return MATRIX[role]?.[resource]?.includes(action) ?? false;
 }
 
@@ -120,14 +120,14 @@ export function can(role: ClinicRole, action: Action, resource: Resource): boole
  * Can a user holding ANY of `roles` perform the action?
  *
  * A user may hold several roles at one clinic (a solo doctor is both DOCTOR and
- * CLINIC_ADMIN of their own chamber), so permission is the union. This is what
+ * LOCATION_ADMIN of their own chamber), so permission is the union. This is what
  * request-path code should call — `can()` is the single-role primitive.
  *
  * Note the union never widens a denial that matters: `private_notes` is granted
- * only to DOCTOR, so adding CLINIC_ADMIN cannot unlock it, and vice versa.
+ * only to DOCTOR, so adding LOCATION_ADMIN cannot unlock it, and vice versa.
  */
 export function canAny(
-  roles: readonly ClinicRole[],
+  roles: readonly LocationRole[],
   action: Action,
   resource: Resource,
 ): boolean {
@@ -136,13 +136,17 @@ export function canAny(
 
 /** Every action a role may take on a resource. Useful for building UI. */
 export function allowedActions(
-  role: ClinicRole,
+  role: LocationRole,
   resource: Resource,
 ): readonly Action[] {
   return MATRIX[role]?.[resource] ?? [];
 }
 
 /** Roles permitted to manage clinic settings and membership. */
-export function isClinicManager(role: ClinicRole): boolean {
-  return can(role, "update", "clinic_member");
+export function isLocationManager(role: LocationRole): boolean {
+  return can(role, "update", "location_member");
 }
+
+
+
+

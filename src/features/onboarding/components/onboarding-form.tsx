@@ -9,7 +9,7 @@ import { SectionCard, SectionHeader } from "@/components/common/section-card";
 import { Stethoscope, Building2 } from "lucide-react";
 
 const CLINIC_TYPES = [
-  { value: "OWN_CHAMBER", label: "My own chamber" },
+  { value: "PERSONAL_CHAMBER", label: "My own chamber" },
   { value: "CLINIC", label: "Clinic" },
   { value: "HOSPITAL", label: "Hospital" },
   { value: "TELEMEDICINE", label: "Telemedicine only" },
@@ -54,22 +54,22 @@ export function OnboardingForm() {
         <div className="space-y-4 p-4 sm:p-5">
           <Field
             label="Name"
-            name="clinicName"
+            name="locationName"
             hint="You can add more chambers and clinics later."
-            errors={state.fieldErrors?.clinicName}
+            errors={state.fieldErrors?.locationName}
           />
 
           <div className="space-y-1.5">
             <label
-              htmlFor="field-clinicType"
+              htmlFor="field-locationType"
               className="block text-[13px] font-medium text-ink"
             >
               Type
             </label>
             <select
-              id="field-clinicType"
-              name="clinicType"
-              defaultValue="OWN_CHAMBER"
+              id="field-locationType"
+              name="locationType"
+              defaultValue="PERSONAL_CHAMBER"
               className="h-11 w-full rounded-xl border border-hairline bg-white px-3 text-sm text-ink focus-visible:focus-ring"
             >
               {CLINIC_TYPES.map((t) => (
@@ -111,3 +111,5 @@ export function OnboardingForm() {
     </form>
   );
 }
+
+

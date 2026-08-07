@@ -12,7 +12,7 @@ import { publicEnv } from "@/lib/env";
  *   2. Gate protected routes.
  *
  * This is a convenience redirect, NOT the security boundary. Every Server
- * Action still calls requireClinicContext(), and RLS still applies underneath.
+ * Action still calls requireLocationContext(), and RLS still applies underneath.
  * Never let this file be the only thing standing between a user and data.
  */
 
@@ -88,3 +88,4 @@ export const config = {
     "/((?!_next/static|_next/image|favicon.ico|icon.svg|manifest.webmanifest|.*\\.(?:svg|png|jpg|jpeg|gif|webp|avif|ico|css|js)$).*)",
   ],
 };
+

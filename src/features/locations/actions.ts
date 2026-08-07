@@ -4,24 +4,24 @@ import { revalidatePath } from "next/cache";
 import { cookies } from "next/headers";
 import { z } from "zod";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { requireUser, ACTIVE_CLINIC_COOKIE } from "@/lib/auth/session";
+import { requireUser, ACTIVE_LOCATION_COOKIE } from "@/lib/auth/session";
 import { emitAudit } from "@/lib/audit/emit";
 import type { ActionState } from "@/features/auth/schema";
 
 /**
  * Adding another place the doctor practises.
  *
- * A doctor commonly works across their own chamber plus one or more clinics.
- * Each is a separate `clinics` row, and the doctor joins it as both DOCTOR and
- * CLINIC_ADMIN (they set it up, so they administer it).
+ * A doctor commonly works across their own chamber plus one or more locations.
+ * Each is a separate `locations` row, and the doctor joins it as both DOCTOR and
+ * LOCATION_ADMIN (they set it up, so they administer it).
  *
  * Patient identity does NOT split across these — patients belong to the doctor.
- * Only the clinical events are clinic-scoped. See docs/architecture.md §2.
+ * Only the clinical events are location-scoped. See docs/architecture.md §2.
  */
 
-export const addClinicSchema = z.object({
+export const addLocationSchema = z.object({
   name: z.string().trim().min(2, "Enter a name").max(160),
-  type: z.enum(["OWN_CHAMBER", "CLINIC", "HOSPITAL", "TELEMEDICINE"]),
+  type: z.enum(["PERSONAL_CHAMBER", "CLINIC", "HOSPITAL", "TELEMEDICINE", "OTHER"]),
   address: z.string().trim().max(300).optional().or(z.literal("")),
   district: z.string().trim().max(120).optional().or(z.literal("")),
   phone: z.string().trim().max(40).optional().or(z.literal("")),
@@ -33,11 +33,11 @@ const optional = (v: FormDataEntryValue | null) => {
   return s.length > 0 ? s : null;
 };
 
-export async function addClinicAction(
+export async function addLocationAction(
   _prev: ActionState,
   formData: FormData,
 ): Promise<ActionState> {
-  const parsed = addClinicSchema.safeParse({
+  const parsed = addLocationSchema.safeParse({
     name: formData.get("name"),
     type: formData.get("type"),
     address: formData.get("address") ?? "",
@@ -59,8 +59,8 @@ export async function addClinicAction(
   const user = await requireUser();
   const supabase = await createSupabaseServerClient();
 
-  const { data: clinic, error } = await supabase
-    .from("clinics")
+  const { data: location, error } = await supabase
+    .from("practice_locations")
     .insert({
       name: parsed.data.name,
       type: parsed.data.type,
@@ -72,7 +72,7 @@ export async function addClinicAction(
     .select("id, name")
     .single();
 
-  if (error || !clinic) {
+  if (error || !location) {
     return {
       ok: false,
       message: `Could not add it: ${error?.message ?? "unknown error"}`,
@@ -80,9 +80,9 @@ export async function addClinicAction(
   }
 
   // Both roles — you practise here and you administer it.
-  const { error: memberError } = await supabase.from("clinic_members").insert([
-    { clinic_id: clinic.id, user_id: user.id, role: "DOCTOR", status: "ACTIVE" },
-    { clinic_id: clinic.id, user_id: user.id, role: "CLINIC_ADMIN", status: "ACTIVE" },
+  const { error: memberError } = await supabase.from("practice_location_members").insert([
+    { practice_location_id: location.id, user_id: user.id, role: "DOCTOR", status: "ACTIVE" },
+    { practice_location_id: location.id, user_id: user.id, role: "LOCATION_ADMIN", status: "ACTIVE" },
   ]);
 
   if (memberError) {
@@ -90,17 +90,17 @@ export async function addClinicAction(
   }
 
   await emitAudit({
-    action: "clinic.created",
-    resourceType: "clinic",
-    resourceId: clinic.id,
-    clinicId: clinic.id,
+    action: "location.created",
+    resourceType: "practice_location",
+    resourceId: location.id,
+    locationId: location.id,
     actorId: user.id,
     meta: { type: parsed.data.type },
   });
 
   if (parsed.data.makeActive) {
     const cookieStore = await cookies();
-    cookieStore.set(ACTIVE_CLINIC_COOKIE, clinic.id, {
+    cookieStore.set(ACTIVE_LOCATION_COOKIE, location.id, {
       httpOnly: true,
       sameSite: "lax",
       secure: process.env.NODE_ENV === "production",
@@ -112,5 +112,10 @@ export async function addClinicAction(
   revalidatePath("/settings");
   revalidatePath("/dashboard");
 
-  return { ok: true, message: `${clinic.name} added.` };
+  return { ok: true, message: `${location.name} added.` };
 }
+
+
+
+
+

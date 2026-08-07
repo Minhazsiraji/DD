@@ -52,12 +52,12 @@ export const onboardingSchema = z.object({
   qualification: z.string().trim().max(200).optional().or(z.literal("")),
   specialization: z.string().trim().max(200).optional().or(z.literal("")),
   bmdcRegistrationNo: z.string().trim().max(60).optional().or(z.literal("")),
-  clinicName: z
+  locationName: z
     .string()
     .trim()
     .min(2, "Enter a name for your chamber or clinic")
     .max(160),
-  clinicType: z.enum(["OWN_CHAMBER", "CLINIC", "HOSPITAL", "TELEMEDICINE"]),
+  locationType: z.enum(["PERSONAL_CHAMBER", "CLINIC", "HOSPITAL", "TELEMEDICINE", "OTHER"]),
   address: z.string().trim().max(300).optional().or(z.literal("")),
   district: z.string().trim().max(120).optional().or(z.literal("")),
   phone: z.string().trim().max(40).optional().or(z.literal("")),
@@ -75,3 +75,6 @@ export interface ActionState {
 }
 
 export const emptyState: ActionState = { ok: false };
+
+
+

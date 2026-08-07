@@ -4,36 +4,38 @@ import { Building2, Hospital, Video, Check, ShieldCheck, ChevronRight } from "lu
 import { cookies } from "next/headers";
 import { PageHeader } from "@/components/common/page-header";
 import { SectionCard, SectionHeader } from "@/components/common/section-card";
-import { AddClinicForm } from "@/features/clinics/components/add-clinic-form";
+import { AddLocationForm } from "@/features/locations/components/add-location-form";
 import {
   requireUser,
   getMemberships,
-  ACTIVE_CLINIC_COOKIE,
+  ACTIVE_LOCATION_COOKIE,
 } from "@/lib/auth/session";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 export const metadata: Metadata = { title: "Settings" };
 
-type ClinicType = "OWN_CHAMBER" | "CLINIC" | "HOSPITAL" | "TELEMEDICINE";
+type LocationType = "PERSONAL_CHAMBER" | "CLINIC" | "HOSPITAL" | "TELEMEDICINE" | "OTHER";
 
-const TYPE_ICON: Record<ClinicType, React.ReactNode> = {
-  OWN_CHAMBER: <Building2 className="size-4" />,
+const TYPE_ICON: Record<LocationType, React.ReactNode> = {
+  PERSONAL_CHAMBER: <Building2 className="size-4" />,
   CLINIC: <Hospital className="size-4" />,
   HOSPITAL: <Hospital className="size-4" />,
   TELEMEDICINE: <Video className="size-4" />,
+  OTHER: <Building2 className="size-4" />,
 };
 
-const TYPE_LABEL: Record<ClinicType, string> = {
-  OWN_CHAMBER: "Own chamber",
+const TYPE_LABEL: Record<LocationType, string> = {
+  PERSONAL_CHAMBER: "Own chamber",
   CLINIC: "Clinic",
   HOSPITAL: "Hospital",
   TELEMEDICINE: "Telemedicine",
+  OTHER: "Other",
 };
 
 const ROLE_LABEL: Record<string, string> = {
   DOCTOR: "Doctor",
   RECEPTIONIST: "Reception",
-  CLINIC_ADMIN: "Admin",
+  LOCATION_ADMIN: "Admin",
 };
 
 export default async function SettingsPage() {
@@ -42,23 +44,23 @@ export default async function SettingsPage() {
   const supabase = await createSupabaseServerClient();
 
   const { data: rows } = await supabase
-    .from("clinics")
+    .from("practice_locations")
     .select("id, name, type, address, district, phone")
     .in(
       "id",
-      memberships.map((m) => m.clinicId),
+      memberships.map((m) => m.locationId),
     );
 
   const cookieStore = await cookies();
   const activeId =
-    cookieStore.get(ACTIVE_CLINIC_COOKIE)?.value ?? memberships[0]?.clinicId;
+    cookieStore.get(ACTIVE_LOCATION_COOKIE)?.value ?? memberships[0]?.locationId;
 
-  const clinics = memberships.map((m) => {
-    const row = rows?.find((r) => r.id === m.clinicId);
+  const locations = memberships.map((m) => {
+    const row = rows?.find((r) => r.id === m.locationId);
     return {
-      id: m.clinicId,
-      name: m.clinicName,
-      type: (row?.type as ClinicType) ?? "CLINIC",
+      id: m.locationId,
+      name: m.locationName,
+      type: (row?.type as LocationType) ?? "CLINIC",
       address: (row?.address as string | null) ?? null,
       district: (row?.district as string | null) ?? null,
       roles: m.roles,
@@ -76,12 +78,12 @@ export default async function SettingsPage() {
       <SectionCard className="overflow-hidden">
         <SectionHeader
           title="Your places"
-          count={clinics.length}
+          count={locations.length}
           icon={<Building2 className="size-4" />}
         />
 
         <ul className="divide-y divide-hairline">
-          {clinics.map((c) => (
+          {locations.map((c) => (
             <li key={c.id} className="flex items-start gap-3 px-4 py-3.5 sm:px-5">
               <span
                 className="mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-xl bg-brand-soft text-brand"
@@ -116,7 +118,7 @@ export default async function SettingsPage() {
           ))}
         </ul>
 
-        <AddClinicForm />
+        <AddLocationForm />
       </SectionCard>
 
       <SectionCard className="overflow-hidden">
@@ -148,3 +150,8 @@ export default async function SettingsPage() {
     </div>
   );
 }
+
+
+
+
+

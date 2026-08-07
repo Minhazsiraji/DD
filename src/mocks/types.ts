@@ -46,10 +46,11 @@ export type DobPrecision = "DAY" | "MONTH" | "YEAR" | "AGE_ONLY";
  * patients were seen.
  */
 export type LocationType =
-  | "OWN_CHAMBER"
+  | "PERSONAL_CHAMBER"
   | "CLINIC"
   | "HOSPITAL"
-  | "TELEMEDICINE";
+  | "TELEMEDICINE"
+  | "OTHER";
 
 export interface PracticeLocation {
   id: string;
@@ -179,3 +180,5 @@ export interface DashboardData {
   recentPatients: RecentPatient[];
   attention: AttentionItem[];
 }
+
+

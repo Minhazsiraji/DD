@@ -11,7 +11,7 @@ import { FollowUpsPanel } from "@/features/dashboard/components/followups-panel"
 import { RecentPatients } from "@/features/dashboard/components/recent-patients";
 import { formatDate } from "@/lib/format";
 import { dashboardData } from "@/mocks/dashboard";
-import { requireClinicContext } from "@/lib/auth/session";
+import { requireLocationContext } from "@/lib/auth/session";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 export const metadata: Metadata = { title: "Dashboard" };
@@ -36,11 +36,11 @@ function greeting(): string {
 
 export default async function DashboardPage() {
   /**
-   * The greeting is REAL (signed-in doctor, active clinic, today's date).
+   * The greeting is REAL (signed-in doctor, active location, today's date).
    * Everything below it is still Phase 1 mock data — queue, schedule, reports,
    * follow-ups — and gets replaced as each module lands from Phase 3 onward.
    */
-  const ctx = await requireClinicContext();
+  const ctx = await requireLocationContext();
   const supabase = await createSupabaseServerClient();
   const { data: profile } = await supabase
     .from("profiles")
@@ -76,7 +76,7 @@ export default async function DashboardPage() {
       <PageHeader
         eyebrow={greeting()}
         title={doctorName}
-        subtitle={`${ctx.clinicName} · ${formatDate(todayISO)}`}
+        subtitle={`${ctx.locationName} · ${formatDate(todayISO)}`}
       />
 
       {/* ---- Summary tiles. Glass is appropriate: summary, not clinical data. ---- */}
@@ -143,3 +143,5 @@ export default async function DashboardPage() {
     </div>
   );
 }
+
+

@@ -25,30 +25,41 @@ Keep dependencies minimal. Justify every new package.
 validate with Zod → write → emit audit event. The browser is never trusted. RLS
 is the second wall, not the first.
 
-**Tenancy — HYBRID. Read this before writing any query or policy.**
+**Tenancy — FINAL. Read this before writing any query, policy or table.**
 
-Patient *identity* is doctor-owned; every clinical *event* is clinic-scoped.
-This is deliberate: it gives the doctor one continuous timeline per patient
-across all their chambers, while keeping each clinic's staff boxed into that
-clinic. Neither half is optional.
+Two orthogonal questions, permanently separate:
 
-- `patients.owner_doctor_id` — the patient belongs to the **doctor**. One human
-  seen at two clinics is **one record with one timeline**. Patient numbers come
-  from a per-doctor sequence.
-- **`clinic_id` is mandatory on every event table**: `appointments`,
-  `appointment_confirmations`, `tokens`, `queue_events`, `encounters`, `vitals`,
-  `diagnoses`, `investigation_orders`, `investigation_results`, `prescriptions`,
-  `documents`, `followups`, `payments`, `notifications`, `audit_events`,
-  `ai_sessions`. Never rely on `doctor_id` alone for authorization.
-- Access runs through `clinic_members(clinic_id, user_id, role)` plus the
-  session's **active clinic**. Staff see only events at their own clinic.
-- `patient_clinic_links(patient_id, clinic_id)` records which clinics a patient
-  has ever been seen at. Non-doctor roles may only reach a patient through a
-  link for their active clinic.
-- **The doctor who owns a patient sees that patient's full timeline across
-  clinics; nobody else ever does.** Clinic staff see only their clinic's events.
-- Cross-doctor sharing (referral) must be explicit, consented and audited.
-  Never ambient.
+    owner_doctor_id        whose patient is this?
+    practice_location_id   where did this event happen?
+
+Doctor's Diary is a **doctor-owned personal clinical repository, not a
+clinic-owned EMR.**
+
+- **Each doctor has a completely separate patient repository.**
+  `patients.owner_doctor_id` is the ownership boundary. A patient record belongs
+  to exactly one doctor.
+- **The same human seen by two doctors is TWO records.** No global patient
+  identity, no cross-doctor merge, no cross-doctor dedupe, no shared timeline,
+  no cross-doctor visibility. Deduplication applies *only inside* one doctor's
+  repository.
+- **Within one doctor's repository**, visits at a hospital, a clinic, a personal
+  chamber and telemedicine form **ONE continuous timeline**. That continuity is
+  the product's core value — never split it.
+- **`practice_location_id` is mandatory on every event table**: appointments,
+  tokens, queue_events, encounters, vitals, diagnoses, investigation_orders,
+  investigation_results, prescriptions, documents, followups, payments,
+  notifications, audit_events, ai_sessions.
+- **Staff access is location-scoped.** Access runs through
+  `practice_location_members(practice_location_id, user_id, role)` plus the
+  session's active location. Reception at Location A must never see Location B's
+  events, or the doctor's private chamber.
+- The **owning doctor** sees the full longitudinal history across all of their
+  own locations. Nobody else does.
+- Cross-doctor referral/sharing must be explicit, consented and audited — never
+  ambient.
+
+Roles: `DOCTOR` · `RECEPTIONIST` · `LOCATION_ADMIN`.
+Location types: `PERSONAL_CHAMBER` · `CLINIC` · `HOSPITAL` · `TELEMEDICINE` · `OTHER`.
 
 **Drizzle + RLS.** Drizzle owns schema/migrations/typed queries. Request-path
 queries run with the user's JWT so RLS applies. The service role lives only in
@@ -134,9 +145,20 @@ squeeze — and it hides the bottom nav.
   `CREATE TABLE "auth"."users"` because the table is declared in schema.ts for
   the foreign key. Delete that statement from the migration — Supabase owns
   that table and altering it breaks authentication.
-- Adding an event table? It **must** carry `clinic_id`, and it needs policies in
-  `supabase/policies/` in the same change. A table with RLS on and no policy
-  silently returns zero rows.
+- Adding an event table? It **must** carry `practice_location_id`, and it needs
+  policies in `supabase/policies/` in the same change. A table with RLS on and no
+  policy silently returns zero rows.
+- **`INSERT … RETURNING` applies SELECT policies to the new row**, and
+  supabase-js issues RETURNING whenever you chain `.select()`. If the inserting
+  user cannot yet read the row, the insert fails with the misleading message
+  "new row violates row-level security policy". This has bitten once already.
+- Renaming a table? The `SECURITY DEFINER` helpers store their bodies as text
+  and will silently break — re-run `npm run db:policies` immediately after.
+- drizzle-kit cannot generate renames without an interactive TTY. Write the
+  `ALTER … RENAME` SQL by hand in `supabase/migrations/`, apply with
+  `scripts/apply-sql.mjs`, then regenerate the baseline and
+  `scripts/stamp-baseline.mjs`. Never let a generated migration drop and
+  recreate a table that holds data.
 
 ## Working on this machine
 

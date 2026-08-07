@@ -24,12 +24,12 @@ export type AuditAction =
   | "profile.updated"
   | "doctor_profile.created"
   | "doctor_profile.updated"
-  | "clinic.created"
-  | "clinic.updated"
-  | "clinic.switched"
-  | "clinic_member.invited"
-  | "clinic_member.role_changed"
-  | "clinic_member.removed"
+  | "location.created"
+  | "location.updated"
+  | "location.switched"
+  | "location_member.invited"
+  | "location_member.role_changed"
+  | "location_member.removed"
   // Account & device security. Never carry a TOTP secret or code in `meta`.
   | "security.mfa_enrolled"
   | "security.mfa_removed"
@@ -46,7 +46,7 @@ export interface AuditInput {
   action: AuditAction;
   resourceType: string;
   resourceId?: string | null;
-  clinicId?: string | null;
+  locationId?: string | null;
   actorId?: string | null;
   meta?: Record<string, unknown>;
 }
@@ -73,7 +73,7 @@ export async function emitAudit(input: AuditInput): Promise<void> {
       null;
 
     const { error } = await supabase.from("audit_events").insert({
-      clinic_id: input.clinicId ?? null,
+      practice_location_id: input.locationId ?? null,
       actor_id: actorId,
       action: input.action,
       resource_type: input.resourceType,
@@ -90,3 +90,4 @@ export async function emitAudit(input: AuditInput): Promise<void> {
     console.error("[audit] emit threw", input.action, e);
   }
 }
+

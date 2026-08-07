@@ -12,65 +12,67 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
-import { switchClinicAction } from "@/features/auth/switch-clinic";
+import { switchLocationAction } from "@/features/auth/switch-location";
 
 /**
- * Switches which clinic the user is working in.
+ * Switches which location the user is working in.
  *
  * IMPORTANT: this changes the *working context* — schedule, queue, staff,
  * fees. It does NOT scope patient identity. A patient belongs to the doctor,
- * so the doctor's timeline for that patient is the same everywhere. Clinic
+ * so the doctor's timeline for that patient is the same everywhere. Location
  * scoping applies to the clinical events, which is what the RLS policies gate.
  */
 
-export type ClinicType = "OWN_CHAMBER" | "CLINIC" | "HOSPITAL" | "TELEMEDICINE";
+export type LocationType = "PERSONAL_CHAMBER" | "CLINIC" | "HOSPITAL" | "TELEMEDICINE" | "OTHER";
 
-export interface ClinicOption {
+export interface LocationOption {
   id: string;
   name: string;
-  type: ClinicType;
+  type: LocationType;
   roles: string[];
 }
 
-const TYPE_ICON: Record<ClinicType, React.ReactNode> = {
-  OWN_CHAMBER: <Building2 className="size-4" />,
+const TYPE_ICON: Record<LocationType, React.ReactNode> = {
+  PERSONAL_CHAMBER: <Building2 className="size-4" />,
   CLINIC: <Hospital className="size-4" />,
   HOSPITAL: <Hospital className="size-4" />,
   TELEMEDICINE: <Video className="size-4" />,
+  OTHER: <Building2 className="size-4" />,
 };
 
-const TYPE_LABEL: Record<ClinicType, string> = {
-  OWN_CHAMBER: "Own chamber",
+const TYPE_LABEL: Record<LocationType, string> = {
+  PERSONAL_CHAMBER: "Own chamber",
   CLINIC: "Clinic",
   HOSPITAL: "Hospital",
   TELEMEDICINE: "Telemedicine",
+  OTHER: "Other",
 };
 
 const ROLE_LABEL: Record<string, string> = {
   DOCTOR: "Doctor",
   RECEPTIONIST: "Reception",
-  CLINIC_ADMIN: "Admin",
+  LOCATION_ADMIN: "Admin",
 };
 
-export function ClinicSwitcher({
-  clinics,
-  activeClinicId,
+export function LocationSwitcher({
+  locations,
+  activeLocationId,
   className,
 }: {
-  clinics: ClinicOption[];
-  activeClinicId: string;
+  locations: LocationOption[];
+  activeLocationId: string;
   className?: string;
 }) {
   const router = useRouter();
   const [pending, startTransition] = React.useTransition();
 
-  const active = clinics.find((c) => c.id === activeClinicId) ?? clinics[0];
+  const active = locations.find((c) => c.id === activeLocationId) ?? locations[0];
   if (!active) return null;
 
   function select(id: string) {
     if (id === active!.id) return;
     startTransition(async () => {
-      await switchClinicAction(id);
+      await switchLocationAction(id);
       router.refresh();
     });
   }
@@ -86,7 +88,7 @@ export function ClinicSwitcher({
           <button
             type="button"
             disabled={pending}
-            aria-label={`Clinic: ${active.name}. Change clinic.`}
+            aria-label={`Location: ${active.name}. Change location.`}
             className={cn(
               "inline-flex h-10 max-w-[240px] items-center gap-2 rounded-xl border border-hairline bg-white/80 px-2.5 text-left transition-colors hover:bg-white disabled:opacity-60 focus-visible:focus-ring",
               className,
@@ -116,7 +118,7 @@ export function ClinicSwitcher({
         <DropdownMenuGroup>
           <DropdownMenuLabel>Where are you working?</DropdownMenuLabel>
 
-          {clinics.map((c) => (
+          {locations.map((c) => (
             <DropdownMenuItem
               key={c.id}
               onClick={() => select(c.id)}
@@ -154,3 +156,9 @@ export function ClinicSwitcher({
     </DropdownMenu>
   );
 }
+
+
+
+
+
+

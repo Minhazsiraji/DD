@@ -4,16 +4,16 @@ import { redirect } from "next/navigation";
 import { cookies } from "next/headers";
 import { z } from "zod";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { requireUser, ACTIVE_CLINIC_COOKIE } from "@/lib/auth/session";
+import { requireUser, ACTIVE_LOCATION_COOKIE } from "@/lib/auth/session";
 import { emitAudit } from "@/lib/audit/emit";
 import { onboardingSchema, type ActionState } from "@/features/auth/schema";
 
 /**
- * First-run setup: profile → doctor profile → clinic → membership.
+ * First-run setup: profile → doctor profile → location → membership.
  *
  * Runs through the user's own RLS-scoped client, so every step is subject to
  * the same policies as any other request. The bootstrap branch of
- * clinic_members_insert is what allows the creator to seed their own rows.
+ * practice_location_members_insert is what allows the creator to seed their own rows.
  */
 
 /** Initials, uppercased — "Dr. Ayesha Rahman" -> "AR". Used for patient numbers. */
@@ -47,8 +47,8 @@ export async function completeOnboardingAction(
     qualification: formData.get("qualification") ?? "",
     specialization: formData.get("specialization") ?? "",
     bmdcRegistrationNo: formData.get("bmdcRegistrationNo") ?? "",
-    clinicName: formData.get("clinicName"),
-    clinicType: formData.get("clinicType"),
+    locationName: formData.get("locationName"),
+    locationType: formData.get("locationType"),
     address: formData.get("address") ?? "",
     district: formData.get("district") ?? "",
     phone: formData.get("phone") ?? "",
@@ -98,12 +98,12 @@ export async function completeOnboardingAction(
     return { ok: false, message: `Could not save your details: ${doctorError.message}` };
   }
 
-  // 3. Clinic.
-  const { data: clinic, error: clinicError } = await supabase
-    .from("clinics")
+  // 3. Location.
+  const { data: location, error: locationError } = await supabase
+    .from("practice_locations")
     .insert({
-      name: parsed.data.clinicName,
-      type: parsed.data.clinicType,
+      name: parsed.data.locationName,
+      type: parsed.data.locationType,
       address: optional(formData.get("address")),
       district: optional(formData.get("district")),
       phone: optional(formData.get("phone")),
@@ -112,10 +112,10 @@ export async function completeOnboardingAction(
     .select("id, name")
     .single();
 
-  if (clinicError || !clinic) {
+  if (locationError || !location) {
     return {
       ok: false,
-      message: `Could not create the clinic: ${clinicError?.message ?? "unknown error"}`,
+      message: `Could not create the location: ${locationError?.message ?? "unknown error"}`,
     };
   }
 
@@ -125,9 +125,9 @@ export async function completeOnboardingAction(
    * Running your own chamber means practising in it and administering it. A
    * single role would leave the doctor unable to do one half of the job.
    */
-  const { error: memberError } = await supabase.from("clinic_members").insert([
-    { clinic_id: clinic.id, user_id: user.id, role: "DOCTOR", status: "ACTIVE" },
-    { clinic_id: clinic.id, user_id: user.id, role: "CLINIC_ADMIN", status: "ACTIVE" },
+  const { error: memberError } = await supabase.from("practice_location_members").insert([
+    { practice_location_id: location.id, user_id: user.id, role: "DOCTOR", status: "ACTIVE" },
+    { practice_location_id: location.id, user_id: user.id, role: "LOCATION_ADMIN", status: "ACTIVE" },
   ]);
 
   if (memberError) {
@@ -143,16 +143,16 @@ export async function completeOnboardingAction(
     .eq("id", user.id);
 
   await emitAudit({
-    action: "clinic.created",
-    resourceType: "clinic",
-    resourceId: clinic.id,
-    clinicId: clinic.id,
+    action: "location.created",
+    resourceType: "practice_location",
+    resourceId: location.id,
+    locationId: location.id,
     actorId: user.id,
-    meta: { type: parsed.data.clinicType },
+    meta: { type: parsed.data.locationType },
   });
 
   const cookieStore = await cookies();
-  cookieStore.set(ACTIVE_CLINIC_COOKIE, clinic.id, {
+  cookieStore.set(ACTIVE_LOCATION_COOKIE, location.id, {
     httpOnly: true,
     sameSite: "lax",
     secure: process.env.NODE_ENV === "production",
@@ -162,3 +162,6 @@ export async function completeOnboardingAction(
 
   redirect("/dashboard");
 }
+
+
+

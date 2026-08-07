@@ -18,8 +18,8 @@ if (!url) {
 const TABLES = [
   "profiles",
   "doctor_profiles",
-  "clinics",
-  "clinic_members",
+  "practice_locations",
+  "practice_location_members",
   "audit_events",
 ];
 
@@ -106,11 +106,11 @@ const fns = await sql`
   from pg_proc p
   join pg_namespace n on n.oid = p.pronamespace
   where n.nspname = 'public'
-    and p.proname in ('is_active_member','has_clinic_role','shares_clinic_with')
+    and p.proname in ('is_active_member','has_location_role','shares_location_with')
 `;
 
 console.log("\nAuthorization helpers");
-for (const name of ["is_active_member", "has_clinic_role", "shares_clinic_with"]) {
+for (const name of ["is_active_member", "has_location_role", "shares_location_with"]) {
   const fn = fns.find((f) => f.proname === name);
   check(Boolean(fn?.prosecdef), `${name}: exists, SECURITY DEFINER`);
   check(Boolean(fn?.config?.includes("search_path")), `${name}: search_path pinned`);
@@ -141,21 +141,21 @@ if (users.length === 0) {
       await tx`set local role authenticated`;
 
       const [clinic] = await tx`
-        insert into public.clinics (name, type, created_by)
+        insert into public.practice_locations (name, type, created_by)
         values ('__verify__', 'CLINIC', ${uid})
         returning id`;
-      check(Boolean(clinic?.id), "create clinic with RETURNING");
+      check(Boolean(clinic?.id), "create practice location with RETURNING");
 
       const members = await tx`
-        insert into public.clinic_members (clinic_id, user_id, role, status)
+        insert into public.practice_location_members (practice_location_id, user_id, role, status)
         values (${clinic.id}, ${uid}, 'DOCTOR', 'ACTIVE'),
-               (${clinic.id}, ${uid}, 'CLINIC_ADMIN', 'ACTIVE')
+               (${clinic.id}, ${uid}, 'LOCATION_ADMIN', 'ACTIVE')
         returning role`;
-      check(members.length === 2, "join as both DOCTOR and CLINIC_ADMIN");
+      check(members.length === 2, "join as both DOCTOR and LOCATION_ADMIN");
 
       const [visible] = await tx`
-        select count(*)::int as n from public.clinics where id = ${clinic.id}`;
-      check(visible.n === 1, "creator can read the clinic back");
+        select count(*)::int as n from public.practice_locations where id = ${clinic.id}`;
+      check(visible.n === 1, "creator can read the location back");
 
       // Must NOT be able to tamper with the audit trail.
       let auditBlocked = false;
@@ -183,3 +183,4 @@ console.log(
     : `\n${failures.length} CHECK(S) FAILED:\n  - ${failures.join("\n  - ")}\n`,
 );
 process.exit(failures.length === 0 ? 0 : 1);
+

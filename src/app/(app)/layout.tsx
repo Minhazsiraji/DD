@@ -2,8 +2,8 @@ import { redirect } from "next/navigation";
 import { DesktopSidebar } from "@/components/layout/desktop-sidebar";
 import { MobileBottomNav } from "@/components/layout/mobile-bottom-nav";
 import { TopBar } from "@/components/layout/top-bar";
-import type { ClinicOption, ClinicType } from "@/components/layout/clinic-switcher";
-import { requireUser, getMemberships, ACTIVE_CLINIC_COOKIE } from "@/lib/auth/session";
+import type { LocationOption, LocationType } from "@/components/layout/location-switcher";
+import { requireUser, getMemberships, ACTIVE_LOCATION_COOKIE } from "@/lib/auth/session";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { cookies } from "next/headers";
 import { IdleLock } from "@/features/security/components/idle-lock";
@@ -18,7 +18,7 @@ import { redirect as nextRedirect } from "next/navigation";
  * Mobile  (< lg) : compact header + workspace + bottom navigation
  *
  * This redirect is convenience, not security. Every Server Action still calls
- * requireClinicContext(), and RLS still applies underneath.
+ * requireLocationContext(), and RLS still applies underneath.
  */
 export default async function AppLayout({ children }: LayoutProps<"/">) {
   const user = await requireUser();
@@ -39,33 +39,33 @@ export default async function AppLayout({ children }: LayoutProps<"/">) {
   // Signed in but no clinic yet — finish setup first.
   if (memberships.length === 0) redirect("/onboarding");
 
-  const [{ data: profile }, { data: clinicRows }] = await Promise.all([
+  const [{ data: profile }, { data: locationRows }] = await Promise.all([
     supabase.from("profiles").select("full_name").eq("id", user.id).maybeSingle(),
     supabase
-      .from("clinics")
+      .from("practice_locations")
       .select("id, name, type")
       .in(
         "id",
-        memberships.map((m) => m.clinicId),
+        memberships.map((m) => m.locationId),
       ),
   ]);
 
   const typeById = new Map(
-    (clinicRows ?? []).map((c) => [c.id as string, c.type as ClinicType]),
+    (locationRows ?? []).map((c) => [c.id as string, c.type as LocationType]),
   );
 
-  const clinics: ClinicOption[] = memberships.map((m) => ({
-    id: m.clinicId,
-    name: m.clinicName,
-    type: typeById.get(m.clinicId) ?? "CLINIC",
+  const locations: LocationOption[] = memberships.map((m) => ({
+    id: m.locationId,
+    name: m.locationName,
+    type: typeById.get(m.locationId) ?? "CLINIC",
     roles: m.roles,
   }));
 
   const cookieStore = await cookies();
   const sharedDevice = cookieStore.get(SHARED_DEVICE_COOKIE)?.value === "1";
-  const requested = cookieStore.get(ACTIVE_CLINIC_COOKIE)?.value;
-  const activeClinicId =
-    clinics.find((c) => c.id === requested)?.id ?? clinics[0]!.id;
+  const requested = cookieStore.get(ACTIVE_LOCATION_COOKIE)?.value;
+  const activeLocationId =
+    locations.find((c) => c.id === requested)?.id ?? locations[0]!.id;
 
   const doctorName =
     profile?.full_name ?? user.email?.split("@")[0] ?? "Doctor";
@@ -77,8 +77,8 @@ export default async function AppLayout({ children }: LayoutProps<"/">) {
       <div className="flex min-w-0 flex-1 flex-col">
         <TopBar
           doctorName={doctorName}
-          clinics={clinics}
-          activeClinicId={activeClinicId}
+          locations={locations}
+          activeLocationId={activeLocationId}
         />
 
         <main
@@ -95,3 +95,5 @@ export default async function AppLayout({ children }: LayoutProps<"/">) {
     </div>
   );
 }
+
+

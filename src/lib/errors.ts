@@ -12,7 +12,7 @@ export type AppErrorCode =
   | "NOT_FOUND"
   | "VALIDATION"
   | "CONFLICT"
-  | "NO_ACTIVE_CLINIC"
+  | "NO_ACTIVE_LOCATION"
   | "INTERNAL";
 
 export class AppError extends Error {
@@ -55,10 +55,10 @@ export const validationFailed = (detail?: string) =>
 export const conflict = (publicMessage: string, detail?: string) =>
   new AppError("CONFLICT", publicMessage, 409, detail);
 
-export const noActiveClinic = (detail?: string) =>
+export const noActiveLocation = (detail?: string) =>
   new AppError(
-    "NO_ACTIVE_CLINIC",
-    "Select a clinic to continue.",
+    "NO_ACTIVE_LOCATION",
+    "Select a practice location to continue.",
     409,
     detail,
   );
@@ -73,3 +73,5 @@ export function toPublicMessage(e: unknown): string {
     ? e.publicMessage
     : "Something went wrong. Please try again.";
 }
+
+

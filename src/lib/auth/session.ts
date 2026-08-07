@@ -4,12 +4,12 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import {
   canAny,
   type Action,
-  type ClinicRole,
+  type LocationRole,
   type Resource,
 } from "@/lib/rbac/permissions";
-import { forbidden, noActiveClinic, unauthenticated } from "@/lib/errors";
+import { forbidden, noActiveLocation, unauthenticated } from "@/lib/errors";
 
-export const ACTIVE_CLINIC_COOKIE = "dd_active_clinic";
+export const ACTIVE_LOCATION_COOKIE = "dd_active_location";
 
 export interface SessionUser {
   id: string;
@@ -17,17 +17,17 @@ export interface SessionUser {
 }
 
 export interface Membership {
-  clinicId: string;
-  clinicName: string;
+  locationId: string;
+  locationName: string;
   /** A user may hold several roles at one clinic — permission is the union. */
-  roles: ClinicRole[];
+  roles: LocationRole[];
 }
 
-export interface ClinicContext {
+export interface LocationContext {
   user: SessionUser;
-  clinicId: string;
-  clinicName: string;
-  roles: ClinicRole[];
+  locationId: string;
+  locationName: string;
+  roles: LocationRole[];
   memberships: Membership[];
 }
 
@@ -57,43 +57,45 @@ export async function getUser(): Promise<SessionUser | null> {
   }
 }
 
-/** Every ACTIVE clinic membership for the current user. */
+/** Every ACTIVE practice-location membership for the current user. */
 export async function getMemberships(): Promise<Membership[]> {
   const supabase = await createSupabaseServerClient();
 
   // RLS restricts this to the caller's own rows.
   const { data, error } = await supabase
-    .from("clinic_members")
-    .select("clinic_id, role, clinics(name)")
+    .from("practice_location_members")
+    .select("practice_location_id, role, practice_locations(name)")
     .eq("status", "ACTIVE");
 
   if (error || !data) return [];
 
-  // One row per (clinic, role) — collapse to one membership per clinic.
-  const byClinic = new Map<string, Membership>();
+  // One row per (location, role) — collapse to one membership per location.
+  const byLocation = new Map<string, Membership>();
 
   for (const row of data) {
-    const rel = row.clinics as unknown;
+    // PostgREST returns an embedded relation as an object or a single-element
+    // array depending on the inferred cardinality; handle both.
+    const rel = row.practice_locations as unknown;
     const name = Array.isArray(rel)
       ? (rel[0] as { name?: string })?.name
       : (rel as { name?: string } | null)?.name;
     if (!name) continue;
 
-    const clinicId = row.clinic_id as string;
-    const existing = byClinic.get(clinicId);
+    const locationId = row.practice_location_id as string;
+    const existing = byLocation.get(locationId);
 
     if (existing) {
-      existing.roles.push(row.role as ClinicRole);
+      existing.roles.push(row.role as LocationRole);
     } else {
-      byClinic.set(clinicId, {
-        clinicId,
-        clinicName: name,
-        roles: [row.role as ClinicRole],
+      byLocation.set(locationId, {
+        locationId,
+        locationName: name,
+        roles: [row.role as LocationRole],
       });
     }
   }
 
-  return [...byClinic.values()];
+  return [...byLocation.values()];
 }
 
 /**
@@ -106,24 +108,24 @@ export async function getMemberships(): Promise<Membership[]> {
  * The active clinic comes from a cookie but is never trusted — it is only
  * honoured if the user actually holds an active membership for it.
  */
-export async function requireClinicContext(): Promise<ClinicContext> {
+export async function requireLocationContext(): Promise<LocationContext> {
   const user = await requireUser();
   const memberships = await getMemberships();
 
   if (memberships.length === 0) {
-    throw noActiveClinic("user has no active clinic membership");
+    throw noActiveLocation("user has no active clinic membership");
   }
 
   const cookieStore = await cookies();
-  const requested = cookieStore.get(ACTIVE_CLINIC_COOKIE)?.value;
+  const requested = cookieStore.get(ACTIVE_LOCATION_COOKIE)?.value;
 
   const active =
-    memberships.find((m) => m.clinicId === requested) ?? memberships[0]!;
+    memberships.find((m) => m.locationId === requested) ?? memberships[0]!;
 
   return {
     user,
-    clinicId: active.clinicId,
-    clinicName: active.clinicName,
+    locationId: active.locationId,
+    locationName: active.locationName,
     roles: active.roles,
     memberships,
   };
@@ -136,8 +138,8 @@ export async function requireClinicContext(): Promise<ClinicContext> {
 export async function requirePermission(
   action: Action,
   resource: Resource,
-): Promise<ClinicContext> {
-  const ctx = await requireClinicContext();
+): Promise<LocationContext> {
+  const ctx = await requireLocationContext();
 
   if (!canAny(ctx.roles, action, resource)) {
     throw forbidden(`${ctx.roles.join("+")} may not ${action} ${resource}`);
@@ -146,8 +148,11 @@ export async function requirePermission(
 }
 
 /** Assert a row belongs to the caller's active clinic before touching it. */
-export function assertSameClinic(ctx: ClinicContext, rowClinicId: string): void {
-  if (rowClinicId !== ctx.clinicId) {
-    throw forbidden("cross-clinic access attempt");
+export function assertSameLocation(ctx: LocationContext, rowLocationId: string): void {
+  if (rowLocationId !== ctx.locationId) {
+    throw forbidden("cross-location access attempt");
   }
 }
+
+
+

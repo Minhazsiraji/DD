@@ -3,17 +3,17 @@ import {
   can,
   canAny,
   allowedActions,
-  isClinicManager,
-  CLINIC_ROLES,
+  isLocationManager,
+  LOCATION_ROLES,
   RESOURCES,
   ACTIONS,
-  type ClinicRole,
+  type LocationRole,
 } from "./permissions";
 
 describe("permission matrix", () => {
   it("denies by default for every unlisted role/resource/action triple", () => {
     // Nothing may be granted that the matrix does not explicitly list.
-    for (const role of CLINIC_ROLES) {
+    for (const role of LOCATION_ROLES) {
       for (const resource of RESOURCES) {
         for (const action of ACTIONS) {
           const granted = can(role, action, resource);
@@ -28,7 +28,7 @@ describe("permission matrix", () => {
   it("never grants delete on clinical records to anyone", () => {
     // Medical records are soft-deleted, never destroyed.
     const clinical = ["encounter", "prescription", "private_notes"] as const;
-    for (const role of CLINIC_ROLES) {
+    for (const role of LOCATION_ROLES) {
       for (const resource of clinical) {
         expect(can(role, "delete", resource)).toBe(false);
       }
@@ -37,7 +37,7 @@ describe("permission matrix", () => {
 });
 
 describe("RECEPTIONIST restrictions", () => {
-  const role: ClinicRole = "RECEPTIONIST";
+  const role: LocationRole = "RECEPTIONIST";
 
   it("has no access to clinical notes in any form", () => {
     for (const action of ACTIONS) {
@@ -67,15 +67,15 @@ describe("RECEPTIONIST restrictions", () => {
   });
 
   it("cannot manage membership, read the audit log, or use the AI assistant", () => {
-    expect(can(role, "create", "clinic_member")).toBe(false);
+    expect(can(role, "create", "location_member")).toBe(false);
     expect(can(role, "read", "audit_log")).toBe(false);
     expect(can(role, "read", "ai_assistant")).toBe(false);
-    expect(isClinicManager(role)).toBe(false);
+    expect(isLocationManager(role)).toBe(false);
   });
 });
 
-describe("CLINIC_ADMIN restrictions", () => {
-  const role: ClinicRole = "CLINIC_ADMIN";
+describe("LOCATION_ADMIN restrictions", () => {
+  const role: LocationRole = "LOCATION_ADMIN";
 
   it("NEVER reads a doctor's private notes — there is no admin override", () => {
     for (const action of ACTIONS) {
@@ -95,16 +95,16 @@ describe("CLINIC_ADMIN restrictions", () => {
   });
 
   it("manages the clinic and its members", () => {
-    expect(can(role, "update", "clinic")).toBe(true);
-    expect(can(role, "create", "clinic_member")).toBe(true);
-    expect(can(role, "delete", "clinic_member")).toBe(true);
+    expect(can(role, "update", "practice_location")).toBe(true);
+    expect(can(role, "create", "location_member")).toBe(true);
+    expect(can(role, "delete", "location_member")).toBe(true);
     expect(can(role, "read", "audit_log")).toBe(true);
-    expect(isClinicManager(role)).toBe(true);
+    expect(isLocationManager(role)).toBe(true);
   });
 });
 
 describe("DOCTOR access", () => {
-  const role: ClinicRole = "DOCTOR";
+  const role: LocationRole = "DOCTOR";
 
   it("owns the clinical record", () => {
     expect(can(role, "create", "encounter")).toBe(true);
@@ -117,9 +117,9 @@ describe("DOCTOR access", () => {
 
   it("is not a clinic manager by default", () => {
     // Practising at a clinic does not make you its administrator.
-    expect(can(role, "update", "clinic")).toBe(false);
-    expect(can(role, "create", "clinic_member")).toBe(false);
-    expect(isClinicManager(role)).toBe(false);
+    expect(can(role, "update", "practice_location")).toBe(false);
+    expect(can(role, "create", "location_member")).toBe(false);
+    expect(isLocationManager(role)).toBe(false);
   });
 
   it("does not settle payments", () => {
@@ -130,21 +130,21 @@ describe("DOCTOR access", () => {
 
 describe("canAny — multiple roles at one clinic", () => {
   // The solo-practitioner case: own chamber, so both doctor and administrator.
-  const solo: ClinicRole[] = ["DOCTOR", "CLINIC_ADMIN"];
+  const solo: LocationRole[] = ["DOCTOR", "LOCATION_ADMIN"];
 
   it("unions the permissions of every role held", () => {
     expect(canAny(solo, "create", "encounter")).toBe(true); // from DOCTOR
-    expect(canAny(solo, "create", "clinic_member")).toBe(true); // from CLINIC_ADMIN
-    expect(canAny(solo, "update", "clinic")).toBe(true); // from CLINIC_ADMIN
+    expect(canAny(solo, "create", "location_member")).toBe(true); // from LOCATION_ADMIN
+    expect(canAny(solo, "update", "practice_location")).toBe(true); // from LOCATION_ADMIN
     expect(canAny(solo, "read", "private_notes")).toBe(true); // from DOCTOR
   });
 
-  it("adding CLINIC_ADMIN never unlocks anything DOCTOR alone could not do", () => {
+  it("adding LOCATION_ADMIN never unlocks anything DOCTOR alone could not do", () => {
     for (const resource of RESOURCES) {
       for (const action of ACTIONS) {
         if (canAny(solo, action, resource)) {
           expect(
-            can("DOCTOR", action, resource) || can("CLINIC_ADMIN", action, resource),
+            can("DOCTOR", action, resource) || can("LOCATION_ADMIN", action, resource),
           ).toBe(true);
         }
       }
@@ -152,12 +152,12 @@ describe("canAny — multiple roles at one clinic", () => {
   });
 
   it("still denies what no held role grants", () => {
-    const reception: ClinicRole[] = ["RECEPTIONIST"];
+    const reception: LocationRole[] = ["RECEPTIONIST"];
     expect(canAny(reception, "read", "private_notes")).toBe(false);
     expect(canAny(reception, "create", "encounter")).toBe(false);
 
     // Reception + admin together still cannot reach clinical notes.
-    const deskAndAdmin: ClinicRole[] = ["RECEPTIONIST", "CLINIC_ADMIN"];
+    const deskAndAdmin: LocationRole[] = ["RECEPTIONIST", "LOCATION_ADMIN"];
     expect(canAny(deskAndAdmin, "read", "private_notes")).toBe(false);
     expect(canAny(deskAndAdmin, "create", "encounter")).toBe(false);
   });
@@ -173,9 +173,11 @@ describe("canAny — multiple roles at one clinic", () => {
 
 describe("private_notes is doctor-exclusive", () => {
   it("only DOCTOR has any access at all", () => {
-    const withAccess = CLINIC_ROLES.filter((r) =>
+    const withAccess = LOCATION_ROLES.filter((r) =>
       ACTIONS.some((a) => can(r, a, "private_notes")),
     );
     expect(withAccess).toEqual(["DOCTOR"]);
   });
 });
+
+

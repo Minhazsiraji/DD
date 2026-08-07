@@ -118,7 +118,7 @@ export const dashboardData: DashboardData = {
     {
       id: "loc-1",
       name: "Greenview Chamber, Dhanmondi",
-      type: "OWN_CHAMBER",
+      type: "PERSONAL_CHAMBER",
       address: "House 42, Road 9/A, Dhanmondi, Dhaka",
       consultationFee: 1200,
       followUpFee: 800,
@@ -395,4 +395,5 @@ export const dashboardData: DashboardData = {
     },
   ],
 };
+
 

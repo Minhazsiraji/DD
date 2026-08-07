@@ -2,22 +2,22 @@ import * as React from "react";
 import Link from "next/link";
 import { Search, Bell, Stethoscope, Sparkles, LogOut } from "lucide-react";
 import { QuickActionMenu } from "./quick-action-menu";
-import { ClinicSwitcher, type ClinicOption } from "./clinic-switcher";
+import { LocationSwitcher, type LocationOption } from "./location-switcher";
 import { IconOrb } from "@/components/common/icon-orb";
 import { initials } from "@/lib/format";
 import { signOutAction } from "@/features/auth/actions";
 
 interface TopBarProps {
   doctorName: string;
-  clinics: ClinicOption[];
-  activeClinicId: string;
+  locations: LocationOption[];
+  activeLocationId: string;
 }
 
 /**
  * Sticky app header. Glass is correct here — it is chrome, and one of the two
  * blurred layers the view is allowed.
  */
-export function TopBar({ doctorName, clinics, activeClinicId }: TopBarProps) {
+export function TopBar({ doctorName, locations, activeLocationId }: TopBarProps) {
   return (
     <header
       data-print-hidden
@@ -35,9 +35,9 @@ export function TopBar({ doctorName, clinics, activeClinicId }: TopBarProps) {
           <span className="sr-only">Doctor&apos;s Diary — Dashboard</span>
         </Link>
 
-        <ClinicSwitcher
-          clinics={clinics}
-          activeClinicId={activeClinicId}
+        <LocationSwitcher
+          locations={locations}
+          activeLocationId={activeLocationId}
           className="shrink-0"
         />
 
@@ -113,3 +113,6 @@ export function TopBar({ doctorName, clinics, activeClinicId }: TopBarProps) {
     </header>
   );
 }
+
+
+

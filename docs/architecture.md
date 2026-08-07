@@ -17,7 +17,30 @@ That single decision drives the data model below.
 
 ---
 
-## 2. Tenancy — hybrid (identity doctor-owned, events clinic-scoped)
+## 2. Tenancy — FINAL (doctor-owned identity, location-scoped events)
+
+> **Settled 2026-08-08.** Two orthogonal questions, permanently separate:
+> `owner_doctor_id` = *whose patient is this?* ·
+> `practice_location_id` = *where did this event happen?*
+>
+> **Each doctor has a completely separate patient repository.** The same human
+> seen by two doctors is TWO records — no global patient identity, no
+> cross-doctor merge, dedupe, or visibility. Deduplication applies only *inside*
+> one doctor's repository.
+>
+> **Within one doctor's repository**, visits at a hospital, a clinic, a personal
+> chamber and telemedicine form ONE continuous timeline.
+>
+> **Staff access is location-scoped** via `practice_location_members` + the
+> session's active location. Reception at Location A never sees Location B.
+>
+> `clinic_*` was renamed to `practice_location_*` before patient tables existed,
+> because a doctor practises in hospitals and chambers too — forcing those to
+> masquerade as "clinics" would have been permanent schema debt.
+> Types: `PERSONAL_CHAMBER` · `CLINIC` · `HOSPITAL` · `TELEMEDICINE` · `OTHER`.
+> Roles: `DOCTOR` · `RECEPTIONIST` · `LOCATION_ADMIN`.
+
+### Superseded reasoning (kept for context)
 
 Decided 2026-08-07 after weighing two conflicting requirements: the doctor wants
 one continuous record of a patient across every chamber they practise in, and

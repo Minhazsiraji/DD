@@ -4,19 +4,19 @@ import * as React from "react";
 import { useActionState } from "react";
 import { useRouter } from "next/navigation";
 import { Plus } from "lucide-react";
-import { addClinicAction } from "../actions";
+import { addLocationAction } from "../actions";
 import { emptyState } from "@/features/auth/schema";
 import { Field, FormMessage, SubmitButton } from "@/features/auth/components/form-parts";
 
 const TYPES = [
-  { value: "OWN_CHAMBER", label: "My own chamber" },
+  { value: "PERSONAL_CHAMBER", label: "My own chamber" },
   { value: "CLINIC", label: "Clinic" },
   { value: "HOSPITAL", label: "Hospital" },
   { value: "TELEMEDICINE", label: "Telemedicine only" },
 ] as const;
 
-export function AddClinicForm() {
-  const [state, formAction] = useActionState(addClinicAction, emptyState);
+export function AddLocationForm() {
+  const [state, formAction] = useActionState(addLocationAction, emptyState);
   const [open, setOpen] = React.useState(false);
   const router = useRouter();
   const formRef = React.useRef<HTMLFormElement>(null);
@@ -102,3 +102,5 @@ export function AddClinicForm() {
     </form>
   );
 }
+
+
