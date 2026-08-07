@@ -1,0 +1,403 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+
+@custom-variant dark (&:is(.dark *));
+
+/* ==========================================================================
+   Doctor's Diary — Design Tokens
+   Phase 1. Premium medical glassmorphism.
+
+   RULE: Glass on chrome and summary. Solid on clinical data.
+   Never render doses, vitals, lab values or prescriptions on a glass surface.
+   ========================================================================== */
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-sans);
+  --font-mono: var(--font-geist-mono);
+  --font-heading: var(--font-sans);
+
+  /* ---- shadcn/ui contract — required by components/ui/* ---- */
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
+
+  /* ---- Doctor's Diary: surfaces ---- */
+  --color-glass: var(--dd-glass);
+  --color-glass-strong: var(--dd-glass-strong);
+  --color-glass-border: var(--dd-glass-border);
+  --color-surface: var(--dd-surface);
+  --color-surface-muted: var(--dd-surface-muted);
+  --color-hairline: var(--dd-hairline);
+
+  /* ---- Doctor's Diary: text ---- */
+  --color-ink: var(--dd-ink);
+  --color-ink-secondary: var(--dd-ink-secondary);
+  --color-ink-muted: var(--dd-ink-muted);
+
+  /* ---- Doctor's Diary: brand + semantic ---- */
+  --color-brand: var(--dd-brand);
+  --color-brand-hover: var(--dd-brand-hover);
+  --color-brand-soft: var(--dd-brand-soft);
+  --color-success: var(--dd-success);
+  --color-success-soft: var(--dd-success-soft);
+  --color-warning: var(--dd-warning);
+  --color-warning-soft: var(--dd-warning-soft);
+  --color-danger: var(--dd-danger);
+  --color-danger-soft: var(--dd-danger-soft);
+  --color-info: var(--dd-info);
+  --color-info-soft: var(--dd-info-soft);
+
+  /* ---- Clinical severity ladder (never colour alone — always icon + text) ---- */
+  --color-sev-none: var(--dd-success);
+  --color-sev-caution: var(--dd-warning);
+  --color-sev-serious: var(--dd-danger);
+  --color-sev-critical: var(--dd-critical);
+
+  /* ---- Radius ---- */
+  --radius-glass: 20px;
+  --radius-glass-lg: 24px;
+
+  /* ---- Shadows ----
+     Soft and diffuse, with a light top edge (the inset highlight) so cards read
+     as lifted glass rather than flat rectangles. */
+  --shadow-soft:
+    0 1px 2px rgb(16 38 74 / 0.03), 0 10px 28px rgb(16 38 74 / 0.07),
+    inset 0 1px 0 rgb(255 255 255 / 0.8);
+  --shadow-raised:
+    0 2px 4px rgb(16 38 74 / 0.05), 0 20px 48px rgb(16 38 74 / 0.11),
+    inset 0 1px 0 rgb(255 255 255 / 0.9);
+  --shadow-float:
+    0 6px 12px rgb(16 38 74 / 0.08), 0 28px 60px rgb(16 38 74 / 0.18),
+    inset 0 1px 0 rgb(255 255 255 / 0.5);
+
+  /* ---- Blur (max 2 stacked blur layers per view — low-end Android budget) ---- */
+  --blur-glass: 16px;
+  --blur-glass-sm: 8px;
+  --blur-glass-lg: 24px;
+}
+
+:root {
+  --radius: 0.875rem;
+
+  /* App canvas — deliberately blue enough that translucent cards read as glass.
+     On a near-white canvas the material disappears and cards look flat. */
+  --background: #dbe7fb;
+  --foreground: #0f1b2d;
+
+  /* Doctor's Diary surfaces */
+  --dd-glass: rgb(255 255 255 / 0.72);
+  --dd-glass-strong: rgb(255 255 255 / 0.88);
+  --dd-glass-border: rgb(255 255 255 / 0.85);
+  --dd-surface: #ffffff;
+  --dd-surface-muted: #f6f8fc;
+  --dd-hairline: #dce5f4;
+
+  /* Text — all verified against WCAG on white */
+  --dd-ink: #0f1b2d; /* 15.9:1 */
+  --dd-ink-secondary: #47566b; /* 7.6:1  */
+  --dd-ink-muted: #6b7a90; /* 4.6:1 — never for clinical values */
+
+  /* Brand + semantic */
+  --dd-brand: #1e63e9;
+  --dd-brand-hover: #1a56cc;
+  --dd-brand-soft: #e5edfe;
+  --dd-success: #0e9f6e;
+  --dd-success-soft: #e3f7ef;
+  --dd-warning: #b45309;
+  --dd-warning-soft: #fdf1e3;
+  --dd-danger: #dc2626;
+  --dd-danger-soft: #fdeaea;
+  --dd-critical: #991b1b;
+  --dd-info: #0284c7;
+  --dd-info-soft: #e2f3fc;
+
+  /* Icon-orb gradients — vivid, saturated, lit from the top-left. */
+  --grad-brand: linear-gradient(145deg, #4d86f7 0%, #1b4fd0 100%);
+  --grad-violet: linear-gradient(145deg, #9b6ef3 0%, #6b35d6 100%);
+  --grad-success: linear-gradient(145deg, #34c58c 0%, #0b8a5f 100%);
+  --grad-warning: linear-gradient(145deg, #f7a33d 0%, #dd7407 100%);
+  --grad-danger: linear-gradient(145deg, #f4737a 0%, #d32b2b 100%);
+  --grad-info: linear-gradient(145deg, #43b8ea 0%, #0b7fbc 100%);
+
+  /* Matching glow colours for the orb drop shadow. */
+  --glow-brand: 30 99 233;
+  --glow-violet: 124 58 237;
+  --glow-success: 14 159 110;
+  --glow-warning: 221 116 7;
+  --glow-danger: 220 38 38;
+  --glow-info: 2 132 199;
+
+  /* shadcn mapping — keeps ui/* primitives on-brand */
+  --card: #ffffff;
+  --card-foreground: #0f1b2d;
+  --popover: #ffffff;
+  --popover-foreground: #0f1b2d;
+  --primary: #1e63e9;
+  --primary-foreground: #ffffff;
+  --secondary: #eef3fb;
+  --secondary-foreground: #1b2a41;
+  --muted: #f2f6fc;
+  --muted-foreground: #6b7a90;
+  --accent: #e5edfe;
+  --accent-foreground: #14418f;
+  --destructive: #dc2626;
+  --border: #dce5f4;
+  --input: #cfdcef;
+  --ring: #1e63e9;
+  --chart-1: #1e63e9;
+  --chart-2: #0e9f6e;
+  --chart-3: #b45309;
+  --chart-4: #7c3aed;
+  --chart-5: #0284c7;
+  --sidebar: rgb(255 255 255 / 0.68);
+  --sidebar-foreground: #0f1b2d;
+  --sidebar-primary: #1e63e9;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #e5edfe;
+  --sidebar-accent-foreground: #14418f;
+  --sidebar-border: rgb(255 255 255 / 0.6);
+  --sidebar-ring: #1e63e9;
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+
+  html {
+    @apply font-sans;
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    color: var(--dd-ink);
+    background-color: var(--background);
+    /* Fixed so the gradient does not repaint while scrolling. */
+    background-image:
+      /* Thin decorative outline rings, echoing the reference art direction. */
+      radial-gradient(
+        circle at 90% 10%,
+        transparent 0 7.4rem,
+        rgb(255 255 255 / 0.55) 7.4rem 8rem,
+        transparent 8rem
+      ),
+      radial-gradient(
+        circle at 4% 72%,
+        transparent 0 5.4rem,
+        rgb(255 255 255 / 0.45) 5.4rem 5.9rem,
+        transparent 5.9rem
+      ),
+      radial-gradient(
+        820px 460px at 16% -14%,
+        rgb(255 255 255 / 0.5),
+        transparent 60%
+      ),
+      radial-gradient(
+        900px 520px at 104% 6%,
+        rgb(186 213 253 / 0.75),
+        transparent 58%
+      ),
+      linear-gradient(160deg, #e4edfd 0%, #d5e3fb 46%, #c9dbf9 100%);
+    background-attachment: fixed;
+    min-height: 100dvh;
+  }
+
+  /* Tabular numerals everywhere a clinical value can appear. */
+  .clinical-value,
+  [data-clinical] {
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.01em;
+  }
+}
+
+/* ==========================================================================
+   Glass utilities
+   ========================================================================== */
+
+/**
+ * `glass` / `glass-strong` apply a REAL backdrop-filter. Reserve them for
+ * chrome that content scrolls beneath: sidebar, top bar, bottom nav, sheets.
+ *
+ * Every backdrop-filter element is its own compositing pass. A dashboard that
+ * uses them on each card costs ~11 passes and visibly stutters on a budget
+ * Android device. Cards should use `glass-flat` instead — over our smooth
+ * gradient background the blur is imperceptible, but the cost is not.
+ */
+@utility glass {
+  background-color: var(--dd-glass);
+  border: 1px solid var(--dd-glass-border);
+  -webkit-backdrop-filter: blur(var(--blur-glass)) saturate(145%);
+  backdrop-filter: blur(var(--blur-glass)) saturate(145%);
+}
+
+/* Same material read — translucency, border, shadow — with no blur cost. */
+@utility glass-flat {
+  background-color: var(--dd-glass);
+  border: 1px solid var(--dd-glass-border);
+}
+
+@utility glass-flat-strong {
+  background-color: var(--dd-glass-strong);
+  border: 1px solid var(--dd-glass-border);
+}
+
+@utility glass-strong {
+  background-color: var(--dd-glass-strong);
+  border: 1px solid var(--dd-glass-border);
+  -webkit-backdrop-filter: blur(var(--blur-glass-lg)) saturate(150%);
+  backdrop-filter: blur(var(--blur-glass-lg)) saturate(150%);
+}
+
+/* The counterpart to glass: opaque, high-contrast, for clinical content. */
+@utility clinical-surface {
+  background-color: var(--dd-surface);
+  border: 1px solid var(--dd-hairline);
+}
+
+/**
+ * Icon orb — the circular, gradient-filled, softly glowing icon badge.
+ * Pair with an accent class below. Decorative: always mark the wrapper
+ * aria-hidden and carry the meaning in adjacent text.
+ */
+@utility icon-orb {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9999px;
+  color: #fff;
+  background-image: var(--orb-gradient, var(--grad-brand));
+  box-shadow:
+    0 6px 16px rgb(var(--orb-glow, var(--glow-brand)) / 0.34),
+    0 1px 2px rgb(16 38 74 / 0.14),
+    inset 0 1px 1px rgb(255 255 255 / 0.45);
+}
+
+@utility orb-brand {
+  --orb-gradient: var(--grad-brand);
+  --orb-glow: var(--glow-brand);
+}
+@utility orb-violet {
+  --orb-gradient: var(--grad-violet);
+  --orb-glow: var(--glow-violet);
+}
+@utility orb-success {
+  --orb-gradient: var(--grad-success);
+  --orb-glow: var(--glow-success);
+}
+@utility orb-warning {
+  --orb-gradient: var(--grad-warning);
+  --orb-glow: var(--glow-warning);
+}
+@utility orb-danger {
+  --orb-gradient: var(--grad-danger);
+  --orb-glow: var(--glow-danger);
+}
+@utility orb-info {
+  --orb-gradient: var(--grad-info);
+  --orb-glow: var(--glow-info);
+}
+
+/** Recessed inner panel — the tinted inset block inside a card. */
+@utility inset-panel {
+  background-color: rgb(255 255 255 / 0.55);
+  border: 1px solid rgb(255 255 255 / 0.7);
+  box-shadow:
+    inset 0 1px 3px rgb(16 38 74 / 0.06),
+    0 1px 0 rgb(255 255 255 / 0.6);
+}
+
+@utility focus-ring {
+  outline: 2px solid var(--dd-brand);
+  outline-offset: 2px;
+}
+
+/* ==========================================================================
+   Accessibility fallbacks — these are requirements, not niceties.
+   ========================================================================== */
+
+@media (prefers-reduced-transparency: reduce) {
+  .glass,
+  .glass-strong,
+  .glass-flat,
+  .glass-flat-strong {
+    background-color: #ffffff !important;
+    -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
+    border-color: var(--dd-hairline) !important;
+  }
+}
+
+/* Backdrop-filter is GPU-expensive; drop it where the device says so. */
+@supports not (backdrop-filter: blur(1px)) {
+  .glass,
+  .glass-strong {
+    background-color: rgb(255 255 255 / 0.94);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+@media print {
+  body {
+    background: #ffffff;
+  }
+
+  .glass,
+  .glass-strong,
+  .glass-flat,
+  .glass-flat-strong {
+    background: #ffffff;
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+    border-color: #cbd5e1;
+  }
+
+  [data-print-hidden] {
+    display: none !important;
+  }
+}

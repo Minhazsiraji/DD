@@ -1,0 +1,17 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "doctors-diary",
+      "runtimeExecutable": "E:\\Minhaz Siraji\\Claude\\tools\\node-v22.16.0-win-x64\\node.exe",
+      "runtimeArgs": [
+        "E:\\Minhaz Siraji\\Claude\\DD\\node_modules\\next\\dist\\bin\\next",
+        "dev",
+        "E:\\Minhaz Siraji\\Claude\\DD",
+        "--port",
+        "3200"
+      ],
+      "port": 3200
+    }
+  ]
+}
