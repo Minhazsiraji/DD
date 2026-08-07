@@ -40,11 +40,35 @@ let cachedPublicEnv: z.infer<typeof publicSchema> | null = null;
  * so these must be written out in full rather than looked up dynamically.
  */
 export function publicEnv() {
-  cachedPublicEnv ??= publicSchema.parse({
+  if (cachedPublicEnv) return cachedPublicEnv;
+
+  const result = publicSchema.safeParse({
     NEXT_PUBLIC_SUPABASE_URL: process.env.NEXT_PUBLIC_SUPABASE_URL,
     NEXT_PUBLIC_SUPABASE_ANON_KEY: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
     NEXT_PUBLIC_SITE_URL: process.env.NEXT_PUBLIC_SITE_URL,
   });
+
+  if (!result.success) {
+    /**
+     * A raw ZodError in a hosting provider's log is nearly unreadable, and this
+     * is the single most likely deployment failure — a typo'd or unset variable.
+     * Name the offenders explicitly.
+     */
+    const issues = result.error.issues
+      .map((i) => `  • ${i.path.join(".") || "(root)"}: ${i.message}`)
+      .join("\n");
+
+    throw new Error(
+      `Supabase environment variables are missing or invalid:\n${issues}\n\n` +
+        `Set these on your host (and redeploy — env vars only apply to new builds):\n` +
+        `  NEXT_PUBLIC_SUPABASE_URL\n` +
+        `  NEXT_PUBLIC_SUPABASE_ANON_KEY\n` +
+        `  NEXT_PUBLIC_SITE_URL\n` +
+        `Check for typos in the names; they must match exactly.`,
+    );
+  }
+
+  cachedPublicEnv = result.data;
   return cachedPublicEnv;
 }
 
