@@ -6,6 +6,7 @@ import { IconOrb, type OrbAccent } from "@/components/common/icon-orb";
 
 const ACCENT_TEXT: Record<OrbAccent, string> = {
   brand: "text-brand",
+  // (teal — see --dd-brand; deep enough to carry text at 5.5:1 on white)
   violet: "text-[#6b35d6]",
   success: "text-[#07684a]",
   warning: "text-[#8a3f07]",

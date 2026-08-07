@@ -51,7 +51,7 @@ export function QuickActionMenu({
           onClick={() => setOpen(true)}
           aria-haspopup="dialog"
           className={cn(
-            "inline-flex h-10 items-center gap-2 rounded-full bg-[image:var(--grad-brand)] px-4 text-sm font-semibold text-white shadow-[0_6px_16px_rgb(30_99_233/0.34)] transition-transform hover:-translate-y-px active:scale-95 focus-visible:focus-ring",
+            "inline-flex h-10 items-center gap-2 rounded-full bg-[image:var(--grad-brand)] px-4 text-sm font-semibold text-white shadow-[0_6px_16px_rgb(var(--glow-brand)/0.34)] transition-transform hover:-translate-y-px active:scale-95 focus-visible:focus-ring",
             className,
           )}
         >

@@ -36,7 +36,7 @@ export function NowServing({
               Now with you
             </p>
             {currentToken !== null ? (
-              <span className="rounded-full bg-[image:var(--grad-brand)] px-3.5 py-1.5 text-sm font-bold text-white shadow-[0_6px_16px_rgb(30_99_233/0.34)] tabular-nums">
+              <span className="rounded-full bg-[image:var(--grad-brand)] px-3.5 py-1.5 text-sm font-bold text-white shadow-[0_6px_16px_rgb(var(--glow-brand)/0.34)] tabular-nums">
                 Token {currentToken}
               </span>
             ) : null}

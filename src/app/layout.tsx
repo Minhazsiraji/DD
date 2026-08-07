@@ -40,7 +40,7 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
-  themeColor: "#eef4fe",
+  themeColor: "#e4edfd",
   width: "device-width",
   initialScale: 1,
   // Never block zoom: clinicians need to enlarge dose text.

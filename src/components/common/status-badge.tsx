@@ -26,7 +26,7 @@ type Palette = "neutral" | "brand" | "success" | "warning" | "danger" | "critica
 
 const PALETTE: Record<Palette, string> = {
   neutral: "bg-surface-muted text-ink-secondary ring-hairline",
-  brand: "bg-brand-soft text-[#14418f] ring-[#c7d9fb]",
+  brand: "bg-brand-soft text-[#0b5f58] ring-[#a9e2da]",
   success: "bg-success-soft text-[#07684a] ring-[#b9e7d5]",
   warning: "bg-warning-soft text-[#8a3f07] ring-[#f2d5b0]",
   danger: "bg-danger-soft text-[#a81c1c] ring-[#f3c2c2]",

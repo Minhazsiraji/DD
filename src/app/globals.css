@@ -74,6 +74,7 @@
   --color-brand: var(--dd-brand);
   --color-brand-hover: var(--dd-brand-hover);
   --color-brand-soft: var(--dd-brand-soft);
+  --color-brand-vivid: var(--dd-brand-vivid);
   --color-success: var(--dd-success);
   --color-success-soft: var(--dd-success-soft);
   --color-warning: var(--dd-warning);
@@ -133,10 +134,14 @@
   --dd-ink-secondary: #47566b; /* 7.6:1  */
   --dd-ink-muted: #6b7a90; /* 4.6:1 — never for clinical values */
 
-  /* Brand + semantic */
-  --dd-brand: #1e63e9;
-  --dd-brand-hover: #1a56cc;
-  --dd-brand-soft: #e5edfe;
+  /* Brand — medical teal.
+     The vivid teal (#14B8A6) is only 2.5:1 against white, so it can never
+     carry white text. It lives in fills and gradients; the deep teal below
+     carries every solid button, link and active state at 5.5:1. */
+  --dd-brand: #0f766e;
+  --dd-brand-hover: #0c5f59;
+  --dd-brand-soft: #d7f2ee;
+  --dd-brand-vivid: #14b8a6;
   --dd-success: #0e9f6e;
   --dd-success-soft: #e3f7ef;
   --dd-warning: #b45309;
@@ -148,7 +153,7 @@
   --dd-info-soft: #e2f3fc;
 
   /* Icon-orb gradients — vivid, saturated, lit from the top-left. */
-  --grad-brand: linear-gradient(145deg, #4d86f7 0%, #1b4fd0 100%);
+  --grad-brand: linear-gradient(145deg, #2ad0c0 0%, #0d8478 100%);
   --grad-violet: linear-gradient(145deg, #9b6ef3 0%, #6b35d6 100%);
   --grad-success: linear-gradient(145deg, #34c58c 0%, #0b8a5f 100%);
   --grad-warning: linear-gradient(145deg, #f7a33d 0%, #dd7407 100%);
@@ -156,7 +161,7 @@
   --grad-info: linear-gradient(145deg, #43b8ea 0%, #0b7fbc 100%);
 
   /* Matching glow colours for the orb drop shadow. */
-  --glow-brand: 30 99 233;
+  --glow-brand: 13 148 136;
   --glow-violet: 124 58 237;
   --glow-success: 14 159 110;
   --glow-warning: 221 116 7;
@@ -168,31 +173,31 @@
   --card-foreground: #0f1b2d;
   --popover: #ffffff;
   --popover-foreground: #0f1b2d;
-  --primary: #1e63e9;
+  --primary: #0f766e;
   --primary-foreground: #ffffff;
   --secondary: #eef3fb;
   --secondary-foreground: #1b2a41;
   --muted: #f2f6fc;
   --muted-foreground: #6b7a90;
-  --accent: #e5edfe;
-  --accent-foreground: #14418f;
+  --accent: #d7f2ee;
+  --accent-foreground: #0b5f58;
   --destructive: #dc2626;
   --border: #dce5f4;
   --input: #cfdcef;
-  --ring: #1e63e9;
-  --chart-1: #1e63e9;
+  --ring: #0f766e;
+  --chart-1: #0f766e;
   --chart-2: #0e9f6e;
   --chart-3: #b45309;
   --chart-4: #7c3aed;
   --chart-5: #0284c7;
   --sidebar: rgb(255 255 255 / 0.68);
   --sidebar-foreground: #0f1b2d;
-  --sidebar-primary: #1e63e9;
+  --sidebar-primary: #0f766e;
   --sidebar-primary-foreground: #ffffff;
-  --sidebar-accent: #e5edfe;
-  --sidebar-accent-foreground: #14418f;
+  --sidebar-accent: #d7f2ee;
+  --sidebar-accent-foreground: #0b5f58;
   --sidebar-border: rgb(255 255 255 / 0.6);
-  --sidebar-ring: #1e63e9;
+  --sidebar-ring: #0f766e;
 }
 
 @layer base {
