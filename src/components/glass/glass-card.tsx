@@ -52,8 +52,14 @@ export function GlassCard({
       className={cn(
         material,
         "rounded-glass-lg shadow-soft",
-        interactive &&
-          "cursor-pointer transition-[box-shadow,transform] duration-200 hover:-translate-y-0.5 hover:shadow-raised focus-within:shadow-raised motion-reduce:hover:translate-y-0",
+        interactive && [
+          "cursor-pointer transition-[box-shadow,transform] duration-200",
+          // Pointer devices: lift on hover.
+          "hover:-translate-y-0.5 hover:shadow-raised focus-within:shadow-raised",
+          // Touch devices have no hover, so a tap would feel dead without this.
+          "active:translate-y-0 active:scale-[0.985] active:shadow-soft",
+          "motion-reduce:hover:translate-y-0 motion-reduce:active:scale-100",
+        ],
         className,
       )}
       {...props}

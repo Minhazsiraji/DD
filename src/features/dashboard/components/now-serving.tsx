@@ -67,14 +67,14 @@ export function NowServing({
               <div className="mt-4 flex flex-col gap-2 sm:flex-row">
                 <Link
                   href={`/consultation/${current.id}`}
-                  className="inline-flex h-11 flex-1 items-center justify-center gap-2 rounded-xl bg-brand px-4 text-sm font-semibold text-white shadow-soft transition-colors hover:bg-brand-hover focus-visible:focus-ring"
+                  className="inline-flex h-11 flex-1 items-center justify-center gap-2 rounded-xl bg-brand px-4 text-sm font-semibold text-white shadow-soft transition-[background-color,transform] duration-200 hover:bg-brand-hover active:scale-[0.985] focus-visible:focus-ring motion-reduce:active:scale-100"
                 >
                   Open consultation
                   <ArrowRight className="size-4" aria-hidden="true" />
                 </Link>
                 <Link
                   href={`/patients/${current.patient.id}`}
-                  className="inline-flex h-11 items-center justify-center rounded-xl border border-hairline bg-white px-4 text-sm font-semibold text-ink transition-colors hover:bg-surface-muted focus-visible:focus-ring"
+                  className="inline-flex h-11 items-center justify-center rounded-xl border border-hairline bg-white px-4 text-sm font-semibold text-ink transition-[background-color,transform] duration-200 hover:bg-surface-muted active:scale-[0.985] focus-visible:focus-ring motion-reduce:active:scale-100"
                 >
                   Patient record
                 </Link>
@@ -95,7 +95,12 @@ export function NowServing({
 
           {next ? (
             <>
-              <div className="mt-3 flex items-start gap-3">
+              {/* Same tap/hover affordance as the stat tiles — a card that
+                  looks pressable must behave pressably on touch too. */}
+              <Link
+                href={`/patients/${next.patient.id}`}
+                className="mt-3 -mx-2 flex items-start gap-3 rounded-xl px-2 py-2 transition-[background-color,transform] duration-200 hover:bg-white/70 active:scale-[0.985] focus-visible:focus-ring motion-reduce:active:scale-100"
+              >
                 <span className="inset-panel flex size-12 shrink-0 items-center justify-center rounded-full text-base font-bold text-brand tabular-nums">
                   {next.tokenNumber}
                 </span>
@@ -119,7 +124,7 @@ export function NowServing({
                     </strong>
                   </p>
                 </div>
-              </div>
+              </Link>
 
               {next.patient.allergies.length > 0 ? (
                 <p className="mt-3 rounded-lg bg-danger-soft px-2.5 py-1.5 text-xs font-semibold text-[#a81c1c]">
@@ -133,7 +138,7 @@ export function NowServing({
 
               <button
                 type="button"
-                className="mt-4 inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl border border-brand bg-white px-4 text-sm font-semibold text-brand transition-colors hover:bg-brand-soft focus-visible:focus-ring"
+                className="mt-4 inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl border border-brand bg-white px-4 text-sm font-semibold text-brand transition-[background-color,transform] duration-200 hover:bg-brand-soft active:scale-[0.985] focus-visible:focus-ring motion-reduce:active:scale-100"
               >
                 Call next patient
                 <ArrowRight className="size-4" aria-hidden="true" />

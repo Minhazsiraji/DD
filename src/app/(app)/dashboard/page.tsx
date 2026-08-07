@@ -65,6 +65,7 @@ export default function DashboardPage() {
           icon={<FileText className="size-5" />}
           accent="warning"
           hint="2 abnormal"
+          href="/reports"
         />
         <StatCard
           label="Follow-ups due"
@@ -72,6 +73,7 @@ export default function DashboardPage() {
           icon={<CalendarClock className="size-5" />}
           accent="danger"
           hint="2 overdue"
+          href="/followups"
         />
       </div>
 
