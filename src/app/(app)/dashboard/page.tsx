@@ -11,15 +11,54 @@ import { FollowUpsPanel } from "@/features/dashboard/components/followups-panel"
 import { RecentPatients } from "@/features/dashboard/components/recent-patients";
 import { formatDate } from "@/lib/format";
 import { dashboardData } from "@/mocks/dashboard";
+import { requireClinicContext } from "@/lib/auth/session";
+import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 export const metadata: Metadata = { title: "Dashboard" };
 
-export default function DashboardPage() {
+/**
+ * Computed on the server only. Doing this in a Client Component would produce a
+ * hydration mismatch whenever the server and browser sit either side of an hour
+ * boundary, or in different timezones.
+ */
+function greeting(): string {
+  const hour = Number(
+    new Intl.DateTimeFormat("en-GB", {
+      hour: "numeric",
+      hour12: false,
+      timeZone: "Asia/Dhaka",
+    }).format(new Date()),
+  );
+  if (hour < 12) return "Good morning";
+  if (hour < 17) return "Good afternoon";
+  return "Good evening";
+}
+
+export default async function DashboardPage() {
+  /**
+   * The greeting is REAL (signed-in doctor, active clinic, today's date).
+   * Everything below it is still Phase 1 mock data — queue, schedule, reports,
+   * follow-ups — and gets replaced as each module lands from Phase 3 onward.
+   */
+  const ctx = await requireClinicContext();
+  const supabase = await createSupabaseServerClient();
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("full_name")
+    .eq("id", ctx.user.id)
+    .maybeSingle();
+
+  const doctorName =
+    profile?.full_name ?? ctx.user.email?.split("@")[0] ?? "Doctor";
+
+  // toISOString() is UTC — in Dhaka (UTC+6) that rolls the date over six hours
+  // early, so an evening clinic would show tomorrow's date. Format in the
+  // clinic's timezone instead. Phase 4 reads this from clinics.timezone.
+  const todayISO = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Dhaka",
+  }).format(new Date());
+
   const {
-    doctor,
-    locations,
-    activeLocationId,
-    todayISO,
     stats,
     currentToken,
     currentPatient,
@@ -32,14 +71,12 @@ export default function DashboardPage() {
     attention,
   } = dashboardData;
 
-  const activeLocation = locations.find((l) => l.id === activeLocationId);
-
   return (
     <div className="space-y-5 sm:space-y-6">
       <PageHeader
-        eyebrow="Good evening"
-        title={doctor.fullName}
-        subtitle={`${activeLocation?.name ?? doctor.practiceName} · ${formatDate(todayISO)}`}
+        eyebrow={greeting()}
+        title={doctorName}
+        subtitle={`${ctx.clinicName} · ${formatDate(todayISO)}`}
       />
 
       {/* ---- Summary tiles. Glass is appropriate: summary, not clinical data. ---- */}
