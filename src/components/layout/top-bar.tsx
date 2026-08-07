@@ -1,30 +1,23 @@
-"use client";
-
 import * as React from "react";
 import Link from "next/link";
-import { Search, Bell, Stethoscope, Sparkles } from "lucide-react";
+import { Search, Bell, Stethoscope, Sparkles, LogOut } from "lucide-react";
 import { QuickActionMenu } from "./quick-action-menu";
-import { LocationSwitcher } from "./location-switcher";
+import { ClinicSwitcher, type ClinicOption } from "./clinic-switcher";
 import { IconOrb } from "@/components/common/icon-orb";
 import { initials } from "@/lib/format";
-import type { PracticeLocation } from "@/mocks/types";
+import { signOutAction } from "@/features/auth/actions";
 
 interface TopBarProps {
   doctorName: string;
-  locations: PracticeLocation[];
-  activeLocationId: string;
+  clinics: ClinicOption[];
+  activeClinicId: string;
 }
 
 /**
- * TopBar — compact header on mobile, search + actions bar on desktop.
- * Sticky and glass; counts as the second (and final) blur layer alongside the
- * sidebar / bottom nav.
+ * Sticky app header. Glass is correct here — it is chrome, and one of the two
+ * blurred layers the view is allowed.
  */
-export function TopBar({
-  doctorName,
-  locations,
-  activeLocationId,
-}: TopBarProps) {
+export function TopBar({ doctorName, clinics, activeClinicId }: TopBarProps) {
   return (
     <header
       data-print-hidden
@@ -34,7 +27,7 @@ export function TopBar({
         {/* Brand — mobile only; the sidebar carries it from lg up. */}
         <Link
           href="/dashboard"
-          className="flex items-center gap-2 lg:hidden focus-visible:focus-ring rounded-lg"
+          className="flex items-center gap-2 rounded-lg lg:hidden focus-visible:focus-ring"
         >
           <IconOrb accent="brand" size="md">
             <Stethoscope className="size-[18px]" />
@@ -42,9 +35,9 @@ export function TopBar({
           <span className="sr-only">Doctor&apos;s Diary — Dashboard</span>
         </Link>
 
-        <LocationSwitcher
-          locations={locations}
-          activeLocationId={activeLocationId}
+        <ClinicSwitcher
+          clinics={clinics}
+          activeClinicId={activeClinicId}
           className="shrink-0"
         />
 
@@ -69,7 +62,7 @@ export function TopBar({
 
         <Link
           href="/assistant"
-          className="hidden h-10 items-center gap-2 rounded-xl border border-hairline bg-white/80 px-3 text-sm font-medium text-brand transition-colors hover:bg-white focus-visible:focus-ring sm:inline-flex"
+          className="hidden h-10 items-center gap-2 rounded-xl border border-hairline bg-white/80 px-3 text-sm font-medium text-brand transition-colors hover:bg-white sm:inline-flex focus-visible:focus-ring"
         >
           <Sparkles className="size-4" aria-hidden="true" />
           Ask AI
@@ -89,7 +82,7 @@ export function TopBar({
           />
         </button>
 
-        <div className="flex shrink-0 items-center gap-2.5">
+        <div className="flex shrink-0 items-center gap-2">
           <span
             className="flex size-9 items-center justify-center rounded-full bg-brand-soft text-[13px] font-semibold text-brand"
             aria-hidden="true"
@@ -97,13 +90,24 @@ export function TopBar({
             {initials(doctorName)}
           </span>
           <span className="hidden min-w-0 xl:block">
-            <span className="block truncate text-[13px] leading-tight font-semibold text-ink">
+            <span className="block max-w-[160px] truncate text-[13px] leading-tight font-semibold text-ink">
               {doctorName}
             </span>
             <span className="block truncate text-[11px] text-ink-muted">
               Signed in
             </span>
           </span>
+
+          <form action={signOutAction}>
+            <button
+              type="submit"
+              aria-label="Sign out"
+              title="Sign out"
+              className="flex size-9 items-center justify-center rounded-xl text-ink-secondary transition-colors hover:bg-white/70 hover:text-ink focus-visible:focus-ring"
+            >
+              <LogOut className="size-4" aria-hidden="true" />
+            </button>
+          </form>
         </div>
       </div>
     </header>

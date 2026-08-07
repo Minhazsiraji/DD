@@ -135,8 +135,20 @@ export const clinicMembers = pgTable(
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
-    // A user holds at most one role per clinic.
-    uniqueIndex("clinic_members_clinic_user_key").on(t.clinicId, t.userId),
+    /**
+     * A user may hold SEVERAL roles at one clinic — one row per role.
+     *
+     * This is not incidental: a doctor running their own chamber is both the
+     * DOCTOR (writes clinical records) and the CLINIC_ADMIN (manages settings
+     * and staff). Forcing a single role would leave a solo practitioner unable
+     * to do half their job. Permission checks therefore take the union of the
+     * user's roles at the active clinic — see canAny().
+     */
+    uniqueIndex("clinic_members_clinic_user_role_key").on(
+      t.clinicId,
+      t.userId,
+      t.role,
+    ),
     index("clinic_members_user_idx").on(t.userId),
     index("clinic_members_clinic_idx").on(t.clinicId),
   ],

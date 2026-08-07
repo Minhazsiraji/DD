@@ -1,7 +1,12 @@
 import "server-only";
 import { cookies } from "next/headers";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { can, type Action, type ClinicRole, type Resource } from "@/lib/rbac/permissions";
+import {
+  canAny,
+  type Action,
+  type ClinicRole,
+  type Resource,
+} from "@/lib/rbac/permissions";
 import { forbidden, noActiveClinic, unauthenticated } from "@/lib/errors";
 
 export const ACTIVE_CLINIC_COOKIE = "dd_active_clinic";
@@ -14,14 +19,15 @@ export interface SessionUser {
 export interface Membership {
   clinicId: string;
   clinicName: string;
-  role: ClinicRole;
+  /** A user may hold several roles at one clinic — permission is the union. */
+  roles: ClinicRole[];
 }
 
 export interface ClinicContext {
   user: SessionUser;
   clinicId: string;
   clinicName: string;
-  role: ClinicRole;
+  roles: ClinicRole[];
   memberships: Membership[];
 }
 
@@ -63,20 +69,31 @@ export async function getMemberships(): Promise<Membership[]> {
 
   if (error || !data) return [];
 
-  return data.flatMap((row) => {
+  // One row per (clinic, role) — collapse to one membership per clinic.
+  const byClinic = new Map<string, Membership>();
+
+  for (const row of data) {
     const rel = row.clinics as unknown;
-    const name =
-      Array.isArray(rel) ? (rel[0] as { name?: string })?.name
+    const name = Array.isArray(rel)
+      ? (rel[0] as { name?: string })?.name
       : (rel as { name?: string } | null)?.name;
-    if (!name) return [];
-    return [
-      {
-        clinicId: row.clinic_id as string,
+    if (!name) continue;
+
+    const clinicId = row.clinic_id as string;
+    const existing = byClinic.get(clinicId);
+
+    if (existing) {
+      existing.roles.push(row.role as ClinicRole);
+    } else {
+      byClinic.set(clinicId, {
+        clinicId,
         clinicName: name,
-        role: row.role as ClinicRole,
-      },
-    ];
-  });
+        roles: [row.role as ClinicRole],
+      });
+    }
+  }
+
+  return [...byClinic.values()];
 }
 
 /**
@@ -107,7 +124,7 @@ export async function requireClinicContext(): Promise<ClinicContext> {
     user,
     clinicId: active.clinicId,
     clinicName: active.clinicName,
-    role: active.role,
+    roles: active.roles,
     memberships,
   };
 }
@@ -122,8 +139,8 @@ export async function requirePermission(
 ): Promise<ClinicContext> {
   const ctx = await requireClinicContext();
 
-  if (!can(ctx.role, action, resource)) {
-    throw forbidden(`${ctx.role} may not ${action} ${resource}`);
+  if (!canAny(ctx.roles, action, resource)) {
+    throw forbidden(`${ctx.roles.join("+")} may not ${action} ${resource}`);
   }
   return ctx;
 }

@@ -116,6 +116,24 @@ export function can(role: ClinicRole, action: Action, resource: Resource): boole
   return MATRIX[role]?.[resource]?.includes(action) ?? false;
 }
 
+/**
+ * Can a user holding ANY of `roles` perform the action?
+ *
+ * A user may hold several roles at one clinic (a solo doctor is both DOCTOR and
+ * CLINIC_ADMIN of their own chamber), so permission is the union. This is what
+ * request-path code should call — `can()` is the single-role primitive.
+ *
+ * Note the union never widens a denial that matters: `private_notes` is granted
+ * only to DOCTOR, so adding CLINIC_ADMIN cannot unlock it, and vice versa.
+ */
+export function canAny(
+  roles: readonly ClinicRole[],
+  action: Action,
+  resource: Resource,
+): boolean {
+  return roles.some((role) => can(role, action, resource));
+}
+
 /** Every action a role may take on a resource. Useful for building UI. */
 export function allowedActions(
   role: ClinicRole,

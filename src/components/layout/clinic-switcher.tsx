@@ -1,0 +1,156 @@
+"use client";
+
+import * as React from "react";
+import { useRouter } from "next/navigation";
+import { Building2, Hospital, Video, ChevronsUpDown, Check } from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { cn } from "@/lib/utils";
+import { switchClinicAction } from "@/features/auth/switch-clinic";
+
+/**
+ * Switches which clinic the user is working in.
+ *
+ * IMPORTANT: this changes the *working context* — schedule, queue, staff,
+ * fees. It does NOT scope patient identity. A patient belongs to the doctor,
+ * so the doctor's timeline for that patient is the same everywhere. Clinic
+ * scoping applies to the clinical events, which is what the RLS policies gate.
+ */
+
+export type ClinicType = "OWN_CHAMBER" | "CLINIC" | "HOSPITAL" | "TELEMEDICINE";
+
+export interface ClinicOption {
+  id: string;
+  name: string;
+  type: ClinicType;
+  roles: string[];
+}
+
+const TYPE_ICON: Record<ClinicType, React.ReactNode> = {
+  OWN_CHAMBER: <Building2 className="size-4" />,
+  CLINIC: <Hospital className="size-4" />,
+  HOSPITAL: <Hospital className="size-4" />,
+  TELEMEDICINE: <Video className="size-4" />,
+};
+
+const TYPE_LABEL: Record<ClinicType, string> = {
+  OWN_CHAMBER: "Own chamber",
+  CLINIC: "Clinic",
+  HOSPITAL: "Hospital",
+  TELEMEDICINE: "Telemedicine",
+};
+
+const ROLE_LABEL: Record<string, string> = {
+  DOCTOR: "Doctor",
+  RECEPTIONIST: "Reception",
+  CLINIC_ADMIN: "Admin",
+};
+
+export function ClinicSwitcher({
+  clinics,
+  activeClinicId,
+  className,
+}: {
+  clinics: ClinicOption[];
+  activeClinicId: string;
+  className?: string;
+}) {
+  const router = useRouter();
+  const [pending, startTransition] = React.useTransition();
+
+  const active = clinics.find((c) => c.id === activeClinicId) ?? clinics[0];
+  if (!active) return null;
+
+  function select(id: string) {
+    if (id === active!.id) return;
+    startTransition(async () => {
+      await switchClinicAction(id);
+      router.refresh();
+    });
+  }
+
+  const roleSummary = active.roles
+    .map((r) => ROLE_LABEL[r] ?? r)
+    .join(" · ");
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        render={
+          <button
+            type="button"
+            disabled={pending}
+            aria-label={`Clinic: ${active.name}. Change clinic.`}
+            className={cn(
+              "inline-flex h-10 max-w-[240px] items-center gap-2 rounded-xl border border-hairline bg-white/80 px-2.5 text-left transition-colors hover:bg-white disabled:opacity-60 focus-visible:focus-ring",
+              className,
+            )}
+          />
+        }
+      >
+        <span className="shrink-0 text-brand" aria-hidden="true">
+          {TYPE_ICON[active.type]}
+        </span>
+        <span className="hidden min-w-0 sm:block">
+          <span className="block truncate text-[13px] leading-tight font-semibold text-ink">
+            {active.name}
+          </span>
+          <span className="block truncate text-[11px] text-ink-muted">
+            {roleSummary || TYPE_LABEL[active.type]}
+          </span>
+        </span>
+        <ChevronsUpDown
+          className="size-3.5 shrink-0 text-ink-muted"
+          aria-hidden="true"
+        />
+      </DropdownMenuTrigger>
+
+      <DropdownMenuContent align="start" className="w-72">
+        {/* Base UI requires GroupLabel inside a Group — a bare label throws. */}
+        <DropdownMenuGroup>
+          <DropdownMenuLabel>Where are you working?</DropdownMenuLabel>
+
+          {clinics.map((c) => (
+            <DropdownMenuItem
+              key={c.id}
+              onClick={() => select(c.id)}
+              className="items-start gap-2.5 py-2"
+            >
+              <span className="mt-0.5 shrink-0 text-brand" aria-hidden="true">
+                {TYPE_ICON[c.type]}
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-[13px] font-semibold text-ink">
+                  {c.name}
+                </span>
+                <span className="block truncate text-[11px] text-ink-muted">
+                  {TYPE_LABEL[c.type]}
+                  {c.roles.length
+                    ? ` · ${c.roles.map((r) => ROLE_LABEL[r] ?? r).join(" · ")}`
+                    : ""}
+                </span>
+              </span>
+              {c.id === active.id ? (
+                <Check
+                  className="mt-0.5 size-4 shrink-0 text-brand"
+                  aria-hidden="true"
+                />
+              ) : null}
+            </DropdownMenuItem>
+          ))}
+        </DropdownMenuGroup>
+
+        <p className="border-t border-hairline px-2 pt-2 pb-1 text-[11px] leading-snug text-ink-muted">
+          Switching changes your schedule, queue and staff. Your own patient
+          records stay the same everywhere.
+        </p>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}

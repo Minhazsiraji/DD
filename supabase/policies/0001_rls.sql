@@ -182,8 +182,12 @@ create policy clinic_members_select
   on public.clinic_members for select to authenticated
   using (user_id = auth.uid() or public.is_active_member(clinic_id));
 
--- Bootstrap: the clinic creator inserts their own CLINIC_ADMIN row.
--- Afterwards only an existing admin of that clinic may add members.
+-- Bootstrap: the clinic creator seeds their OWN membership rows.
+--
+-- A solo doctor holds two roles at their own chamber (DOCTOR + CLINIC_ADMIN),
+-- so this must permit several inserts — but only rows for themselves, and only
+-- while nobody else is a member yet. Once they hold CLINIC_ADMIN the first
+-- branch takes over and they can add staff normally.
 drop policy if exists clinic_members_insert on public.clinic_members;
 create policy clinic_members_insert
   on public.clinic_members for insert to authenticated
@@ -191,14 +195,16 @@ create policy clinic_members_insert
     public.has_clinic_role(clinic_id, array['CLINIC_ADMIN']::public.clinic_role[])
     or (
       user_id = auth.uid()
-      and role = 'CLINIC_ADMIN'
       and exists (
         select 1 from public.clinics c
         where c.id = clinic_id and c.created_by = auth.uid()
       )
+      -- No OTHER user may already be a member. Prevents self-insertion into
+      -- somebody else's clinic.
       and not exists (
         select 1 from public.clinic_members existing
         where existing.clinic_id = clinic_members.clinic_id
+          and existing.user_id <> auth.uid()
       )
     )
   );

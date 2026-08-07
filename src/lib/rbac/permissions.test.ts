@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   can,
+  canAny,
   allowedActions,
   isClinicManager,
   CLINIC_ROLES,
@@ -124,6 +125,49 @@ describe("DOCTOR access", () => {
   it("does not settle payments", () => {
     expect(can(role, "read", "payment")).toBe(true);
     expect(can(role, "create", "payment")).toBe(false);
+  });
+});
+
+describe("canAny — multiple roles at one clinic", () => {
+  // The solo-practitioner case: own chamber, so both doctor and administrator.
+  const solo: ClinicRole[] = ["DOCTOR", "CLINIC_ADMIN"];
+
+  it("unions the permissions of every role held", () => {
+    expect(canAny(solo, "create", "encounter")).toBe(true); // from DOCTOR
+    expect(canAny(solo, "create", "clinic_member")).toBe(true); // from CLINIC_ADMIN
+    expect(canAny(solo, "update", "clinic")).toBe(true); // from CLINIC_ADMIN
+    expect(canAny(solo, "read", "private_notes")).toBe(true); // from DOCTOR
+  });
+
+  it("adding CLINIC_ADMIN never unlocks anything DOCTOR alone could not do", () => {
+    for (const resource of RESOURCES) {
+      for (const action of ACTIONS) {
+        if (canAny(solo, action, resource)) {
+          expect(
+            can("DOCTOR", action, resource) || can("CLINIC_ADMIN", action, resource),
+          ).toBe(true);
+        }
+      }
+    }
+  });
+
+  it("still denies what no held role grants", () => {
+    const reception: ClinicRole[] = ["RECEPTIONIST"];
+    expect(canAny(reception, "read", "private_notes")).toBe(false);
+    expect(canAny(reception, "create", "encounter")).toBe(false);
+
+    // Reception + admin together still cannot reach clinical notes.
+    const deskAndAdmin: ClinicRole[] = ["RECEPTIONIST", "CLINIC_ADMIN"];
+    expect(canAny(deskAndAdmin, "read", "private_notes")).toBe(false);
+    expect(canAny(deskAndAdmin, "create", "encounter")).toBe(false);
+  });
+
+  it("grants nothing for an empty role list", () => {
+    for (const resource of RESOURCES) {
+      for (const action of ACTIONS) {
+        expect(canAny([], action, resource)).toBe(false);
+      }
+    }
   });
 });
 
