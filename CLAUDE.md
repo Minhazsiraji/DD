@@ -94,6 +94,13 @@ squeeze — and it hides the bottom nav.
 
 ## Conventions
 
+- **shadcn here is Base UI, not Radix — it is stricter.** Most training data and
+  most shadcn snippets online assume Radix and will compile but crash at runtime.
+  Known trap: `DropdownMenuLabel` (= `Menu.GroupLabel`) **must** be inside a
+  `DropdownMenuGroup`, or it throws `MenuGroupContext is missing`. Assume other
+  compound parts have the same requirement, and always open a menu/dialog/popover
+  in the browser before calling it done — typecheck will not catch this class of
+  bug. A crash in a shared component (e.g. `TopBar`) takes down the whole layout.
 - Business logic in `src/features/<domain>/`; `src/app/` is routing + composition.
 - No file over ~250 lines. No duplicated business logic.
 - Date/time formatting via `src/lib/format.ts` only — never `toLocaleDateString()`
