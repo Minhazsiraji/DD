@@ -17,7 +17,13 @@ const publicSchema = z.object({
 });
 
 const serverSchema = z.object({
-  DATABASE_URL: z.string().min(1, "DATABASE_URL is required for migrations"),
+  /**
+   * Optional on purpose. Only migrations and scripts connect directly to
+   * Postgres, and those run from a developer's machine. The deployed app talks
+   * to Supabase over HTTP with the anon key, so the hosting platform never
+   * needs database credentials — which is one less secret to leak.
+   */
+  DATABASE_URL: z.string().min(1).optional(),
   AI_MODE: z.enum(["mock", "live"]).default("mock"),
   NOTIFICATION_MODE: z.enum(["mock", "live"]).default("mock"),
   PAYMENT_MODE: z.enum(["mock", "live"]).default("mock"),

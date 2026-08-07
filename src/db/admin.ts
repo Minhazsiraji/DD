@@ -24,7 +24,14 @@ import * as schema from "./schema";
 let client: ReturnType<typeof postgres> | null = null;
 
 export function adminDb() {
-  client ??= postgres(serverEnv().DATABASE_URL, { max: 1, prepare: false });
+  const url = serverEnv().DATABASE_URL;
+  if (!url) {
+    throw new Error(
+      "DATABASE_URL is not set. Direct database access is only available " +
+        "locally for migrations and seeding — never in a deployed environment.",
+    );
+  }
+  client ??= postgres(url, { max: 1, prepare: false });
   return drizzle(client, { schema });
 }
 
