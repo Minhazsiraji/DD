@@ -117,6 +117,27 @@ squeeze — and it hides the bottom nav.
   queries should be an import change.
 - English-first UI; keep i18n-ready. Bangla patient-facing output comes later.
 
+## Database workflow
+
+    npm run db:generate   # drizzle-kit generate — writes drizzle/migrations
+    npm run db:migrate    # apply migrations      (uses DIRECT_URL, port 5432)
+    npm run db:policies    # re-apply supabase/policies/*.sql (idempotent)
+    npm run db:verify      # assert RLS/grants/helpers are intact — run after ANY policy change
+
+- **Two connection strings.** `DIRECT_URL` (session pooler, **5432**) for
+  migrations and scripts; `DATABASE_URL` (transaction pooler, 6543) for app
+  runtime. The transaction pooler cannot run DDL — pointing migrations at it
+  fails confusingly.
+- **Passwords in the URL must be percent-encoded** (`@` → `%40`), or the parser
+  reads the password as the host.
+- **Never let a generated migration touch `auth.users`.** Drizzle emits
+  `CREATE TABLE "auth"."users"` because the table is declared in schema.ts for
+  the foreign key. Delete that statement from the migration — Supabase owns
+  that table and altering it breaks authentication.
+- Adding an event table? It **must** carry `clinic_id`, and it needs policies in
+  `supabase/policies/` in the same change. A table with RLS on and no policy
+  silently returns zero rows.
+
 ## Working on this machine
 
 Node is not on PATH. Prefix every PowerShell command:
