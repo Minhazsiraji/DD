@@ -17,31 +17,65 @@ That single decision drives the data model below.
 
 ---
 
-## 2. Tenancy — doctor-owned
+## 2. Tenancy — hybrid (identity doctor-owned, events clinic-scoped)
+
+Decided 2026-08-07 after weighing two conflicting requirements: the doctor wants
+one continuous record of a patient across every chamber they practise in, and
+each clinic's staff must not see another clinic's activity. The hybrid satisfies
+both; neither pure model does.
 
 ```
-doctor_profiles (the tenancy root)
-   ├── practice_locations        own chamber · clinic · hospital · telemedicine
-   ├── practice_members          the doctor's own staff (e.g. receptionist)
-   └── patients  ──►  appointments ──► encounters ──► prescriptions …
-                          │                │
-                          └── location_id ─┘   (where it happened)
+clinics ──── clinic_members(clinic_id, user_id, role) ──── auth users
+   │                                                          │
+   │                                              doctor_profiles
+   │                                                          │
+   │                                     patients.owner_doctor_id
+   │                                        (identity: doctor-owned)
+   │                                                          │
+   └──► appointments · encounters · prescriptions · documents · payments …
+                       every one carries clinic_id
+                                  │
+                   patient_clinic_links(patient_id, clinic_id)
 ```
 
-- `doctor_id` is on **every** clinical table, in every query, in every RLS policy.
-- There is **no `clinic_id` tenancy column.** A location is an attribute of an
-  appointment or encounter, never an owner of data.
-- One patient seen at two locations = **one record, one timeline.** This is the
-  core value of the product.
-- Two doctors sharing a chamber each keep a separate diary. The same human
-  patient is a separate record for each. Intended and privacy-correct.
+**Identity layer — doctor-owned**
+
+- `patients.owner_doctor_id`. One human seen at two clinics is **one record with
+  one timeline**. This is the product's core value.
 - Patient numbers come from a per-doctor sequence (`AR-000124`), generated with a
   row lock — never `COUNT(*)+1`, which races.
 
-**Why this over clinic-owned:** doctor-owned → group practice later is an
-*additive* migration (introduce a practice layer, backfill one per doctor).
-Clinic-owned → doctor-owned would require *splitting* patient records. The
-reversible direction is the correct default.
+**Event layer — clinic-scoped**
+
+- `clinic_id` is **mandatory** on `appointments`, `appointment_confirmations`,
+  `tokens`, `queue_events`, `encounters`, `vitals`, `diagnoses`,
+  `investigation_orders`, `investigation_results`, `prescriptions`, `documents`,
+  `followups`, `payments`, `notifications`, `audit_events`, `ai_sessions`.
+- Authorization never relies on `doctor_id` alone. Every policy checks
+  `clinic_id ∈ (clinics the user is an active member of)` and, for most roles,
+  `clinic_id = session.active_clinic_id`.
+- `patient_clinic_links` records where a patient has been seen. Non-owner roles
+  reach a patient only via a link for their active clinic.
+
+**Visibility, stated plainly**
+
+| Actor | Sees |
+|---|---|
+| Owning doctor | the patient's **full** timeline, across every clinic |
+| Another doctor at clinic B | only clinic B's events for that patient |
+| Receptionist at clinic B | clinic B's appointments/tokens/payments; no clinical notes |
+| Clinic admin at clinic B | clinic B operational data; never `private_notes` |
+
+Cross-doctor sharing (referral) is explicit, consented and audited — never
+ambient.
+
+**Why not either pure model.** Clinic-owned alone splits the same person into one
+record per clinic, destroying the continuous timeline the product exists to
+provide. Doctor-owned alone gives no clinic boundary, so a receptionist hired at
+one chamber could see activity from all of them. Note that neither pure model is
+a cheap migration target from the other — doctor→clinic requires *splitting*
+records, clinic→doctor requires *merging* them — which is exactly why this is
+settled before the first schema is written.
 
 ---
 

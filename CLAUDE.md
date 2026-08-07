@@ -25,22 +25,30 @@ Keep dependencies minimal. Justify every new package.
 validate with Zod → write → emit audit event. The browser is never trusted. RLS
 is the second wall, not the first.
 
-**Tenancy — DOCTOR-owned.** This is the product's core idea, not a detail.
-Every clinic already runs its own system. Doctor's Diary is the *doctor's* record
-of *their* patients, wherever those patients were seen.
+**Tenancy — HYBRID. Read this before writing any query or policy.**
 
-- `doctor_id` on every clinical table, in every query, in every RLS policy.
-  There is no `clinic_id` tenancy column.
-- A **location** (own chamber / clinic / hospital / telemedicine) is an attribute
-  of an appointment or encounter. It never owns data and never filters a patient.
-- One patient seen at two locations is **one record with one timeline**.
-- Two doctors sharing a chamber each keep their own diary; the same human patient
-  is a separate record for each. That is intended and privacy-correct.
-- Patient numbers come from a per-doctor sequence.
-- Delegated staff (a doctor's own receptionist) go in
-  `practice_members(doctor_id, user_id, role)` — not a clinic membership table.
-- Switching location filters the working day (schedule, queue, fees). It must
-  never scope patient data.
+Patient *identity* is doctor-owned; every clinical *event* is clinic-scoped.
+This is deliberate: it gives the doctor one continuous timeline per patient
+across all their chambers, while keeping each clinic's staff boxed into that
+clinic. Neither half is optional.
+
+- `patients.owner_doctor_id` — the patient belongs to the **doctor**. One human
+  seen at two clinics is **one record with one timeline**. Patient numbers come
+  from a per-doctor sequence.
+- **`clinic_id` is mandatory on every event table**: `appointments`,
+  `appointment_confirmations`, `tokens`, `queue_events`, `encounters`, `vitals`,
+  `diagnoses`, `investigation_orders`, `investigation_results`, `prescriptions`,
+  `documents`, `followups`, `payments`, `notifications`, `audit_events`,
+  `ai_sessions`. Never rely on `doctor_id` alone for authorization.
+- Access runs through `clinic_members(clinic_id, user_id, role)` plus the
+  session's **active clinic**. Staff see only events at their own clinic.
+- `patient_clinic_links(patient_id, clinic_id)` records which clinics a patient
+  has ever been seen at. Non-doctor roles may only reach a patient through a
+  link for their active clinic.
+- **The doctor who owns a patient sees that patient's full timeline across
+  clinics; nobody else ever does.** Clinic staff see only their clinic's events.
+- Cross-doctor sharing (referral) must be explicit, consented and audited.
+  Never ambient.
 
 **Drizzle + RLS.** Drizzle owns schema/migrations/typed queries. Request-path
 queries run with the user's JWT so RLS applies. The service role lives only in
