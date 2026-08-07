@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
-import { Building2, Hospital, Video, Check } from "lucide-react";
+import Link from "next/link";
+import { Building2, Hospital, Video, Check, ShieldCheck, ChevronRight } from "lucide-react";
 import { cookies } from "next/headers";
 import { PageHeader } from "@/components/common/page-header";
 import { SectionCard, SectionHeader } from "@/components/common/section-card";
@@ -116,6 +117,27 @@ export default async function SettingsPage() {
         </ul>
 
         <AddClinicForm />
+      </SectionCard>
+
+      <SectionCard className="overflow-hidden">
+        <SectionHeader
+          title="Account security"
+          icon={<ShieldCheck className="size-4" />}
+        />
+        <div className="p-4 sm:p-5">
+          <Link
+            href="/settings/security"
+            className="inline-flex h-10 items-center gap-2 rounded-xl border border-hairline bg-white px-4 text-sm font-semibold text-ink transition-colors hover:bg-surface-muted focus-visible:focus-ring"
+          >
+            <ShieldCheck className="size-4 text-brand" aria-hidden="true" />
+            Two-step verification &amp; devices
+            <ChevronRight className="size-4 text-ink-muted" aria-hidden="true" />
+          </Link>
+          <p className="mt-2 text-xs text-ink-muted">
+            Set up an authenticator on your phone, add a backup, and sign out
+            devices you no longer use.
+          </p>
+        </div>
       </SectionCard>
 
       <p className="text-xs text-ink-muted">

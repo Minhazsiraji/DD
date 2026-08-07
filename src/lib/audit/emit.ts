@@ -29,7 +29,18 @@ export type AuditAction =
   | "clinic.switched"
   | "clinic_member.invited"
   | "clinic_member.role_changed"
-  | "clinic_member.removed";
+  | "clinic_member.removed"
+  // Account & device security. Never carry a TOTP secret or code in `meta`.
+  | "security.mfa_enrolled"
+  | "security.mfa_removed"
+  | "security.mfa_challenge_passed"
+  | "security.mfa_challenge_failed"
+  | "security.signed_out_other_devices"
+  | "security.signed_out_everywhere"
+  | "security.shared_device_selected"
+  | "security.locked"
+  | "security.unlocked"
+  | "security.unlock_failed";
 
 export interface AuditInput {
   action: AuditAction;

@@ -6,6 +6,9 @@ import type { ClinicOption, ClinicType } from "@/components/layout/clinic-switch
 import { requireUser, getMemberships, ACTIVE_CLINIC_COOKIE } from "@/lib/auth/session";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { cookies } from "next/headers";
+import { IdleLock } from "@/features/security/components/idle-lock";
+import { SHARED_DEVICE_COOKIE, requiresMfaChallenge } from "@/features/security/policy";
+import { redirect as nextRedirect } from "next/navigation";
 
 /**
  * The authenticated workspace shell.
@@ -19,12 +22,22 @@ import { cookies } from "next/headers";
  */
 export default async function AppLayout({ children }: LayoutProps<"/">) {
   const user = await requireUser();
+  const supabase = await createSupabaseServerClient();
+
+  /**
+   * A password-only session must never render the workspace when the account
+   * has a verified second factor. Checked here rather than only in proxy.ts so
+   * a direct request to a nested route cannot slip past.
+   */
+  const { data: aal } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
+  if (requiresMfaChallenge(aal?.currentLevel ?? null, aal?.nextLevel ?? null)) {
+    nextRedirect("/mfa");
+  }
+
   const memberships = await getMemberships();
 
   // Signed in but no clinic yet — finish setup first.
   if (memberships.length === 0) redirect("/onboarding");
-
-  const supabase = await createSupabaseServerClient();
 
   const [{ data: profile }, { data: clinicRows }] = await Promise.all([
     supabase.from("profiles").select("full_name").eq("id", user.id).maybeSingle(),
@@ -49,6 +62,7 @@ export default async function AppLayout({ children }: LayoutProps<"/">) {
   }));
 
   const cookieStore = await cookies();
+  const sharedDevice = cookieStore.get(SHARED_DEVICE_COOKIE)?.value === "1";
   const requested = cookieStore.get(ACTIVE_CLINIC_COOKIE)?.value;
   const activeClinicId =
     clinics.find((c) => c.id === requested)?.id ?? clinics[0]!.id;
@@ -76,6 +90,8 @@ export default async function AppLayout({ children }: LayoutProps<"/">) {
       </div>
 
       <MobileBottomNav />
+
+      <IdleLock sharedDevice={sharedDevice} />
     </div>
   );
 }

@@ -32,6 +32,8 @@ export const signInSchema = z.object({
   email,
   password: z.string().min(1, "Enter your password"),
   next: z.string().optional(),
+  /** Ticked on a clinic or hospital machine — shortens the idle lock. */
+  sharedDevice: z.boolean().optional(),
 });
 
 export const forgotPasswordSchema = z.object({ email });

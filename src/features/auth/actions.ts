@@ -1,8 +1,13 @@
 "use server";
 
 import { redirect } from "next/navigation";
+import { cookies } from "next/headers";
 import { z } from "zod";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import {
+  SHARED_DEVICE_COOKIE,
+  requiresMfaChallenge,
+} from "@/features/security/policy";
 import { publicEnv } from "@/lib/env";
 import { emitAudit } from "@/lib/audit/emit";
 import {
@@ -89,6 +94,7 @@ export async function signInAction(
     email: formData.get("email"),
     password: formData.get("password"),
     next: formData.get("next") ?? undefined,
+    sharedDevice: formData.get("sharedDevice") === "on",
   });
   if (!parsed.success) return fieldErrors(parsed.error);
 
@@ -115,6 +121,39 @@ export async function signInAction(
     resourceId: data.user.id,
     actorId: data.user.id,
   });
+
+  /**
+   * Shared-device mode. httpOnly so page scripts cannot clear it — the layout
+   * reads it server-side and hands the idle lock a shorter limit.
+   * Session cookie (no maxAge): closing the browser forgets it, which is the
+   * right default on a machine you do not own.
+   */
+  const cookieStore = await cookies();
+  if (parsed.data.sharedDevice) {
+    cookieStore.set(SHARED_DEVICE_COOKIE, "1", {
+      httpOnly: true,
+      sameSite: "lax",
+      secure: process.env.NODE_ENV === "production",
+      path: "/",
+    });
+    await emitAudit({
+      action: "security.shared_device_selected",
+      resourceType: "auth.session",
+      actorId: data.user.id,
+    });
+  } else {
+    cookieStore.delete(SHARED_DEVICE_COOKIE);
+  }
+
+  /**
+   * A password alone is not enough once a factor is enrolled. Supabase reports
+   * nextLevel = aal2 in that case; the session stays at aal1 until the code is
+   * verified, and RLS-protected pages must not render before then.
+   */
+  const { data: aal } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
+  if (requiresMfaChallenge(aal?.currentLevel ?? null, aal?.nextLevel ?? null)) {
+    redirect("/mfa");
+  }
 
   redirect(safeNext(parsed.data.next));
 }
