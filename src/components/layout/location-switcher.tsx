@@ -11,6 +11,7 @@ import {
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuTrigger,
@@ -88,31 +89,38 @@ export function LocationSwitcher({
       </DropdownMenuTrigger>
 
       <DropdownMenuContent align="start" className="w-72">
-        <DropdownMenuLabel>Where are you practising?</DropdownMenuLabel>
+        {/* Base UI requires GroupLabel to live inside a Group — unlike Radix,
+            a bare <DropdownMenuLabel> throws MenuGroupContext is missing. */}
+        <DropdownMenuGroup>
+          <DropdownMenuLabel>Where are you practising?</DropdownMenuLabel>
 
-        {locations.map((loc) => (
-          <DropdownMenuItem
-            key={loc.id}
-            onClick={() => setActiveId(loc.id)}
-            className="items-start gap-2.5 py-2"
-          >
-            <span className="mt-0.5 shrink-0 text-brand" aria-hidden="true">
-              {TYPE_ICON[loc.type]}
-            </span>
-            <span className="min-w-0 flex-1">
-              <span className="block truncate text-[13px] font-semibold text-ink">
-                {loc.name}
+          {locations.map((loc) => (
+            <DropdownMenuItem
+              key={loc.id}
+              onClick={() => setActiveId(loc.id)}
+              className="items-start gap-2.5 py-2"
+            >
+              <span className="mt-0.5 shrink-0 text-brand" aria-hidden="true">
+                {TYPE_ICON[loc.type]}
               </span>
-              <span className="block truncate text-[11px] text-ink-muted tabular-nums">
-                {TYPE_LABEL[loc.type]} · ৳{loc.consultationFee} ·{" "}
-                {loc.slotMinutes} min slots
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-[13px] font-semibold text-ink">
+                  {loc.name}
+                </span>
+                <span className="block truncate text-[11px] text-ink-muted tabular-nums">
+                  {TYPE_LABEL[loc.type]} · ৳{loc.consultationFee} ·{" "}
+                  {loc.slotMinutes} min slots
+                </span>
               </span>
-            </span>
-            {loc.id === active.id ? (
-              <Check className="mt-0.5 size-4 shrink-0 text-brand" aria-hidden="true" />
-            ) : null}
-          </DropdownMenuItem>
-        ))}
+              {loc.id === active.id ? (
+                <Check
+                  className="mt-0.5 size-4 shrink-0 text-brand"
+                  aria-hidden="true"
+                />
+              ) : null}
+            </DropdownMenuItem>
+          ))}
+        </DropdownMenuGroup>
 
         <p className="border-t border-hairline px-2 pt-2 pb-1 text-[11px] leading-snug text-ink-muted">
           Switching filters today&apos;s schedule and fees. Your patient records
