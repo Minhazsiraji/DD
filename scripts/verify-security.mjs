@@ -116,6 +116,65 @@ for (const name of ["is_active_member", "has_clinic_role", "shares_clinic_with"]
   check(Boolean(fn?.config?.includes("search_path")), `${name}: search_path pinned`);
 }
 
+// 6. The onboarding path, executed AS the authenticated role in a transaction
+//    that is always rolled back.
+//
+//    This exists because of a real bug: `INSERT ... RETURNING` (which
+//    supabase-js performs whenever you chain .select()) also applies SELECT
+//    policies to the new row. The creator is not a member yet at that moment,
+//    so onboarding failed with a misleading "new row violates row-level
+//    security policy" even though WITH CHECK passed. Static policy inspection
+//    cannot catch that — only executing the path can.
+console.log("\nOnboarding path as `authenticated`");
+
+const users = await sql`select id from auth.users order by created_at limit 1`;
+
+if (users.length === 0) {
+  console.log("  – skipped (no auth users yet)");
+} else {
+  const uid = users[0].id;
+  const claims = JSON.stringify({ sub: uid, role: "authenticated" });
+
+  try {
+    await sql.begin(async (tx) => {
+      await tx`select set_config('request.jwt.claims', ${claims}, true)`;
+      await tx`set local role authenticated`;
+
+      const [clinic] = await tx`
+        insert into public.clinics (name, type, created_by)
+        values ('__verify__', 'CLINIC', ${uid})
+        returning id`;
+      check(Boolean(clinic?.id), "create clinic with RETURNING");
+
+      const members = await tx`
+        insert into public.clinic_members (clinic_id, user_id, role, status)
+        values (${clinic.id}, ${uid}, 'DOCTOR', 'ACTIVE'),
+               (${clinic.id}, ${uid}, 'CLINIC_ADMIN', 'ACTIVE')
+        returning role`;
+      check(members.length === 2, "join as both DOCTOR and CLINIC_ADMIN");
+
+      const [visible] = await tx`
+        select count(*)::int as n from public.clinics where id = ${clinic.id}`;
+      check(visible.n === 1, "creator can read the clinic back");
+
+      // Must NOT be able to tamper with the audit trail.
+      let auditBlocked = false;
+      try {
+        await tx`update public.audit_events set action = 'tampered'`;
+      } catch {
+        auditBlocked = true;
+      }
+      check(auditBlocked, "cannot UPDATE audit_events");
+
+      throw new Error("__rollback__");
+    });
+  } catch (e) {
+    if (e.message !== "__rollback__") {
+      check(false, "onboarding path", e.message);
+    }
+  }
+}
+
 await sql.end();
 
 console.log(

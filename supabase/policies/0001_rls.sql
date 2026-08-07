@@ -152,10 +152,17 @@ create policy doctor_profiles_update_self
 -- clinics
 -- -----------------------------------------------------------------------------
 
+-- The `created_by` branch is REQUIRED, not a convenience.
+--
+-- `INSERT ... RETURNING` (which supabase-js does whenever you chain .select())
+-- applies SELECT policies to the new row. During onboarding the creator is not
+-- a member yet — membership is inserted in the next step — so without this the
+-- insert fails with the misleading error "new row violates row-level security
+-- policy for table clinics", even though the WITH CHECK passed.
 drop policy if exists clinics_select_members on public.clinics;
 create policy clinics_select_members
   on public.clinics for select to authenticated
-  using (public.is_active_member(id));
+  using (public.is_active_member(id) or created_by = auth.uid());
 
 -- Anyone signed in may create a clinic (they become its first admin, in a
 -- transaction in application code).
