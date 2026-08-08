@@ -40,6 +40,41 @@ That single decision drives the data model below.
 > Types: `PERSONAL_CHAMBER` · `CLINIC` · `HOSPITAL` · `TELEMEDICINE` · `OTHER`.
 > Roles: `DOCTOR` · `RECEPTIONIST` · `LOCATION_ADMIN`.
 
+### 2.1 Future ecosystem readiness (checked 2026-08-08, Phase 2.6)
+
+The current schema was reviewed against the planned public platform — doctor
+discovery, verification, verified ratings, dynamic schedules, subscriptions.
+
+**Verdict: no schema change required now.** Everything future is either a new
+table or a nullable additive column, neither of which is blocked by what exists.
+The one genuinely irreversible question — whether a public booking account and a
+doctor's clinical record are the same identity — is settled in ADR 0002 and
+binds Phase 3.
+
+| Future capability | How it lands | Blocked today? |
+|---|---|---|
+| Public doctor profile, slug, bio, languages | nullable columns on `doctor_profiles` | no |
+| Verification states | nullable column, defaults `UNVERIFIED` | no |
+| Verified ratings | new tables, anchored to a COMPLETED appointment | no |
+| Recurring schedules + date overrides | new tables keyed by `practice_location_id` | no |
+| Subscriptions | new tables; must never touch reputation | no |
+| Patient accounts / public booking | new table + **nullable** `patients.patient_account_id` | **constrains Phase 3** |
+| Facility directory ("all doctors at X") | new `facilities` table + nullable FK | no (deferred, ADR 0004) |
+
+Decision records: `docs/decisions/`
+0001 doctor-owned tenancy · 0002 accounts vs records · 0003 verification &
+rating integrity · 0004 practice locations vs facilities.
+
+**Risks accepted, not solved:**
+
+- `practice_locations` rows are per-doctor, so one real hospital appears many
+  times with inconsistent spelling. Backfilling into a canonical `facilities`
+  row later is tedious but additive (ADR 0004).
+- `bmdc_registration_no` is self-asserted and unverified. Safe today; must not
+  be rendered publicly without a verification state (ADR 0003).
+- `doctor_profiles.patient_number_seq` is a counter on a row. Phase 3 must
+  increment it atomically or concurrent patient creation issues duplicates.
+
 ### Superseded reasoning (kept for context)
 
 Decided 2026-08-07 after weighing two conflicting requirements: the doctor wants

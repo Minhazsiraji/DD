@@ -61,6 +61,21 @@ clinic-owned EMR.**
 Roles: `DOCTOR` · `RECEPTIONIST` · `LOCATION_ADMIN`.
 Location types: `PERSONAL_CHAMBER` · `CLINIC` · `HOSPITAL` · `TELEMEDICINE` · `OTHER`.
 
+**A public patient account is NOT a patient record** (ADR 0002). `patients` is a
+doctor's clinical record; a future `patient_accounts` is a human's booking login.
+When building `patients`:
+
+- include a **nullable** `patient_account_id` (null is the normal case — most
+  patients are walk-ins and will never have an account)
+- **never put `patient_account_id` in a clinical RLS predicate.** Authorization
+  keys off `owner_doctor_id` + `practice_location_id` only. Joining on the
+  account is exactly how one doctor's records leak into another's.
+- allocate `patient_number` with `UPDATE … SET seq = seq + 1 RETURNING` on
+  `doctor_profiles` — a read-then-write races and issues duplicate numbers.
+
+Irreversible decisions live in `docs/decisions/`. Read the relevant ADR before
+changing tenancy, patient identity, ratings, or location modelling.
+
 **Drizzle + RLS.** Drizzle owns schema/migrations/typed queries. Request-path
 queries run with the user's JWT so RLS applies. The service role lives only in
 `src/db/admin.ts` — never import it from feature code.
