@@ -7,6 +7,7 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { requireUser, ACTIVE_LOCATION_COOKIE } from "@/lib/auth/session";
 import { emitAudit } from "@/lib/audit/emit";
 import type { ActionState } from "@/features/auth/schema";
+import { addLocationSchema } from "./schema";
 
 /**
  * Adding another place the doctor practises.
@@ -19,14 +20,8 @@ import type { ActionState } from "@/features/auth/schema";
  * Only the clinical events are location-scoped. See docs/architecture.md §2.
  */
 
-export const addLocationSchema = z.object({
-  name: z.string().trim().min(2, "Enter a name").max(160),
-  type: z.enum(["PERSONAL_CHAMBER", "CLINIC", "HOSPITAL", "TELEMEDICINE", "OTHER"]),
-  address: z.string().trim().max(300).optional().or(z.literal("")),
-  district: z.string().trim().max(120).optional().or(z.literal("")),
-  phone: z.string().trim().max(40).optional().or(z.literal("")),
-  makeActive: z.coerce.boolean().optional(),
-});
+// NOTE: this file is "use server" — it may export ONLY async functions.
+// addLocationSchema lives in ./schema.ts for that reason. See schema.ts.
 
 const optional = (v: FormDataEntryValue | null) => {
   const s = typeof v === "string" ? v.trim() : "";

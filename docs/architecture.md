@@ -61,9 +61,12 @@ binds Phase 3.
 | Patient accounts / public booking | new table + **nullable** `patients.patient_account_id` | **constrains Phase 3** |
 | Facility directory ("all doctors at X") | new `facilities` table + nullable FK | no (deferred, ADR 0004) |
 
+| Public profile sharing, social previews | nullable columns + new tables | no (ADR 0005) |
+
 Decision records: `docs/decisions/`
 0001 doctor-owned tenancy · 0002 accounts vs records · 0003 verification &
-rating integrity · 0004 practice locations vs facilities.
+rating integrity · 0004 practice locations vs facilities · 0005 profile sharing
+and discovery.
 
 **Risks accepted, not solved:**
 
