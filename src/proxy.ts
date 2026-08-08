@@ -16,7 +16,15 @@ import { publicEnv } from "@/lib/env";
  * Never let this file be the only thing standing between a user and data.
  */
 
-const PUBLIC_PATHS = ["/login", "/signup", "/forgot-password", "/reset-password"];
+const PUBLIC_PATHS = [
+  "/login",
+  "/signup",
+  "/forgot-password",
+  "/reset-password",
+  // Version marker. Must stay reachable signed-out, or it cannot answer the
+  // one question it exists for: which commit is live?
+  "/api/health",
+];
 const AUTH_ONLY_PATHS = ["/onboarding"];
 
 function isPublic(pathname: string): boolean {
@@ -67,7 +75,14 @@ export async function proxy(request: NextRequest) {
     return NextResponse.redirect(url);
   }
 
-  if (user && isPublic(pathname) && !pathname.startsWith("/auth/")) {
+  // Signed-in users get bounced off the sign-in screens — but never off API
+  // routes, which must answer identically regardless of session.
+  if (
+    user &&
+    isPublic(pathname) &&
+    !pathname.startsWith("/auth/") &&
+    !pathname.startsWith("/api/")
+  ) {
     const url = request.nextUrl.clone();
     url.pathname = "/dashboard";
     url.search = "";
