@@ -1,6 +1,14 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { Building2, Hospital, Video, Check, ShieldCheck, ChevronRight } from "lucide-react";
+import {
+  Building2,
+  Hospital,
+  Video,
+  Check,
+  ShieldCheck,
+  ChevronRight,
+  Stethoscope,
+} from "lucide-react";
 import { cookies } from "next/headers";
 import { PageHeader } from "@/components/common/page-header";
 import { SectionCard, SectionHeader } from "@/components/common/section-card";
@@ -119,6 +127,24 @@ export default async function SettingsPage() {
         </ul>
 
         <AddLocationForm />
+      </SectionCard>
+
+      <SectionCard className="overflow-hidden">
+        <SectionHeader title="Your profile" icon={<Stethoscope className="size-4" />} />
+        <div className="p-4 sm:p-5">
+          <Link
+            href="/settings/profile"
+            className="inline-flex h-10 items-center gap-2 rounded-xl border border-hairline bg-white px-4 text-sm font-semibold text-ink transition-colors hover:bg-surface-muted focus-visible:focus-ring"
+          >
+            <Stethoscope className="size-4 text-brand" aria-hidden="true" />
+            Qualifications, signature &amp; prescription layout
+            <ChevronRight className="size-4 text-ink-muted" aria-hidden="true" />
+          </Link>
+          <p className="mt-2 text-xs text-ink-muted">
+            What prints at the top of your prescription — your name, BMDC
+            number, chamber address and the paper itself.
+          </p>
+        </div>
       </SectionCard>
 
       <SectionCard className="overflow-hidden">

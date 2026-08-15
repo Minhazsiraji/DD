@@ -93,8 +93,16 @@ export const doctorProfiles = pgTable(
       .references(() => profiles.id, { onDelete: "cascade" }),
     qualification: text("qualification"),
     specialization: text("specialization"),
-    /** Bangladesh Medical & Dental Council registration. */
+    /** e.g. "Associate Professor", "Consultant". Prints under the name. */
+    designation: text("designation"),
+    /**
+     * Bangladesh Medical & Dental Council registration.
+     *
+     * SELF-ASSERTED and unverified (ADR 0003). Safe on the doctor's own
+     * prescription; must never be rendered publicly as a verified credential.
+     */
     bmdcRegistrationNo: text("bmdc_registration_no"),
+    /** Storage path in the private `doctor-assets` bucket, not a public URL. */
     signatureUrl: text("signature_url"),
     /** Prefix for this doctor's own patient numbering, e.g. "AR" -> AR-000124. */
     patientNumberPrefix: text("patient_number_prefix").notNull().default("PT"),
@@ -103,6 +111,71 @@ export const doctorProfiles = pgTable(
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [uniqueIndex("doctor_profiles_user_id_key").on(t.userId)],
+);
+
+export const paperSize = pgEnum("paper_size", ["A4", "A5"]);
+
+/**
+ * How a doctor's prescription looks — header, footer and paper.
+ *
+ * Configured ONCE and then reused, which is the point: a doctor's prescription
+ * is part of their professional identity, and software that reformats it is
+ * software they resent. This holds the layout only; the prescription contents
+ * are a later phase.
+ *
+ * A template may be scoped to one practice location (a hospital pad differs
+ * from a private chamber pad) or apply everywhere when practice_location_id is
+ * null. Exactly one default per (doctor, location).
+ */
+export const prescriptionTemplates = pgTable(
+  "prescription_templates",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    ownerDoctorId: uuid("owner_doctor_id")
+      .notNull()
+      .references(() => doctorProfiles.id, { onDelete: "cascade" }),
+    /** Null = applies at every location this doctor practises in. */
+    practiceLocationId: uuid("practice_location_id").references(
+      () => practiceLocations.id,
+      { onDelete: "cascade" },
+    ),
+
+    name: text("name").notNull(),
+    isDefault: boolean("is_default").notNull().default(false),
+
+    paperSize: paperSize("paper_size").notNull().default("A4"),
+    marginMm: integer("margin_mm").notNull().default(15),
+    baseFontPt: integer("base_font_pt").notNull().default(11),
+
+    /**
+     * Many chambers print on pre-printed letterhead. Rendering our own header
+     * on top of that produces a duplicated, unusable prescription — so the
+     * header must be switchable off entirely, not merely restyled.
+     */
+    showHeader: boolean("show_header").notNull().default(true),
+    showClinicLogo: boolean("show_clinic_logo").notNull().default(false),
+    /** Overrides the location name on the printed header when set. */
+    clinicNameOverride: text("clinic_name_override"),
+    headerNote: text("header_note"),
+
+    showQualification: boolean("show_qualification").notNull().default(true),
+    showSpecialization: boolean("show_specialization").notNull().default(true),
+    showDesignation: boolean("show_designation").notNull().default(true),
+    showBmdc: boolean("show_bmdc").notNull().default(true),
+    showChamberAddress: boolean("show_chamber_address").notNull().default(true),
+    showChamberPhone: boolean("show_chamber_phone").notNull().default(true),
+
+    showFooter: boolean("show_footer").notNull().default(true),
+    footerText: text("footer_text"),
+    showSignature: boolean("show_signature").notNull().default(true),
+
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("prescription_templates_owner_idx").on(t.ownerDoctorId),
+    index("prescription_templates_location_idx").on(t.practiceLocationId),
+  ],
 );
 
 export const practiceLocations = pgTable(
@@ -501,4 +574,6 @@ export type PatientMedication = typeof patientMedications.$inferSelect;
 export type PatientAlert = typeof patientAlerts.$inferSelect;
 export type PatientContact = typeof patientContacts.$inferSelect;
 export type PatientPrivateNote = typeof patientPrivateNotes.$inferSelect;
+export type PrescriptionTemplate = typeof prescriptionTemplates.$inferSelect;
+
 

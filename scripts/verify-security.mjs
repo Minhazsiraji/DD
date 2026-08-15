@@ -21,6 +21,7 @@ const TABLES = [
   "practice_locations",
   "practice_location_members",
   "audit_events",
+  "prescription_templates",
 ];
 
 const sql = postgres(url, { max: 1, prepare: false, onnotice: () => {} });

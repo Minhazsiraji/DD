@@ -24,6 +24,13 @@ export type AuditAction =
   | "profile.updated"
   | "doctor_profile.created"
   | "doctor_profile.updated"
+  | "doctor_profile.signature_set"
+  | "doctor_profile.signature_removed"
+  // Prescription LAYOUT only. No prescription contents exist yet.
+  | "prescription_template.created"
+  | "prescription_template.updated"
+  | "prescription_template.deleted"
+  | "prescription_template.default_set"
   | "location.created"
   | "location.updated"
   | "location.switched"

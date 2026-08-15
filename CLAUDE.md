@@ -5,8 +5,11 @@
 AI-enabled clinical + chamber operating system for doctors. One responsive
 Next.js app (desktop, tablet, mobile, installable PWA). No separate native app.
 
-**Current phase: Phase 1 complete** (scaffold, design system, app shell, mock
-dashboard). Next: Phase 2 — auth, doctor profile, clinic, RBAC + RLS + audit.
+**Current phase: Stage 3 complete + doctor profile / prescription templates.**
+Done: scaffold and design system (1), auth + RBAC + RLS + audit (2), MFA and
+device security (2.5), ADRs (2.6), patients (3) with two hardening rounds, and
+doctor identity + customisable prescription-template settings with an A4
+preview. Next: Stage 4 — appointments. The prescription ENGINE is not built.
 
 Detailed architecture: `docs/architecture.md` (do not load unless needed).
 
@@ -135,6 +138,15 @@ squeeze — and it hides the bottom nav.
   compound parts have the same requirement, and always open a menu/dialog/popover
   in the browser before calling it done — typecheck will not catch this class of
   bug. A crash in a shared component (e.g. `TopBar`) takes down the whole layout.
+- **Container queries: declare and consume on DIFFERENT elements.** `cqw`
+  resolves against the nearest *ancestor* container, so an element carrying both
+  `container-type: inline-size` and a `cqw` size silently falls back to the
+  viewport. The A4 preview hit this — text was sized as if the paper were as
+  wide as the window. Measuring the computed values did not catch it (they were
+  self-consistent, just against the wrong box); a screenshot did.
+- **Disabled inputs post nothing.** A greyed-out checkbox submits as "off", so
+  gating sub-options behind a master toggle silently wipes them on save. Render
+  a hidden input carrying the value when a control is disabled.
 - Business logic in `src/features/<domain>/`; `src/app/` is routing + composition.
 - No file over ~250 lines. No duplicated business logic.
 - Date/time formatting via `src/lib/format.ts` only — never `toLocaleDateString()`
@@ -149,6 +161,8 @@ squeeze — and it hides the bottom nav.
     npm run db:migrate    # apply migrations      (uses DIRECT_URL, port 5432)
     npm run db:policies    # re-apply supabase/policies/*.sql (idempotent)
     npm run db:verify      # assert RLS/grants/helpers are intact — run after ANY policy change
+    npm run db:verify:patients   # two doctors + staff, executed, rolled back
+    npm run db:verify:templates  # template + signature-storage isolation, same shape
 
 - **Two connection strings.** `DIRECT_URL` (session pooler, **5432**) for
   migrations and scripts; `DATABASE_URL` (transaction pooler, 6543) for app
