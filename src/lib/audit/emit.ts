@@ -30,6 +30,12 @@ export type AuditAction =
   | "location_member.invited"
   | "location_member.role_changed"
   | "location_member.removed"
+  // Patients. `meta` carries counts and field NAMES only — never clinical values.
+  | "patient.created"
+  | "patient.viewed"
+  | "patient.updated"
+  | "patient.safety_updated"
+  | "patient.merged"
   // Account & device security. Never carry a TOTP secret or code in `meta`.
   | "security.mfa_enrolled"
   | "security.mfa_removed"

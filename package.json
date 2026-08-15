@@ -14,7 +14,8 @@
     "db:generate": "node --env-file=.env.local node_modules/drizzle-kit/bin.cjs generate",
     "db:migrate": "node --env-file=.env.local node_modules/drizzle-kit/bin.cjs migrate",
     "db:policies": "node --env-file=.env.local scripts/apply-policies.mjs",
-    "db:verify": "node --env-file=.env.local scripts/verify-security.mjs"
+    "db:verify": "node --env-file=.env.local scripts/verify-security.mjs",
+    "db:verify:patients": "node --env-file=.env.local scripts/verify-patients.mjs"
   },
   "dependencies": {
     "@base-ui/react": "^1.7.0",

@@ -8,6 +8,20 @@
       "when": 1786128866259,
       "tag": "0000_parallel_mentor",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1786198483094,
+      "tag": "0001_gigantic_quicksilver",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1786198587938,
+      "tag": "0002_glorious_iceman",
+      "breakpoints": true
     }
   ]
 }
