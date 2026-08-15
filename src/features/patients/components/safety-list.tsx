@@ -41,6 +41,12 @@ export function SafetyList({
   danger?: boolean;
 }) {
   const [state, formAction] = useActionState(addSafetyItemAction, emptyState);
+  // A failed removal must be visible. Logging it to the server console would
+  // leave the doctor believing an allergy was withdrawn while it is still live.
+  const [removeState, removeAction] = useActionState(
+    removeSafetyItemAction,
+    emptyState,
+  );
   const [adding, setAdding] = React.useState(false);
   const formRef = React.useRef<HTMLFormElement>(null);
 
@@ -69,6 +75,16 @@ export function SafetyList({
         }
       />
 
+      {removeState.message ? (
+        <p
+          role="status"
+          className="flex items-start gap-2 border-b border-hairline bg-danger-soft px-4 py-2.5 text-[13px] font-medium text-[#a81c1c] sm:px-5"
+        >
+          <CircleAlert className="mt-px size-4 shrink-0" aria-hidden="true" />
+          {removeState.message}
+        </p>
+      ) : null}
+
       {items.length === 0 ? (
         <p className="px-4 py-3.5 text-[13px] text-ink-muted sm:px-5">{emptyText}</p>
       ) : (
@@ -88,7 +104,7 @@ export function SafetyList({
                   <p className="text-xs text-ink-secondary">{i.secondary}</p>
                 ) : null}
               </div>
-              <form action={removeSafetyItemAction}>
+              <form action={removeAction}>
                 <input type="hidden" name="patientId" value={patientId} />
                 <input type="hidden" name="kind" value={kind} />
                 <input type="hidden" name="id" value={i.id} />

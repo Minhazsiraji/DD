@@ -65,7 +65,9 @@ const LIST_COLUMNS =
   " patient_location_links(practice_locations(id, name))";
 
 const DETAIL_COLUMNS =
-  `${CORE_COLUMNS}, email, address, district, weight_kg, height_cm, notes,` +
+  `${CORE_COLUMNS}, email, address, district, weight_kg, height_cm,` +
+  // Notes live in their own doctor-only table — RLS filters rows, not columns.
+  " patient_private_notes(body)," +
   " patient_location_links(practice_locations(id, name))," +
   " patient_allergies(id, substance, severity, reaction, is_active)," +
   " patient_conditions(id, condition, status)," +
@@ -105,6 +107,17 @@ function toListItem(row: any, today: string): PatientListItem {
 /* eslint-enable @typescript-eslint/no-explicit-any */
 
 /**
+ * Search never "fails to empty".
+ *
+ * Returning [] on a database error tells the doctor "this patient is not
+ * registered" — which is a different and dangerous statement from "search is
+ * broken". They would go on to create a duplicate, or assume no history exists.
+ */
+export type SearchOutcome =
+  | { ok: true; patients: PatientListItem[] }
+  | { ok: false; reason: string };
+
+/**
  * Search a doctor's own patients by number, phone or name.
  *
  * The query is normalised the same way the stored columns are, so "Md. Rahim"
@@ -114,7 +127,7 @@ function toListItem(row: any, today: string): PatientListItem {
 export async function searchPatients(
   query: string,
   limit = 30,
-): Promise<PatientListItem[]> {
+): Promise<SearchOutcome> {
   const supabase = await createSupabaseServerClient();
   const today = clinicToday();
   const q = query.trim();
@@ -142,17 +155,16 @@ export async function searchPatients(
 
   const { data, error } = await request;
   if (error) {
-    // An empty list here reads as "this patient is not registered", which is
-    // exactly the wrong conclusion to hand a doctor mid-consultation.
     console.error("[patients] search failed", error.message);
-    return [];
+    return { ok: false, reason: error.message };
   }
-  if (!data) return [];
-  return data.map((row) => toListItem(row, today));
+  return { ok: true, patients: (data ?? []).map((row) => toListItem(row, today)) };
 }
 
+/** Recent patients for the dashboard. An outage shows nothing rather than lying. */
 export async function getRecentPatients(limit = 20): Promise<PatientListItem[]> {
-  return searchPatients("", limit);
+  const result = await searchPatients("", limit);
+  return result.ok ? result.patients : [];
 }
 
 /**
@@ -161,23 +173,35 @@ export async function getRecentPatients(limit = 20): Promise<PatientListItem[]> 
  * RLS confines candidates to the caller's own repository, so this can never
  * surface another doctor's patient — the check that ADR 0002 exists to protect.
  */
+/**
+ * Duplicate lookup FAILS CLOSED.
+ *
+ * If this query breaks and we return "no duplicates", the doctor is waved
+ * through and a second record for the same person is created silently — the
+ * exact outcome duplicate detection exists to prevent. Callers must block
+ * creation when `ok` is false.
+ */
+export type DuplicateOutcome =
+  | { ok: true; matches: DuplicateMatch[] }
+  | { ok: false; reason: string };
+
 export async function findPossibleDuplicates(input: {
   fullName: string;
   phone?: string | null;
   ageYears?: number | null;
-}): Promise<DuplicateMatch[]> {
+}): Promise<DuplicateOutcome> {
   const supabase = await createSupabaseServerClient();
   const today = clinicToday();
 
   const nameNormalized = normalizeName(input.fullName);
   const phoneNormalized = normalizePhone(input.phone);
-  if (!nameNormalized && !phoneNormalized) return [];
+  if (!nameNormalized && !phoneNormalized) return { ok: true, matches: [] };
 
   const firstToken = nameNormalized.split(" ")[0] ?? "";
   const clauses: string[] = [];
   if (phoneNormalized) clauses.push(`phone_normalized.eq.${phoneNormalized}`);
   if (firstToken.length >= 2) clauses.push(`name_normalized.ilike.%${firstToken}%`);
-  if (clauses.length === 0) return [];
+  if (clauses.length === 0) return { ok: true, matches: [] };
 
   const { data, error } = await supabase
     .from("patients")
@@ -190,12 +214,10 @@ export async function findPossibleDuplicates(input: {
     .limit(40);
 
   if (error) {
-    // Failing open here would suppress a duplicate warning — worse than
-    // showing one, because it silently creates a second record.
     console.error("[patients] duplicate lookup failed", error.message);
-    return [];
+    return { ok: false, reason: error.message };
   }
-  if (!data) return [];
+  if (!data) return { ok: false, reason: "no response" };
 
   /* eslint-disable @typescript-eslint/no-explicit-any */
   // PostgREST cannot infer a hand-written select string, so the row shape is
@@ -218,10 +240,13 @@ export async function findPossibleDuplicates(input: {
   }));
   /* eslint-enable @typescript-eslint/no-explicit-any */
 
-  return findDuplicates(
-    { nameNormalized, phoneNormalized, ageYears: input.ageYears ?? null },
-    candidates,
-  );
+  return {
+    ok: true,
+    matches: findDuplicates(
+      { nameNormalized, phoneNormalized, ageYears: input.ageYears ?? null },
+      candidates,
+    ),
+  };
 }
 
 export interface PatientDetail extends PatientListItem {
@@ -273,7 +298,7 @@ export async function getPatient(id: string): Promise<PatientDetail | null> {
     district: row.district ?? null,
     weightKg: row.weight_kg ?? null,
     heightCm: row.height_cm ?? null,
-    notes: row.notes ?? null,
+    notes: (row.patient_private_notes ?? [])[0]?.body ?? null,
     dob: row.dob ?? null,
     dobPrecision: row.dob_precision,
     allergies: (row.patient_allergies ?? [])
@@ -301,3 +326,4 @@ export async function getPatient(id: string): Promise<PatientDetail | null> {
   };
   /* eslint-enable @typescript-eslint/no-explicit-any */
 }
+

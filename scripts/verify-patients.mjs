@@ -58,6 +58,7 @@ async function as(tx, uid, fn) {
 const uidA = crypto.randomUUID();
 const uidB = crypto.randomUUID();
 const uidR = crypto.randomUUID(); // receptionist at Doctor A's hospital
+const uidM = crypto.randomUUID(); // location admin at Doctor A's hospital
 
 try {
   await sql.begin(async (tx) => {
@@ -66,6 +67,7 @@ try {
       [uidA, "Dr A"],
       [uidB, "Dr B"],
       [uidR, "Reception R"],
+      [uidM, "Admin M"],
     ]) {
       await tx`insert into auth.users (id, email) values (${uid}, ${`${uid}@qa.invalid`})`;
       await tx`insert into public.profiles (id, full_name) values (${uid}, ${name})`;
@@ -89,7 +91,8 @@ try {
     await tx`insert into public.practice_location_members (practice_location_id, user_id, role, status)
              values (${hospital.id}, ${uidA}, 'DOCTOR', 'ACTIVE'),
                     (${chamber.id},  ${uidA}, 'DOCTOR', 'ACTIVE'),
-                    (${hospital.id}, ${uidR}, 'RECEPTIONIST', 'ACTIVE')`;
+                    (${hospital.id}, ${uidR}, 'RECEPTIONIST', 'ACTIVE'),
+                    (${hospital.id}, ${uidM}, 'LOCATION_ADMIN', 'ACTIVE')`;
 
     // ---- 1. Doctor A creates a patient -------------------------------------
     console.log("\nOwnership");
@@ -119,6 +122,12 @@ try {
                values (${patientA.id}, 'Antiretroviral')`;
       await tx`insert into public.patient_alerts (patient_id, message)
                values (${patientA.id}, 'Confidential')`;
+      await tx`insert into public.patient_private_notes (patient_id, body)
+               values (${patientA.id}, 'Suspected malignancy — free clinical text')`;
+
+      const own = await tx`
+        select count(*)::int n from public.patient_private_notes where patient_id = ${patientA.id}`;
+      check(own[0].n === 1, "the owning doctor CAN read their private notes");
     });
 
     // ---- Atomic creation ----------------------------------------------------
@@ -144,6 +153,58 @@ try {
         "a failed creation leaves NO partial patient behind",
         `${before[0].n} -> ${after[0].n}`,
       );
+
+      /**
+       * Exercise the whole function, not just its failure path. Moving `notes`
+       * out of `patients` silently broke create_patient() — the body still
+       * referenced a dropped column, and nothing caught it until this ran.
+       */
+      const [ok] = await tx`select * from public.create_patient(
+        ${hospital.id}, 'Full Path', 'full path', null, 'AGE_ONLY', 33, current_date,
+        'FEMALE'::public.sex, '01822000001', '01822000001', null, null, null,
+        'O_POS'::public.blood_group, 55, 160, 'A private clinical note',
+        array['Sulfa'], array['Asthma'], array['Salbutamol'], array['Care needed'],
+        'Next of kin', '01822000002', 'Sister')`;
+      check(Boolean(ok?.patient_id), "create_patient() completes the full path");
+
+      const kids = await tx`
+        select
+          (select count(*)::int from public.patient_allergies      where patient_id = ${ok.patient_id}) a,
+          (select count(*)::int from public.patient_conditions     where patient_id = ${ok.patient_id}) c,
+          (select count(*)::int from public.patient_medications    where patient_id = ${ok.patient_id}) m,
+          (select count(*)::int from public.patient_alerts         where patient_id = ${ok.patient_id}) al,
+          (select count(*)::int from public.patient_contacts       where patient_id = ${ok.patient_id}) ct,
+          (select count(*)::int from public.patient_private_notes  where patient_id = ${ok.patient_id}) n,
+          (select count(*)::int from public.patient_location_links where patient_id = ${ok.patient_id}) l`;
+      const k = kids[0];
+      check(
+        k.a === 1 && k.c === 1 && k.m === 1 && k.al === 1 && k.ct === 1 && k.n === 1 && k.l === 1,
+        "every child row lands in the same transaction",
+        `allergy ${k.a} cond ${k.c} med ${k.m} alert ${k.al} contact ${k.ct} note ${k.n} link ${k.l}`,
+      );
+
+      /**
+       * Safety-item deletion must match the item AND the patient. Matching on
+       * the item alone would let a forged request remove an entry from a
+       * DIFFERENT patient of the same doctor, while the audit event recorded
+       * the submitted (wrong) patient.
+       */
+      const [victim] = await tx`
+        select id from public.patient_allergies where patient_id = ${ok.patient_id} limit 1`;
+      const wrongPatient = await tx`
+        delete from public.patient_allergies
+        where id = ${victim.id} and patient_id = ${patientA.id}
+        returning id`;
+      check(
+        wrongPatient.length === 0,
+        "deleting an item under the WRONG patient id removes nothing",
+      );
+
+      const rightPatient = await tx`
+        delete from public.patient_allergies
+        where id = ${victim.id} and patient_id = ${ok.patient_id}
+        returning id`;
+      check(rightPatient.length === 1, "deleting with the correct patient id works");
     });
 
     // ---- 2. Doctor B is fully isolated -------------------------------------
@@ -270,6 +331,35 @@ try {
       const allergies = await tx`
         select count(*)::int n from public.patient_allergies where patient_id = ${patientA.id}`;
       check(allergies[0].n === 1, "reception CAN still read the drug-allergy safety flag");
+
+      /**
+       * RLS filters rows, not columns — so free-text clinical notes on the
+       * patients row were readable by anyone allowed to see the row at all.
+       * They now live in their own doctor-only table.
+       */
+      const notes = await tx`
+        select count(*)::int n from public.patient_private_notes where patient_id = ${patientA.id}`;
+      check(notes[0].n === 0, "reception CANNOT read private clinical notes");
+    });
+
+    // A LOCATION_ADMIN is operational and gets nothing clinical — matching the
+    // permission matrix, which the earlier policy did not.
+    console.log("\nLocation admin is operational, not clinical");
+    await as(tx, uidM, async () => {
+      const seen = await tx`select count(*)::int n from public.patients where id = ${patientA.id}`;
+      check(seen[0].n === 1, "admin can see the patient exists (operational)");
+
+      const allergies = await tx`
+        select count(*)::int n from public.patient_allergies where patient_id = ${patientA.id}`;
+      check(allergies[0].n === 0, "admin CANNOT read allergies");
+
+      const notes = await tx`
+        select count(*)::int n from public.patient_private_notes where patient_id = ${patientA.id}`;
+      check(notes[0].n === 0, "admin CANNOT read private clinical notes");
+
+      const meds = await tx`
+        select count(*)::int n from public.patient_medications where patient_id = ${patientA.id}`;
+      check(meds[0].n === 0, "admin CANNOT read medications");
     });
 
     // ---- 6. Patient number allocation is concurrency-safe ------------------

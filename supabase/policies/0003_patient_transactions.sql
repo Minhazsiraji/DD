@@ -59,14 +59,22 @@ begin
     owner_doctor_id, patient_number, full_name, name_normalized,
     dob, dob_precision, approx_age_years, age_recorded_on, sex,
     phone, phone_normalized, email, address, district,
-    blood_group, weight_kg, height_cm, notes, created_by
+    blood_group, weight_kg, height_cm, created_by
   ) values (
     v_doctor, v_number, p_full_name, p_name_normalized,
     p_dob, p_dob_precision, p_approx_age_years, p_age_recorded_on, p_sex,
     p_phone, p_phone_normalized, p_email, p_address, p_district,
-    p_blood_group, p_weight_kg, p_height_cm, p_notes, auth.uid()
+    p_blood_group, p_weight_kg, p_height_cm, auth.uid()
   )
   returning id into v_id;
+
+  -- Notes are clinical free text and live in their own doctor-only table:
+  -- RLS filters rows, not columns, so a note on the patients row would have
+  -- been readable by any staff member allowed to see the patient at all.
+  if coalesce(btrim(p_notes), '') <> '' then
+    insert into public.patient_private_notes (patient_id, body, updated_by)
+    values (v_id, p_notes, auth.uid());
+  end if;
 
   if p_practice_location_id is not null then
     insert into public.patient_location_links (patient_id, practice_location_id)

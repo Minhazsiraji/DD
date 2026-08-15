@@ -78,30 +78,64 @@ export async function addSafetyItemAction(
   return { ok: true };
 }
 
-export async function removeSafetyItemAction(formData: FormData): Promise<void> {
+export async function removeSafetyItemAction(
+  _prev: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
   const patientId = String(formData.get("patientId") ?? "");
   const kindRaw = String(formData.get("kind") ?? "");
   const id = String(formData.get("id") ?? "");
-  if (!patientId || !id || !isKind(kindRaw)) return;
+
+  if (!patientId || !id || !isKind(kindRaw)) {
+    return { ok: false, message: "Something went wrong. Please try again." };
+  }
 
   const user = await requireUser();
   const ctx = await requireLocationContext();
   const supabase = await createSupabaseServerClient();
+  const { table } = TABLES[kindRaw];
 
-  const { error } = await supabase.from(TABLES[kindRaw].table).delete().eq("id", id);
+  /**
+   * Match on BOTH the item and the patient.
+   *
+   * Deleting by item id alone would let a forged request remove an item from a
+   * DIFFERENT patient of the same doctor — RLS would allow it, because the
+   * doctor does own that row — while the audit event recorded the patient id
+   * that was submitted. The trail would then point at the wrong record.
+   *
+   * `returning` also gives us proof that a row actually went, so nothing can be
+   * reported as removed when it is still there.
+   */
+  const { data: deleted, error } = await supabase
+    .from(table)
+    .delete()
+    .eq("id", id)
+    .eq("patient_id", patientId)
+    .select("id, patient_id");
+
   if (error) {
     console.error("[patients] safety item delete failed", error.message);
-    return;
+    return { ok: false, message: `Could not remove it: ${error.message}` };
+  }
+
+  if (!deleted || deleted.length === 0) {
+    // Nothing matched — a stale page, or an id that is not this patient's.
+    return {
+      ok: false,
+      message: "That entry was not removed. Refresh the page and try again.",
+    };
   }
 
   await emitAudit({
     action: kindRaw === "allergy" ? "patient.safety_updated" : "patient.updated",
     resourceType: "patient",
-    resourceId: patientId,
+    // The VERIFIED patient from the deleted row, never the submitted value.
+    resourceId: (deleted[0] as { patient_id: string }).patient_id,
     locationId: ctx.locationId,
     actorId: user.id,
     meta: { removed: kindRaw },
   });
 
   revalidatePath(`/patients/${patientId}`);
+  return { ok: true };
 }

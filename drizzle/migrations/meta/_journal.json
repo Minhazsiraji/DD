@@ -22,6 +22,13 @@
       "when": 1786198587938,
       "tag": "0002_glorious_iceman",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1786809949009,
+      "tag": "0003_peaceful_ender_wiggin",
+      "breakpoints": true
     }
   ]
 }

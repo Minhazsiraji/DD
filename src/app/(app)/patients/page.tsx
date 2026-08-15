@@ -1,8 +1,9 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { Suspense } from "react";
-import { UserPlus } from "lucide-react";
+import { UserPlus, TriangleAlert } from "lucide-react";
 import { PageHeader } from "@/components/common/page-header";
+import { SectionCard } from "@/components/common/section-card";
 import { PatientSearch } from "@/features/patients/components/patient-search";
 import { PatientList } from "@/features/patients/components/patient-list";
 import { SectionSkeleton } from "@/components/common/skeletons";
@@ -11,7 +12,33 @@ import { searchPatients } from "@/features/patients/queries";
 export const metadata: Metadata = { title: "Patients" };
 
 async function Results({ query }: { query: string }) {
-  const patients = await searchPatients(query);
+  const result = await searchPatients(query);
+
+  /**
+   * An outage must never render as "no patient found". That reads as "this
+   * person is not registered", and the doctor would go on to create a duplicate
+   * or assume there is no history.
+   */
+  if (!result.ok) {
+    return (
+      <SectionCard className="overflow-hidden border-l-4 border-l-danger">
+        <div className="flex items-start gap-3 p-4 sm:p-5">
+          <TriangleAlert className="mt-0.5 size-5 shrink-0 text-danger" aria-hidden="true" />
+          <div>
+            <p className="text-sm font-semibold text-ink">
+              Patient search is temporarily unavailable
+            </p>
+            <p className="mt-1 text-[13px] text-ink-secondary">
+              This is not the same as “no patient found”. Do not register a new
+              record for someone who may already exist — try again in a moment.
+            </p>
+          </div>
+        </div>
+      </SectionCard>
+    );
+  }
+
+  const { patients } = result;
   return (
     <>
       <p className="text-xs text-ink-muted" role="status">

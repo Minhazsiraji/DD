@@ -119,15 +119,31 @@ export async function createPatientAction(
    * auto-merge — it surfaces the candidates and lets a human decide.
    */
   if (!v.confirmedNotDuplicate) {
-    const duplicates = await findPossibleDuplicates({
+    const outcome = await findPossibleDuplicates({
       fullName: v.fullName,
       phone: v.phone,
       ageYears,
     });
-    if (duplicates.length > 0) {
+
+    /**
+     * FAIL CLOSED. If the duplicate check itself broke, waving the doctor
+     * through would silently create a second record for the same person —
+     * precisely what this check exists to prevent. Better to stop and say so.
+     */
+    if (!outcome.ok) {
       return {
         ok: false,
-        duplicates,
+        values: echo(formData),
+        message:
+          "Duplicate checking is unavailable right now, so this patient was not saved. " +
+          "Please try again shortly rather than risk creating a second record.",
+      };
+    }
+
+    if (outcome.matches.length > 0) {
+      return {
+        ok: false,
+        duplicates: outcome.matches,
         values: echo(formData),
         message: "This may already be one of your patients. Check before continuing.",
       };
@@ -247,13 +263,32 @@ export async function updatePatientAction(
       blood_group: v.bloodGroup,
       weight_kg: v.weightKg ?? null,
       height_cm: v.heightCm ?? null,
-      notes: empty(v.notes),
       updated_at: new Date().toISOString(),
     })
     .eq("id", id);
 
   if (error) {
     return { ok: false, values: echo(formData), message: `Could not update the patient: ${error.message}` };
+  }
+
+  // Clinical free text lives in its own doctor-only table (see ADR/RLS notes).
+  const notes = empty(v.notes);
+  if (notes) {
+    const { error: noteError } = await supabase
+      .from("patient_private_notes")
+      .upsert(
+        { patient_id: id, body: notes, updated_by: user.id, updated_at: new Date().toISOString() },
+        { onConflict: "patient_id" },
+      );
+    if (noteError) {
+      return {
+        ok: false,
+        values: echo(formData),
+        message: `Demographics saved, but the note did not: ${noteError.message}`,
+      };
+    }
+  } else {
+    await supabase.from("patient_private_notes").delete().eq("patient_id", id);
   }
 
   await emitAudit({

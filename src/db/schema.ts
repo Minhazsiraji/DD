@@ -305,7 +305,15 @@ export const patients = pgTable(
     heightCm: numeric("height_cm"),
     weightKg: numeric("weight_kg"),
 
-    notes: text("notes"),
+    /**
+     * NOTE: free-text clinical notes are NOT here. They live in
+     * patient_private_notes, which is doctor-only.
+     *
+     * RLS is row-level, not column-level, so any staff member allowed to see
+     * the patient row could read every column on it — including a note reading
+     * "suspected malignancy". Splitting the table is the only way to withhold
+     * one column from a role that legitimately needs the rest of the row.
+     */
     isDeceased: boolean("is_deceased").notNull().default(false),
 
     /** Future in-repository merge. Never used across doctors. */
@@ -326,6 +334,30 @@ export const patients = pgTable(
     index("patients_owner_name_idx").on(t.ownerDoctorId, t.nameNormalized),
     index("patients_account_idx").on(t.patientAccountId),
   ],
+);
+
+/**
+ * Free-text clinical notes about a patient. DOCTOR ONLY.
+ *
+ * Separated from `patients` because Postgres RLS filters rows, not columns:
+ * reception needs the patient row to book an appointment, and would otherwise
+ * read this alongside it.
+ */
+export const patientPrivateNotes = pgTable(
+  "patient_private_notes",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    patientId: uuid("patient_id")
+      .notNull()
+      .references(() => patients.id, { onDelete: "cascade" }),
+    body: text("body").notNull(),
+    updatedBy: uuid("updated_by").references(() => profiles.id, {
+      onDelete: "set null",
+    }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("patient_private_notes_patient_key").on(t.patientId)],
 );
 
 /**
@@ -468,3 +500,5 @@ export type PatientCondition = typeof patientConditions.$inferSelect;
 export type PatientMedication = typeof patientMedications.$inferSelect;
 export type PatientAlert = typeof patientAlerts.$inferSelect;
 export type PatientContact = typeof patientContacts.$inferSelect;
+export type PatientPrivateNote = typeof patientPrivateNotes.$inferSelect;
+
