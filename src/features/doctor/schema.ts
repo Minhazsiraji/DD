@@ -115,20 +115,52 @@ export const DEFAULT_TEMPLATE: TemplateSettings = {
 };
 
 /**
- * The template that would be used at a location: the location-specific default
- * if one exists, otherwise the doctor's global default. Pure, so the rule that
- * decides which paper a prescription prints on is testable on its own — the
- * prescription engine will call this same function later.
+ * The layout used when a doctor has chosen none. Not stored, not editable, and
+ * never marked default — it is the floor of the fallback chain so that
+ * "which paper does this print on?" always has an answer.
+ */
+export const SYSTEM_TEMPLATE: TemplateSettings = {
+  ...DEFAULT_TEMPLATE,
+  name: "Standard (built-in)",
+  isDefault: false,
+};
+
+export type TemplateSource = "location" | "global" | "system";
+
+export interface ResolvedTemplate {
+  template: TemplateSettings;
+  source: TemplateSource;
+}
+
+/**
+ * Which template prints at a location.
+ *
+ * The database enforces AT MOST ONE default per scope — not exactly one, since
+ * deleting the default legitimately leaves zero. So resolution is a fallback
+ * chain rather than a lookup:
+ *
+ *     location default -> global default -> built-in system template
+ *
+ * Nothing is auto-promoted. A doctor who deletes their default gets the plain
+ * built-in layout, not an arbitrary survivor of their own list — silently
+ * promoting one would change what prints without the doctor asking for it.
+ *
+ * Pure, and returns the SOURCE as well as the template, so the UI can say which
+ * rule fired. The prescription engine will call this same function.
  */
 export function resolveTemplateForLocation(
   templates: TemplateSettings[],
   locationId: string | null,
-): TemplateSettings | null {
+): ResolvedTemplate {
   const scoped = templates.find(
     (t) => t.isDefault && locationId !== null && t.practiceLocationId === locationId,
   );
-  if (scoped) return scoped;
-  return templates.find((t) => t.isDefault && t.practiceLocationId === null) ?? null;
+  if (scoped) return { template: scoped, source: "location" };
+
+  const global = templates.find((t) => t.isDefault && t.practiceLocationId === null);
+  if (global) return { template: global, source: "global" };
+
+  return { template: SYSTEM_TEMPLATE, source: "system" };
 }
 
 /** Paper dimensions in millimetres — used to size the preview truthfully. */

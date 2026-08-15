@@ -76,7 +76,7 @@ const idx = await sql`
     and indexname like '%default%'`;
 check(
   idx.length === 2,
-  "partial unique indexes enforce one default per scope",
+  "partial unique indexes enforce AT MOST one default per scope",
   idx.map((i) => i.indexname).join(", "),
 );
 
@@ -96,6 +96,25 @@ const storagePolicies = await sql`
   select policyname from pg_policies
   where schemaname = 'storage' and tablename = 'objects' and policyname like 'doctor_assets%'`;
 check(storagePolicies.length === 4, "storage policies for all four verbs", `${storagePolicies.length} found`);
+
+console.log("\nIdentity + scoping functions");
+const fns = await sql`
+  select p.proname, p.prosecdef, p.proconfig
+  from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+  where n.nspname = 'public'
+    and p.proname in ('update_doctor_identity', 'may_scope_template_to')`;
+
+for (const name of ["update_doctor_identity", "may_scope_template_to"]) {
+  const fn = fns.find((f) => f.proname === name);
+  check(Boolean(fn), `${name}: exists`);
+  // INVOKER, so RLS still applies — these exist for atomicity and clarity,
+  // never to escalate privilege.
+  check(fn?.prosecdef === false, `${name}: SECURITY INVOKER`);
+  check(
+    (fn?.proconfig ?? []).some((c) => c.startsWith("search_path=")),
+    `${name}: search_path pinned`,
+  );
+}
 
 // ---------------------------------------------------------------------------
 // Executed isolation.
@@ -215,12 +234,106 @@ try {
         from public.prescription_templates where owner_doctor_id = ${docA.id}`;
 
       const globals = rows.filter((r) => r.practice_location_id === null && r.is_default);
-      check(globals.length === 1, "exactly one global default after promotion");
+      check(globals.length === 1, "one global default after promotion");
       check(globals[0]?.id === second.id, "the promoted template is the new default");
       check(
         rows.find((r) => r.id === hospitalTpl.id)?.is_default === true,
         "promoting a global default leaves the location default alone",
       );
+    });
+
+    // -----------------------------------------------------------------------
+    // A location-scoped template requires a DOCTOR role at that location.
+    // -----------------------------------------------------------------------
+    console.log("\nLocation scoping requires DOCTOR");
+
+    // Doctor A is RECEPTIONIST — not DOCTOR — at this third location.
+    const [deskOnly] = await tx`
+      insert into public.practice_locations (name, type, created_by)
+      values ('QA Front Desk', 'CLINIC', ${uidA}) returning id`;
+    await tx`insert into public.practice_location_members (practice_location_id, user_id, role, status)
+             values (${deskOnly.id}, ${uidA}, 'RECEPTIONIST', 'ACTIVE')`;
+
+    await as(tx, uidA, async () => {
+      const denied = await expectDenied(tx, async (t) => {
+        await t`insert into public.prescription_templates
+                  (owner_doctor_id, practice_location_id, name)
+                values (${docA.id}, ${deskOnly.id}, 'Desk pad')`;
+      });
+      check(denied, "cannot scope a template to a location where they are only RECEPTIONIST");
+
+      const [ok] = await tx`
+        insert into public.prescription_templates
+          (owner_doctor_id, practice_location_id, name)
+        values (${docA.id}, ${chamber.id}, 'Chamber pad') returning id`;
+      check(Boolean(ok?.id), "can scope a template where they hold DOCTOR");
+
+      // Moving an existing template to a non-doctor location must fail too —
+      // WITH CHECK on UPDATE, not just INSERT.
+      const moveDenied = await expectDenied(tx, async (t) => {
+        await t`update public.prescription_templates
+                   set practice_location_id = ${deskOnly.id}
+                 where id = ${ok.id}`;
+      });
+      check(moveDenied, "cannot MOVE a template to a reception-only location");
+    });
+
+    // -----------------------------------------------------------------------
+    // Identity updates are one transaction.
+    // -----------------------------------------------------------------------
+    console.log("\nAtomic identity update");
+    await as(tx, uidA, async () => {
+      await tx`select public.update_doctor_identity(
+        'Dr A Updated', '01700000001', 'MBBS', 'Cardiology', 'Consultant', 'A-1', 'AA')`;
+
+      const [p] = await tx`select full_name, phone from public.profiles where id = ${uidA}`;
+      const [d] = await tx`
+        select qualification, designation, patient_number_prefix, patient_number_seq
+        from public.doctor_profiles where id = ${docA.id}`;
+
+      check(p.full_name === "Dr A Updated" && d.qualification === "MBBS",
+        "both tables updated by one call");
+      check(d.patient_number_seq === 0, "patient_number_seq is never overwritten");
+    });
+
+    // Force the SECOND write to fail and prove the FIRST is rolled back.
+    await tx`alter table public.doctor_profiles
+             add constraint qa_block_prefix check (patient_number_prefix <> 'ZZ')`;
+
+    await as(tx, uidA, async () => {
+      const raised = await expectDenied(tx, async (t) => {
+        await t`select public.update_doctor_identity(
+          'Name That Must Not Stick', null, null, null, null, null, 'ZZ')`;
+      });
+      check(raised, "identity update fails when the doctor row cannot be written");
+
+      const [p] = await tx`select full_name from public.profiles where id = ${uidA}`;
+      check(
+        p.full_name === "Dr A Updated",
+        "the name did NOT change when the doctor row failed",
+        p.full_name,
+      );
+    });
+
+    await tx`alter table public.doctor_profiles drop constraint qa_block_prefix`;
+
+    // -----------------------------------------------------------------------
+    // "At most one" default — zero is a legitimate state.
+    // -----------------------------------------------------------------------
+    console.log("\nDefault semantics");
+    await as(tx, uidA, async () => {
+      await tx`update public.prescription_templates
+                  set is_default = false
+                where owner_doctor_id = ${docA.id}`;
+      const [none] = await tx`
+        select count(*)::int as n from public.prescription_templates
+        where owner_doctor_id = ${docA.id} and is_default`;
+      check(none.n === 0, "a doctor may have NO default at all (fallback handles it)");
+
+      const [remaining] = await tx`
+        select count(*)::int as n from public.prescription_templates
+        where owner_doctor_id = ${docA.id}`;
+      check(remaining.n > 0, "templates still exist — none was auto-promoted", `${remaining.n}`);
     });
 
     console.log("\nSignature objects");
@@ -245,6 +358,19 @@ try {
         where bucket_id = 'doctor-assets' and name = ${`${uidA}/signature.png`}`;
       check(seen.n === 0, "Doctor B cannot read Doctor A's signature object");
     });
+
+    /**
+     * NOT verifiable here: Supabase blocks direct SQL deletion from
+     * storage.objects, so the delete path only exists through the Storage API.
+     *
+     * What matters about it: a storage delete blocked by RLS removes nothing
+     * and raises NOTHING — `remove()` returns an empty list with no error.
+     * Trusting the absence of an error made removeSignatureAction report
+     * "Signature removed" while the image was still in the bucket. It now
+     * checks the returned rows instead. That behaviour was reproduced through
+     * the browser by dropping doctor_assets_delete, and is guarded in the
+     * action itself.
+     */
 
     throw new Error("__rollback__");
   });

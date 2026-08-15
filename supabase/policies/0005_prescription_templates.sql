@@ -55,7 +55,11 @@ create policy prescription_templates_delete
 grant select, insert, update, delete on public.prescription_templates to authenticated;
 
 -- -----------------------------------------------------------------------------
--- "Exactly one default per (doctor, location)" enforced in the DATABASE.
+-- "AT MOST one default per (doctor, location)" enforced in the DATABASE.
+--
+-- Not "exactly one": deleting the default leaves zero, and that is a valid
+-- state — a doctor may deliberately keep no custom default. Resolution falls
+-- back (location -> global -> built-in); see 0006 and resolveTemplateForLocation.
 --
 -- Doing this in application code alone means two tabs, or a retry, can leave a
 -- doctor with two defaults and a prescription that renders unpredictably.

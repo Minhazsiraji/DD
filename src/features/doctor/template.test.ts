@@ -4,6 +4,7 @@ import {
   doctorProfileSchema,
   templateSchema,
   DEFAULT_TEMPLATE,
+  SYSTEM_TEMPLATE,
   PAPER_MM,
 } from "./schema";
 import type { TemplateSettings } from "./schema";
@@ -17,38 +18,86 @@ const make = (over: Partial<TemplateSettings>): TemplateSettings => ({
 const CHAMBER = "11111111-1111-4111-8111-111111111111";
 const HOSPITAL = "22222222-2222-4222-8222-222222222222";
 
+/**
+ * The fallback chain: location default -> global default -> built-in.
+ *
+ * The database enforces AT MOST one default per scope, never "exactly one", so
+ * zero defaults is a state these tests must cover rather than assume away.
+ */
 describe("resolveTemplateForLocation", () => {
+  const GLOBAL = make({ id: "g", name: "General", practiceLocationId: null, isDefault: true });
+  const AT_HOSPITAL = make({
+    id: "h",
+    name: "Hospital",
+    practiceLocationId: HOSPITAL,
+    isDefault: true,
+  });
+
   it("prefers a template scoped to the location over the global one", () => {
-    const templates = [
-      make({ id: "g", name: "General", practiceLocationId: null, isDefault: true }),
-      make({ id: "h", name: "Hospital", practiceLocationId: HOSPITAL, isDefault: true }),
-    ];
-    expect(resolveTemplateForLocation(templates, HOSPITAL)?.id).toBe("h");
+    const r = resolveTemplateForLocation([GLOBAL, AT_HOSPITAL], HOSPITAL);
+    expect(r.template.id).toBe("h");
+    expect(r.source).toBe("location");
   });
 
   it("falls back to the global default where no location template exists", () => {
-    const templates = [
-      make({ id: "g", name: "General", practiceLocationId: null, isDefault: true }),
-      make({ id: "h", name: "Hospital", practiceLocationId: HOSPITAL, isDefault: true }),
-    ];
-    expect(resolveTemplateForLocation(templates, CHAMBER)?.id).toBe("g");
+    const r = resolveTemplateForLocation([GLOBAL, AT_HOSPITAL], CHAMBER);
+    expect(r.template.id).toBe("g");
+    expect(r.source).toBe("global");
   });
 
   it("ignores non-default templates at the location", () => {
-    const templates = [
-      make({ id: "g", name: "General", practiceLocationId: null, isDefault: true }),
-      make({ id: "x", name: "Draft", practiceLocationId: HOSPITAL, isDefault: false }),
-    ];
-    expect(resolveTemplateForLocation(templates, HOSPITAL)?.id).toBe("g");
-  });
-
-  it("returns null rather than guessing when nothing is marked default", () => {
-    expect(resolveTemplateForLocation([make({ id: "a", name: "A" })], CHAMBER)).toBeNull();
+    const draft = make({ id: "x", name: "Draft", practiceLocationId: HOSPITAL });
+    const r = resolveTemplateForLocation([GLOBAL, draft], HOSPITAL);
+    expect(r.template.id).toBe("g");
+    expect(r.source).toBe("global");
   });
 
   it("does not treat a null location as matching a location-scoped template", () => {
-    const templates = [make({ id: "h", name: "Hospital", practiceLocationId: HOSPITAL, isDefault: true })];
-    expect(resolveTemplateForLocation(templates, null)).toBeNull();
+    const r = resolveTemplateForLocation([AT_HOSPITAL], null);
+    expect(r.source).toBe("system");
+  });
+
+  describe("after the default is deleted", () => {
+    it("falls back to the built-in rather than promoting a survivor", () => {
+      // Deleting the global default leaves a non-default template behind. It
+      // must NOT be silently promoted — that would change what prints without
+      // the doctor asking.
+      const survivor = make({ id: "s", name: "Old draft", practiceLocationId: null });
+      const r = resolveTemplateForLocation([survivor], CHAMBER);
+      expect(r.source).toBe("system");
+      expect(r.template.name).toBe(SYSTEM_TEMPLATE.name);
+    });
+
+    it("still uses the location default when only the global one was deleted", () => {
+      const r = resolveTemplateForLocation([AT_HOSPITAL], HOSPITAL);
+      expect(r.template.id).toBe("h");
+      expect(r.source).toBe("location");
+    });
+
+    it("drops to the global default when the location default was deleted", () => {
+      const r = resolveTemplateForLocation([GLOBAL], HOSPITAL);
+      expect(r.template.id).toBe("g");
+      expect(r.source).toBe("global");
+    });
+
+    it("resolves to the built-in when every template is gone", () => {
+      const r = resolveTemplateForLocation([], HOSPITAL);
+      expect(r.source).toBe("system");
+      expect(r.template.paperSize).toBe("A4");
+    });
+  });
+
+  it("always resolves to something — a prescription always has paper", () => {
+    for (const templates of [[], [GLOBAL], [AT_HOSPITAL], [GLOBAL, AT_HOSPITAL]]) {
+      for (const loc of [null, CHAMBER, HOSPITAL]) {
+        expect(resolveTemplateForLocation(templates, loc).template).toBeTruthy();
+      }
+    }
+  });
+
+  it("never presents the built-in as one of the doctor's own defaults", () => {
+    expect(SYSTEM_TEMPLATE.isDefault).toBe(false);
+    expect(SYSTEM_TEMPLATE.id).toBeUndefined();
   });
 });
 

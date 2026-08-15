@@ -7,7 +7,7 @@ import { Plus, Star, Trash2, Pencil, X } from "lucide-react";
 import { emptyState } from "@/features/auth/schema";
 import { FormMessage } from "@/features/auth/components/form-parts";
 import { templateListAction } from "../actions";
-import type { TemplateSettings } from "../schema";
+import { resolveTemplateForLocation, type TemplateSettings } from "../schema";
 import { TemplateEditor, type EditorLocation } from "./template-editor";
 import type { PreviewDoctor } from "./prescription-preview";
 
@@ -140,6 +140,35 @@ export function TemplateManager({
       </ul>
 
       <FormMessage state={listState} />
+
+      {/*
+        The database enforces AT MOST one default per scope, so zero is a real
+        state. Rather than auto-promoting a replacement behind the doctor's back,
+        show them exactly what each place will print today.
+      */}
+      <div className="clinical-surface rounded-glass p-4 sm:px-5">
+        <h3 className="text-sm font-semibold text-ink">What prints where</h3>
+        <ul className="mt-2 space-y-1.5">
+          {locations.map((l) => {
+            const { template, source } = resolveTemplateForLocation(templates, l.id);
+            return (
+              <li key={l.id} className="flex flex-wrap items-baseline gap-x-2 text-[13px]">
+                <span className="font-medium text-ink">{l.name}</span>
+                <span className="text-ink-secondary">{template.name}</span>
+                {source === "system" ? (
+                  <span className="text-ink-muted">
+                    — you have no default, so the built-in layout is used
+                  </span>
+                ) : source === "global" ? (
+                  <span className="text-ink-muted">— your general default</span>
+                ) : (
+                  <span className="text-ink-muted">— set for this place</span>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      </div>
 
       <button
         type="button"

@@ -29,16 +29,37 @@ Resolution order for "which layout prints here":
 That rule lives in one pure function, `resolveTemplateForLocation`, so the
 prescription engine will use the same logic the preview shows.
 
-**"Exactly one default per scope" is enforced by the database**, with two
+**"AT MOST one default per scope" is enforced by the database**, with two
 partial unique indexes — one for the global default and one per location, since
 NULL is not comparable in a unique index. Promotion goes through
-`set_default_template()`, a single transaction, so there is never a moment with
-zero or two defaults. Application-level enforcement alone loses to a second tab
-or a retry.
+`set_default_template()`, a single transaction, so two defaults never coexist.
+Application-level enforcement alone loses to a second tab or a retry.
+
+It is deliberately **not** "exactly one". Deleting the default leaves zero, and
+that is a legitimate state — a doctor may want no custom default at all. So
+resolution is a fallback chain, not a lookup:
+
+    location default -> global default -> built-in system template
+
+Nothing is auto-promoted. Silently promoting a survivor would change what prints
+without the doctor asking, which is the failure this whole ADR exists to
+prevent. `resolveTemplateForLocation()` returns the source alongside the
+template so the UI can tell the doctor which rule fired.
+
+**A location-scoped template requires an active DOCTOR role at that location**,
+enforced by `may_scope_template_to()` in the INSERT and UPDATE policies.
+Membership alone is not enough: a doctor who is only RECEPTIONIST at a hospital
+must not be able to attach a layout carrying their name and BMDC number to a
+place they do not practise at as a doctor.
 
 **Staff never see or edit templates.** All four verbs are restricted to the
 owning doctor. A receptionist has no business changing what prints above a
 doctor's signature.
+
+**Doctor identity is written by one RPC**, `update_doctor_identity()`.
+`profiles` and `doctor_profiles` as two statements meant a failure on the second
+left the doctor's NAME changed while their qualifications and BMDC number did
+not — a split professional identity that prints on prescriptions.
 
 **Signatures live in a private Storage bucket** (`doctor-assets`), keyed by
 `<auth.uid()>/…`, served only through short-lived signed URLs, capped at 2 MB
@@ -52,8 +73,12 @@ never render as the previous doctor's mark.
 - A doctor who leaves a clinic keeps their layouts. The clinic keeps nothing.
 - Two "default" badges can be correct at once (one global, one location). The UI
   must name the scope on the badge, or it reads as a contradiction.
-- Deleting a default leaves the scope without one; the UI says so rather than
-  silently promoting an arbitrary replacement.
+- Deleting a default leaves the scope without one; the UI says so, and shows a
+  "what prints where" summary so the fallback is visible rather than implied.
+- **A storage delete that RLS blocks removes nothing and raises nothing** —
+  `remove()` returns an empty list with no error. Deletion must be confirmed
+  from the returned rows. Trusting the absence of an error reported "Signature
+  removed" while the image was still in the bucket.
 - The template stores **layout only**. Prescription contents — medicines, doses,
   safety checks — are a later phase, and the A4 preview deliberately renders a
   labelled empty body rather than sample medicines. A mock drug name on a page

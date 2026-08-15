@@ -85,6 +85,8 @@ export interface LocationDetails {
   district: string | null;
   phone: string | null;
   canEdit: boolean;
+  /** Practises here AS A DOCTOR — required to scope a template to this place. */
+  isDoctorHere: boolean;
 }
 
 /** Every place this doctor practises, with the chamber details that print. */
@@ -112,6 +114,7 @@ export async function getPracticeLocations(): Promise<LocationDetails[]> {
       phone: (row?.phone as string | null) ?? null,
       // Only a LOCATION_ADMIN may edit; RLS enforces the same rule.
       canEdit: m.roles.includes("LOCATION_ADMIN"),
+      isDoctorHere: m.roles.includes("DOCTOR"),
     };
   });
 }

@@ -17,11 +17,12 @@ import { uploadSignatureAction, removeSignatureAction } from "../actions";
  */
 export function SignaturePanel({ signatureUrl }: { signatureUrl: string | null }) {
   const [state, formAction] = useActionState(uploadSignatureAction, emptyState);
+  const [removeState, removeAction] = useActionState(removeSignatureAction, emptyState);
   const router = useRouter();
 
   React.useEffect(() => {
-    if (state.ok) router.refresh();
-  }, [state.ok, router]);
+    if (state.ok || removeState.ok) router.refresh();
+  }, [state.ok, removeState.ok, router]);
 
   return (
     <div className="space-y-4 p-4 sm:p-5">
@@ -31,7 +32,7 @@ export function SignaturePanel({ signatureUrl }: { signatureUrl: string | null }
             {/* eslint-disable-next-line @next/next/no-img-element -- signed, expiring storage URL */}
             <img src={signatureUrl} alt="Your saved signature" className="h-14 w-auto object-contain" />
           </div>
-          <form action={removeSignatureAction}>
+          <form action={removeAction}>
             <button
               type="submit"
               className="inline-flex h-10 items-center gap-2 rounded-xl border border-hairline bg-white px-3.5 text-sm font-semibold text-danger transition-colors hover:bg-danger-soft focus-visible:focus-ring"
@@ -41,13 +42,19 @@ export function SignaturePanel({ signatureUrl }: { signatureUrl: string | null }
             </button>
           </form>
         </div>
-      ) : (
+      ) : null}
+
+      {/* Removal reports its own outcome — it can fail, and silently leaving a
+          reusable signature in storage is the failure that matters. */}
+      <FormMessage state={removeState} />
+
+      {!signatureUrl ? (
         <p className="flex items-start gap-2 rounded-xl bg-surface-muted px-3 py-2.5 text-[13px] text-ink-secondary">
           <PenLine className="mt-px size-4 shrink-0 text-ink-muted" aria-hidden="true" />
           No signature yet. Sign a blank white sheet, photograph it in good light
           and upload it — or leave this empty and sign each prescription by hand.
         </p>
-      )}
+      ) : null}
 
       <form action={formAction} className="space-y-3">
         <div className="space-y-1.5">

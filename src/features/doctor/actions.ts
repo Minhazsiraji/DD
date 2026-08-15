@@ -55,56 +55,43 @@ export async function updateDoctorProfileAction(
 
   const user = await requireUser();
   const supabase = await createSupabaseServerClient();
-  const now = new Date().toISOString();
-
-  const { error: profileError } = await supabase
-    .from("profiles")
-    .update({ full_name: v.fullName, phone: empty(formData.get("phone")), updated_at: now })
-    .eq("id", user.id);
-
-  if (profileError) {
-    return { ok: false, message: `Could not save your name: ${profileError.message}` };
-  }
 
   /**
-   * The doctor row may not exist yet (a receptionist-only account has none), so
-   * this upserts on user_id rather than assuming a row. `patient_number_seq` is
-   * deliberately NOT written here — it is owned by the numbering function and
-   * overwriting it would re-issue numbers that already exist on paper.
+   * ONE transaction. This was previously two writes — `profiles` then
+   * `doctor_profiles` — so a failure on the second left the doctor's NAME
+   * changed while their qualifications and BMDC number did not. That is a split
+   * professional identity, and it prints on prescriptions.
    */
-  const { data: existing } = await supabase
-    .from("doctor_profiles")
-    .select("id, patient_number_prefix")
-    .eq("user_id", user.id)
-    .maybeSingle();
+  const { data, error } = await supabase
+    .rpc("update_doctor_identity", {
+      p_full_name: v.fullName,
+      p_phone: empty(formData.get("phone")),
+      p_qualification: empty(formData.get("qualification")),
+      p_specialization: empty(formData.get("specialization")),
+      p_designation: empty(formData.get("designation")),
+      p_bmdc_registration_no: empty(formData.get("bmdcRegistrationNo")),
+      p_patient_number_prefix: v.patientNumberPrefix,
+    })
+    .single();
 
-  const fields = {
-    qualification: empty(formData.get("qualification")),
-    specialization: empty(formData.get("specialization")),
-    designation: empty(formData.get("designation")),
-    bmdc_registration_no: empty(formData.get("bmdcRegistrationNo")),
-    patient_number_prefix: v.patientNumberPrefix,
-    updated_at: now,
-  };
+  const result = data as
+    | { doctor_id: string; created: boolean; prefix_changed: boolean }
+    | null;
 
-  const { error: doctorError } = existing
-    ? await supabase.from("doctor_profiles").update(fields).eq("id", existing.id)
-    : await supabase.from("doctor_profiles").insert({ user_id: user.id, ...fields });
-
-  if (doctorError) {
-    return { ok: false, message: `Could not save your details: ${doctorError.message}` };
+  if (error || !result?.doctor_id) {
+    return {
+      ok: false,
+      message: `Could not save your details: ${error?.message ?? "unknown error"}`,
+    };
   }
 
   await emitAudit({
-    action: existing ? "doctor_profile.updated" : "doctor_profile.created",
+    action: result.created ? "doctor_profile.created" : "doctor_profile.updated",
     resourceType: "doctor_profile",
-    resourceId: existing?.id ?? null,
+    resourceId: result.doctor_id,
     actorId: user.id,
     // Field names only.
-    meta: {
-      fields: ["identity"],
-      prefixChanged: Boolean(existing) && existing?.patient_number_prefix !== v.patientNumberPrefix,
-    },
+    meta: { fields: ["identity"], prefixChanged: result.prefix_changed },
   });
 
   revalidatePath("/settings/profile");
@@ -113,10 +100,9 @@ export async function updateDoctorProfileAction(
 
   return {
     ok: true,
-    message:
-      Boolean(existing) && existing?.patient_number_prefix !== v.patientNumberPrefix
-        ? "Saved. The new patient-number prefix applies to patients you register from now on — existing numbers are unchanged."
-        : "Saved.",
+    message: result.prefix_changed
+      ? "Saved. The new patient-number prefix applies to patients you register from now on — existing numbers are unchanged."
+      : "Saved.",
   };
 }
 
@@ -200,24 +186,79 @@ export async function uploadSignatureAction(
   return { ok: true, message: "Signature saved." };
 }
 
-export async function removeSignatureAction(): Promise<void> {
+/**
+ * Remove the signature.
+ *
+ * Order matters and so does reporting. Deleting the STORED OBJECT first means
+ * the database reference is cleared only once the image is actually gone — the
+ * reverse order can leave an orphaned signature image with nothing pointing at
+ * it, which for a reusable authorisation mark is the worse failure.
+ *
+ * Both steps are checked and surfaced. This previously returned void and
+ * ignored every error, so the UI could report success while the signature still
+ * existed.
+ */
+// Takes no arguments: useActionState still passes (prevState, formData), and
+// this action needs neither — the target is whatever signature the caller owns.
+export async function removeSignatureAction(): Promise<ActionState> {
   const user = await requireUser();
   const supabase = await createSupabaseServerClient();
 
-  const { data: doctor } = await supabase
+  const { data: doctor, error: readError } = await supabase
     .from("doctor_profiles")
     .select("id, signature_url")
     .eq("user_id", user.id)
     .maybeSingle();
 
-  if (!doctor?.signature_url) return;
+  if (readError) {
+    return { ok: false, message: `Could not check your signature: ${readError.message}` };
+  }
+  if (!doctor) {
+    return { ok: false, message: "No doctor profile found." };
+  }
 
-  await supabase
+  const path = doctor.signature_url as string | null;
+  if (!path) {
+    return { ok: true, message: "There was no signature to remove." };
+  }
+
+  const { data: removed, error: storageError } = await supabase.storage
+    .from(SIGNATURE_BUCKET)
+    .remove([path]);
+
+  /**
+   * A missing error is NOT proof of deletion.
+   *
+   * Storage deletes run under RLS, and a policy that matches no rows deletes
+   * nothing while reporting no error at all — `remove()` simply returns an
+   * empty list. Trusting the absence of an error here reported "Signature
+   * removed" while the image was still sitting in the bucket, which for a
+   * reusable authorisation mark is the one outcome that must never be claimed
+   * falsely. So we check what actually came back.
+   */
+  if (storageError || !removed || removed.length === 0) {
+    return {
+      ok: false,
+      message:
+        "Your signature image could NOT be deleted" +
+        (storageError ? ` (${storageError.message})` : "") +
+        ", so it is still stored and still in use. Nothing was changed — please try again.",
+    };
+  }
+
+  const { error: clearError } = await supabase
     .from("doctor_profiles")
     .update({ signature_url: null, updated_at: new Date().toISOString() })
     .eq("id", doctor.id);
 
-  await supabase.storage.from(SIGNATURE_BUCKET).remove([doctor.signature_url as string]);
+  if (clearError) {
+    return {
+      ok: false,
+      message:
+        `The image was deleted but your profile still refers to it (${clearError.message}). ` +
+        "Your prescriptions may show a missing signature until you try again.",
+    };
+  }
 
   await emitAudit({
     action: "doctor_profile.signature_removed",
@@ -228,6 +269,7 @@ export async function removeSignatureAction(): Promise<void> {
 
   revalidatePath("/settings/profile");
   revalidatePath("/settings/prescription");
+  return { ok: true, message: "Signature removed." };
 }
 
 // ---------------------------------------------------------------------------
@@ -360,12 +402,28 @@ export async function saveTemplateAction(
     return { ok: false, message: "Complete your doctor details first, then set up a template." };
   }
 
-  // A location-scoped template is only meaningful where the doctor practises.
+  /**
+   * A location-scoped template requires an active DOCTOR role AT that location
+   * — not merely some membership. Checking for any membership would let a
+   * doctor who is only RECEPTIONIST at a hospital attach a prescription layout
+   * carrying their name and BMDC number to a place they do not practise at as a
+   * doctor. RLS re-checks this via may_scope_template_to(); the check here
+   * exists to give a sentence instead of a policy error.
+   */
   const locationId: string | null = rawLocation.length > 0 ? rawLocation : null;
   if (locationId) {
     const memberships = await getMemberships();
-    if (!memberships.some((m) => m.locationId === locationId)) {
+    const membership = memberships.find((m) => m.locationId === locationId);
+
+    if (!membership) {
       return { ok: false, message: "You don't practise there." };
+    }
+    if (!membership.roles.includes("DOCTOR")) {
+      return {
+        ok: false,
+        message:
+          "You can only set up prescription paper for a place where you practise as a doctor.",
+      };
     }
   }
 

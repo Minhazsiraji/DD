@@ -164,6 +164,10 @@ squeeze — and it hides the bottom nav.
   viewport. The A4 preview hit this — text was sized as if the paper were as
   wide as the window. Measuring the computed values did not catch it (they were
   self-consistent, just against the wrong box); a screenshot did.
+- **A Supabase Storage delete blocked by RLS removes nothing and raises
+  nothing** — `remove()` returns an empty list with `error === null`. Confirm
+  deletion from the returned rows, never from the absence of an error. This
+  already reported "Signature removed" while the image was still in the bucket.
 - **Disabled inputs post nothing.** A greyed-out checkbox submits as "off", so
   gating sub-options behind a master toggle silently wipes them on save. Render
   a hidden input carrying the value when a control is disabled.

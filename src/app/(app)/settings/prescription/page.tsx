@@ -76,13 +76,17 @@ export default async function PrescriptionSettingsPage() {
       ) : identity.doctorId ? (
         <TemplateManager
           doctor={doctor}
-          locations={locations.map((l) => ({
-            id: l.id,
-            name: l.name,
-            address: l.address,
-            district: l.district,
-            phone: l.phone,
-          }))}
+          // Only places where this user practises AS A DOCTOR can be chosen —
+          // matching may_scope_template_to() in the database.
+          locations={locations
+            .filter((l) => l.isDoctorHere)
+            .map((l) => ({
+              id: l.id,
+              name: l.name,
+              address: l.address,
+              district: l.district,
+              phone: l.phone,
+            }))}
           templates={outcome.templates}
         />
       ) : null}
