@@ -86,6 +86,19 @@ queries run with the user's JWT so RLS applies. The service role lives only in
 **Immutability.** `FINALIZED` encounters and prescriptions are never edited.
 Corrections create a new version plus a revision row with a reason.
 
+**Audit reliability is not uniform — see ADR 0007.** Finalising a prescription
+or encounter, amending a finalised record, and clinical document metadata must
+**fail closed**, with the clinical write and its audit row in the SAME
+transaction (a plpgsql function, like `create_patient()`). `emitAudit` swallows
+failures by design and is therefore the WRONG mechanism for those paths —
+treat an `emitAudit` call beside a finalisation as a bug. Viewing a record never
+blocks care, but a failed audit there must raise an operational alert.
+
+**Reception may register patients only through the doctor-selection RPC**
+(ADR 0008). Never broaden the patient INSERT policy to let a receptionist choose
+`owner_doctor_id` — the function verifies in the database that both the caller
+and the selected doctor are ACTIVE at the caller's location.
+
 **AI.** `AI_MODE=mock` is the default. Live AI additionally requires a per-clinic
 opt-in flag in the database. AI has **no write access to clinical tables** — that
 is a database grant, not a prompt instruction. AI proposes; a doctor accepts.
@@ -102,6 +115,13 @@ AI. AI may *explain* a flag; it must never *raise* one.
 **Cost.** Free/free-tier only. No paid APIs, SMS, voice, payment gateways, or
 vector databases without explicit approval. Vercel Hobby + Supabase Free are for
 development with FAKE data only — never real patients, never commercial use.
+
+**Before deployment auth testing:** add the Vercel production domain and its
+callback URLs to Supabase → Authentication → URL Configuration. Sign-in and
+password reset silently redirect to the wrong origin without it.
+
+**Before the first real patient:** finalise `docs/data-policy.md` (currently a
+draft with open items on retention, account closure and patient correction).
 
 ## Design system
 
