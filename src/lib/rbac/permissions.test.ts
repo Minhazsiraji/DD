@@ -47,10 +47,24 @@ describe("RECEPTIONIST restrictions", () => {
     }
   });
 
-  it("cannot author or edit clinical content on a patient", () => {
-    expect(can(role, "read", "patient_clinical")).toBe(true); // may see allergy flags
-    expect(can(role, "create", "patient_clinical")).toBe(false);
-    expect(can(role, "update", "patient_clinical")).toBe(false);
+  it("may read a drug-allergy flag but never author one", () => {
+    // A front-desk safety signal, and not a diagnosis.
+    expect(can(role, "read", "patient_allergy")).toBe(true);
+    expect(can(role, "create", "patient_allergy")).toBe(false);
+    expect(can(role, "update", "patient_allergy")).toBe(false);
+  });
+
+  it("CANNOT read conditions, medications or alerts", () => {
+    // These reveal a diagnosis — an antiretroviral in the medication list
+    // discloses HIV status to whoever is on the front desk.
+    for (const action of ACTIONS) {
+      expect(can(role, action, "patient_clinical")).toBe(false);
+    }
+  });
+
+  it("maintains contact details, which carry no clinical meaning", () => {
+    expect(can(role, "read", "patient_contact")).toBe(true);
+    expect(can(role, "update", "patient_contact")).toBe(true);
   });
 
   it("can run the front desk", () => {
@@ -88,6 +102,13 @@ describe("LOCATION_ADMIN restrictions", () => {
     expect(can(role, "update", "encounter")).toBe(false);
     expect(can(role, "create", "prescription")).toBe(false);
     expect(can(role, "update", "patient_clinical")).toBe(false);
+  });
+
+  it("reads no clinical content at all", () => {
+    for (const action of ACTIONS) {
+      expect(can(role, action, "patient_clinical")).toBe(false);
+      expect(can(role, action, "patient_allergy")).toBe(false);
+    }
   });
 
   it("cannot use the AI assistant", () => {

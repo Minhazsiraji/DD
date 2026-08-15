@@ -73,74 +73,39 @@ export async function completeOnboardingAction(
     user.email?.split("@")[0] ||
     "Doctor";
 
-  // 1. Profile (idempotent — onboarding may be retried after a failure).
-  const { error: profileError } = await supabase
-    .from("profiles")
-    .upsert({ id: user.id, full_name: fullName }, { onConflict: "id" });
-
-  if (profileError) {
-    return { ok: false, message: `Could not save your profile: ${profileError.message}` };
-  }
-
-  // 2. Doctor profile — the identity that will own patients in Phase 3.
-  const { error: doctorError } = await supabase.from("doctor_profiles").upsert(
-    {
-      user_id: user.id,
-      qualification: optional(formData.get("qualification")),
-      specialization: optional(formData.get("specialization")),
-      bmdc_registration_no: optional(formData.get("bmdcRegistrationNo")),
-      patient_number_prefix: derivePrefix(fullName),
-    },
-    { onConflict: "user_id" },
-  );
-
-  if (doctorError) {
-    return { ok: false, message: `Could not save your details: ${doctorError.message}` };
-  }
-
-  // 3. Location.
-  const { data: location, error: locationError } = await supabase
-    .from("practice_locations")
-    .insert({
-      name: parsed.data.locationName,
-      type: parsed.data.locationType,
-      address: optional(formData.get("address")),
-      district: optional(formData.get("district")),
-      phone: optional(formData.get("phone")),
-      created_by: user.id,
-    })
-    .select("id, name")
-    .single();
-
-  if (locationError || !location) {
-    return {
-      ok: false,
-      message: `Could not create the location: ${locationError?.message ?? "unknown error"}`,
-    };
-  }
-
   /**
-   * 4. Membership — BOTH roles.
+   * ONE transaction, and retry-safe.
    *
-   * Running your own chamber means practising in it and administering it. A
-   * single role would leave the doctor unable to do one half of the job.
+   * This was five separate writes. A failure partway through left an orphan
+   * practice location or a doctor with no membership, and retrying created a
+   * SECOND location. The function upserts the profiles and only creates a
+   * location when the doctor has none, so a retry converges instead of
+   * duplicating.
+   *
+   * A solo doctor joins as BOTH roles: running your own chamber means
+   * practising in it and administering it.
    */
-  const { error: memberError } = await supabase.from("practice_location_members").insert([
-    { practice_location_id: location.id, user_id: user.id, role: "DOCTOR", status: "ACTIVE" },
-    { practice_location_id: location.id, user_id: user.id, role: "LOCATION_ADMIN", status: "ACTIVE" },
-  ]);
+  const { data: locationId, error } = await supabase.rpc("complete_onboarding", {
+    p_full_name: fullName,
+    p_qualification: optional(formData.get("qualification")),
+    p_specialization: optional(formData.get("specialization")),
+    p_bmdc: optional(formData.get("bmdcRegistrationNo")),
+    p_number_prefix: derivePrefix(fullName),
+    p_location_name: parsed.data.locationName,
+    p_location_type: parsed.data.locationType,
+    p_address: optional(formData.get("address")),
+    p_district: optional(formData.get("district")),
+    p_phone: optional(formData.get("phone")),
+  });
 
-  if (memberError) {
+  if (error || !locationId) {
     return {
       ok: false,
-      message: `Could not set up your access: ${memberError.message}`,
+      message: `Could not finish setting up your practice: ${error?.message ?? "unknown error"}`,
     };
   }
 
-  await supabase
-    .from("profiles")
-    .update({ onboarded_at: new Date().toISOString() })
-    .eq("id", user.id);
+  const location = { id: locationId as string };
 
   await emitAudit({
     action: "location.created",

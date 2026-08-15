@@ -19,7 +19,15 @@ export const RESOURCES = [
   "location_member",
   "doctor_profile",
   "patient",
-  "patient_clinical", // allergies, conditions, clinical flags
+  /**
+   * Split deliberately. Lumping these together let reception read chronic
+   * conditions and current medications — enough to infer a diagnosis such as
+   * HIV from an antiretroviral. A drug-allergy flag is a front-desk safety
+   * signal; a diagnosis is not.
+   */
+  "patient_allergy", // drug allergies — a safety flag, not a diagnosis
+  "patient_clinical", // conditions, medications, alerts — diagnosis-revealing
+  "patient_contact", // administrative; reception phones the family
   "encounter",
   "private_notes",
   "prescription",
@@ -53,7 +61,9 @@ const MATRIX: Matrix = {
     location_member: R,
     doctor_profile: RW,
     patient: RW,
-    patient_clinical: RW,
+    patient_allergy: RWD,
+    patient_clinical: RWD,
+    patient_contact: RWD,
     encounter: RW,
     private_notes: RW,
     prescription: RW,
@@ -71,9 +81,12 @@ const MATRIX: Matrix = {
     location_member: NONE,
     doctor_profile: R,
     patient: RW,
-    // Read-only on allergies/conditions: reception must be able to see a
-    // safety flag, but must never edit or author clinical content.
-    patient_clinical: R,
+    // A drug-allergy flag is a front-desk safety signal — reception may read
+    // it, never author it.
+    patient_allergy: R,
+    // Conditions, medications and alerts reveal a diagnosis. Not the desk's.
+    patient_clinical: NONE,
+    patient_contact: RW,
     encounter: NONE,
     private_notes: NONE,
     prescription: R, // print/hand over only
@@ -91,7 +104,11 @@ const MATRIX: Matrix = {
     location_member: RWD,
     doctor_profile: R,
     patient: RW,
-    patient_clinical: R,
+    // Operational role. It sees no clinical content, by the same reasoning
+    // that keeps private_notes away from it.
+    patient_allergy: NONE,
+    patient_clinical: NONE,
+    patient_contact: R,
     encounter: R,
     private_notes: NONE, // operational role — no clinical-note access, ever
     prescription: R,
@@ -146,6 +163,7 @@ export function allowedActions(
 export function isLocationManager(role: LocationRole): boolean {
   return can(role, "update", "location_member");
 }
+
 
 
 

@@ -141,7 +141,13 @@ export async function searchPatients(
   }
 
   const { data, error } = await request;
-  if (error || !data) return [];
+  if (error) {
+    // An empty list here reads as "this patient is not registered", which is
+    // exactly the wrong conclusion to hand a doctor mid-consultation.
+    console.error("[patients] search failed", error.message);
+    return [];
+  }
+  if (!data) return [];
   return data.map((row) => toListItem(row, today));
 }
 
@@ -183,7 +189,13 @@ export async function findPossibleDuplicates(input: {
     .or(clauses.join(","))
     .limit(40);
 
-  if (error || !data) return [];
+  if (error) {
+    // Failing open here would suppress a duplicate warning — worse than
+    // showing one, because it silently creates a second record.
+    console.error("[patients] duplicate lookup failed", error.message);
+    return [];
+  }
+  if (!data) return [];
 
   /* eslint-disable @typescript-eslint/no-explicit-any */
   // PostgREST cannot infer a hand-written select string, so the row shape is

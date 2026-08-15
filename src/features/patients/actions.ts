@@ -136,102 +136,61 @@ export async function createPatientAction(
 
   const supabase = await createSupabaseServerClient();
 
-  // Atomic — a read-then-write would issue duplicate numbers under concurrency.
-  const { data: numberData, error: numberError } = await supabase.rpc(
-    "next_patient_number",
-    { target_doctor: doctorId },
-  );
-  if (numberError || !numberData) {
-    return { ok: false, values: echo(formData), message: `Could not allocate a patient number: ${numberError?.message ?? "unknown"}` };
-  }
-
-  const { data: patient, error } = await supabase
-    .from("patients")
-    .insert({
-      owner_doctor_id: doctorId,
-      patient_number: numberData as string,
-      full_name: v.fullName,
-      name_normalized: normalizeName(v.fullName),
-      dob: isDob ? v.dob : null,
-      dob_precision: isDob ? "DAY" : "AGE_ONLY",
-      approx_age_years: isDob ? null : (v.approxAgeYears ?? null),
-      age_recorded_on: isDob ? null : today,
-      sex: v.sex,
-      phone: empty(v.phone),
-      phone_normalized: normalizePhone(v.phone),
-      email: empty(v.email),
-      address: empty(v.address),
-      district: empty(v.district),
-      blood_group: v.bloodGroup,
-      weight_kg: v.weightKg ?? null,
-      height_cm: v.heightCm ?? null,
-      notes: empty(v.notes),
-      created_by: user.id,
-    })
-    .select("id, patient_number, full_name")
-    .single();
-
-  if (error || !patient) {
-    return { ok: false, values: echo(formData), message: `Could not save the patient: ${error?.message ?? "unknown"}` };
-  }
-
-  // Link to the location the doctor is currently working from. This is what
-  // scopes staff access without exposing a private chamber.
-  await supabase.from("patient_location_links").insert({
-    patient_id: patient.id,
-    practice_location_id: ctx.locationId,
-  });
-
   const allergies = splitList(v.allergies);
   const conditions = splitList(v.conditions);
   const medications = splitList(v.medications);
   const alerts = splitList(v.alerts);
 
-  if (allergies.length) {
-    await supabase.from("patient_allergies").insert(
-      allergies.map((substance) => ({
-        patient_id: patient.id,
-        substance,
-        recorded_by: user.id,
-      })),
-    );
-  }
-  if (conditions.length) {
-    await supabase
-      .from("patient_conditions")
-      .insert(conditions.map((condition) => ({ patient_id: patient.id, condition })));
-  }
-  if (medications.length) {
-    await supabase.from("patient_medications").insert(
-      medications.map((name) => ({ patient_id: patient.id, name, source: "REPORTED" })),
-    );
-  }
-  if (alerts.length) {
-    await supabase.from("patient_alerts").insert(
-      alerts.map((message) => ({
-        patient_id: patient.id,
-        message,
-        created_by: user.id,
-      })),
-    );
-  }
+  /**
+   * ONE transaction. Previously this was ~9 sequential inserts whose child
+   * errors were ignored, so a patient could be created while their ALLERGY
+   * silently failed to save — and the UI still reported success. All of it now
+   * lands or none of it does.
+   */
+  const { data: created, error } = await supabase
+    .rpc("create_patient", {
+      p_practice_location_id: ctx.locationId,
+      p_full_name: v.fullName,
+      p_name_normalized: normalizeName(v.fullName),
+      p_dob: isDob ? v.dob : null,
+      p_dob_precision: isDob ? "DAY" : "AGE_ONLY",
+      p_approx_age_years: isDob ? null : (v.approxAgeYears ?? null),
+      p_age_recorded_on: isDob ? null : today,
+      p_sex: v.sex,
+      p_phone: empty(v.phone),
+      p_phone_normalized: normalizePhone(v.phone),
+      p_email: empty(v.email),
+      p_address: empty(v.address),
+      p_district: empty(v.district),
+      p_blood_group: v.bloodGroup,
+      p_weight_kg: v.weightKg ?? null,
+      p_height_cm: v.heightCm ?? null,
+      p_notes: empty(v.notes),
+      p_allergies: allergies,
+      p_conditions: conditions,
+      p_medications: medications,
+      p_alerts: alerts,
+      p_contact_name: empty(v.emergencyContactName),
+      p_contact_phone: empty(v.emergencyContactPhone),
+      p_contact_relationship: empty(v.emergencyContactRelationship),
+    })
+    .single();
 
-  if (empty(v.emergencyContactName)) {
-    await supabase.from("patient_contacts").insert({
-      patient_id: patient.id,
-      type: "EMERGENCY",
-      name: v.emergencyContactName as string,
-      phone: empty(v.emergencyContactPhone),
-      relationship: empty(v.emergencyContactRelationship),
-      is_primary: true,
-    });
+  const patient = created as { patient_id: string; patient_number: string } | null;
+
+  if (error || !patient?.patient_id) {
+    return {
+      ok: false,
+      values: echo(formData),
+      message: `Could not save the patient: ${error?.message ?? "unknown"}`,
+    };
   }
 
   // Counts only — never the clinical values themselves.
   await emitAudit({
     action: "patient.created",
     resourceType: "patient",
-    resourceId: patient.id,
+    resourceId: patient.patient_id,
     locationId: ctx.locationId,
     actorId: user.id,
     meta: {
@@ -244,7 +203,7 @@ export async function createPatientAction(
   });
 
   revalidatePath("/patients");
-  redirect(`/patients/${patient.id}`);
+  redirect(`/patients/${patient.patient_id}`);
 }
 
 export async function updatePatientAction(
@@ -324,4 +283,5 @@ export async function recordPatientViewAction(patientId: string): Promise<void> 
     actorId: user.id,
   });
 }
+
 

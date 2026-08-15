@@ -109,6 +109,41 @@ try {
 
       const rows = await tx`select count(*)::int n from public.patients where id = ${patientA.id}`;
       check(rows[0].n === 1, "Doctor A can read their own patient");
+
+      // Sensitive rows used by the reception-scoping checks below.
+      await tx`insert into public.patient_allergies (patient_id, substance)
+               values (${patientA.id}, 'Penicillin')`;
+      await tx`insert into public.patient_conditions (patient_id, condition)
+               values (${patientA.id}, 'HIV')`;
+      await tx`insert into public.patient_medications (patient_id, name)
+               values (${patientA.id}, 'Antiretroviral')`;
+      await tx`insert into public.patient_alerts (patient_id, message)
+               values (${patientA.id}, 'Confidential')`;
+    });
+
+    // ---- Atomic creation ----------------------------------------------------
+    console.log("\nTransactional patient creation");
+    await as(tx, uidA, async () => {
+      const before = await tx`select count(*)::int n from public.patients`;
+
+      // A bad enum value fails midway through create_patient(). Nothing from
+      // that call — patient, link, allergy — may survive.
+      const rolledBack = await expectDenied(
+        tx,
+        (sp) => sp`select public.create_patient(
+          null, 'Atomic Test', 'atomic test', null, 'AGE_ONLY', 40, current_date,
+          'NOT_A_VALID_SEX'::public.sex, null, null, null, null, null,
+          'UNKNOWN'::public.blood_group, null, null, null,
+          array['Penicillin'], '{}', '{}', '{}', null, null, null)`,
+      );
+      check(rolledBack, "an invalid value aborts creation");
+
+      const after = await tx`select count(*)::int n from public.patients`;
+      check(
+        before[0].n === after[0].n,
+        "a failed creation leaves NO partial patient behind",
+        `${before[0].n} -> ${after[0].n}`,
+      );
     });
 
     // ---- 2. Doctor B is fully isolated -------------------------------------
@@ -213,6 +248,28 @@ try {
                    values (${patientA.id}, 'Penicillin')`,
       );
       check(allergyBlocked, "reception cannot author clinical content (allergies)");
+
+      /**
+       * Reception once had read access to EVERY patient child table, which
+       * meant an antiretroviral in the medication list disclosed the patient's
+       * HIV status to whoever was on the front desk. These four assertions
+       * exist so that cannot silently come back.
+       */
+      const conditions = await tx`
+        select count(*)::int n from public.patient_conditions where patient_id = ${patientA.id}`;
+      check(conditions[0].n === 0, "reception CANNOT read conditions (a diagnosis)");
+
+      const meds = await tx`
+        select count(*)::int n from public.patient_medications where patient_id = ${patientA.id}`;
+      check(meds[0].n === 0, "reception CANNOT read medications (reveals diagnosis)");
+
+      const alerts = await tx`
+        select count(*)::int n from public.patient_alerts where patient_id = ${patientA.id}`;
+      check(alerts[0].n === 0, "reception CANNOT read alerts (free clinical text)");
+
+      const allergies = await tx`
+        select count(*)::int n from public.patient_allergies where patient_id = ${patientA.id}`;
+      check(allergies[0].n === 1, "reception CAN still read the drug-allergy safety flag");
     });
 
     // ---- 6. Patient number allocation is concurrency-safe ------------------

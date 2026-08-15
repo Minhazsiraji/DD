@@ -33,6 +33,8 @@ export interface TimelineEvent {
   occurredAt: string;
   title: string;
   summary: string | null;
+  /** Needed to filter by location — a name alone cannot identify one. */
+  locationId: string | null;
   locationName: string | null;
   doctorName: string | null;
 }
@@ -102,6 +104,7 @@ export async function getPatientTimeline(
     occurredAt: (data as any).created_at,
     title: "Patient registered",
     summary: null,
+    locationId: firstLocation?.id ?? null,
     locationName: firstLocation?.name ?? null,
     doctorName: null,
   });
@@ -115,10 +118,17 @@ export async function getPatientTimeline(
       ? events
       : events.filter((e) => e.type === filter.type);
 
+  /**
+   * Compare the location ID, not merely "has a location".
+   *
+   * The earlier version kept every event that had any location name, so
+   * selecting one chamber silently showed all of them. Harmless while only
+   * registration exists; actively misleading the moment appointments land.
+   */
   const byLocation =
     !filter.locationId || filter.locationId === "all"
       ? byType
-      : byType.filter((e) => e.locationName != null);
+      : byType.filter((e) => e.locationId === filter.locationId);
 
   return byLocation.sort((a, b) => b.occurredAt.localeCompare(a.occurredAt));
 }

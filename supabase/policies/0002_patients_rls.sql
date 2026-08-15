@@ -210,27 +210,69 @@ create policy patient_location_links_update
   with check (public.owns_patient(patient_id));
 
 -- -----------------------------------------------------------------------------
--- Clinical child tables.
+-- Clinical child tables — READ IS TABLE-SPECIFIC, NOT UNIFORM.
 --
--- Read follows patient access; WRITE is restricted to the OWNING DOCTOR.
--- Reception may see an allergy flag (it is a safety signal at the front desk)
--- but must never author or edit clinical content — matching the permission
--- matrix in src/lib/rbac/permissions.ts.
+-- An earlier version applied can_access_patient() to all five tables in one
+-- loop. That let a receptionist at a linked location read the patient's chronic
+-- CONDITIONS and CURRENT MEDICATIONS — i.e. infer a diagnosis such as HIV from
+-- an antiretroviral. Convenient to write, and a genuine privacy breach.
+--
+-- The line now drawn, and the reason for each:
+--
+--   allergies   staff READ   — a drug-allergy flag is a front-desk safety
+--                              signal, and it is not a diagnosis
+--   contacts    staff READ   — administrative; reception phones the family
+--   conditions  DOCTOR ONLY  — a diagnosis
+--   medications DOCTOR ONLY  — reveals the diagnosis by inference
+--   alerts      DOCTOR ONLY  — free text, so it may contain anything
+--
+-- WRITE is the owning doctor everywhere. Contacts are the one exception:
+-- reception maintains them, and they carry no clinical meaning.
 -- -----------------------------------------------------------------------------
 
+-- ---- Staff-readable: allergies (safety) -------------------------------------
+drop policy if exists patient_allergies_select on public.patient_allergies;
+create policy patient_allergies_select
+  on public.patient_allergies for select to authenticated
+  using (public.can_access_patient(patient_id));
+
+-- ---- Staff-readable + writable: contacts (administrative) -------------------
+drop policy if exists patient_contacts_select on public.patient_contacts;
+create policy patient_contacts_select
+  on public.patient_contacts for select to authenticated
+  using (public.can_access_patient(patient_id));
+
+drop policy if exists patient_contacts_write on public.patient_contacts;
+create policy patient_contacts_write
+  on public.patient_contacts for insert to authenticated
+  with check (public.can_access_patient(patient_id));
+
+drop policy if exists patient_contacts_update_staff on public.patient_contacts;
+create policy patient_contacts_update_staff
+  on public.patient_contacts for update to authenticated
+  using (public.can_access_patient(patient_id))
+  with check (public.can_access_patient(patient_id));
+
+-- ---- Doctor-only reads ------------------------------------------------------
+do $$
+declare t text;
+begin
+  foreach t in array array['patient_conditions','patient_medications','patient_alerts'] loop
+    execute format('drop policy if exists %I on public.%I', t || '_select', t);
+    execute format($f$
+      create policy %I on public.%I for select to authenticated
+      using (public.owns_patient(patient_id))
+    $f$, t || '_select', t);
+  end loop;
+end $$;
+
+-- ---- Clinical writes: owning doctor only, on every child table --------------
 do $$
 declare t text;
 begin
   foreach t in array array[
-    'patient_contacts','patient_allergies','patient_conditions',
-    'patient_medications','patient_alerts'
+    'patient_allergies','patient_conditions','patient_medications','patient_alerts'
   ] loop
-    execute format('drop policy if exists %I on public.%I', t || '_select', t);
-    execute format($f$
-      create policy %I on public.%I for select to authenticated
-      using (public.can_access_patient(patient_id))
-    $f$, t || '_select', t);
-
     execute format('drop policy if exists %I on public.%I', t || '_insert', t);
     execute format($f$
       create policy %I on public.%I for insert to authenticated
@@ -251,6 +293,14 @@ begin
     $f$, t || '_delete', t);
   end loop;
 end $$;
+
+-- Legacy names from the uniform loop, if still present.
+drop policy if exists patient_contacts_insert on public.patient_contacts;
+drop policy if exists patient_contacts_update on public.patient_contacts;
+drop policy if exists patient_contacts_delete on public.patient_contacts;
+create policy patient_contacts_delete
+  on public.patient_contacts for delete to authenticated
+  using (public.owns_patient(patient_id));
 
 -- -----------------------------------------------------------------------------
 -- Grants. RLS filters rows; grants decide which verbs exist at all.

@@ -12,6 +12,7 @@ import { getPatientTimeline, TIMELINE_EVENT_TYPES, type TimelineEventType } from
 import { formatAge } from "@/features/patients/identity";
 import { SEX_LABEL, BLOOD_GROUP_LABEL } from "@/features/patients/schema";
 import { cn } from "@/lib/utils";
+import { SafetyList } from "@/features/patients/components/safety-list";
 
 export async function generateMetadata(
   props: PageProps<"/patients/[id]">,
@@ -141,20 +142,28 @@ export default async function PatientProfilePage(props: PageProps<"/patients/[id
         </div>
 
         <div className="space-y-4 sm:space-y-5">
-          <ListCard
+          {/* Editable. An allergy is usually discovered at a LATER visit, so a
+              record that can only capture it at registration will go stale in
+              exactly the field where stale is most dangerous. */}
+          <SafetyList
+            patientId={id}
+            kind="allergy"
             title="Allergies"
             icon={<TriangleAlert className="size-4" />}
+            danger
             items={patient.allergies.map((a) => ({
               id: a.id,
               primary: a.substance,
               secondary: [a.reaction, a.severity.toLowerCase().replace("_", " ")]
                 .filter(Boolean).join(" · "),
-              danger: true,
             }))}
             emptyText="No known drug allergies recorded"
+            placeholder="e.g. Penicillin"
           />
 
-          <ListCard
+          <SafetyList
+            patientId={id}
+            kind="condition"
             title="Conditions"
             icon={<Activity className="size-4" />}
             items={patient.conditions.map((c) => ({
@@ -163,9 +172,12 @@ export default async function PatientProfilePage(props: PageProps<"/patients/[id
               secondary: c.status.toLowerCase(),
             }))}
             emptyText="No chronic conditions recorded"
+            placeholder="e.g. Type 2 Diabetes"
           />
 
-          <ListCard
+          <SafetyList
+            patientId={id}
+            kind="medication"
             title="Current medicines"
             icon={<Pill className="size-4" />}
             items={patient.medications.map((m) => ({
@@ -175,6 +187,21 @@ export default async function PatientProfilePage(props: PageProps<"/patients/[id
                 .filter(Boolean).join(" · "),
             }))}
             emptyText="No medicines recorded"
+            placeholder="e.g. Metformin 500mg"
+          />
+
+          <SafetyList
+            patientId={id}
+            kind="alert"
+            title="Alerts"
+            icon={<ShieldAlert className="size-4" />}
+            items={patient.alerts.map((a) => ({
+              id: a.id,
+              primary: a.message,
+              secondary: a.severity.toLowerCase(),
+            }))}
+            emptyText="No alerts recorded"
+            placeholder="e.g. Reduced renal function"
           />
 
           <SectionCard className="overflow-hidden">
@@ -226,33 +253,3 @@ function Row({
   );
 }
 
-function ListCard({
-  title, icon, items, emptyText,
-}: {
-  title: string;
-  icon: React.ReactNode;
-  items: { id: string; primary: string; secondary?: string; danger?: boolean }[];
-  emptyText: string;
-}) {
-  return (
-    <SectionCard className="overflow-hidden">
-      <SectionHeader title={title} count={items.length} icon={icon} />
-      {items.length === 0 ? (
-        <p className="px-4 py-3.5 text-[13px] text-ink-muted sm:px-5">{emptyText}</p>
-      ) : (
-        <ul className="divide-y divide-hairline">
-          {items.map((i) => (
-            <li key={i.id} className="px-4 py-2.5 sm:px-5">
-              <p className={cn("text-sm font-medium", i.danger ? "text-[#a81c1c]" : "text-ink")}>
-                {i.primary}
-              </p>
-              {i.secondary ? (
-                <p className="text-xs text-ink-secondary">{i.secondary}</p>
-              ) : null}
-            </li>
-          ))}
-        </ul>
-      )}
-    </SectionCard>
-  );
-}
