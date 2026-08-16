@@ -11,6 +11,15 @@
 -- to move a patient through their day.
 -- =============================================================================
 
+-- The earlier forms took only an appointment id, so they could act on a
+-- patient at ANY location the caller was allowed into — not the one they were
+-- working in. `create or replace` with the new signature would leave those as
+-- granted overloads, so they are dropped outright.
+drop function if exists public.call_patient(uuid, text);
+drop function if exists public.skip_patient(uuid, text);
+drop function if exists public.set_queue_priority(uuid, public.priority_reason, text);
+drop function if exists public.clear_queue_priority(uuid);
+
 /**
  * Get or create the queue row for an appointment, having checked the caller may
  * act on it. Rows are lazy so arriving stays a single write.
@@ -19,7 +28,10 @@
  * pressing "call" at the same moment must not both increment from the same
  * count, and the lock is what serialises them.
  */
-create or replace function public.queue_entry_for(target_appointment uuid)
+create or replace function public.queue_entry_for(
+  target_appointment uuid,
+  expected_location  uuid
+)
 returns public.queue_entries
 language plpgsql
 volatile
@@ -33,10 +45,24 @@ begin
   select * into v_appt from public.appointments
    where id = target_appointment for update;
 
-  -- Same message whether it is missing or merely not yours: which appointment
-  -- ids exist is not something an outsider should be able to probe.
-  if not found or not public.may_manage_appointments(v_appt.owner_doctor_id,
-                                                     v_appt.practice_location_id) then
+  /**
+   * The appointment must belong to the location the caller is WORKING IN, not
+   * merely to one they are allowed into.
+   *
+   * Someone who runs the desk at two clinics could otherwise act on a patient
+   * at clinic B while the screen — and the audit event the application writes
+   * afterwards — say clinic A. The RPC would authorise it quite correctly, and
+   * the resulting history would name the wrong place.
+   *
+   * `expected_location` comes from the server's session context, never from a
+   * client field.
+   */
+  -- Same message whether it is missing, not yours, or somewhere else: which
+  -- appointment ids exist and where is not something to probe for.
+  if not found
+     or v_appt.practice_location_id is distinct from expected_location
+     or not public.may_manage_appointments(v_appt.owner_doctor_id,
+                                           v_appt.practice_location_id) then
     raise exception 'appointment not found' using errcode = '42501';
   end if;
 
@@ -70,11 +96,14 @@ begin
 end;
 $$;
 
-revoke all on function public.queue_entry_for(uuid) from public, anon, authenticated;
+-- Drop the old single-argument form so no location-blind path survives.
+drop function if exists public.queue_entry_for(uuid);
+revoke all on function public.queue_entry_for(uuid, uuid) from public, anon, authenticated;
 
 /** Announce a patient. Repeatable — being called twice is normal. */
 create or replace function public.call_patient(
   p_appointment_id uuid,
+  p_practice_location_id uuid,
   p_note           text default null
 )
 returns integer
@@ -88,7 +117,7 @@ declare
   v_was_skipped boolean;
   v_count integer;
 begin
-  v_entry := public.queue_entry_for(p_appointment_id);
+  v_entry := public.queue_entry_for(p_appointment_id, p_practice_location_id);
   v_was_skipped := v_entry.skipped_at is not null;
 
   update public.queue_entries set
@@ -110,8 +139,8 @@ begin
 end;
 $$;
 
-revoke all on function public.call_patient(uuid, text) from public, anon;
-grant execute on function public.call_patient(uuid, text) to authenticated;
+revoke all on function public.call_patient(uuid, uuid, text) from public, anon;
+grant execute on function public.call_patient(uuid, uuid, text) to authenticated;
 
 /**
  * They did not answer.
@@ -122,6 +151,7 @@ grant execute on function public.call_patient(uuid, text) to authenticated;
  */
 create or replace function public.skip_patient(
   p_appointment_id uuid,
+  p_practice_location_id uuid,
   p_note           text default null
 )
 returns integer
@@ -134,7 +164,7 @@ declare
   v_entry public.queue_entries%rowtype;
   v_count integer;
 begin
-  v_entry := public.queue_entry_for(p_appointment_id);
+  v_entry := public.queue_entry_for(p_appointment_id, p_practice_location_id);
 
   if v_entry.skipped_at is not null then
     return v_entry.skip_count;          -- idempotent; a double-tap is not an error
@@ -155,8 +185,8 @@ begin
 end;
 $$;
 
-revoke all on function public.skip_patient(uuid, text) from public, anon;
-grant execute on function public.skip_patient(uuid, text) to authenticated;
+revoke all on function public.skip_patient(uuid, uuid, text) from public, anon;
+grant execute on function public.skip_patient(uuid, uuid, text) to authenticated;
 
 /**
  * Move someone up the queue.
@@ -167,6 +197,7 @@ grant execute on function public.skip_patient(uuid, text) to authenticated;
  */
 create or replace function public.set_queue_priority(
   p_appointment_id uuid,
+  p_practice_location_id uuid,
   p_reason         public.priority_reason,
   p_note           text default null
 )
@@ -183,7 +214,7 @@ begin
     raise exception 'moving someone up the queue needs a reason' using errcode = '22023';
   end if;
 
-  v_entry := public.queue_entry_for(p_appointment_id);
+  v_entry := public.queue_entry_for(p_appointment_id, p_practice_location_id);
 
   update public.queue_entries set
     priority        = 1,
@@ -200,13 +231,16 @@ begin
 end;
 $$;
 
-revoke all on function public.set_queue_priority(uuid, public.priority_reason, text)
+revoke all on function public.set_queue_priority(uuid, uuid, public.priority_reason, text)
   from public, anon;
-grant execute on function public.set_queue_priority(uuid, public.priority_reason, text)
+grant execute on function public.set_queue_priority(uuid, uuid, public.priority_reason, text)
   to authenticated;
 
 /** Put someone back in ordinary order. The reason they jumped stays in history. */
-create or replace function public.clear_queue_priority(p_appointment_id uuid)
+create or replace function public.clear_queue_priority(
+  p_appointment_id uuid,
+  p_practice_location_id uuid
+)
 returns void
 language plpgsql
 volatile
@@ -216,7 +250,7 @@ as $$
 declare
   v_entry public.queue_entries%rowtype;
 begin
-  v_entry := public.queue_entry_for(p_appointment_id);
+  v_entry := public.queue_entry_for(p_appointment_id, p_practice_location_id);
 
   update public.queue_entries set
     priority        = 0,
@@ -231,5 +265,5 @@ begin
 end;
 $$;
 
-revoke all on function public.clear_queue_priority(uuid) from public, anon;
-grant execute on function public.clear_queue_priority(uuid) to authenticated;
+revoke all on function public.clear_queue_priority(uuid, uuid) from public, anon;
+grant execute on function public.clear_queue_priority(uuid, uuid) to authenticated;

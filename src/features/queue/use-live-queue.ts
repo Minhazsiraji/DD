@@ -3,6 +3,7 @@
 import * as React from "react";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { refreshQueueAction } from "./actions";
+import { createRefreshScheduler, type RefreshScheduler } from "./refresh-scheduler";
 import type { QueueRow } from "./schema";
 
 /**
@@ -88,39 +89,61 @@ export function useLiveQueue({
    * and it would show a queue that has already moved on.
    */
   const ticket = React.useRef(0);
-  const inFlight = React.useRef(false);
 
-  const load = React.useCallback(
-    async (showSpinner: boolean) => {
-      if (inFlight.current) return; // one read at a time; the poll will come round again
-      inFlight.current = true;
-      const mine = ++ticket.current;
-      if (showSpinner) setRefreshing(true);
-
-      try {
-        const outcome = await refreshQueueAction(sessionDate);
-        if (mine !== ticket.current) return; // overtaken by a newer read
-        if (outcome.ok) {
-          setRows(outcome.rows);
-          setFailed(false);
-          setLastUpdated(Date.now());
-        } else {
-          // Keep the rows we already have. A failed read is not an empty room.
-          setFailed(true);
-        }
-      } catch {
-        if (mine === ticket.current) setFailed(true);
-      } finally {
-        inFlight.current = false;
-        if (showSpinner) setRefreshing(false);
+  const readOnce = React.useCallback(async () => {
+    const mine = ++ticket.current;
+    try {
+      const outcome = await refreshQueueAction(sessionDate);
+      if (mine !== ticket.current) return; // overtaken by a newer read
+      if (outcome.ok) {
+        setRows(outcome.rows);
+        setFailed(false);
+        setLastUpdated(Date.now());
+      } else {
+        // Keep the rows we already have. A failed read is not an empty room.
+        setFailed(true);
       }
-    },
-    [sessionDate],
-  );
+    } catch {
+      if (mine === ticket.current) setFailed(true);
+    }
+  }, [sessionDate]);
 
-  const refresh = React.useCallback(() => {
-    void load(true);
-  }, [load]);
+  /**
+   * Signals are COALESCED, never dropped.
+   *
+   * The earlier version returned early while a read was in flight, so a
+   * Realtime event arriving mid-read was silently discarded — and once the
+   * channel was trusted, the next poll could be a minute away. The scheduler
+   * remembers that a refresh was asked for and runs exactly one catch-up read
+   * when the current one finishes.
+   */
+  /**
+   * One scheduler for the lifetime of the screen.
+   *
+   * It reaches the current `readOnce` through a ref rather than being rebuilt
+   * when the date changes — recreating it would drop any pending trailing read,
+   * which is the exact signal loss this is here to prevent.
+   */
+  const readOnceRef = React.useRef(readOnce);
+  React.useEffect(() => {
+    readOnceRef.current = readOnce;
+  }, [readOnce]);
+
+  // Built in an effect, not during render: constructing it inline would hand a
+  // ref to a function while rendering, which the compiler lint rejects.
+  const schedulerRef = React.useRef<RefreshScheduler | null>(null);
+  React.useEffect(() => {
+    schedulerRef.current = createRefreshScheduler({
+      run: () => readOnceRef.current(),
+      onBusyChange: setRefreshing,
+    });
+  }, []);
+
+  const load = React.useCallback((showSpinner: boolean) => {
+    void schedulerRef.current?.request(showSpinner);
+  }, []);
+
+  const refresh = React.useCallback(() => load(true), [load]);
 
   // ---- Realtime -----------------------------------------------------------
   React.useEffect(() => {

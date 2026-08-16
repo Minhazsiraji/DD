@@ -91,8 +91,33 @@ for (const fn of [
 }
 
 const [helperGrant] = await sql`
-  select has_function_privilege('authenticated', 'public.queue_entry_for(uuid)', 'EXECUTE') as ok`;
+  select has_function_privilege('authenticated',
+    'public.queue_entry_for(uuid, uuid)', 'EXECUTE') as ok`;
 check(helperGrant.ok === false, "the internal queue helper is not executable");
+
+/**
+ * Every queue RPC must take the location the caller is working in. The earlier
+ * forms took only an appointment id, so they could act on any location the
+ * caller happened to be allowed into.
+ */
+console.log("\nQueue RPCs are bound to a location");
+for (const fn of ["call_patient", "skip_patient", "set_queue_priority", "clear_queue_priority"]) {
+  const forms = await sql`
+    select pg_get_function_arguments(p.oid) as args
+    from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+    where n.nspname = 'public' and p.proname = ${fn}`;
+  check(forms.length === 1, `${fn}: exactly one form`, `${forms.length}`);
+  check(
+    forms.every((f) => f.args.includes("p_practice_location_id")),
+    `${fn}: takes the active location`,
+  );
+}
+
+const [oldHelper] = await sql`
+  select count(*)::int as n from pg_proc p
+  join pg_namespace n on n.oid = p.pronamespace
+  where n.nspname = 'public' and p.proname = 'queue_entry_for'`;
+check(oldHelper.n === 1, "no location-blind helper survives", `${oldHelper.n} form(s)`);
 
 /**
  * The queue must not invent a second lifecycle (ADR 0009). If a status column
@@ -196,10 +221,10 @@ try {
     // ---- calling, skipping, recalling -------------------------------------
     console.log("\nCalling and skipping");
     await as(tx, uidR, async () => {
-      const [c1] = await tx`select public.call_patient(${made[0]}, null) as n`;
+      const [c1] = await tx`select public.call_patient(${made[0]}, ${hospital.id}, null) as n`;
       check(c1.n === 1, "calling records the first announcement");
 
-      const [c2] = await tx`select public.call_patient(${made[0]}, null) as n`;
+      const [c2] = await tx`select public.call_patient(${made[0]}, ${hospital.id}, null) as n`;
       check(c2.n === 2, "calling again increments — being called twice is normal");
 
       const [status] = await tx`select status from public.appointments where id = ${made[0]}`;
@@ -209,10 +234,10 @@ try {
         status.status,
       );
 
-      const [s1] = await tx`select public.skip_patient(${made[0]}, 'no answer') as n`;
+      const [s1] = await tx`select public.skip_patient(${made[0]}, ${hospital.id}, 'no answer') as n`;
       check(s1.n === 1, "skipping records why they left the front");
 
-      const [s2] = await tx`select public.skip_patient(${made[0]}, null) as n`;
+      const [s2] = await tx`select public.skip_patient(${made[0]}, ${hospital.id}, null) as n`;
       check(s2.n === 1, "skipping twice is idempotent", `${s2.n}`);
 
       const [stillHere] = await tx`select status from public.appointments where id = ${made[0]}`;
@@ -234,7 +259,7 @@ try {
         q.map((r) => r.token_number).join(","),
       );
 
-      await tx`select public.call_patient(${made[0]}, null)`;
+      await tx`select public.call_patient(${made[0]}, ${hospital.id}, null)`;
       const [recalled] = await tx`
         select event_type from public.queue_events
         where appointment_id = ${made[0]} order by seq desc limit 1`;
@@ -252,11 +277,11 @@ try {
     console.log("\nPriority");
     await as(tx, uidR, async () => {
       const noReason = await expectDenied(tx, async (t) => {
-        await t`select public.set_queue_priority(${made[2]}, null, null)`;
+        await t`select public.set_queue_priority(${made[2]}, ${hospital.id}, null, null)`;
       });
       check(noReason, "moving someone up REQUIRES a reason");
 
-      await tx`select public.set_queue_priority(${made[2]},
+      await tx`select public.set_queue_priority(${made[2]}, ${hospital.id},
                  'ELDERLY'::public.priority_reason, 'Struggling to stand')`;
       const q = await tx`select * from public.get_queue(${hospital.id}, ${session}::date)`;
       check(q[0].token_number === 3, "a prioritised patient goes first", `${q[0].token_number}`);
@@ -271,7 +296,7 @@ try {
         "the jump is in the history, with its justification",
       );
 
-      await tx`select public.clear_queue_priority(${made[2]})`;
+      await tx`select public.clear_queue_priority(${made[2]}, ${hospital.id})`;
       const q2 = await tx`select * from public.get_queue(${hospital.id}, ${session}::date)`;
       check(q2[0].token_number === 1, "clearing priority restores ordinary order");
 
@@ -307,7 +332,7 @@ try {
 
       const rolled = await as(tx, uidR, async () =>
         expectDenied(tx, async (t) => {
-          await t`select public.call_patient(${made[0]}, null)`;
+          await t`select public.call_patient(${made[0]}, ${hospital.id}, null)`;
         }),
       );
       check(rolled, "a failing queue-event write aborts the call");
@@ -338,7 +363,7 @@ try {
       // Give made[1] a queue row first, so "nothing changed" has something to
       // measure — then move them into the consultation.
       await as(tx, uidR, async () => {
-        await tx`select public.call_patient(${made[1]}, null)`;
+        await tx`select public.call_patient(${made[1]}, ${hospital.id}, null)`;
       });
       await as(tx, uidA, async () => {
         await tx`select public.set_appointment_status(${made[1]},
@@ -354,14 +379,14 @@ try {
       await as(tx, uidR, async () => {
         const attempts = [
           ["call_patient rejects a patient with the doctor", async (t) =>
-            t`select public.call_patient(${made[1]}, null)`],
+            t`select public.call_patient(${made[1]}, ${hospital.id}, null)`],
           ["skip_patient rejects a patient with the doctor", async (t) =>
-            t`select public.skip_patient(${made[1]}, null)`],
+            t`select public.skip_patient(${made[1]}, ${hospital.id}, null)`],
           ["set_queue_priority rejects a patient with the doctor", async (t) =>
-            t`select public.set_queue_priority(${made[1]},
+            t`select public.set_queue_priority(${made[1]}, ${hospital.id},
                 'EMERGENCY'::public.priority_reason, null)`],
           ["clear_queue_priority rejects a patient with the doctor", async (t) =>
-            t`select public.clear_queue_priority(${made[1]})`],
+            t`select public.clear_queue_priority(${made[1]}, ${hospital.id})`],
         ];
         for (const [label, fn] of attempts) check(await expectDenied(tx, fn), label);
       });
@@ -422,10 +447,83 @@ try {
       );
 
       const gone = await expectDenied(tx, async (t) => {
-        await t`select public.call_patient(${made[2]}, null)`;
+        await t`select public.call_patient(${made[2]}, ${hospital.id}, null)`;
       });
       check(gone, "and someone who has left the queue cannot be called");
     });
+
+    /**
+     * Actions are bound to the location the caller is WORKING IN.
+     *
+     * Doctor A runs both the hospital and their own chamber, so both are
+     * legitimately theirs. That is exactly the dangerous case: acting on a
+     * chamber patient while the screen — and the audit event the application
+     * writes afterwards — say hospital would put the wrong place in the record.
+     */
+    console.log("\nActions are bound to the active location");
+    {
+      const [chamberPatient] = await tx`
+        insert into public.patients (owner_doctor_id, patient_number, full_name,
+                                     name_normalized, sex, created_by)
+        values (${docA.id}, 'AA-990001', 'Chamber Patient', 'chamber patient',
+                'UNKNOWN', ${uidA}) returning id`;
+      await tx`insert into public.patient_location_links (patient_id, practice_location_id)
+               values (${chamberPatient.id}, ${chamber.id})`;
+      const [chamberAppt] = await tx`
+        insert into public.appointments (owner_doctor_id, practice_location_id, patient_id,
+                                         scheduled_for, session_date, token_number,
+                                         status, created_by)
+        values (${docA.id}, ${chamber.id}, ${chamberPatient.id},
+                ${`${session}T09:00:00+06:00`}::timestamptz, ${session}, 1,
+                'ARRIVED', ${uidA}) returning id`;
+
+      const beforeEntries = await tx`
+        select count(*)::int as n from public.queue_entries
+        where appointment_id = ${chamberAppt.id}`;
+      const beforeEvents = await tx`
+        select count(*)::int as n from public.queue_events
+        where appointment_id = ${chamberAppt.id}`;
+
+      await as(tx, uidA, async () => {
+        const attempts = [
+          ["call from the wrong location is refused", async (t) =>
+            t`select public.call_patient(${chamberAppt.id}, ${hospital.id}, null)`],
+          ["skip from the wrong location is refused", async (t) =>
+            t`select public.skip_patient(${chamberAppt.id}, ${hospital.id}, null)`],
+          ["priority from the wrong location is refused", async (t) =>
+            t`select public.set_queue_priority(${chamberAppt.id}, ${hospital.id},
+                'ELDERLY'::public.priority_reason, null)`],
+          ["clearing priority from the wrong location is refused", async (t) =>
+            t`select public.clear_queue_priority(${chamberAppt.id}, ${hospital.id})`],
+        ];
+        for (const [label, fn] of attempts) check(await expectDenied(tx, fn), label);
+
+        // …while the SAME action at the right location works, so the refusal is
+        // about location and not about something else being broken.
+        const [ok] = await tx`
+          select public.call_patient(${chamberAppt.id}, ${chamber.id}, null) as n`;
+        check(ok.n === 1, "the same action at the correct location succeeds");
+      });
+
+      const afterEntries = await tx`
+        select count(*)::int as n, coalesce(max(call_count), 0) as calls
+        from public.queue_entries where appointment_id = ${chamberAppt.id}`;
+      const afterEvents = await tx`
+        select count(*)::int as n from public.queue_events
+        where appointment_id = ${chamberAppt.id}`;
+
+      check(
+        afterEntries[0].calls === 1,
+        "only the correctly-located call was recorded",
+        `${afterEntries[0].calls} call(s)`,
+      );
+      check(
+        afterEvents[0].n === beforeEvents[0].n + 1,
+        "exactly one queue event, from the correct location",
+        `${beforeEvents[0].n} -> ${afterEvents[0].n}`,
+      );
+      void beforeEntries;
+    }
 
     // ---- direct writes ----------------------------------------------------
     console.log("\nBypass attempts");
@@ -452,7 +550,7 @@ try {
     // A doctor may not reach into another doctor's queue.
     await as(tx, uidB, async () => {
       const denied = await expectDenied(tx, async (t) => {
-        await t`select public.call_patient(${made[0]}, null)`;
+        await t`select public.call_patient(${made[0]}, ${hospital.id}, null)`;
       });
       check(denied, "an unrelated doctor cannot call another doctor's patient");
 
@@ -559,8 +657,8 @@ try {
 
   // Two assistants calling the same patient simultaneously.
   await race(
-    (t) => t`select public.call_patient(${cAppt.id}, null)`,
-    (t) => t`select public.call_patient(${cAppt.id}, null)`,
+    (t) => t`select public.call_patient(${cAppt.id}, ${cLoc.id}, null)`,
+    (t) => t`select public.call_patient(${cAppt.id}, ${cLoc.id}, null)`,
   );
 
   const [entry] = await sql`
@@ -582,8 +680,8 @@ try {
 
   // Skip and prioritise at the same instant: both must land, neither may vanish.
   await race(
-    (t) => t`select public.skip_patient(${cAppt.id}, null)`,
-    (t) => t`select public.set_queue_priority(${cAppt.id},
+    (t) => t`select public.skip_patient(${cAppt.id}, ${cLoc.id}, null)`,
+    (t) => t`select public.set_queue_priority(${cAppt.id}, ${cLoc.id},
                'EMERGENCY'::public.priority_reason, null)`,
   );
 

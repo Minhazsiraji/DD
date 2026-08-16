@@ -6,6 +6,7 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { requireUser, requireLocationContext } from "@/lib/auth/session";
 import { emitAudit } from "@/lib/audit/emit";
 import { getQueue } from "./queries";
+import { translateQueueError } from "./errors";
 import {
   priorityInputSchema,
   queueActionSchema,
@@ -32,29 +33,21 @@ function fieldErrors(error: z.ZodError): Record<string, string[]> {
 }
 
 /**
- * The database speaks in constraint language.
+ * Turn a database refusal into something safe to render.
  *
- * The IN_CONSULTATION case matters most: it is what a STALE SCREEN produces.
- * Someone else started the consultation while this tab still showed a Call
- * button, so the message has to explain what happened rather than look like a
- * fault.
+ * Unrecognised failures are LOGGED here and replaced with one stable sentence.
+ * The old fallback echoed the raw message, which put Postgres function names,
+ * constraint names and SQLSTATEs in front of doctors — schema shape leaked to
+ * anyone who could provoke an error, and it told the reader nothing they could
+ * act on.
  */
-function translate(message: string): string {
-  const m = message.toLowerCase();
-
-  if (m.includes("already with the doctor")) {
-    return "That patient is already in with the doctor — the queue has moved on since this screen loaded.";
+function safeMessage(action: string, message: string): string {
+  const { message: text, unexpected } = translateQueueError(message);
+  if (unexpected) {
+    // Server-side only. This is the detail we deliberately do not render.
+    console.error(`[queue] ${action} failed`, message);
   }
-  if (m.includes("not in the queue")) {
-    return "That patient has left the queue — they may have been seen, cancelled or marked as not arrived.";
-  }
-  if (m.includes("appointment not found")) {
-    return "That patient is no longer available to you.";
-  }
-  if (m.includes("needs a reason")) {
-    return "Choose why they are going ahead of the others.";
-  }
-  return `Could not do that: ${message}`;
+  return text;
 }
 
 async function refresh() {
@@ -79,10 +72,11 @@ export async function callPatientAction(
 
   const { data, error } = await supabase.rpc("call_patient", {
     p_appointment_id: parsed.data.appointmentId,
+    p_practice_location_id: ctx.locationId,
     p_note: empty(formData.get("note")),
   });
 
-  if (error) return { ok: false, message: translate(error.message) };
+  if (error) return { ok: false, message: safeMessage("call_patient", error.message) };
 
   await emitAudit({
     action: "queue.called",
@@ -117,10 +111,11 @@ export async function skipPatientAction(
 
   const { error } = await supabase.rpc("skip_patient", {
     p_appointment_id: parsed.data.appointmentId,
+    p_practice_location_id: ctx.locationId,
     p_note: empty(formData.get("note")),
   });
 
-  if (error) return { ok: false, message: translate(error.message) };
+  if (error) return { ok: false, message: safeMessage("skip_patient", error.message) };
 
   await emitAudit({
     action: "queue.skipped",
@@ -157,11 +152,12 @@ export async function setPriorityAction(
 
   const { error } = await supabase.rpc("set_queue_priority", {
     p_appointment_id: parsed.data.appointmentId,
+    p_practice_location_id: ctx.locationId,
     p_reason: parsed.data.reason,
     p_note: empty(formData.get("note")),
   });
 
-  if (error) return { ok: false, message: translate(error.message) };
+  if (error) return { ok: false, message: safeMessage("set_queue_priority", error.message) };
 
   await emitAudit({
     action: "queue.priority_set",
@@ -188,8 +184,11 @@ export async function clearPriorityAction(
   const ctx = await requireLocationContext();
   const supabase = await createSupabaseServerClient();
 
-  const { error } = await supabase.rpc("clear_queue_priority", { p_appointment_id: id });
-  if (error) return { ok: false, message: translate(error.message) };
+  const { error } = await supabase.rpc("clear_queue_priority", {
+    p_appointment_id: id,
+    p_practice_location_id: ctx.locationId,
+  });
+  if (error) return { ok: false, message: safeMessage("clear_queue_priority", error.message) };
 
   await emitAudit({
     action: "queue.priority_cleared",

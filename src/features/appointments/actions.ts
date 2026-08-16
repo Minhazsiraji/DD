@@ -153,6 +153,26 @@ export async function changeStatusAction(
   const ctx = await requireLocationContext();
   const supabase = await createSupabaseServerClient();
 
+  /**
+   * Bind the action to the location the user is WORKING IN.
+   *
+   * Someone who works at two locations could otherwise submit an appointment
+   * from location B while viewing location A — the RPC would authorise it
+   * correctly, and the audit event written below would then name the wrong
+   * place. The lookup is RLS-scoped, and a mismatch gets the same answer as a
+   * missing appointment so it cannot be used to probe.
+   */
+  const { data: scoped } = await supabase
+    .from("appointments")
+    .select("id")
+    .eq("id", v.appointmentId)
+    .eq("practice_location_id", ctx.locationId)
+    .maybeSingle();
+
+  if (!scoped) {
+    return { ok: false, message: "That appointment is no longer available to you." };
+  }
+
   const { error } = await supabase.rpc("set_appointment_status", {
     p_appointment_id: v.appointmentId,
     p_to_status: v.toStatus,
