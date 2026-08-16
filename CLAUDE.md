@@ -179,6 +179,12 @@ squeeze — and it hides the bottom nav.
 - **`timestamptz::date` uses the SESSION timezone, not the clinic's.** Anything
   that means "which clinic day is this?" must convert through the location's own
   timezone, or a 12:30am Dhaka appointment files itself under the previous day.
+- **`now()` is the TRANSACTION's start time.** For history/event tables use
+  `clock_timestamp()`, and add a `bigserial` if order matters — two racing
+  transactions can otherwise stamp events in an order that never happened.
+- **A defaulted parameter is still a parameter a caller may supply.** To stop
+  callers setting a field, remove it from the public function's signature and
+  `DROP` the old overload; an unused default is not a control.
 - **`max(x) + 1` is not serialised by locking the row you are updating.** Two
   callers updating DIFFERENT rows take different locks and read the same
   maximum. Increment a single shared counter row (`INSERT … ON CONFLICT DO

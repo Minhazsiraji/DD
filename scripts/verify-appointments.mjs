@@ -35,6 +35,45 @@ async function expectDenied(tx, fn) {
   }
 }
 
+/**
+ * The invariant that matters after any race: the row and its history agree.
+ *
+ * Events must form an unbroken chain — each one starting where the previous
+ * ended — and the last event must land on the status the row actually holds.
+ * Checking "the outcome was one of the legal ones" would pass even when two
+ * callers each wrote an event describing a world the other never saw.
+ */
+async function historyIsConsistent(conn, appointmentId) {
+  const [row] = await conn`
+    select status from public.appointments where id = ${appointmentId}`;
+  // Ordered by seq, never by created_at: `now()` is the TRANSACTION's start
+  // time, so under concurrency timestamps can sort history into an order that
+  // never happened. seq is assigned at insert, under the appointment's lock.
+  const events = await conn`
+    select event_type, from_status, to_status from public.appointment_events
+    where appointment_id = ${appointmentId} order by seq`;
+
+  if (events.length === 0) return { ok: false, why: "no events at all" };
+  if (events[0].from_status !== null) {
+    return { ok: false, why: `first event starts from ${events[0].from_status}` };
+  }
+
+  for (let i = 1; i < events.length; i++) {
+    if (events[i].from_status !== events[i - 1].to_status) {
+      return {
+        ok: false,
+        why: `event ${i} starts at ${events[i].from_status} but the previous ended at ${events[i - 1].to_status}`,
+      };
+    }
+  }
+
+  const last = events[events.length - 1].to_status;
+  if (last !== row.status) {
+    return { ok: false, why: `row is ${row.status} but history ends at ${last}` };
+  }
+  return { ok: true, events: events.length, status: row.status };
+}
+
 async function as(tx, uid, fn) {
   await tx`select set_config('request.jwt.claims', ${JSON.stringify({
     sub: uid,
@@ -166,6 +205,31 @@ check(
   "and it is UNIQUE",
 );
 
+const [successorIdx] = await sql`
+  select indexdef from pg_indexes
+  where schemaname = 'public' and indexname = 'appointments_one_successor'`;
+check(
+  Boolean(successorIdx?.indexdef?.includes("UNIQUE")),
+  "a unique index enforces at most one successor per appointment",
+);
+
+console.log("\nReschedule lineage is not publicly settable");
+const createArgs = await sql`
+  select pg_get_function_arguments(p.oid) as args
+  from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+  where n.nspname = 'public' and p.proname = 'create_appointment'`;
+check(createArgs.length === 1, "exactly one public create_appointment", `${createArgs.length}`);
+check(
+  !createArgs.some((f) => f.args.includes("rescheduled_from")),
+  "public booking exposes no lineage parameter",
+);
+
+const [internalGrant] = await sql`
+  select has_function_privilege('authenticated',
+    'public.book_appointment_internal(uuid,uuid,uuid,timestamptz,integer,public.visit_type,text,uuid)',
+    'EXECUTE') as ok`;
+check(internalGrant.ok === false, "authenticated cannot execute the internal booking helper");
+
 console.log("\nState machine");
 const TRANSITIONS = [
   ["SCHEDULED", "ARRIVED", true],
@@ -259,12 +323,12 @@ try {
     await as(tx, uidA, async () => {
       [{ create_appointment: apptHospital }] = await tx`
         select public.create_appointment(${docA.id}, ${hospital.id}, ${patA.id},
-          ${when}::timestamptz, 15, 'NEW'::public.visit_type, 'Fever', null)`;
+          ${when}::timestamptz, 15, 'NEW'::public.visit_type, 'Fever')`;
       check(Boolean(apptHospital), "doctor books at their hospital");
 
       [{ create_appointment: apptChamber }] = await tx`
         select public.create_appointment(${docA.id}, ${chamber.id}, ${patA.id},
-          ${when}::timestamptz, 15, 'FOLLOW_UP'::public.visit_type, null, null)`;
+          ${when}::timestamptz, 15, 'FOLLOW_UP'::public.visit_type, null)`;
       check(Boolean(apptChamber), "doctor books in their private chamber");
 
       const [ev] = await tx`
@@ -274,7 +338,7 @@ try {
 
       const wrongPatient = await expectDenied(tx, async (t) => {
         await t`select public.create_appointment(${docA.id}, ${hospital.id}, ${patB.id},
-          ${when}::timestamptz, 15, 'NEW'::public.visit_type, null, null)`;
+          ${when}::timestamptz, 15, 'NEW'::public.visit_type, null)`;
       });
       check(wrongPatient, "cannot book another doctor's patient into your clinic");
     });
@@ -282,18 +346,18 @@ try {
     await as(tx, uidR, async () => {
       const [{ create_appointment: byDesk }] = await tx`
         select public.create_appointment(${docA.id}, ${hospital.id}, ${patA.id},
-          ${when}::timestamptz, 15, 'NEW'::public.visit_type, 'Desk booking', null)`;
+          ${when}::timestamptz, 15, 'NEW'::public.visit_type, 'Desk booking')`;
       check(Boolean(byDesk), "reception books for a doctor at their hospital");
 
       const intoChamber = await expectDenied(tx, async (t) => {
         await t`select public.create_appointment(${docA.id}, ${chamber.id}, ${patA.id},
-          ${when}::timestamptz, 15, 'NEW'::public.visit_type, null, null)`;
+          ${when}::timestamptz, 15, 'NEW'::public.visit_type, null)`;
       });
       check(intoChamber, "reception CANNOT book into the doctor's private chamber");
 
       const foreignDoctor = await expectDenied(tx, async (t) => {
         await t`select public.create_appointment(${docB.id}, ${hospital.id}, ${patB.id},
-          ${when}::timestamptz, 15, 'NEW'::public.visit_type, null, null)`;
+          ${when}::timestamptz, 15, 'NEW'::public.visit_type, null)`;
       });
       check(foreignDoctor, "reception cannot book for a doctor who is not at this location");
 
@@ -317,7 +381,7 @@ try {
 
       const denied = await expectDenied(tx, async (t) => {
         await t`select public.create_appointment(${docA.id}, ${hospital.id}, ${patPrivate.id},
-          ${when}::timestamptz, 15, 'NEW'::public.visit_type, null, null)`;
+          ${when}::timestamptz, 15, 'NEW'::public.visit_type, null)`;
       });
       check(denied, "reception cannot book a chamber-only patient into the hospital");
     });
@@ -523,6 +587,37 @@ try {
       );
     });
 
+    // ---- reschedule lineage cannot be forged ------------------------------
+    console.log("\nReschedule lineage");
+    await as(tx, uidA, async () => {
+      // The old 8-argument form accepted lineage from anyone. It must be gone,
+      // not merely discouraged.
+      const noLineageParam = await expectDenied(tx, async (t) => {
+        await t`select public.create_appointment(${docA.id}, ${chamber.id}, ${patA.id},
+          ${when}::timestamptz, 15, 'NEW'::public.visit_type, null, ${apptChamber})`;
+      });
+      check(noLineageParam, "public booking has no lineage parameter to abuse");
+
+      const internalHidden = await expectDenied(tx, async (t) => {
+        await t`select public.book_appointment_internal(${docA.id}, ${chamber.id},
+          ${patA.id}, ${when}::timestamptz, 15, 'NEW'::public.visit_type, null,
+          ${apptChamber})`;
+      });
+      check(internalHidden, "the internal booking helper is not executable");
+
+      // A second successor for an already-rescheduled appointment.
+      const twoSuccessors = await expectDenied(tx, async (t) => {
+        await t`select public.reschedule_appointment(${apptChamber},
+          '2026-09-15T10:00:00+06:00'::timestamptz, null, null)`;
+      });
+      check(twoSuccessors, "a cancelled appointment cannot be rescheduled again");
+
+      const [successors] = await tx`
+        select count(*)::int as n from public.appointments
+        where rescheduled_from_id = ${apptChamber}`;
+      check(successors.n === 1, "exactly one successor exists", `${successors.n}`);
+    });
+
     // ---- reception registers a patient (ADR 0008) -------------------------
     console.log("\nReception registration");
     await as(tx, uidR, async () => {
@@ -601,8 +696,19 @@ console.log("\nConcurrent check-in (committed, then cleaned up)");
 const cUid = crypto.randomUUID();
 const cDeskUid = crypto.randomUUID();
 let cLocation, cDoctor;
-const connA = postgres(url, { max: 1, prepare: false, onnotice: () => {} });
-const connB = postgres(url, { max: 1, prepare: false, onnotice: () => {} });
+/**
+ * Timeouts on the racing connections. These transactions deliberately contend
+ * for the same rows, so a mistake here shows up as a hang — and a hang that
+ * eats the whole run tells you nothing about where it started.
+ */
+const raceOpts = {
+  max: 1,
+  prepare: false,
+  onnotice: () => {},
+  connection: { statement_timeout: "15000", lock_timeout: "10000" },
+};
+const connA = postgres(url, raceOpts);
+const connB = postgres(url, raceOpts);
 
 try {
   await sql`insert into auth.users (id, email) values (${cUid}, ${`${cUid}@qa.invalid`})`;
@@ -665,6 +771,159 @@ try {
   await bothReady;                    // both transactions are open and authenticated
   release();                          // now let them both allocate
   await Promise.all([runA, runB]);
+
+  // -------------------------------------------------------------------------
+  // Two callers acting on the SAME appointment.
+  //
+  // The token race above is about two DIFFERENT rows. This is the other half:
+  // without FOR UPDATE both callers read the same old status, both judge their
+  // transition legal, and both write an event — leaving a row that agrees with
+  // neither history.
+  // -------------------------------------------------------------------------
+  const raceOn = async (apptId, first, second) => {
+    let readyX, readyY;
+    const both = Promise.all([
+      new Promise((r) => (readyX = r)),
+      new Promise((r) => (readyY = r)),
+    ]);
+    let release;
+    const go = new Promise((r) => (release = r));
+
+    const run = (conn, fn, ready) =>
+      conn
+        .begin(async (t) => {
+          await t`select set_config('request.jwt.claims', ${claims}, true)`;
+          await t`set local role authenticated`;
+          ready();
+          await go;
+          await fn(t);
+        })
+        .then(
+          () => "ok",
+          (e) => e.message,
+        );
+
+    const a = run(connA, first, readyX);
+    const b = run(connB, second, readyY);
+    await both;
+    release();
+    const outcomes = await Promise.all([a, b]);
+    const consistent = await historyIsConsistent(sql, apptId);
+    return { outcomes, consistent };
+  };
+
+  const arrive = (id) => (t) =>
+    t`select public.set_appointment_status(${id},
+        'ARRIVED'::public.appointment_status, null, null)`;
+  const cancel = (id) => (t) =>
+    t`select public.set_appointment_status(${id},
+        'CANCELLED'::public.appointment_status,
+        'PATIENT_REQUEST'::public.cancellation_reason, null)`;
+  const confirm = (id) => (t) =>
+    t`select public.set_appointment_status(${id},
+        'CONFIRMED'::public.appointment_status, null, null)`;
+
+  // (a) arrival + arrival on one appointment
+  {
+    const [p] = await sql`
+      insert into public.patients (owner_doctor_id, patient_number, full_name,
+                                   name_normalized, sex, created_by)
+      values (${cDoctor.id}, 'ZZ-910001', 'Race A', 'race a', 'UNKNOWN', ${cUid})
+      returning id`;
+    await sql`insert into public.patient_location_links (patient_id, practice_location_id)
+              values (${p.id}, ${cLocation.id})`;
+    const [appt] = await sql`
+      insert into public.appointments (owner_doctor_id, practice_location_id, patient_id,
+                                       scheduled_for, session_date, created_by)
+      values (${cDoctor.id}, ${cLocation.id}, ${p.id},
+              '2026-09-01T11:00:00+06:00'::timestamptz, '2026-09-01', ${cUid})
+      returning id`;
+    await sql`insert into public.appointment_events
+                (appointment_id, practice_location_id, event_type, to_status, actor_id)
+              values (${appt.id}, ${cLocation.id}, 'CREATED', 'SCHEDULED', ${cUid})`;
+
+    const { consistent } = await raceOn(appt.id, arrive(appt.id), arrive(appt.id));
+    check(consistent.ok, "arrival + arrival: row and history agree", consistent.why ?? "");
+
+    const [ev] = await sql`
+      select count(*)::int as n from public.appointment_events
+      where appointment_id = ${appt.id} and event_type = 'ARRIVED'`;
+    check(ev.n === 1, "arrival + arrival: exactly ONE arrival event", `${ev.n}`);
+
+    const [tok] = await sql`
+      select count(distinct token_number)::int as n from public.appointments
+      where id = ${appt.id} and token_number is not null`;
+    check(tok.n === 1, "arrival + arrival: exactly one token");
+  }
+
+  // (b) arrival + cancellation on one appointment
+  {
+    const [p] = await sql`
+      insert into public.patients (owner_doctor_id, patient_number, full_name,
+                                   name_normalized, sex, created_by)
+      values (${cDoctor.id}, 'ZZ-910002', 'Race B', 'race b', 'UNKNOWN', ${cUid})
+      returning id`;
+    await sql`insert into public.patient_location_links (patient_id, practice_location_id)
+              values (${p.id}, ${cLocation.id})`;
+    const [appt] = await sql`
+      insert into public.appointments (owner_doctor_id, practice_location_id, patient_id,
+                                       scheduled_for, session_date, created_by)
+      values (${cDoctor.id}, ${cLocation.id}, ${p.id},
+              '2026-09-01T12:00:00+06:00'::timestamptz, '2026-09-01', ${cUid})
+      returning id`;
+    await sql`insert into public.appointment_events
+                (appointment_id, practice_location_id, event_type, to_status, actor_id)
+              values (${appt.id}, ${cLocation.id}, 'CREATED', 'SCHEDULED', ${cUid})`;
+
+    const { consistent } = await raceOn(appt.id, arrive(appt.id), cancel(appt.id));
+    check(
+      consistent.ok,
+      "arrival + cancellation: row and history agree",
+      consistent.why ?? `${consistent.events} events, ${consistent.status}`,
+    );
+    check(
+      ["ARRIVED", "CANCELLED"].includes(consistent.status ?? ""),
+      "arrival + cancellation: the outcome is one of the two legal ones",
+      consistent.status ?? "",
+    );
+  }
+
+  // (c) confirmation + reschedule on one appointment
+  {
+    const [p] = await sql`
+      insert into public.patients (owner_doctor_id, patient_number, full_name,
+                                   name_normalized, sex, created_by)
+      values (${cDoctor.id}, 'ZZ-910003', 'Race C', 'race c', 'UNKNOWN', ${cUid})
+      returning id`;
+    await sql`insert into public.patient_location_links (patient_id, practice_location_id)
+              values (${p.id}, ${cLocation.id})`;
+    const [appt] = await sql`
+      insert into public.appointments (owner_doctor_id, practice_location_id, patient_id,
+                                       scheduled_for, session_date, created_by)
+      values (${cDoctor.id}, ${cLocation.id}, ${p.id},
+              '2026-09-01T13:00:00+06:00'::timestamptz, '2026-09-01', ${cUid})
+      returning id`;
+    await sql`insert into public.appointment_events
+                (appointment_id, practice_location_id, event_type, to_status, actor_id)
+              values (${appt.id}, ${cLocation.id}, 'CREATED', 'SCHEDULED', ${cUid})`;
+
+    const { consistent } = await raceOn(
+      appt.id,
+      confirm(appt.id),
+      (t) => t`select public.reschedule_appointment(${appt.id},
+                 '2026-09-20T10:00:00+06:00'::timestamptz, null, null)`,
+    );
+    check(
+      consistent.ok,
+      "confirmation + reschedule: row and history agree",
+      consistent.why ?? `${consistent.events} events, ${consistent.status}`,
+    );
+
+    const [succ] = await sql`
+      select count(*)::int as n from public.appointments
+      where rescheduled_from_id = ${appt.id}`;
+    check(succ.n <= 1, "confirmation + reschedule: at most one successor", `${succ.n}`);
+  }
 
   const tokens = await sql`
     select id, token_number from public.appointments

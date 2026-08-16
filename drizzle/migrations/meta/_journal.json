@@ -50,6 +50,13 @@
       "when": 1786851263485,
       "tag": "0006_fantastic_jamie_braddock",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1786855224786,
+      "tag": "0007_sharp_giant_man",
+      "breakpoints": true
     }
   ]
 }

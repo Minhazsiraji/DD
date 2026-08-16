@@ -13,7 +13,9 @@ import {
   index,
   uniqueIndex,
   primaryKey,
+  bigserial,
 } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
 
 /**
  * Identity, practice locations, membership, audit.
@@ -749,11 +751,28 @@ export const appointmentEvents = pgTable(
     actorId: uuid("actor_id").references(() => profiles.id, { onDelete: "set null" }),
     /** Operational note only — reasons, not clinical content. */
     note: text("note"),
-    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    /**
+     * clock_timestamp(), NOT now().
+     *
+     * `now()` is the TRANSACTION's start time, so two racing transactions can
+     * stamp history in an order that never happened — a cancellation begun a
+     * millisecond earlier but committed later sorts before the arrival it
+     * actually followed. Caught by the arrival+cancellation race test.
+     */
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .default(sql`clock_timestamp()`),
+    /**
+     * The authoritative order. Timestamps can tie or mislead; this cannot.
+     * Rows are inserted under the appointment's row lock, so sequence order is
+     * the real order of events.
+     */
+    seq: bigserial("seq", { mode: "number" }).notNull(),
   },
   (t) => [
     index("appointment_events_appointment_idx").on(t.appointmentId),
     index("appointment_events_location_idx").on(t.practiceLocationId),
+    index("appointment_events_seq_idx").on(t.appointmentId, t.seq),
   ],
 );
 

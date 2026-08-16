@@ -9,8 +9,20 @@
 -- a plpgsql body is atomic, so the row and its history cannot disagree.
 -- =============================================================================
 
-/** Book an appointment and record its CREATED event. */
-create or replace function public.create_appointment(
+-- The previous PUBLIC create_appointment accepted p_rescheduled_from, so any
+-- authorised caller could book an ordinary appointment while claiming it was
+-- the successor of an unrelated one. Dropped outright rather than left as an
+-- overload, which would stay granted and keep the forgery available.
+drop function if exists public.create_appointment(
+  uuid, uuid, uuid, timestamptz, integer, public.visit_type, text, uuid);
+
+/**
+ * The real booking implementation, INCLUDING reschedule lineage.
+ *
+ * Ungranted: reachable only from create_appointment() (which always passes NULL
+ * lineage) and reschedule_appointment() (which owns the one legitimate case).
+ */
+create or replace function public.book_appointment_internal(
   p_owner_doctor_id      uuid,
   p_practice_location_id uuid,
   p_patient_id           uuid,
@@ -18,7 +30,7 @@ create or replace function public.create_appointment(
   p_duration_minutes     integer,
   p_visit_type           public.visit_type,
   p_reason               text,
-  p_rescheduled_from     uuid default null
+  p_rescheduled_from     uuid
 )
 returns uuid
 language plpgsql
@@ -29,6 +41,7 @@ as $$
 declare
   v_id      uuid;
   v_session date;
+  v_src     public.appointments%rowtype;
 begin
   if auth.uid() is null then
     raise exception 'not authenticated' using errcode = '42501';
@@ -66,6 +79,33 @@ begin
     raise exception 'an appointment needs a date and time' using errcode = '22023';
   end if;
 
+  /**
+   * Lineage must describe something that actually happened. A successor that
+   * points at a different patient, a different doctor, a different place, or an
+   * appointment that was never rescheduled is a false history — and false
+   * history is worse than none, because it reads as authoritative.
+   */
+  if p_rescheduled_from is not null then
+    select * into v_src from public.appointments where id = p_rescheduled_from;
+
+    if not found then
+      raise exception 'the appointment being rescheduled does not exist'
+        using errcode = '22023';
+    end if;
+
+    if v_src.owner_doctor_id      is distinct from p_owner_doctor_id
+    or v_src.patient_id           is distinct from p_patient_id
+    or v_src.practice_location_id is distinct from p_practice_location_id then
+      raise exception 'a rescheduled appointment must keep the same doctor, patient and location'
+        using errcode = '22023';
+    end if;
+
+    if v_src.status <> 'CANCELLED' or v_src.cancellation_reason <> 'RESCHEDULED' then
+      raise exception 'the source appointment was not cancelled as a reschedule'
+        using errcode = '22023';
+    end if;
+  end if;
+
   v_session := public.session_date_for(p_practice_location_id, p_scheduled_for);
 
   insert into public.appointments (
@@ -88,12 +128,47 @@ begin
 end;
 $$;
 
-revoke all on function public.create_appointment(
+revoke all on function public.book_appointment_internal(
   uuid, uuid, uuid, timestamptz, integer, public.visit_type, text, uuid)
+  from public, anon, authenticated;
+
+/**
+ * Public booking. Deliberately has NO lineage parameter — not merely a defaulted
+ * one, because a default is still a value a caller may supply.
+ */
+create or replace function public.create_appointment(
+  p_owner_doctor_id      uuid,
+  p_practice_location_id uuid,
+  p_patient_id           uuid,
+  p_scheduled_for        timestamptz,
+  p_duration_minutes     integer default 15,
+  p_visit_type           public.visit_type default 'NEW',
+  p_reason               text default null
+)
+returns uuid
+language sql
+volatile
+security definer
+set search_path = public, pg_temp
+as $$
+  select public.book_appointment_internal(
+    p_owner_doctor_id, p_practice_location_id, p_patient_id, p_scheduled_for,
+    p_duration_minutes, p_visit_type, p_reason, null);
+$$;
+
+revoke all on function public.create_appointment(
+  uuid, uuid, uuid, timestamptz, integer, public.visit_type, text)
   from public, anon;
 grant execute on function public.create_appointment(
-  uuid, uuid, uuid, timestamptz, integer, public.visit_type, text, uuid)
+  uuid, uuid, uuid, timestamptz, integer, public.visit_type, text)
   to authenticated;
+
+-- One original appointment may have AT MOST ONE direct successor. Without this
+-- a cancelled appointment could sprout several "the new one", and the lineage
+-- would no longer answer the question it exists for.
+create unique index if not exists appointments_one_successor
+  on public.appointments (rescheduled_from_id)
+  where rescheduled_from_id is not null;
 
 /**
  * Move an appointment to a new status, writing the matching event.
@@ -118,7 +193,17 @@ declare
   v_event public.appointment_event_type;
   v_token integer;
 begin
-  select * into v_appt from public.appointments where id = p_appointment_id;
+  /**
+   * FOR UPDATE is load-bearing and was lost when this moved to DEFINER.
+   *
+   * Without it two callers acting on the SAME appointment both read the old
+   * status, both judge their transition legal, and both write an event — so one
+   * click can mark a patient arrived while another cancels them, leaving a row
+   * that agrees with neither history. Two arrival clicks would likewise take two
+   * tokens. The lock makes the second caller re-read after the first commits,
+   * where the idempotent check and the transition rule then apply.
+   */
+  select * into v_appt from public.appointments where id = p_appointment_id for update;
 
   -- Same message whether it is missing or merely not yours: "which appointment
   -- ids exist" is not something an outsider should be able to probe.
@@ -233,7 +318,8 @@ begin
     auth.uid(), nullif(btrim(coalesce(p_note, '')), '')
   );
 
-  v_new := public.create_appointment(
+  -- The internal helper, because this is the ONE caller allowed to set lineage.
+  v_new := public.book_appointment_internal(
     v_appt.owner_doctor_id, v_appt.practice_location_id, v_appt.patient_id,
     p_scheduled_for, coalesce(p_duration_minutes, v_appt.duration_minutes),
     v_appt.visit_type, v_appt.reason, p_appointment_id
