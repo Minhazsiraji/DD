@@ -11,6 +11,8 @@ import { formatDate } from "@/lib/format";
 import { requireLocationContext } from "@/lib/auth/session";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getRecentPatients, clinicToday } from "@/features/patients/queries";
+import { getDayCounts } from "@/features/appointments/queries";
+import { todayInDhaka } from "@/features/appointments/schema";
 
 export const metadata: Metadata = { title: "Dashboard" };
 
@@ -41,10 +43,11 @@ export default async function DashboardPage() {
   const ctx = await requireLocationContext();
   const supabase = await createSupabaseServerClient();
 
-  const [{ data: profile }, { count }, recent] = await Promise.all([
+  const [{ data: profile }, { count }, recent, today] = await Promise.all([
     supabase.from("profiles").select("full_name").eq("id", ctx.user.id).maybeSingle(),
     supabase.from("patients").select("id", { count: "exact", head: true }).is("deleted_at", null),
     getRecentPatients(6),
+    getDayCounts(todayInDhaka()),
   ]);
 
   const doctorName = profile?.full_name ?? ctx.user.email?.split("@")[0] ?? "Doctor";
@@ -67,15 +70,32 @@ export default async function DashboardPage() {
           hint="In your repository"
           href="/patients"
         />
-        <NotBuiltStat
+        <StatCard
           label="Appointments"
+          value={today.total}
           icon={<CalendarDays className="size-5" />}
-          phase="Phase 4"
+          accent="brand"
+          hint={
+            today.completed > 0 ? `${today.completed} seen so far` : "Booked here today"
+          }
+          href="/appointments"
         />
-        <NotBuiltStat
-          label="Live queue"
+        {/*
+          Not the Stage 5 live queue — just how many have checked in and are
+          sitting outside right now. Labelled as such so it does not read as a
+          feature that exists yet.
+        */}
+        <StatCard
+          label="Waiting now"
+          value={today.waiting}
           icon={<ListChecks className="size-5" />}
-          phase="Phase 5"
+          accent={today.waiting > 0 ? "warning" : "info"}
+          hint={
+            today.inConsultation > 0
+              ? `${today.inConsultation} with the doctor`
+              : "Checked in and waiting"
+          }
+          href="/appointments"
         />
         <NotBuiltStat
           label="Follow-ups"
@@ -144,10 +164,10 @@ export default async function DashboardPage() {
           <GlassCard className="p-4">
             <p className="text-[13px] font-semibold text-ink">What&apos;s live so far</p>
             <p className="mt-1 text-[13px] leading-snug text-ink-secondary">
-              Sign-in, security, your practice locations and the patient
-              repository. Appointments, the queue, consultations and
-              prescriptions are still being built — nothing on this page is
-              simulated.
+              Sign-in, security, your practice locations, the patient repository,
+              your prescription paper and appointments. The live queue,
+              consultations and prescription writing are still being built —
+              nothing on this page is simulated.
             </p>
           </GlassCard>
         </div>

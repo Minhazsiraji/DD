@@ -79,6 +79,38 @@ async function createUser(tx, email, fullName) {
 
 if (mode === "destroy") {
   const rows = await sql`select id, email from auth.users where email like ${"%" + QA_DOMAIN}`;
+  const ids = rows.map((r) => r.id);
+
+  /**
+   * Order matters, and that is the point.
+   *
+   * Appointments RESTRICT on their doctor and patient, and appointment_events
+   * RESTRICT on the appointment, so clinical history cannot be swept away by
+   * deleting a person. Cleanup has to unwind it deliberately — if this ever
+   * stops being necessary, the durability guarantee has been weakened.
+   */
+  if (ids.length > 0) {
+    const locations = await sql`
+      select id from public.practice_locations where created_by in ${sql(ids)}`;
+    const locationIds = locations.map((l) => l.id);
+
+    if (locationIds.length > 0) {
+      await sql`delete from public.appointment_events
+                where practice_location_id in ${sql(locationIds)}`;
+      await sql`delete from public.appointments
+                where practice_location_id in ${sql(locationIds)}`;
+      await sql`delete from public.appointment_token_counters
+                where practice_location_id in ${sql(locationIds)}`;
+    }
+
+    const doctors = await sql`
+      select id from public.doctor_profiles where user_id in ${sql(ids)}`;
+    if (doctors.length > 0) {
+      await sql`delete from public.patients
+                where owner_doctor_id in ${sql(doctors.map((d) => d.id))}`;
+    }
+  }
+
   for (const r of rows) {
     await sql`delete from public.practice_locations where created_by = ${r.id}`;
     await sql`delete from auth.users where id = ${r.id}`;

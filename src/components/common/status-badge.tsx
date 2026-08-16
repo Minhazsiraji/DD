@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { AppointmentStatus, PaymentStatus, Severity } from "@/mocks/types";
+import type { AppointmentStatus as LiveAppointmentStatus } from "@/features/appointments/schema";
 
 /**
  * StatusBadge — the single source of truth for how status is rendered.
@@ -86,6 +87,38 @@ export function StatusBadge({
   className?: string;
 }) {
   const cfg = APPOINTMENT_CONFIG[status];
+  return <BadgeShell palette={cfg.palette} icon={cfg.icon} label={cfg.label} className={className} />;
+}
+
+/**
+ * The REAL appointment statuses (Stage 4), as opposed to the mock vocabulary
+ * above which still drives the unbuilt phases.
+ *
+ * Kept in this file rather than hand-rolled in the feature so that every status
+ * pill in the product goes on looking and behaving the same — icon plus text,
+ * never colour alone.
+ */
+const LIVE_APPOINTMENT_CONFIG: Record<
+  LiveAppointmentStatus,
+  { label: string; palette: Palette; icon: React.ReactNode }
+> = {
+  SCHEDULED: { label: "Booked", palette: "neutral", icon: <CalendarClock className={ICON} /> },
+  CONFIRMED: { label: "Confirmed", palette: "info", icon: <CircleCheck className={ICON} /> },
+  ARRIVED: { label: "Waiting", palette: "warning", icon: <UserCheck className={ICON} /> },
+  IN_CONSULTATION: { label: "With doctor", palette: "brand", icon: <Stethoscope className={ICON} /> },
+  COMPLETED: { label: "Seen", palette: "success", icon: <CircleCheck className={ICON} /> },
+  CANCELLED: { label: "Cancelled", palette: "neutral", icon: <CircleX className={ICON} /> },
+  NO_SHOW: { label: "Did not come", palette: "danger", icon: <CircleX className={ICON} /> },
+};
+
+export function AppointmentStatusBadge({
+  status,
+  className,
+}: {
+  status: LiveAppointmentStatus;
+  className?: string;
+}) {
+  const cfg = LIVE_APPOINTMENT_CONFIG[status];
   return <BadgeShell palette={cfg.palette} icon={cfg.icon} label={cfg.label} className={className} />;
 }
 

@@ -55,7 +55,22 @@ export function relativeDueLabel(dueISO: string, todayISO: string): string {
   return `In ${diff} days`;
 }
 
-const SEX_LABEL: Record<Sex, string> = { male: "M", female: "F", other: "—" };
+/**
+ * Both spellings on purpose.
+ *
+ * The mocks use lowercase ("male"); the DATABASE enum is uppercase ("MALE"),
+ * and adds "UNKNOWN" for a walk-in whose sex nobody asked. Keying only on the
+ * mock values rendered a literal "undefined" next to every real patient's age.
+ */
+const SEX_LABEL: Record<string, string> = {
+  male: "M",
+  female: "F",
+  other: "Other",
+  MALE: "M",
+  FEMALE: "F",
+  OTHER: "Other",
+  UNKNOWN: "",
+};
 
 /**
  * Age is rendered with its precision so an estimated age is never mistaken for
@@ -63,11 +78,13 @@ const SEX_LABEL: Record<Sex, string> = { male: "M", female: "F", other: "—" };
  */
 export function formatAgeSex(
   ageYears: number,
-  sex: Sex,
+  sex: Sex | string,
   precision: DobPrecision = "DAY",
 ): string {
   const approx = precision === "AGE_ONLY" || precision === "YEAR" ? "~" : "";
-  return `${approx}${ageYears}y · ${SEX_LABEL[sex]}`;
+  const label = SEX_LABEL[sex] ?? "";
+  // Nothing recorded: show the age alone rather than a dash that reads as data.
+  return label ? `${approx}${ageYears}y · ${label}` : `${approx}${ageYears}y`;
 }
 
 export const VISIT_TYPE_LABEL: Record<VisitType, string> = {

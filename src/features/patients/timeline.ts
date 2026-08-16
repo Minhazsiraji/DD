@@ -57,12 +57,23 @@ export const TIMELINE_LABEL: Record<TimelineEventType, string> = {
  */
 export const TIMELINE_AVAILABLE: Record<TimelineEventType, boolean> = {
   registration: true,
-  appointment: false, // Phase 4
+  appointment: true, // Stage 4
   consultation: false, // Phase 6
   prescription: false, // Phase 8
   investigation: false, // Phase 6
   document: false, // Phase 10
   followup: false, // Phase 10
+};
+
+/** What the timeline calls each appointment outcome, in a patient's terms. */
+const APPOINTMENT_TITLE: Record<string, string> = {
+  SCHEDULED: "Appointment booked",
+  CONFIRMED: "Appointment confirmed",
+  ARRIVED: "Arrived for appointment",
+  IN_CONSULTATION: "With the doctor",
+  COMPLETED: "Seen by the doctor",
+  CANCELLED: "Appointment cancelled",
+  NO_SHOW: "Did not attend",
 };
 
 export interface TimelineFilter {
@@ -110,8 +121,52 @@ export async function getPatientTimeline(
   });
   /* eslint-enable @typescript-eslint/no-explicit-any */
 
-  // Future: union appointments, encounters, prescriptions, investigations,
-  // documents and follow-ups here. Each must carry practice_location_id.
+  /**
+   * Appointments (Stage 4).
+   *
+   * Cancelled ones are included on purpose: "booked and cancelled twice" is
+   * part of the story, and a timeline that quietly drops them would misrepresent
+   * how often this patient has actually been seen.
+   */
+  const { data: appts, error: apptError } = await supabase
+    .from("appointments")
+    .select(
+      "id, scheduled_for, status, visit_type, reason, cancellation_reason, " +
+        "practice_location_id, practice_locations(name), doctor_profiles(profiles(full_name))",
+    )
+    .eq("patient_id", patientId)
+    .order("scheduled_for", { ascending: false });
+
+  if (apptError) {
+    // Logged, not swallowed: a timeline missing half its events looks like a
+    // patient with no history.
+    console.error("[timeline] appointments query failed", apptError.message);
+  }
+
+  /* eslint-disable @typescript-eslint/no-explicit-any */
+  for (const row of (appts ?? []) as any[]) {
+    const location = Array.isArray(row.practice_locations)
+      ? row.practice_locations[0]
+      : row.practice_locations;
+    const doctorProfile = Array.isArray(row.doctor_profiles)
+      ? row.doctor_profiles[0]
+      : row.doctor_profiles;
+    const doctorUser = Array.isArray(doctorProfile?.profiles)
+      ? doctorProfile.profiles[0]
+      : doctorProfile?.profiles;
+
+    events.push({
+      id: `appointment-${row.id}`,
+      type: "appointment",
+      occurredAt: row.scheduled_for,
+      title: APPOINTMENT_TITLE[row.status as string] ?? "Appointment",
+      summary: row.reason ?? null,
+      locationId: row.practice_location_id ?? null,
+      locationName: location?.name ?? null,
+      doctorName: doctorUser?.full_name ?? null,
+    });
+  }
+  /* eslint-enable @typescript-eslint/no-explicit-any */
 
   const byType =
     !filter.type || filter.type === "all"

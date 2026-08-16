@@ -133,6 +133,32 @@ $$;
 revoke all on function public.session_date_for(uuid, timestamptz) from public, anon;
 grant execute on function public.session_date_for(uuid, timestamptz) to authenticated;
 
+/**
+ * "2026-09-01T15:30" as typed by a receptionist -> the actual instant.
+ *
+ * The conversion must happen in the LOCATION's timezone. `new Date("…T15:30")`
+ * in JavaScript resolves in the RUNTIME's zone — on Vercel that is UTC, so a
+ * 3:30pm Dhaka slot would be stored as 9:30pm Dhaka and the patient would be
+ * told the wrong time.
+ */
+create or replace function public.local_time_to_instant(
+  target_location uuid,
+  local_value     text
+)
+returns timestamptz
+language sql
+stable
+security definer
+set search_path = public, pg_temp
+as $$
+  select (local_value::timestamp) at time zone coalesce(
+           (select l.timezone from public.practice_locations l where l.id = target_location),
+           'Asia/Dhaka');
+$$;
+
+revoke all on function public.local_time_to_instant(uuid, text) from public, anon;
+grant execute on function public.local_time_to_instant(uuid, text) to authenticated;
+
 -- 3. Token allocation that actually serialises. ----------------------------
 
 /**

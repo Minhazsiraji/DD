@@ -60,11 +60,26 @@ export async function getUser(): Promise<SessionUser | null> {
 /** Every ACTIVE practice-location membership for the current user. */
 export async function getMemberships(): Promise<Membership[]> {
   const supabase = await createSupabaseServerClient();
+  const user = await requireUser();
 
-  // RLS restricts this to the caller's own rows.
+  /**
+   * FILTER BY user_id EXPLICITLY.
+   *
+   * RLS does NOT narrow this to the caller: the SELECT policy is deliberately
+   * `user_id = auth.uid() OR is_active_member(location)` so colleagues can see
+   * each other for staff lists. Without the filter this collected EVERY
+   * member's roles at the location and returned them as the caller's own — a
+   * receptionist at a shared hospital came back holding DOCTOR and
+   * LOCATION_ADMIN, which `canAny()` and every `requirePermission()` check then
+   * believed.
+   *
+   * The database still refused the actual data (its helpers key off auth.uid()),
+   * so nothing leaked — but the application layer was authorising on a lie.
+   */
   const { data, error } = await supabase
     .from("practice_location_members")
     .select("practice_location_id, role, practice_locations(name)")
+    .eq("user_id", user.id)
     .eq("status", "ACTIVE");
 
   if (error || !data) return [];
