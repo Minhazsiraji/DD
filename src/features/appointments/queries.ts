@@ -285,13 +285,26 @@ export type DayCountsOutcome =
  * tells a doctor their day is empty when the truth is that we could not find
  * out — and that is the version they would act on.
  */
-export async function getDayCounts(sessionDate: string): Promise<DayCountsOutcome> {
+export async function getDayCounts(
+  sessionDate: string,
+  /**
+   * Narrow to one doctor's own appointments.
+   *
+   * At a shared hospital the location's totals include colleagues' patients.
+   * Presenting those to a doctor as "your day" is a cross-doctor count, so the
+   * dashboard passes their own id; reception passes nothing and sees the desk's
+   * view of the whole location, which is what they are there to run.
+   */
+  ownerDoctorId?: string | null,
+): Promise<DayCountsOutcome> {
   const ctx = await requireLocationContext();
   const outcome = await getAppointmentsForDay(sessionDate, ctx.locationId);
 
   if (!outcome.ok) return { ok: false, reason: outcome.reason };
 
-  const a = outcome.appointments;
+  const a = ownerDoctorId
+    ? outcome.appointments.filter((x) => x.ownerDoctorId === ownerDoctorId)
+    : outcome.appointments;
   return {
     ok: true,
     counts: {

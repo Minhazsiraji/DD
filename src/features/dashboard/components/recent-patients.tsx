@@ -14,7 +14,8 @@ export function RecentPatients({ patients }: { patients: RecentPatient[] }) {
         action={
           <Link
             href="/patients"
-            className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-[13px] font-semibold text-brand hover:bg-brand-soft focus-visible:focus-ring"
+            // min-h-11 so the "see all" shortcut is a real touch target too.
+            className="inline-flex min-h-11 items-center gap-1 rounded-lg px-2 py-1 text-[13px] font-semibold text-brand hover:bg-brand-soft focus-visible:focus-ring"
           >
             All
             <ChevronRight className="size-3.5" aria-hidden="true" />

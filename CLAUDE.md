@@ -158,6 +158,13 @@ squeeze — and it hides the bottom nav.
   compound parts have the same requirement, and always open a menu/dialog/popover
   in the browser before calling it done — typecheck will not catch this class of
   bug. A crash in a shared component (e.g. `TopBar`) takes down the whole layout.
+- **A route with `loading.tsx` will look permanently stuck in the Browser
+  pane.** React 19 buffers a streamed Suspense reveal and flushes it from
+  `requestAnimationFrame`; the pane often does not composite, so rAF never fires
+  and the fallback stays forever. The content IS in the document. This is NOT a
+  product bug — confirm with `window.$RV(window.$RB)` in the console, which
+  flushes the buffer and reveals the page immediately. Routes without
+  `loading.tsx` are unaffected, which is why only the dashboard shows it.
 - **Container queries: declare and consume on DIFFERENT elements.** `cqw`
   resolves against the nearest *ancestor* container, so an element carrying both
   `container-type: inline-size` and a `cqw` size silently falls back to the

@@ -4,12 +4,11 @@ import {
   Users,
   CalendarDays,
   ListChecks,
-  CalendarClock,
   UserPlus,
   Search,
   TriangleAlert,
+  CircleCheck,
 } from "lucide-react";
-import { PageHeader } from "@/components/common/page-header";
 import { StatCard } from "@/components/common/stat-card";
 import { SectionCard, SectionHeader } from "@/components/common/section-card";
 import { EmptyState } from "@/components/common/empty-state";
@@ -18,9 +17,12 @@ import { RecentPatients } from "@/features/dashboard/components/recent-patients"
 import { formatDate } from "@/lib/format";
 import { requireLocationContext } from "@/lib/auth/session";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { getRecentPatients, clinicToday } from "@/features/patients/queries";
+import { getRecentPatients, clinicToday, getCurrentDoctorId } from "@/features/patients/queries";
 import { getDayCounts } from "@/features/appointments/queries";
 import { todayInDhaka } from "@/features/appointments/schema";
+import { getQueue } from "@/features/queue/queries";
+import { groupQueue } from "@/features/queue/schema";
+import { WorkNow } from "@/features/dashboard/components/work-now";
 
 export const metadata: Metadata = { title: "Dashboard" };
 
@@ -50,26 +52,70 @@ function greeting(): string {
 export default async function DashboardPage() {
   const ctx = await requireLocationContext();
   const supabase = await createSupabaseServerClient();
+  const sessionDate = todayInDhaka();
 
-  const [{ data: profile }, { count }, recent, today] = await Promise.all([
+  const myDoctorId = await getCurrentDoctorId();
+
+  const [{ data: profile }, { count }, recent, today, queue] = await Promise.all([
     supabase.from("profiles").select("full_name").eq("id", ctx.user.id).maybeSingle(),
     supabase.from("patients").select("id", { count: "exact", head: true }).is("deleted_at", null),
     getRecentPatients(6),
-    getDayCounts(todayInDhaka()),
+    // Scoped to this doctor when they are one; reception sees the whole desk.
+    getDayCounts(sessionDate, myDoctorId),
+    getQueue(ctx.locationId, sessionDate),
   ]);
 
   const doctorName = profile?.full_name ?? ctx.user.email?.split("@")[0] ?? "Doctor";
   const patientCount = count ?? 0;
 
-  return (
-    <div className="space-y-5 sm:space-y-6">
-      <PageHeader
-        eyebrow={greeting()}
-        title={doctorName}
-        subtitle={`${ctx.locationName} · ${formatDate(clinicToday())}`}
-      />
+  /**
+   * Filter to this doctor, then take the head of each group.
+   *
+   * `get_queue()` has already applied priority and token order, and `groupQueue`
+   * is a filter — no sorting happens here. Deriving the order again would give
+   * the dashboard and the queue screen two answers to "who is next".
+   */
+  const mine = queue.ok
+    ? queue.rows.filter((r) => !myDoctorId || r.ownerDoctorId === myDoctorId)
+    : [];
+  const groups = groupQueue(mine);
+  const current = groups.withDoctor[0] ?? null;
+  const next = groups.waiting[0] ?? null;
 
-      <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
+  /**
+   * Recent patients, restricted to this doctor's own repository.
+   *
+   * RLS legitimately lets a doctor READ a colleague's patient at a shared
+   * hospital — that is how reception works, and the doctor is a member there.
+   * But presenting them under "Recent patients" on a doctor's own dashboard
+   * reads as "yours", which they are not (ADR 0001).
+   */
+  const myRecent = myDoctorId
+    ? recent.filter((p) => p.ownerDoctorId === myDoctorId)
+    : recent;
+
+  return (
+    <div className="space-y-4 sm:space-y-5">
+      {/*
+        Compact by design. This is the screen a doctor opens dozens of times a
+        day; a full-height greeting pushes the actual work below the fold.
+      */}
+      <header className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+        <h1 className="text-lg font-semibold text-ink sm:text-xl">
+          <span className="font-normal text-ink-secondary">{greeting()}, </span>
+          {doctorName}
+        </h1>
+        <p className="text-[13px] text-ink-secondary">
+          {ctx.locationName} · {formatDate(clinicToday())}
+        </p>
+      </header>
+
+      {/*
+        [&>*]:min-w-0 — grid items default to min-width:auto, so a tile whose
+        content cannot shrink pushes the track wider than the column and the
+        whole page scrolls sideways on a phone.
+      */}
+      <div className="grid grid-cols-2 gap-3 [&>*]:min-w-0 sm:gap-4 lg:grid-cols-4">
         <StatCard
           label="Patients"
           value={patientCount}
@@ -78,6 +124,22 @@ export default async function DashboardPage() {
           hint="In your repository"
           href="/patients"
         />
+        {today.ok ? (
+          <StatCard
+            label="Seen today"
+            value={today.counts.completed}
+            icon={<CircleCheck className="size-5" />}
+            accent="success"
+            hint={
+              today.counts.cancelled > 0
+                ? `${today.counts.cancelled} cancelled`
+                : "Consultations finished"
+            }
+            href="/appointments"
+          />
+        ) : (
+          <UnavailableStat label="Seen today" icon={<CircleCheck className="size-5" />} />
+        )}
         {/*
           An outage is never rendered as zero. "You have no appointments" is a
           statement a doctor acts on; "we could not load them" is not the same
@@ -127,23 +189,26 @@ export default async function DashboardPage() {
             icon={<ListChecks className="size-5" />}
           />
         )}
-        <NotBuiltStat
-          label="Follow-ups"
-          icon={<CalendarClock className="size-5" />}
-          phase="Phase 10"
-        />
       </div>
 
       <div className="grid gap-4 sm:gap-5 xl:grid-cols-3">
         <div className="space-y-4 sm:space-y-5 xl:col-span-2">
-          {recent.length > 0 ? (
+          <WorkNow
+            current={current}
+            next={next}
+            failed={!queue.ok}
+            waitingCount={groups.waiting.length}
+            locationName={ctx.locationName}
+          />
+
+          {myRecent.length > 0 ? (
             <RecentPatients
-              patients={recent.map((p) => ({
+              patients={myRecent.map((p) => ({
                 id: p.id,
                 patientNumber: p.patientNumber,
                 fullName: p.fullName,
-                ageYears: p.ageYears ?? 0,
-                sex: p.sex.toLowerCase() as "male" | "female" | "other",
+                ageYears: p.ageYears,
+                sex: p.sex,
                 seenOn: p.createdAt.slice(0, 10),
                 reason: "Registered",
                 locationName: p.lastSeenLocation ?? ctx.locationName,
@@ -173,70 +238,57 @@ export default async function DashboardPage() {
         <div className="space-y-4 sm:space-y-5">
           <SectionCard className="overflow-hidden">
             <SectionHeader title="Quick actions" icon={<Search className="size-4" />} />
+            {/*
+              Every destination here exists and works. A shortcut to a screen
+              that is not built is worse than no shortcut — it teaches the
+              doctor that buttons on this page cannot be trusted.
+            */}
             <div className="space-y-2 p-4 sm:p-5">
-              <Link
+              <QuickAction
+                href="/queue"
+                icon={<ListChecks className="size-4 text-brand" aria-hidden="true" />}
+                label="Live queue"
+              />
+              <QuickAction
+                href="/appointments"
+                icon={<CalendarDays className="size-4 text-brand" aria-hidden="true" />}
+                label="Book or add a walk-in"
+              />
+              <QuickAction
                 href="/patients/new"
-                className="flex min-h-11 items-center gap-2.5 rounded-xl border border-hairline px-3 text-sm font-semibold text-ink transition-colors hover:bg-surface-muted focus-visible:focus-ring"
-              >
-                <UserPlus className="size-4 text-brand" aria-hidden="true" />
-                Register a patient
-              </Link>
-              <Link
+                icon={<UserPlus className="size-4 text-brand" aria-hidden="true" />}
+                label="Register a patient"
+              />
+              <QuickAction
                 href="/patients"
-                className="flex min-h-11 items-center gap-2.5 rounded-xl border border-hairline px-3 text-sm font-semibold text-ink transition-colors hover:bg-surface-muted focus-visible:focus-ring"
-              >
-                <Search className="size-4 text-brand" aria-hidden="true" />
-                Find a patient
-              </Link>
+                icon={<Search className="size-4 text-brand" aria-hidden="true" />}
+                label="Find a patient"
+              />
             </div>
           </SectionCard>
-
-          <GlassCard className="p-4">
-            <p className="text-[13px] font-semibold text-ink">What&apos;s live so far</p>
-            <p className="mt-1 text-[13px] leading-snug text-ink-secondary">
-              Sign-in, security, your practice locations, the patient repository,
-              your prescription paper and appointments. The live queue,
-              consultations and prescription writing are still being built —
-              nothing on this page is simulated.
-            </p>
-          </GlassCard>
         </div>
       </div>
     </div>
   );
 }
 
-/**
- * A tile for a module that does not exist yet. Shows an em dash rather than a
- * plausible-looking zero or an invented count.
- */
-function NotBuiltStat({
-  label,
+function QuickAction({
+  href,
   icon,
-  phase,
+  label,
 }: {
-  label: string;
+  href: string;
   icon: React.ReactNode;
-  phase: string;
+  label: string;
 }) {
   return (
-    <GlassCard className="p-5">
-      <div className="flex items-start justify-between gap-3">
-        <span
-          className="flex size-12 shrink-0 items-center justify-center rounded-full bg-surface-muted text-ink-muted"
-          aria-hidden="true"
-        >
-          {icon}
-        </span>
-        <span className="text-[28px] leading-none font-bold text-ink-muted sm:text-[32px]">
-          —
-        </span>
-      </div>
-      <div className="mt-4">
-        <p className="text-sm font-semibold text-ink-secondary">{label}</p>
-        <p className="mt-0.5 text-xs text-ink-muted">Arrives in {phase}</p>
-      </div>
-    </GlassCard>
+    <Link
+      href={href}
+      className="flex min-h-11 items-center gap-2.5 rounded-xl border border-hairline px-3 text-sm font-semibold text-ink transition-colors hover:bg-surface-muted focus-visible:focus-ring"
+    >
+      {icon}
+      {label}
+    </Link>
   );
 }
 

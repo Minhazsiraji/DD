@@ -143,8 +143,10 @@ export interface RecentPatient {
   id: string;
   patientNumber: string;
   fullName: string;
-  ageYears: number;
-  sex: Sex;
+  /** Null when nobody recorded it. Never coalesce to 0 — that reads as newborn. */
+  ageYears: number | null;
+  /** Widened for the real `sex` enum, which is uppercase and includes UNKNOWN. */
+  sex: Sex | string;
   seenOn: string;
   reason: string;
   /** Where this visit happened — the same patient may be seen anywhere. */

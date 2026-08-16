@@ -16,12 +16,12 @@ import {
 import { cn } from "@/lib/utils";
 import { emptyState } from "@/features/auth/schema";
 import { VISIT_TYPE_LABEL, timeInZone } from "@/features/appointments/schema";
-import { changeStatusAction } from "@/features/appointments/actions";
 import {
   callPatientAction,
   skipPatientAction,
   clearPriorityAction,
 } from "../actions";
+import { StartConsultation } from "./start-consultation";
 import {
   PRIORITY_REASON_LABEL,
   waitedMinutes,
@@ -251,7 +251,12 @@ function Actions({
         </button>
       )}
 
-      <StartConsultation row={row} onChanged={onChanged} />
+      <StartConsultation
+        appointmentId={row.appointmentId}
+        patientName={row.patientName}
+        tokenNumber={row.tokenNumber}
+        onStarted={onChanged}
+      />
 
       {state?.message ? (
         <p
@@ -269,56 +274,6 @@ function Actions({
   );
 }
 
-/**
- * Starting the consultation goes through the APPOINTMENT status transition, not
- * a queue action — there is exactly one way to move a patient through their day
- * (ADR 0009). It confirms first, because sending in the wrong person is the
- * mistake this screen exists to prevent.
- */
-function StartConsultation({ row, onChanged }: { row: QueueRow; onChanged: () => void }) {
-  const [confirming, setConfirming] = React.useState(false);
-  const [state, start] = useActionState(changeStatusAction, emptyState);
-
-  // Derived, not set in an effect: once the start succeeds the confirmation is
-  // finished by definition, and the row is about to be re-fetched anyway.
-  const showConfirm = confirming && !state.ok;
-
-  React.useEffect(() => {
-    if (state.ok) onChanged();
-  }, [state.ok, onChanged]);
-
-  if (!showConfirm) {
-    return (
-      <button
-        type="button"
-        onClick={() => setConfirming(true)}
-        className="inline-flex h-11 items-center justify-center gap-1.5 rounded-xl bg-brand px-3.5 text-[13px] font-semibold text-white shadow-soft transition-[background-color,transform] duration-200 hover:bg-brand-hover active:scale-[0.985] focus-visible:focus-ring motion-reduce:active:scale-100"
-      >
-        <Stethoscope className="size-4" aria-hidden="true" />
-        Start
-      </button>
-    );
-  }
-
-  return (
-    <form action={start} className="flex flex-wrap items-center gap-2 sm:basis-full">
-      <input type="hidden" name="appointmentId" value={row.appointmentId} />
-      <input type="hidden" name="toStatus" value="IN_CONSULTATION" />
-      <span className="text-[13px] text-ink">
-        Send in <strong className="font-semibold">{row.patientName}</strong>
-        {row.tokenNumber !== null ? ` (#${row.tokenNumber})` : ""}?
-      </span>
-      <ActionButton tone="primary" icon={null} label="Yes, start" />
-      <button
-        type="button"
-        onClick={() => setConfirming(false)}
-        className="inline-flex h-11 items-center justify-center rounded-xl border border-hairline bg-white px-3 text-[13px] font-semibold text-ink hover:bg-surface-muted focus-visible:focus-ring"
-      >
-        Not yet
-      </button>
-    </form>
-  );
-}
 
 /** Disabled while pending — a queue screen gets tapped twice when it is slow. */
 function ActionButton({

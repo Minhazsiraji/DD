@@ -27,6 +27,20 @@ describe("formatAgeSex", () => {
     expect(formatAgeSex(34, "something-new")).not.toContain("undefined");
   });
 
+  /**
+   * A walk-in whose age nobody asked used to render as "0y" — a newborn. On a
+   * screen a doctor scans quickly that is a clinical statement, and a wrong one.
+   */
+  it("never renders an unrecorded age as zero", () => {
+    expect(formatAgeSex(null, "MALE")).toBe("Age not recorded · M");
+    expect(formatAgeSex(null, "UNKNOWN")).toBe("Age not recorded");
+    expect(formatAgeSex(null, "FEMALE")).not.toContain("0y");
+  });
+
+  it("still renders a genuine zero for an infant under one", () => {
+    expect(formatAgeSex(0, "MALE")).toBe("0y · M");
+  });
+
   it("marks an estimated age so it is not mistaken for a known one", () => {
     expect(formatAgeSex(34, "MALE", "AGE_ONLY")).toBe("~34y · M");
     expect(formatAgeSex(34, "UNKNOWN", "AGE_ONLY")).toBe("~34y");

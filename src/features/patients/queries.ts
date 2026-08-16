@@ -26,6 +26,8 @@ export interface PatientListItem {
   phone: string | null;
   sex: string;
   bloodGroup: string;
+  /** Needed so a doctor-facing list can exclude a colleague's patients. */
+  ownerDoctorId: string;
   ageYears: number | null;
   ageApproximate: boolean;
   lastSeenLocation: string | null;
@@ -57,7 +59,7 @@ export async function getCurrentDoctorId(): Promise<string | null> {
  * "not found".
  */
 const CORE_COLUMNS =
-  "id, patient_number, full_name, phone, sex, blood_group, dob, dob_precision," +
+  "id, patient_number, full_name, phone, sex, blood_group, owner_doctor_id, dob, dob_precision," +
   " approx_age_years, age_recorded_on, created_at";
 
 const LIST_COLUMNS =
@@ -97,6 +99,7 @@ function toListItem(row: any, today: string): PatientListItem {
     phone: row.phone ?? null,
     sex: row.sex,
     bloodGroup: row.blood_group,
+    ownerDoctorId: row.owner_doctor_id,
     ageYears: age.years,
     ageApproximate: age.isApproximate,
     lastSeenLocation: lastSeen,

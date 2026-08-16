@@ -12,6 +12,18 @@
         "3200"
       ],
       "port": 3200
+    },
+    {
+      "name": "doctors-diary-prod",
+      "runtimeExecutable": "E:\\Minhaz Siraji\\Claude\\tools\\node-v22.16.0-win-x64\\node.exe",
+      "runtimeArgs": [
+        "E:\\Minhaz Siraji\\Claude\\DD\\node_modules\\next\\dist\\bin\\next",
+        "start",
+        "E:\\Minhaz Siraji\\Claude\\DD",
+        "--port",
+        "3201"
+      ],
+      "port": 3201
     }
   ]
 }

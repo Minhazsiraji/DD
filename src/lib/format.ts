@@ -77,13 +77,23 @@ const SEX_LABEL: Record<string, string> = {
  * a known one — this matters for weight/age-based dosing.
  */
 export function formatAgeSex(
-  ageYears: number,
+  ageYears: number | null,
   sex: Sex | string,
   precision: DobPrecision = "DAY",
 ): string {
   const approx = precision === "AGE_ONLY" || precision === "YEAR" ? "~" : "";
   const label = SEX_LABEL[sex] ?? "";
-  // Nothing recorded: show the age alone rather than a dash that reads as data.
+
+  /**
+   * An unrecorded age is NOT zero.
+   *
+   * Callers used to coalesce null to 0, which rendered "0y" — a newborn — for
+   * every walk-in whose age nobody asked. On a screen a doctor scans quickly
+   * that is a clinical statement, and a wrong one.
+   */
+  if (ageYears === null) return label ? `Age not recorded · ${label}` : "Age not recorded";
+
+  // Nothing recorded for sex: show the age alone rather than a dash reading as data.
   return label ? `${approx}${ageYears}y · ${label}` : `${approx}${ageYears}y`;
 }
 
