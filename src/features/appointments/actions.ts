@@ -234,11 +234,18 @@ export async function rescheduleAction(
 }
 
 /**
- * Reception registers a walk-in and books them in one go (ADR 0008).
+ * Reception registers a walk-in (ADR 0008).
+ *
+ * REGISTER, THEN BOOK — two separate actions, not one transaction. If the
+ * booking that follows fails, the patient stays registered. That is the right
+ * trade here: the person is real and standing at the desk, so their record
+ * should survive a failed booking rather than vanish and be retyped. The UI
+ * says so plainly instead of implying atomicity it does not have.
  *
  * Registration goes through register_patient_for_doctor, which establishes
- * ownership from membership rather than the payload. Reception writes
- * demographics only — no conditions, medications, alerts or notes.
+ * ownership from membership rather than the payload, and refuses a probable
+ * duplicate. Reception writes demographics only — no conditions, medications,
+ * alerts or notes.
  */
 const walkInSchema = z.object({
   ownerDoctorId: z.uuid("Choose the doctor this patient is here to see"),
@@ -249,11 +256,26 @@ const walkInSchema = z.object({
   district: z.string().trim().max(120).optional().or(z.literal("")),
 });
 
+/** A possible duplicate reception is allowed to see and compare against. */
+export interface VisibleDuplicate {
+  id: string;
+  patientNumber: string;
+  fullName: string;
+  phone: string | null;
+}
+
 export interface WalkInState extends AppointmentActionState {
   patientId?: string;
   patientNumber?: string;
   /** Carried back so the booking step can name the patient it just created. */
   patientName?: string;
+  /** Matches reception may inspect — shown so they can pick one instead. */
+  duplicates?: VisibleDuplicate[];
+  /**
+   * A match exists that reception is NOT allowed to see (a chamber-only
+   * patient). No detail is available by design; only the doctor can resolve it.
+   */
+  needsDoctor?: boolean;
 }
 
 export async function registerWalkInAction(
@@ -281,6 +303,8 @@ export async function registerWalkInAction(
   const supabase = await createSupabaseServerClient();
   const today = clinicToday();
 
+  const confirmed = formData.get("confirmedNotDuplicate") === "on";
+
   const { data, error } = await supabase
     .rpc("register_patient_for_doctor", {
       p_owner_doctor_id: v.ownerDoctorId,
@@ -297,17 +321,52 @@ export async function registerWalkInAction(
       p_email: null,
       p_address: null,
       p_district: empty(formData.get("district")),
+      p_contact_name: null,
+      p_contact_phone: null,
+      p_contact_relationship: null,
+      p_confirmed_not_duplicate: confirmed,
     })
     .single();
 
   const created = data as { patient_id: string; patient_number: string } | null;
 
   if (error || !created?.patient_id) {
-    return {
-      ok: false,
-      values: echo(formData),
-      message: translate(error?.message ?? "unknown error"),
-    };
+    const raw = error?.message ?? "unknown error";
+
+    /**
+     * A match exists that this receptionist may not see. Say so without saying
+     * anything about it — the fact that a chamber-only patient exists is itself
+     * information the desk is not entitled to.
+     */
+    if (raw.includes("DUPLICATE_NEEDS_DOCTOR")) {
+      return {
+        ok: false,
+        values: echo(formData),
+        needsDoctor: true,
+        message:
+          "This doctor may already have a matching patient record. " +
+          "Ask the doctor to confirm before registering someone new.",
+      };
+    }
+
+    if (raw.includes("DUPLICATE_VISIBLE")) {
+      const matches = await lookupVisibleDuplicates(
+        v.ownerDoctorId,
+        ctx.locationId,
+        normalizeName(v.fullName),
+        normalizePhone(String(formData.get("phone") ?? "")),
+      );
+      return {
+        ok: false,
+        values: echo(formData),
+        duplicates: matches,
+        message:
+          "Someone with these details is already registered with this doctor. " +
+          "Check before creating a second record.",
+      };
+    }
+
+    return { ok: false, values: echo(formData), message: translate(raw) };
   }
 
   // The RPC audits itself inside the transaction — see ADR 0008. Nothing to
@@ -324,6 +383,34 @@ export async function registerWalkInAction(
     patientName: v.fullName,
     values: echo(formData),
   };
+}
+
+/**
+ * Fetch the matches reception IS allowed to compare against.
+ *
+ * Only called after the database has already refused the registration, so this
+ * cannot be used to probe: it returns exactly the rows the caller could have
+ * found by searching, and never the hidden ones.
+ */
+async function lookupVisibleDuplicates(
+  doctorId: string,
+  locationId: string,
+  nameNormalized: string,
+  phoneNormalized: string | null,
+): Promise<VisibleDuplicate[]> {
+  const supabase = await createSupabaseServerClient();
+  const { data, error } = await supabase
+    .rpc("check_walkin_duplicates", {
+      p_owner_doctor_id: doctorId,
+      p_practice_location_id: locationId,
+      p_name_normalized: nameNormalized,
+      p_phone_normalized: phoneNormalized,
+    })
+    .single();
+
+  if (error || !data) return [];
+  const row = data as { visible: VisibleDuplicate[] | null };
+  return row.visible ?? [];
 }
 
 /**

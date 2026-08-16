@@ -1,6 +1,14 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { Users, CalendarDays, ListChecks, CalendarClock, UserPlus, Search } from "lucide-react";
+import {
+  Users,
+  CalendarDays,
+  ListChecks,
+  CalendarClock,
+  UserPlus,
+  Search,
+  TriangleAlert,
+} from "lucide-react";
 import { PageHeader } from "@/components/common/page-header";
 import { StatCard } from "@/components/common/stat-card";
 import { SectionCard, SectionHeader } from "@/components/common/section-card";
@@ -70,33 +78,55 @@ export default async function DashboardPage() {
           hint="In your repository"
           href="/patients"
         />
-        <StatCard
-          label="Appointments"
-          value={today.total}
-          icon={<CalendarDays className="size-5" />}
-          accent="brand"
-          hint={
-            today.completed > 0 ? `${today.completed} seen so far` : "Booked here today"
-          }
-          href="/appointments"
-        />
+        {/*
+          An outage is never rendered as zero. "You have no appointments" is a
+          statement a doctor acts on; "we could not load them" is not the same
+          sentence and must not look like it.
+        */}
+        {today.ok ? (
+          <StatCard
+            label="Appointments"
+            value={today.counts.total}
+            icon={<CalendarDays className="size-5" />}
+            accent="brand"
+            hint={
+              today.counts.completed > 0
+                ? `${today.counts.completed} seen so far`
+                : "Booked here today"
+            }
+            href="/appointments"
+          />
+        ) : (
+          <UnavailableStat
+            label="Appointments"
+            icon={<CalendarDays className="size-5" />}
+          />
+        )}
+
         {/*
           Not the Stage 5 live queue — just how many have checked in and are
           sitting outside right now. Labelled as such so it does not read as a
           feature that exists yet.
         */}
-        <StatCard
-          label="Waiting now"
-          value={today.waiting}
-          icon={<ListChecks className="size-5" />}
-          accent={today.waiting > 0 ? "warning" : "info"}
-          hint={
-            today.inConsultation > 0
-              ? `${today.inConsultation} with the doctor`
-              : "Checked in and waiting"
-          }
-          href="/appointments"
-        />
+        {today.ok ? (
+          <StatCard
+            label="Waiting now"
+            value={today.counts.waiting}
+            icon={<ListChecks className="size-5" />}
+            accent={today.counts.waiting > 0 ? "warning" : "info"}
+            hint={
+              today.counts.inConsultation > 0
+                ? `${today.counts.inConsultation} with the doctor`
+                : "Checked in and waiting"
+            }
+            href="/appointments"
+          />
+        ) : (
+          <UnavailableStat
+            label="Waiting now"
+            icon={<ListChecks className="size-5" />}
+          />
+        )}
         <NotBuiltStat
           label="Follow-ups"
           icon={<CalendarClock className="size-5" />}
@@ -205,6 +235,43 @@ function NotBuiltStat({
       <div className="mt-4">
         <p className="text-sm font-semibold text-ink-secondary">{label}</p>
         <p className="mt-0.5 text-xs text-ink-muted">Arrives in {phase}</p>
+      </div>
+    </GlassCard>
+  );
+}
+
+/**
+ * A count we could not load.
+ *
+ * Deliberately NOT a zero and deliberately not blank: both read as "nothing
+ * booked", which is the one meaning this state must never carry.
+ */
+function UnavailableStat({
+  label,
+  icon,
+}: {
+  label: string;
+  icon: React.ReactNode;
+}) {
+  return (
+    <GlassCard className="p-5">
+      <div className="flex items-start justify-between gap-3">
+        <span
+          className="flex size-12 shrink-0 items-center justify-center rounded-full bg-warning-soft text-[#8a3f07]"
+          aria-hidden="true"
+        >
+          {icon}
+        </span>
+        <TriangleAlert className="size-6 text-[#8a3f07]" aria-hidden="true" />
+      </div>
+      <div className="mt-4">
+        <p className="text-sm font-semibold text-ink-secondary">{label}</p>
+        <p className="mt-0.5 text-xs font-medium text-[#8a3f07]">
+          Temporarily unavailable
+        </p>
+        <p className="mt-0.5 text-xs text-ink-muted">
+          This is not an empty schedule — reload before relying on it.
+        </p>
       </div>
     </GlassCard>
   );

@@ -67,6 +67,45 @@ describe("RECEPTIONIST restrictions", () => {
     expect(can(role, "update", "patient_contact")).toBe(true);
   });
 
+  /**
+   * REGRESSION. getMemberships() once returned every member's roles at a shared
+   * location as the caller's own, so a receptionist arrived here as
+   * ["RECEPTIONIST","DOCTOR","LOCATION_ADMIN"] and canAny() waved through
+   * clinical actions. The database still refused the data, but the application
+   * layer was authorising on a lie.
+   *
+   * The query fix is asserted in verify-appointments.mjs; this is the other
+   * half — proving that the CORRECT role set denies what it should, so a
+   * regression cannot pass silently on this side either.
+   */
+  it("holds only its own role, and is denied clinical work", () => {
+    const receptionOnly = ["RECEPTIONIST"] as const;
+
+    expect(canAny(receptionOnly, "read", "private_notes")).toBe(false);
+    expect(canAny(receptionOnly, "read", "patient_clinical")).toBe(false);
+    expect(canAny(receptionOnly, "create", "encounter")).toBe(false);
+    expect(canAny(receptionOnly, "create", "prescription")).toBe(false);
+    expect(canAny(receptionOnly, "create", "patient_allergy")).toBe(false);
+    // LOCATION_ADMIN-only work is denied too.
+    expect(canAny(receptionOnly, "update", "location_member")).toBe(false);
+    expect(canAny(receptionOnly, "update", "practice_location")).toBe(false);
+
+    // …while the desk's own work still functions.
+    expect(canAny(receptionOnly, "create", "appointment")).toBe(true);
+    expect(canAny(receptionOnly, "create", "patient")).toBe(true);
+  });
+
+  it("would have been wrongly authorised if colleagues' roles leaked in", () => {
+    // The exact bad value the old getMemberships() produced.
+    const leaked = ["RECEPTIONIST", "DOCTOR", "LOCATION_ADMIN"] as const;
+
+    // Proof the leak mattered: these all flip to true, which is why the fix
+    // belongs in the query and not in a narrower matrix.
+    expect(canAny(leaked, "read", "private_notes")).toBe(true);
+    expect(canAny(leaked, "create", "encounter")).toBe(true);
+    expect(canAny(leaked, "update", "location_member")).toBe(true);
+  });
+
   it("can run the front desk", () => {
     expect(can(role, "create", "appointment")).toBe(true);
     expect(can(role, "update", "queue")).toBe(true);

@@ -164,6 +164,17 @@ for (const fn of [
   );
 }
 
+console.log("\nOnly one registration entry point exists");
+const regForms = await sql`
+  select pg_get_function_arguments(p.oid) as args
+  from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+  where n.nspname = 'public' and p.proname = 'register_patient_for_doctor'`;
+check(regForms.length === 1, "exactly one register_patient_for_doctor", `${regForms.length}`);
+check(
+  regForms.every((f) => f.args.includes("p_confirmed_not_duplicate")),
+  "and it carries the duplicate-confirmation flag",
+);
+
 console.log("\nSession date uses the LOCATION's timezone, not the session's");
 {
   // Force the connection to UTC. If session_date_for leaned on the session
@@ -288,6 +299,10 @@ try {
     await tx`insert into public.practice_location_members
                (practice_location_id, user_id, role, status)
              values (${hospital.id}, ${uidA}, 'DOCTOR', 'ACTIVE'),
+                    -- Doctor A also administers the hospital, so all three
+                    -- roles coexist there — the shape that produced the
+                    -- privilege-escalation bug.
+                    (${hospital.id}, ${uidA}, 'LOCATION_ADMIN', 'ACTIVE'),
                     (${chamber.id},  ${uidA}, 'DOCTOR', 'ACTIVE'),
                     (${hospital.id}, ${uidC}, 'DOCTOR', 'ACTIVE'),
                     (${hospital.id}, ${uidR}, 'RECEPTIONIST', 'ACTIVE')`;
@@ -618,6 +633,45 @@ try {
       check(successors.n === 1, "exactly one successor exists", `${successors.n}`);
     });
 
+    /**
+     * REGRESSION: getMemberships() must filter by user_id itself.
+     *
+     * The SELECT policy is deliberately "your own rows OR you are an active
+     * member here", so colleagues appear in staff lists. Application code that
+     * reads this table WITHOUT filtering therefore collects every member's
+     * roles and treats them as the caller's — which is exactly what happened:
+     * a receptionist came back holding DOCTOR and LOCATION_ADMIN, and every
+     * requirePermission() check believed it.
+     *
+     * These two queries prove the policy alone does not narrow the result, so
+     * the filter is load-bearing rather than decorative.
+     */
+    console.log("\nMembership roles belong to the caller alone");
+    await as(tx, uidR, async () => {
+      const unfiltered = await tx`
+        select role from public.practice_location_members where status = 'ACTIVE'`;
+      const roles = unfiltered.map((r) => r.role);
+      check(
+        roles.length > 1,
+        "RLS alone returns colleagues' rows (so the app MUST filter)",
+        roles.join(","),
+      );
+
+      const mine = await tx`
+        select role from public.practice_location_members
+        where status = 'ACTIVE' and user_id = auth.uid()`;
+      const myRoles = mine.map((r) => r.role);
+      check(
+        myRoles.length === 1 && myRoles[0] === "RECEPTIONIST",
+        "filtering by user_id yields ONLY the receptionist's own role",
+        myRoles.join(","),
+      );
+      check(
+        !myRoles.includes("DOCTOR") && !myRoles.includes("LOCATION_ADMIN"),
+        "a receptionist never inherits DOCTOR or LOCATION_ADMIN",
+      );
+    });
+
     // ---- reception registers a patient (ADR 0008) -------------------------
     console.log("\nReception registration");
     await as(tx, uidR, async () => {
@@ -626,7 +680,7 @@ try {
           ${docA.id}, ${hospital.id}, 'Fatima Begum', 'fatima begum',
           null, 'AGE_ONLY'::public.dob_precision, 34, current_date,
           'FEMALE'::public.sex, '01712000000', '01712000000',
-          null, null, 'Dhaka', null, null, null)`;
+          null, null, 'Dhaka', null, null, null, false)`;
       check(Boolean(reg?.patient_id), "reception registers a patient", reg?.patient_number);
 
       const [owned] = await tx`
@@ -644,7 +698,7 @@ try {
         await t`select * from public.register_patient_for_doctor(
           ${docB.id}, ${hospital.id}, 'Nobody', 'nobody',
           null, 'AGE_ONLY'::public.dob_precision, 20, current_date,
-          'UNKNOWN'::public.sex, null, null, null, null, null, null, null, null)`;
+          'UNKNOWN'::public.sex, null, null, null, null, null, null, null, null, false)`;
       });
       check(notHere, "cannot register for a doctor who does not practise here");
 
@@ -659,13 +713,103 @@ try {
       check(across.length === 0, "duplicate search never reaches another doctor's patient");
     });
 
+    /**
+     * Walk-in duplicate protection, WITHOUT leaking chamber-only patients.
+     *
+     * Reception must be stopped from creating a second record, but must not
+     * learn that a private patient exists — "no match" versus "a match you may
+     * not see" is itself information.
+     */
+    console.log("\nWalk-in duplicate guard");
+    await as(tx, uidR, async () => {
+      // (a) A match reception CAN see: full detail, override permitted.
+      const [seen] = await tx`
+        select * from public.check_walkin_duplicates(
+          ${docA.id}, ${hospital.id}, 'rahim hossain', null)`;
+      check(seen.visible.length === 1, "a visible duplicate is reported in full");
+      check(seen.hidden_count === 0, "…with nothing hidden");
+
+      const blocked = await expectDenied(tx, async (t) => {
+        await t`select * from public.register_patient_for_doctor(
+          ${docA.id}, ${hospital.id}, 'Rahim Hossain', 'rahim hossain',
+          null, 'AGE_ONLY'::public.dob_precision, 40, current_date,
+          'MALE'::public.sex, null, null, null, null, null, null, null, null, false)`;
+      });
+      check(blocked, "registering a visible duplicate is refused");
+
+      const [overridden] = await tx`
+        select * from public.register_patient_for_doctor(
+          ${docA.id}, ${hospital.id}, 'Rahim Hossain', 'rahim hossain',
+          null, 'AGE_ONLY'::public.dob_precision, 40, current_date,
+          'MALE'::public.sex, null, null, null, null, null, null, null, null, true)`;
+      check(
+        Boolean(overridden?.patient_id),
+        "…but reception may override a match it can actually compare",
+      );
+
+      // (b) A match reception CANNOT see — the chamber-only patient.
+      const [hidden] = await tx`
+        select * from public.check_walkin_duplicates(
+          ${docA.id}, ${hospital.id}, 'shireen akter', null)`;
+      check(hidden.hidden_count === 1, "a chamber-only match is counted");
+      check(
+        hidden.visible.length === 0,
+        "…and NOTHING about it is returned",
+        JSON.stringify(hidden.visible),
+      );
+
+      const needsDoctor = await expectDenied(tx, async (t) => {
+        await t`select * from public.register_patient_for_doctor(
+          ${docA.id}, ${hospital.id}, 'Shireen Akter', 'shireen akter',
+          null, 'AGE_ONLY'::public.dob_precision, 30, current_date,
+          'FEMALE'::public.sex, null, null, null, null, null, null, null, null, false)`;
+      });
+      check(needsDoctor, "registering over a hidden match is refused");
+
+      // The override must NOT rescue it: reception cannot judge what it
+      // cannot see, so only the doctor can resolve this one.
+      const overrideRefused = await expectDenied(tx, async (t) => {
+        await t`select * from public.register_patient_for_doctor(
+          ${docA.id}, ${hospital.id}, 'Shireen Akter', 'shireen akter',
+          null, 'AGE_ONLY'::public.dob_precision, 30, current_date,
+          'FEMALE'::public.sex, null, null, null, null, null, null, null, null, true)`;
+      });
+      check(overrideRefused, "a hidden match cannot be overridden by reception");
+
+      /**
+       * (c) There must be no UNCHECKED way in.
+       *
+       * A 17-argument call still resolves — to the checked function, via the
+       * default on p_confirmed_not_duplicate. That is the safe outcome, and the
+       * check below proves it: an omitted flag behaves as "not confirmed"
+       * rather than skipping the guard.
+       */
+      const oldFormGuarded = await expectDenied(tx, async (t) => {
+        await t`select * from public.register_patient_for_doctor(
+          ${docA.id}, ${hospital.id}, 'Shireen Akter', 'shireen akter',
+          null, 'AGE_ONLY'::public.dob_precision, 30, current_date,
+          'FEMALE'::public.sex, null, null, null, null, null, null, null, null)`;
+      });
+      check(oldFormGuarded, "omitting the confirmation flag does NOT skip the guard");
+    });
+
+    // (d) Lookup failure must BLOCK, never wave the patient through.
+    //     Simulated by removing the desk relationship the check requires.
+    await as(tx, uidC, async () => {
+      const failClosed = await expectDenied(tx, async (t) => {
+        await t`select * from public.check_walkin_duplicates(
+          ${docA.id}, ${hospital.id}, 'anybody', null)`;
+      });
+      check(failClosed, "duplicate checking refuses a caller who is not the desk");
+    });
+
     // A doctor is not front-desk staff and must not use the reception path.
     await as(tx, uidC, async () => {
       const denied = await expectDenied(tx, async (t) => {
         await t`select * from public.register_patient_for_doctor(
           ${docC.id}, ${hospital.id}, 'Self Serve', 'self serve',
           null, 'AGE_ONLY'::public.dob_precision, 40, current_date,
-          'MALE'::public.sex, null, null, null, null, null, null, null, null)`;
+          'MALE'::public.sex, null, null, null, null, null, null, null, null, false)`;
       });
       check(denied, "a doctor cannot use the reception registration path");
     });

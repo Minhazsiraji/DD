@@ -3,7 +3,7 @@
 import * as React from "react";
 import { useActionState } from "react";
 import { useRouter } from "next/navigation";
-import { Search, UserPlus, Plus, X, Check } from "lucide-react";
+import { Search, UserPlus, Plus, X, Check, CircleAlert } from "lucide-react";
 import { Field, FormMessage, SubmitButton } from "@/features/auth/components/form-parts";
 import { bookAppointmentAction, registerWalkInAction, type WalkInState } from "../actions";
 import {
@@ -368,7 +368,68 @@ function WalkInForm({
         medicines are added by the doctor during the consultation.
       </p>
 
+      {/*
+        Said plainly because it is two steps, not one transaction: if the
+        booking afterwards fails, this patient still exists. Better that than
+        losing a real person who is standing at the desk.
+      */}
+      <p className="text-xs text-ink-muted">
+        This registers the patient. You will choose the appointment time next —
+        the record is kept either way.
+      </p>
+
       <FormMessage state={state} />
+
+      {/*
+        A match this receptionist may not see. There is deliberately nothing to
+        show and no override — they cannot compare what they cannot see, so the
+        only safe resolution is the doctor's.
+      */}
+      {state.needsDoctor ? (
+        <p className="flex items-start gap-2 rounded-xl bg-warning-soft px-3 py-2.5 text-[13px] text-ink">
+          <CircleAlert className="mt-px size-4 shrink-0" aria-hidden="true" />
+          <span>
+            The doctor can register this patient from their own patient list. No
+            further detail is available at the front desk.
+          </span>
+        </p>
+      ) : null}
+
+      {/*
+        Matches reception CAN see. Picking one is nearly always right, so it is
+        offered first — but two people genuinely share a name and a household
+        phone, so an override exists for the case they can actually judge.
+      */}
+      {state.duplicates && state.duplicates.length > 0 ? (
+        <div className="space-y-2 rounded-xl border border-warning-soft bg-warning-soft/40 p-3">
+          <p className="text-[13px] font-semibold text-ink">
+            Already registered with this doctor
+          </p>
+          <ul className="divide-y divide-hairline overflow-hidden rounded-lg border border-hairline bg-white">
+            {state.duplicates.map((d) => (
+              <li key={d.id} className="px-3 py-2.5 text-[13px]">
+                <span className="font-semibold text-ink">{d.fullName}</span>
+                <span className="ml-2 tabular-nums text-ink-secondary">
+                  {d.patientNumber}
+                  {d.phone ? ` · ${d.phone}` : ""}
+                </span>
+              </li>
+            ))}
+          </ul>
+          <p className="text-xs text-ink-secondary">
+            If one of these is the same person, close this form and search for
+            them instead — a second record splits their history.
+          </p>
+          <label className="flex items-start gap-2.5 py-1 text-[13px] text-ink">
+            <input
+              type="checkbox"
+              name="confirmedNotDuplicate"
+              className="mt-0.5 size-4 shrink-0 rounded border-hairline text-brand focus-visible:focus-ring"
+            />
+            I have checked — this is a different person
+          </label>
+        </div>
+      ) : null}
 
       <div className="flex flex-col gap-2 sm:flex-row sm:max-w-md">
         <SubmitButton>Register patient</SubmitButton>

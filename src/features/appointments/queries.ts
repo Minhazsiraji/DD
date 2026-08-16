@@ -274,20 +274,32 @@ export interface DayCounts {
   cancelled: number;
 }
 
-export async function getDayCounts(sessionDate: string): Promise<DayCounts> {
+export type DayCountsOutcome =
+  | { ok: true; counts: DayCounts }
+  | { ok: false; reason: string };
+
+/**
+ * Counts for the dashboard.
+ *
+ * Returns an outcome, NOT zeros. Rendering "0 appointments" after a failed read
+ * tells a doctor their day is empty when the truth is that we could not find
+ * out — and that is the version they would act on.
+ */
+export async function getDayCounts(sessionDate: string): Promise<DayCountsOutcome> {
   const ctx = await requireLocationContext();
   const outcome = await getAppointmentsForDay(sessionDate, ctx.locationId);
 
-  // A failed read reports zeros AND logs; the dashboard shows counts, not
-  // decisions, and the appointments screen is where the outage is surfaced.
-  if (!outcome.ok) return { total: 0, waiting: 0, inConsultation: 0, completed: 0, cancelled: 0 };
+  if (!outcome.ok) return { ok: false, reason: outcome.reason };
 
   const a = outcome.appointments;
   return {
-    total: a.filter((x) => x.status !== "CANCELLED").length,
-    waiting: a.filter((x) => x.status === "ARRIVED").length,
-    inConsultation: a.filter((x) => x.status === "IN_CONSULTATION").length,
-    completed: a.filter((x) => x.status === "COMPLETED").length,
-    cancelled: a.filter((x) => x.status === "CANCELLED").length,
+    ok: true,
+    counts: {
+      total: a.filter((x) => x.status !== "CANCELLED").length,
+      waiting: a.filter((x) => x.status === "ARRIVED").length,
+      inConsultation: a.filter((x) => x.status === "IN_CONSULTATION").length,
+      completed: a.filter((x) => x.status === "COMPLETED").length,
+      cancelled: a.filter((x) => x.status === "CANCELLED").length,
+    },
   };
 }
