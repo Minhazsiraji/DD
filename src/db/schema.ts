@@ -12,6 +12,7 @@ import {
   jsonb,
   index,
   uniqueIndex,
+  primaryKey,
 } from "drizzle-orm/pg-core";
 
 /**
@@ -621,19 +622,36 @@ export const appointments = pgTable(
   "appointments",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    /** Whose appointment this is. The ownership boundary — see ADR 0001. */
+    /**
+     * Whose appointment this is. The ownership boundary — see ADR 0001.
+     *
+     * RESTRICT, not cascade: an appointment is a record that a person was
+     * expected at a place and time. Deleting a doctor or a patient must not
+     * silently erase that history — deactivate them instead.
+     */
     ownerDoctorId: uuid("owner_doctor_id")
       .notNull()
-      .references(() => doctorProfiles.id, { onDelete: "cascade" }),
+      .references(() => doctorProfiles.id, { onDelete: "restrict" }),
     /** Mandatory on every event table. Where this appointment happens. */
     practiceLocationId: uuid("practice_location_id")
       .notNull()
       .references(() => practiceLocations.id, { onDelete: "restrict" }),
     patientId: uuid("patient_id")
       .notNull()
-      .references(() => patients.id, { onDelete: "cascade" }),
+      .references(() => patients.id, { onDelete: "restrict" }),
 
     scheduledFor: timestamp("scheduled_for", { withTimezone: true }).notNull(),
+
+    /**
+     * The clinic day this belongs to, in the LOCATION's timezone.
+     *
+     * Stored rather than derived because `scheduled_for::date` uses the
+     * database session's timezone: a 12:30am Dhaka appointment is still the
+     * previous day in UTC, so it would be filed under the wrong session and
+     * take a token from the wrong queue. Computed once, at write time, from
+     * practice_locations.timezone.
+     */
+    sessionDate: date("session_date").notNull(),
     durationMinutes: integer("duration_minutes").notNull().default(15),
     visitType: visitType("visit_type").notNull().default("NEW"),
     status: appointmentStatus("status").notNull().default("SCHEDULED"),
@@ -643,8 +661,13 @@ export const appointments = pgTable(
 
     /**
      * Stage 5 will build the live queue on top of this. Allocated at check-in
-     * so the number reflects arrival order, not booking order — the field lives
-     * here now so the queue does not require another migration over live data.
+     * so the number reflects arrival order, not booking order.
+     *
+     * Uniqueness per (location, session_date) is enforced by a partial unique
+     * index — see supabase/policies/0010. Allocation goes through a counter
+     * row, because `max(token) + 1` is not serialised by locking the
+     * appointment being checked in: two receptionists checking in two
+     * DIFFERENT patients lock different rows and read the same maximum.
      */
     tokenNumber: integer("token_number"),
 
@@ -669,10 +692,32 @@ export const appointments = pgTable(
   },
   (t) => [
     index("appointments_doctor_date_idx").on(t.ownerDoctorId, t.scheduledFor),
-    index("appointments_location_date_idx").on(t.practiceLocationId, t.scheduledFor),
+    index("appointments_location_session_idx").on(t.practiceLocationId, t.sessionDate),
     index("appointments_patient_idx").on(t.patientId),
     index("appointments_status_idx").on(t.status),
   ],
+);
+
+/**
+ * One row per (location, clinic day), holding the last token issued.
+ *
+ * This exists because `select max(token_number) + 1` cannot be made safe by
+ * locking the appointment being checked in — two receptionists checking in two
+ * different patients take locks on different rows, both read the same maximum,
+ * and both hand out token 7. Incrementing a single shared row serialises them,
+ * the same trick already used for patient numbers.
+ */
+export const appointmentTokenCounters = pgTable(
+  "appointment_token_counters",
+  {
+    practiceLocationId: uuid("practice_location_id")
+      .notNull()
+      .references(() => practiceLocations.id, { onDelete: "cascade" }),
+    sessionDate: date("session_date").notNull(),
+    lastToken: integer("last_token").notNull().default(0),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.practiceLocationId, t.sessionDate] })],
 );
 
 /**
@@ -687,9 +732,14 @@ export const appointmentEvents = pgTable(
   "appointment_events",
   {
     id: uuid("id").primaryKey().defaultRandom(),
+    /**
+     * RESTRICT: the history must outlive any ordinary attempt to remove the
+     * appointment it describes. Cascading here would mean a single DELETE
+     * erases both the fact and the evidence.
+     */
     appointmentId: uuid("appointment_id")
       .notNull()
-      .references(() => appointments.id, { onDelete: "cascade" }),
+      .references(() => appointments.id, { onDelete: "restrict" }),
     practiceLocationId: uuid("practice_location_id")
       .notNull()
       .references(() => practiceLocations.id, { onDelete: "restrict" }),
@@ -722,5 +772,6 @@ export type PatientPrivateNote = typeof patientPrivateNotes.$inferSelect;
 export type PrescriptionTemplate = typeof prescriptionTemplates.$inferSelect;
 export type Appointment = typeof appointments.$inferSelect;
 export type AppointmentEvent = typeof appointmentEvents.$inferSelect;
+export type AppointmentTokenCounter = typeof appointmentTokenCounters.$inferSelect;
 
 

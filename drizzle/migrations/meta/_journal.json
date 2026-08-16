@@ -43,6 +43,13 @@
       "when": 1786847907109,
       "tag": "0005_nice_cargill",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1786851263485,
+      "tag": "0006_fantastic_jamie_braddock",
+      "breakpoints": true
     }
   ]
 }

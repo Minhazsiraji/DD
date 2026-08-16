@@ -77,14 +77,94 @@ const [delGrant] = await sql`
     and grantee = 'authenticated' and privilege_type = 'DELETE'`;
 check(delGrant.n === 0, "no DELETE grant on appointments");
 
-console.log("\nappointment_events is append-only");
-for (const priv of ["UPDATE", "DELETE"]) {
-  const [g] = await sql`
-    select count(*)::int as n from information_schema.role_table_grants
-    where table_schema = 'public' and table_name = 'appointment_events'
-      and grantee = 'authenticated' and privilege_type = ${priv}`;
-  check(g.n === 0, `no ${priv} grant on appointment_events`);
+console.log("\nThe RPCs are the only write path");
+/**
+ * RLS decides which ROWS you may touch, never which CODE PATH touches them.
+ * While `authenticated` held these privileges the state machine was a
+ * convention: any user who satisfied a policy could set status directly, move a
+ * date without a reschedule record, or forge history.
+ */
+for (const [table, privs] of [
+  ["appointments", ["INSERT", "UPDATE", "DELETE"]],
+  ["appointment_events", ["INSERT", "UPDATE", "DELETE"]],
+  ["appointment_token_counters", ["SELECT", "INSERT", "UPDATE", "DELETE"]],
+]) {
+  for (const priv of privs) {
+    const [g] = await sql`
+      select count(*)::int as n from information_schema.role_table_grants
+      where table_schema = 'public' and table_name = ${table}
+        and grantee = 'authenticated' and privilege_type = ${priv}`;
+    check(g.n === 0, `no ${priv} grant on ${table}`);
+  }
 }
+
+const [writePolicies] = await sql`
+  select count(*)::int as n from pg_policies
+  where schemaname = 'public'
+    and tablename in ('appointments','appointment_events')
+    and cmd in ('INSERT','UPDATE','DELETE')`;
+check(writePolicies.n === 0, "no write policies remain to suggest a direct path");
+
+console.log("\nWrite RPCs are DEFINER with a pinned search_path");
+for (const fn of [
+  "create_appointment",
+  "set_appointment_status",
+  "reschedule_appointment",
+  "allocate_token",
+  "may_manage_appointments",
+  "session_date_for",
+]) {
+  const [f] = await sql`
+    select p.prosecdef, p.proconfig from pg_proc p
+    join pg_namespace n on n.oid = p.pronamespace
+    where n.nspname = 'public' and p.proname = ${fn} limit 1`;
+  check(f?.prosecdef === true, `${fn}: SECURITY DEFINER`);
+  check(
+    (f?.proconfig ?? []).some((c) => c.startsWith("search_path=")),
+    `${fn}: search_path pinned`,
+  );
+}
+
+console.log("\nSession date uses the LOCATION's timezone, not the session's");
+{
+  // Force the connection to UTC. If session_date_for leaned on the session
+  // timezone, 12:30am Dhaka would come back as the previous day here.
+  await sql`set time zone 'UTC'`;
+  const [loc] = await sql`
+    select id from public.practice_locations where timezone = 'Asia/Dhaka' limit 1`;
+
+  if (!loc) {
+    console.log("  – skipped (no Asia/Dhaka location exists yet)");
+  } else {
+    // Formatted in SQL: postgres.js returns `date` as a JS Date, whose string
+    // form is rendered in the MACHINE's timezone — comparing against that would
+    // be testing the test runner, not the database.
+    const [midnight] = await sql`
+      select to_char(public.session_date_for(${loc.id},
+        '2026-09-01T00:30:00+06:00'::timestamptz), 'YYYY-MM-DD') as d`;
+    check(midnight.d === "2026-09-01", "00:30 Dhaka belongs to that day's session", midnight.d);
+
+    const [lateEvening] = await sql`
+      select to_char(public.session_date_for(${loc.id},
+        '2026-09-01T23:45:00+06:00'::timestamptz), 'YYYY-MM-DD') as d`;
+    check(
+      lateEvening.d === "2026-09-01",
+      "23:45 Dhaka stays on the same day (UTC would roll it forward)",
+      lateEvening.d,
+    );
+  }
+  await sql`set time zone 'Asia/Dhaka'`;
+}
+
+console.log("\nToken uniqueness is enforced by the database");
+const [tokenIdx] = await sql`
+  select indexdef from pg_indexes
+  where schemaname = 'public' and indexname = 'appointments_token_per_session'`;
+check(Boolean(tokenIdx), "partial unique index on (location, session_date, token)");
+check(
+  Boolean(tokenIdx?.indexdef?.includes("UNIQUE")),
+  "and it is UNIQUE",
+);
 
 console.log("\nState machine");
 const TRANSITIONS = [
@@ -360,23 +440,87 @@ try {
       check(visible.n === 0, "reception still cannot READ the chamber appointment");
     });
 
-    // ---- append-only ------------------------------------------------------
-    console.log("\nAppend-only history");
+    // ---- the state machine cannot be walked around -------------------------
+    console.log("\nBypass attempts (as the OWNING doctor, who passes every policy)");
     await as(tx, uidA, async () => {
-      const blockedUpdate = await expectDenied(tx, async (t) => {
-        await t`update public.appointment_events set note = 'tampered'`;
-      });
-      check(blockedUpdate, "appointment_events cannot be UPDATEd");
+      const cases = [
+        [
+          "cannot set status directly, skipping the state machine",
+          async (t) => t`update public.appointments set status = 'COMPLETED'
+                          where id = ${apptChamber}`,
+        ],
+        [
+          "cannot move the date without a reschedule record",
+          async (t) => t`update public.appointments
+                            set scheduled_for = '2027-01-01T10:00:00+06:00'
+                          where id = ${apptChamber}`,
+        ],
+        [
+          "cannot swap the patient on an existing appointment",
+          async (t) => t`update public.appointments set patient_id = ${patB.id}
+                          where id = ${apptChamber}`,
+        ],
+        [
+          "cannot swap the doctor on an existing appointment",
+          async (t) => t`update public.appointments set owner_doctor_id = ${docB.id}
+                          where id = ${apptChamber}`,
+        ],
+        [
+          "cannot INSERT an appointment directly (which would have no CREATED event)",
+          async (t) => t`insert into public.appointments
+                           (owner_doctor_id, practice_location_id, patient_id,
+                            scheduled_for, session_date)
+                         values (${docA.id}, ${chamber.id}, ${patA.id},
+                                 ${when}::timestamptz, current_date)`,
+        ],
+        [
+          "cannot forge an appointment event",
+          async (t) => t`insert into public.appointment_events
+                           (appointment_id, practice_location_id, event_type, to_status)
+                         values (${apptChamber}, ${chamber.id}, 'COMPLETED', 'COMPLETED')`,
+        ],
+        [
+          "appointment_events cannot be UPDATEd",
+          async (t) => t`update public.appointment_events set note = 'tampered'`,
+        ],
+        [
+          "appointment_events cannot be DELETEd",
+          async (t) => t`delete from public.appointment_events`,
+        ],
+        [
+          "appointments cannot be DELETEd",
+          async (t) => t`delete from public.appointments where id = ${apptChamber}`,
+        ],
+        [
+          "the token counter is unreachable",
+          async (t) => t`select * from public.appointment_token_counters`,
+        ],
+      ];
 
-      const blockedDelete = await expectDenied(tx, async (t) => {
-        await t`delete from public.appointment_events`;
-      });
-      check(blockedDelete, "appointment_events cannot be DELETEd");
+      for (const [label, fn] of cases) {
+        check(await expectDenied(tx, fn), label);
+      }
+    });
 
-      const blockedApptDelete = await expectDenied(tx, async (t) => {
-        await t`delete from public.appointments where id = ${apptHospital}`;
-      });
-      check(blockedApptDelete, "appointments cannot be DELETEd");
+    // Every RPC mutation left a matching event behind.
+    console.log("\nEvery mutation is recorded");
+    await as(tx, uidA, async () => {
+      const rows = await tx`
+        select a.id, a.status,
+               (select count(*)::int from public.appointment_events e
+                 where e.appointment_id = a.id) as events,
+               (select count(*)::int from public.appointment_events e
+                 where e.appointment_id = a.id and e.event_type = 'CREATED') as created
+        from public.appointments a
+        where a.owner_doctor_id = ${docA.id}`;
+      check(
+        rows.every((r) => r.created === 1),
+        "every appointment has exactly one CREATED event",
+      );
+      check(
+        rows.every((r) => r.events >= 1),
+        "no appointment exists without history",
+      );
     });
 
     // ---- reception registers a patient (ADR 0008) -------------------------
@@ -438,6 +582,152 @@ try {
     check(false, "appointment verification", e.message);
     if (process.env.QA_TRACE) console.error(e);
   }
+}
+
+// ---------------------------------------------------------------------------
+// Concurrent check-in.
+//
+// This one CANNOT run inside a rolled-back transaction: proving that two
+// simultaneous arrivals get different tokens requires both to actually commit.
+// So it builds a committed fixture and removes it in a finally block.
+//
+// This is the check that would have caught the original bug, where
+// `max(token_number) + 1` was "protected" by a FOR UPDATE on the appointment
+// being checked in — two different appointments, two different locks, one
+// shared maximum.
+// ---------------------------------------------------------------------------
+console.log("\nConcurrent check-in (committed, then cleaned up)");
+
+const cUid = crypto.randomUUID();
+const cDeskUid = crypto.randomUUID();
+let cLocation, cDoctor;
+const connA = postgres(url, { max: 1, prepare: false, onnotice: () => {} });
+const connB = postgres(url, { max: 1, prepare: false, onnotice: () => {} });
+
+try {
+  await sql`insert into auth.users (id, email) values (${cUid}, ${`${cUid}@qa.invalid`})`;
+  await sql`insert into public.profiles (id, full_name) values (${cUid}, 'Dr Concurrent')`;
+  await sql`insert into auth.users (id, email) values (${cDeskUid}, ${`${cDeskUid}@qa.invalid`})`;
+  await sql`insert into public.profiles (id, full_name) values (${cDeskUid}, 'Desk')`;
+
+  [cDoctor] = await sql`insert into public.doctor_profiles (user_id, patient_number_prefix)
+                        values (${cUid}, 'ZZ') returning id`;
+  [cLocation] = await sql`
+    insert into public.practice_locations (name, type, created_by, timezone)
+    values ('QA Concurrency Clinic', 'CLINIC', ${cUid}, 'Asia/Dhaka') returning id`;
+  await sql`insert into public.practice_location_members
+              (practice_location_id, user_id, role, status)
+            values (${cLocation.id}, ${cUid}, 'DOCTOR', 'ACTIVE'),
+                   (${cLocation.id}, ${cDeskUid}, 'RECEPTIONIST', 'ACTIVE')`;
+
+  const made = [];
+  for (let i = 0; i < 2; i++) {
+    const [p] = await sql`
+      insert into public.patients (owner_doctor_id, patient_number, full_name,
+                                   name_normalized, sex, created_by)
+      values (${cDoctor.id}, ${`ZZ-90000${i}`}, ${`Concurrent ${i}`},
+              ${`concurrent ${i}`}, 'UNKNOWN', ${cUid}) returning id`;
+    await sql`insert into public.patient_location_links (patient_id, practice_location_id)
+              values (${p.id}, ${cLocation.id})`;
+    const [a] = await sql`
+      insert into public.appointments (owner_doctor_id, practice_location_id, patient_id,
+                                       scheduled_for, session_date, created_by)
+      values (${cDoctor.id}, ${cLocation.id}, ${p.id},
+              '2026-09-01T10:00:00+06:00'::timestamptz, '2026-09-01', ${cUid})
+      returning id`;
+    made.push(a.id);
+  }
+
+  const claims = JSON.stringify({ sub: cDeskUid, role: "authenticated" });
+
+  /** Check in one appointment on its own connection, holding the tx open. */
+  const checkIn = (conn, apptId, ready, go) =>
+    conn.begin(async (t) => {
+      await t`select set_config('request.jwt.claims', ${claims}, true)`;
+      await t`set local role authenticated`;
+      ready();
+      await go;                       // both connections wait here, then race
+      await t`select public.set_appointment_status(${apptId},
+                'ARRIVED'::public.appointment_status, null, null)`;
+    });
+
+  let readyA, readyB;
+  const bothReady = Promise.all([
+    new Promise((r) => (readyA = r)),
+    new Promise((r) => (readyB = r)),
+  ]);
+  let release;
+  const go = new Promise((r) => (release = r));
+
+  const runA = checkIn(connA, made[0], readyA, go);
+  const runB = checkIn(connB, made[1], readyB, go);
+
+  await bothReady;                    // both transactions are open and authenticated
+  release();                          // now let them both allocate
+  await Promise.all([runA, runB]);
+
+  const tokens = await sql`
+    select id, token_number from public.appointments
+    where id in ${sql(made)} order by token_number`;
+
+  const values = tokens.map((t) => t.token_number);
+  check(
+    values.every((v) => v !== null),
+    "both concurrent check-ins allocated a token",
+    JSON.stringify(values),
+  );
+  check(
+    new Set(values).size === 2,
+    "two simultaneous arrivals receive DIFFERENT tokens",
+    JSON.stringify(values),
+  );
+  check(
+    values[0] === 1 && values[1] === 2,
+    "and they are consecutive from 1",
+    JSON.stringify(values),
+  );
+
+  /**
+   * The backstop: even a bug in allocation cannot produce a duplicate.
+   *
+   * Take the token from ONE row and force it onto the OTHER, by id. Ordering by
+   * token_number and indexing positionally silently no-ops whenever the race
+   * finishes in the other order — which is exactly when you most want the test
+   * to be meaningful.
+   */
+  const byId = new Map(tokens.map((t) => [t.id, t.token_number]));
+  let duplicateBlocked = false;
+  try {
+    await sql`update public.appointments set token_number = ${byId.get(made[0])}
+              where id = ${made[1]}`;
+  } catch {
+    duplicateBlocked = true;
+  }
+  check(duplicateBlocked, "a duplicate (location, session date, token) is impossible");
+} catch (e) {
+  check(false, "concurrent check-in", e.message);
+  if (process.env.QA_TRACE) console.error(e);
+} finally {
+  await connA.end().catch(() => {});
+  await connB.end().catch(() => {});
+  // RESTRICT foreign keys mean order matters — history first, then the rows it
+  // points at. That is the durability guarantee working as intended.
+  if (cLocation) {
+    await sql`delete from public.appointment_events
+              where practice_location_id = ${cLocation.id}`;
+    await sql`delete from public.appointments where practice_location_id = ${cLocation.id}`;
+    await sql`delete from public.appointment_token_counters
+              where practice_location_id = ${cLocation.id}`;
+    await sql`delete from public.patient_location_links
+              where practice_location_id = ${cLocation.id}`;
+  }
+  if (cDoctor) await sql`delete from public.patients where owner_doctor_id = ${cDoctor.id}`;
+  await sql`delete from public.practice_locations where created_by = ${cUid}`;
+  await sql`delete from auth.users where id in (${cUid}, ${cDeskUid})`;
+
+  const [left] = await sql`
+    select count(*)::int as n from auth.users where id in (${cUid}, ${cDeskUid})`;
+  check(left.n === 0, "concurrency fixture cleaned up");
 }
 
 await sql.end();

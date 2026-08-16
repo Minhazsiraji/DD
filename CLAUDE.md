@@ -164,6 +164,25 @@ squeeze — and it hides the bottom nav.
   viewport. The A4 preview hit this — text was sized as if the paper were as
   wide as the window. Measuring the computed values did not catch it (they were
   self-consistent, just against the wrong box); a screenshot did.
+- **RLS gates which ROWS you may touch, never which CODE PATH touches them.**
+  A transactional RPC is only a control if the direct privilege is revoked —
+  otherwise it is a convention, and anyone who satisfies a policy can skip the
+  state machine, mutate a date without a history row, or forge events. When a
+  table's writes must go through functions: `revoke insert, update, delete`,
+  drop the write policies, and make the functions `SECURITY DEFINER` with a
+  pinned `search_path` that re-check authorisation explicitly — a DEFINER
+  function does NOT inherit RLS, so every rule the policy enforced must be
+  restated inside it.
+- **Supabase's default privileges grant `authenticated` every verb on a new
+  table.** Omitting a verb from your `GRANT` does not remove it; you must
+  `REVOKE` it. Assume the privilege is there until you have revoked it.
+- **`timestamptz::date` uses the SESSION timezone, not the clinic's.** Anything
+  that means "which clinic day is this?" must convert through the location's own
+  timezone, or a 12:30am Dhaka appointment files itself under the previous day.
+- **`max(x) + 1` is not serialised by locking the row you are updating.** Two
+  callers updating DIFFERENT rows take different locks and read the same
+  maximum. Increment a single shared counter row (`INSERT … ON CONFLICT DO
+  UPDATE … RETURNING`) and back it with a unique index.
 - **A Supabase Storage delete blocked by RLS removes nothing and raises
   nothing** — `remove()` returns an empty list with `error === null`. Confirm
   deletion from the returned rows, never from the absence of an error. This
