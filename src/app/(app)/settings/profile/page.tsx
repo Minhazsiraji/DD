@@ -43,7 +43,11 @@ export default async function DoctorProfilePage() {
 
       <SectionCard className="overflow-hidden">
         <SectionHeader title="Signature" icon={<FileSignature className="size-4" />} />
-        <SignaturePanel signatureUrl={signatureUrl} />
+        <SignaturePanel
+          signatureUrl={signatureUrl}
+          // A saved-but-unfetchable signature still needs its Remove button.
+          hasSignature={Boolean(identity.signaturePath)}
+        />
       </SectionCard>
 
       <SectionCard className="overflow-hidden">

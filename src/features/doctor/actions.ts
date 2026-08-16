@@ -109,6 +109,46 @@ export async function updateDoctorProfileAction(
 const ALLOWED_SIGNATURE_TYPES = ["image/png", "image/jpeg", "image/webp"];
 const MAX_SIGNATURE_BYTES = 2 * 1024 * 1024;
 
+type StorageClient = Awaited<ReturnType<typeof createSupabaseServerClient>>["storage"];
+
+/**
+ * Delete a stored object and say what ACTUALLY happened.
+ *
+ * `remove()` cannot be trusted on its own: a delete blocked by RLS removes
+ * nothing and returns an empty list with no error, so "no error" is not "gone".
+ * When nothing came back we look the object up to tell the two cases apart —
+ * still there (refuse) versus already absent (a stale reference we may clear).
+ */
+async function deleteStoredObject(
+  storage: StorageClient,
+  path: string,
+): Promise<{ outcome: "deleted" | "already-absent" | "still-present"; reason?: string }> {
+  const bucket = storage.from(SIGNATURE_BUCKET);
+  const { data: removed, error } = await bucket.remove([path]);
+
+  if (!error && removed && removed.length > 0) return { outcome: "deleted" };
+
+  const slash = path.lastIndexOf("/");
+  const folder = slash === -1 ? "" : path.slice(0, slash);
+  const filename = path.slice(slash + 1);
+
+  const { data: found, error: listError } = await bucket.list(folder, {
+    search: filename,
+    limit: 100,
+  });
+
+  if (listError) {
+    // Cannot prove it is gone, so treat it as present. Wrongly claiming a
+    // signature was destroyed is the failure that matters.
+    return { outcome: "still-present", reason: error?.message ?? listError.message };
+  }
+
+  const exists = (found ?? []).some((o) => o.name === filename);
+  if (exists) return { outcome: "still-present", reason: error?.message };
+
+  return { outcome: "already-absent" };
+}
+
 export async function uploadSignatureAction(
   _prev: ActionState,
   formData: FormData,
@@ -168,9 +208,22 @@ export async function uploadSignatureAction(
     return { ok: false, message: `Could not save it: ${linkError.message}` };
   }
 
+  /**
+   * The replaced image is now unreferenced. Deleting it is best-effort — the new
+   * signature is already saved and correct, so failing the upload here would be
+   * wrong — but it is NOT silent: an old signature left in storage is a
+   * reusable authorisation mark nobody is tracking.
+   */
   const previous = doctor.signature_url as string | null;
   if (previous && previous !== path) {
-    await supabase.storage.from(SIGNATURE_BUCKET).remove([previous]);
+    const { outcome, reason } = await deleteStoredObject(supabase.storage, previous);
+    if (outcome === "still-present") {
+      console.error(
+        "[doctor] replaced signature NOT deleted, still in storage",
+        previous,
+        reason ?? "",
+      );
+    }
   }
 
   await emitAudit({
@@ -222,29 +275,26 @@ export async function removeSignatureAction(): Promise<ActionState> {
     return { ok: true, message: "There was no signature to remove." };
   }
 
-  const { data: removed, error: storageError } = await supabase.storage
-    .from(SIGNATURE_BUCKET)
-    .remove([path]);
+  const { outcome, reason } = await deleteStoredObject(supabase.storage, path);
 
-  /**
-   * A missing error is NOT proof of deletion.
-   *
-   * Storage deletes run under RLS, and a policy that matches no rows deletes
-   * nothing while reporting no error at all — `remove()` simply returns an
-   * empty list. Trusting the absence of an error here reported "Signature
-   * removed" while the image was still sitting in the bucket, which for a
-   * reusable authorisation mark is the one outcome that must never be claimed
-   * falsely. So we check what actually came back.
-   */
-  if (storageError || !removed || removed.length === 0) {
+  if (outcome === "still-present") {
     return {
       ok: false,
       message:
         "Your signature image could NOT be deleted" +
-        (storageError ? ` (${storageError.message})` : "") +
+        (reason ? ` (${reason})` : "") +
         ", so it is still stored and still in use. Nothing was changed — please try again.",
     };
   }
+
+  /**
+   * `already-absent` is the recovery path, not an error.
+   *
+   * If a previous attempt deleted the image but failed to clear this column,
+   * the profile is left pointing at nothing. Refusing to clear a reference just
+   * because the object is missing would strand the doctor permanently: the
+   * image can never come back, so the retry could never succeed.
+   */
 
   const { error: clearError } = await supabase
     .from("doctor_profiles")
@@ -256,7 +306,7 @@ export async function removeSignatureAction(): Promise<ActionState> {
       ok: false,
       message:
         `The image was deleted but your profile still refers to it (${clearError.message}). ` +
-        "Your prescriptions may show a missing signature until you try again.",
+        "Your prescriptions may show a missing signature until you press Remove again.",
     };
   }
 
@@ -265,11 +315,18 @@ export async function removeSignatureAction(): Promise<ActionState> {
     resourceType: "doctor_profile",
     resourceId: doctor.id as string,
     actorId: user.id,
+    meta: { staleReference: outcome === "already-absent" },
   });
 
   revalidatePath("/settings/profile");
   revalidatePath("/settings/prescription");
-  return { ok: true, message: "Signature removed." };
+  return {
+    ok: true,
+    message:
+      outcome === "already-absent"
+        ? "That signature image was already gone, so the leftover reference has been cleared."
+        : "Signature removed.",
+  };
 }
 
 // ---------------------------------------------------------------------------

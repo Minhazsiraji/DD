@@ -16,7 +16,10 @@
     "db:policies": "node --env-file=.env.local scripts/apply-policies.mjs",
     "db:verify": "node --env-file=.env.local scripts/verify-security.mjs",
     "db:verify:patients": "node --env-file=.env.local scripts/verify-patients.mjs",
-    "db:verify:templates": "node --env-file=.env.local scripts/verify-templates.mjs"
+    "db:verify:templates": "node --env-file=.env.local scripts/verify-templates.mjs",
+    "qa:create": "node --env-file=.env.local scripts/qa-fixture.mjs create",
+    "qa:destroy": "node --env-file=.env.local scripts/qa-fixture.mjs destroy",
+    "qa:status": "node --env-file=.env.local scripts/qa-fixture.mjs status"
   },
   "dependencies": {
     "@base-ui/react": "^1.7.0",

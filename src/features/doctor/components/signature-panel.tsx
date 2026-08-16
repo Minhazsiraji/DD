@@ -3,7 +3,7 @@
 import * as React from "react";
 import { useActionState } from "react";
 import { useRouter } from "next/navigation";
-import { PenLine, Trash2, ShieldCheck } from "lucide-react";
+import { PenLine, Trash2, ShieldCheck, CircleAlert } from "lucide-react";
 import { emptyState } from "@/features/auth/schema";
 import { FormMessage, SubmitButton } from "@/features/auth/components/form-parts";
 import { uploadSignatureAction, removeSignatureAction } from "../actions";
@@ -15,7 +15,22 @@ import { uploadSignatureAction, removeSignatureAction } from "../actions";
  * URL — a signature is a reusable authorisation mark, so a permanently public
  * link would be a standing forgery risk.
  */
-export function SignaturePanel({ signatureUrl }: { signatureUrl: string | null }) {
+/**
+ * `hasSignature` and `signatureUrl` are deliberately separate.
+ *
+ * A saved signature whose image cannot be fetched — the object was deleted but
+ * the reference survived, or signing the URL failed — must still render the
+ * Remove button. Keying the whole panel off the URL hid the problem AND the
+ * only control that fixes it, leaving the doctor permanently stuck with a
+ * reference they could neither see nor clear.
+ */
+export function SignaturePanel({
+  signatureUrl,
+  hasSignature,
+}: {
+  signatureUrl: string | null;
+  hasSignature: boolean;
+}) {
   const [state, formAction] = useActionState(uploadSignatureAction, emptyState);
   const [removeState, removeAction] = useActionState(removeSignatureAction, emptyState);
   const router = useRouter();
@@ -26,12 +41,20 @@ export function SignaturePanel({ signatureUrl }: { signatureUrl: string | null }
 
   return (
     <div className="space-y-4 p-4 sm:p-5">
-      {signatureUrl ? (
+      {hasSignature ? (
         <div className="flex flex-wrap items-center gap-4">
-          <div className="rounded-xl border border-hairline bg-white p-3">
-            {/* eslint-disable-next-line @next/next/no-img-element -- signed, expiring storage URL */}
-            <img src={signatureUrl} alt="Your saved signature" className="h-14 w-auto object-contain" />
-          </div>
+          {signatureUrl ? (
+            <div className="rounded-xl border border-hairline bg-white p-3">
+              {/* eslint-disable-next-line @next/next/no-img-element -- signed, expiring storage URL */}
+              <img src={signatureUrl} alt="Your saved signature" className="h-14 w-auto object-contain" />
+            </div>
+          ) : (
+            <p className="flex items-start gap-2 rounded-xl bg-warning-soft px-3 py-2.5 text-[13px] text-ink">
+              <CircleAlert className="mt-px size-4 shrink-0" aria-hidden="true" />
+              A signature is saved but its image cannot be opened right now. Remove
+              it and upload again — until you do, prescriptions may print without one.
+            </p>
+          )}
           <form action={removeAction}>
             <button
               type="submit"
@@ -48,7 +71,7 @@ export function SignaturePanel({ signatureUrl }: { signatureUrl: string | null }
           reusable signature in storage is the failure that matters. */}
       <FormMessage state={removeState} />
 
-      {!signatureUrl ? (
+      {!hasSignature ? (
         <p className="flex items-start gap-2 rounded-xl bg-surface-muted px-3 py-2.5 text-[13px] text-ink-secondary">
           <PenLine className="mt-px size-4 shrink-0 text-ink-muted" aria-hidden="true" />
           No signature yet. Sign a blank white sheet, photograph it in good light
