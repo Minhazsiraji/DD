@@ -144,6 +144,40 @@ integer vital is rejected rather than rounded.
 Fields that cannot be cleared because they are the row's meaning — a diagnosis
 `label`, its `certainty`, an investigation `name` — reject an explicit null.
 
+### 6b. Vital plausibility bounds
+
+| height | 0 < x ≤ 300 cm | above the tallest recorded human (272 cm) |
+| weight | 0 < x ≤ 700 kg | above the heaviest recorded human (635 kg) |
+| temperature | 10 ≤ x ≤ 50 °C | outside survivable core temperature both ways; also catches a Fahrenheit reading typed into a Celsius field |
+| pulse | 0 < x ≤ 400 bpm | above any sustainable tachyarrhythmia and above fetal rates |
+| systolic | 0 < x ≤ 400 | severe hypertensive crisis sits near 250 |
+| diastolic | 0 < x ≤ 300 | always below the systolic ceiling |
+| respiratory rate | 0 < x ≤ 200 | far above any human rate |
+| SpO₂ | 0 ≤ x ≤ 100 | it is a percentage |
+
+These are TECHNICAL PLAUSIBILITY bounds, not normal ranges, and the distinction
+is the entire design. Their job is to stop corrupt data — a negative weight, an
+SpO₂ of 900, a transposed field — from entering a clinical record. It is not to
+judge whether a patient is well: a pulse of 220, a fever of 42 °C and a
+saturation of 60 are all real things a doctor must be able to write down, and
+refusing a true measurement from a genuinely sick patient would be a far worse
+failure than storing an odd one. Every bound is set so that no real measurement
+can reach it.
+
+Enforced twice, on purpose. CHECK constraints on the table are the boundary —
+they hold even if something reaches the table without the RPC. The RPC checks
+the same bounds first and raises `VITAL_OUT_OF_RANGE`, so what the caller sees
+is our error code rather than a Postgres constraint-violation string, which is
+not UI copy and was never written to be read by anyone.
+
+An explicit JSON `null` still clears any vital. Clearing is not a value and is
+never range-checked — otherwise a wrong reading could be neither corrected nor
+removed, which is the bug the patch contract exists to prevent.
+
+Upper bounds also sit inside each column's declared numeric precision, so a
+value can never be rejected by overflow instead of by the check that explains
+itself.
+
 ### 7. Structured versus free text
 
 Free text: chief complaints, present illness, past history, examination,
@@ -193,6 +227,36 @@ TWO mechanisms, deliberately separate:
   clinical values, because it is readable by roles that must never see them.
 
 Getting this backwards is how clinical text leaks into an admin-readable log.
+
+**Exactly which mutations write an operational event — the complete list.**
+Every one of these, and nothing else, writes one `audit_events` row per
+successful call, in the same transaction as the change:
+
+| action | meta |
+| `encounter.created` | `appointmentLinked` |
+| `encounter.sections_updated` | `fields`, `version` |
+| `encounter.diagnosis_added` | `diagnosisId`, `version` |
+| `encounter.diagnosis_updated` | `diagnosisId`, `fields`, `version` |
+| `encounter.diagnosis_removed` | `diagnosisId`, `version` |
+| `encounter.investigation_added` | `investigationId`, `version` |
+| `encounter.investigation_updated` | `investigationId`, `fields`, `version` |
+| `encounter.investigation_removed` | `investigationId`, `version` |
+| `encounter.closed` | `status` |
+
+Every row also carries the encounter id as `resource_id`, the practice location,
+and the actor. The earlier version of this ADR claimed this contract while only
+`created` and `closed` actually wrote one; the claim is now true.
+
+`meta` NEVER contains: complaint, present illness, past history, examination,
+assessment or advice text; a diagnosis label or note; an investigation name or
+note; a vital VALUE; a patient name, phone number or patient number. A diagnosis
+being added is operational. WHICH diagnosis is clinical, and stays in
+`encounter_events`.
+
+**These events are REQUIRED, not best-effort.** They are written inside the RPC,
+so a failure aborts the clinical mutation with it — ADR 0007's fail-closed rule.
+That is why this is not `emitAudit`, which swallows failures by design and is
+the wrong mechanism for any path where the record and its trail must agree.
 
 ## Consequences
 

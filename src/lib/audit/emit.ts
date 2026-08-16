@@ -50,6 +50,13 @@ export type AuditAction =
    * admin-readable log.
    */
   | "encounter.created"
+  | "encounter.sections_updated"
+  | "encounter.diagnosis_added"
+  | "encounter.diagnosis_updated"
+  | "encounter.diagnosis_removed"
+  | "encounter.investigation_added"
+  | "encounter.investigation_updated"
+  | "encounter.investigation_removed"
   | "encounter.closed"
   | "location.created"
   | "location.updated"

@@ -20,6 +20,7 @@
     "db:verify:appointments": "node --env-file=.env.local scripts/verify-appointments.mjs",
     "db:verify:queue": "node --env-file=.env.local scripts/verify-queue.mjs",
     "db:verify:encounters": "node --env-file=.env.local scripts/verify-encounters.mjs",
+    "db:verify:migrations": "node --env-file=.env.local scripts/verify-migrations.mjs",
     "qa:create": "node --env-file=.env.local scripts/qa-fixture.mjs create",
     "qa:destroy": "node --env-file=.env.local scripts/qa-fixture.mjs destroy",
     "qa:status": "node --env-file=.env.local scripts/qa-fixture.mjs status"

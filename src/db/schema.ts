@@ -12,6 +12,7 @@ import {
   jsonb,
   index,
   uniqueIndex,
+  check,
   primaryKey,
   bigserial,
 } from "drizzle-orm/pg-core";
@@ -1005,6 +1006,56 @@ export const encounters = pgTable(
     index("encounters_patient_idx").on(t.patientId, t.startedAt),
     index("encounters_location_idx").on(t.practiceLocationId),
     index("encounters_appointment_idx").on(t.appointmentId),
+
+    /**
+     * One active draft. Declared HERE, not only in the replayable policy file:
+     * an index is schema, and a shape that lives solely in a policy replay lets
+     * a later `drizzle-kit generate` decide the database is drifted and offer
+     * to put the old one back.
+     *
+     * Location is part of the unscheduled identity — an encounter is one
+     * doctor, one patient, one LOCATION, one occasion (ADR 0010 §5).
+     */
+    uniqueIndex("encounters_one_draft_per_appointment")
+      .on(t.appointmentId)
+      .where(sql`status = 'DRAFT' and appointment_id is not null`),
+    uniqueIndex("encounters_one_unscheduled_draft_at_location")
+      .on(t.ownerDoctorId, t.patientId, t.practiceLocationId)
+      .where(sql`status = 'DRAFT' and appointment_id is null`),
+
+    /**
+     * TECHNICAL PLAUSIBILITY, NOT NORMAL RANGES.
+     *
+     * These exist to stop corrupt data — a negative weight, an SpO2 of 900, a
+     * transposed field — reaching a clinical record. They are deliberately far
+     * outside anything a doctor would call abnormal, because rejecting a real
+     * measurement from a genuinely sick patient would be a far worse failure
+     * than storing an odd one. A tachycardia of 300 is real; a pulse of 5000 is
+     * a typo.
+     *
+     * The RPC checks the same bounds first and returns its own error code, so
+     * these never surface as UI copy. They are here because the constraint is
+     * the boundary that holds when something skips the RPC.
+     *
+     * Upper limits also sit inside each column's declared precision, so a value
+     * can never be rejected by numeric overflow instead of by a check.
+     */
+    check("encounters_height_range", sql`vital_height_cm is null
+      or (vital_height_cm > 0 and vital_height_cm <= 300)`),
+    check("encounters_weight_range", sql`vital_weight_kg is null
+      or (vital_weight_kg > 0 and vital_weight_kg <= 700)`),
+    check("encounters_temperature_range", sql`vital_temperature_c is null
+      or (vital_temperature_c >= 10 and vital_temperature_c <= 50)`),
+    check("encounters_pulse_range", sql`vital_pulse_bpm is null
+      or (vital_pulse_bpm > 0 and vital_pulse_bpm <= 400)`),
+    check("encounters_systolic_range", sql`vital_systolic is null
+      or (vital_systolic > 0 and vital_systolic <= 400)`),
+    check("encounters_diastolic_range", sql`vital_diastolic is null
+      or (vital_diastolic > 0 and vital_diastolic <= 300)`),
+    check("encounters_resp_rate_range", sql`vital_resp_rate is null
+      or (vital_resp_rate > 0 and vital_resp_rate <= 200)`),
+    check("encounters_spo2_range", sql`vital_spo2 is null
+      or (vital_spo2 >= 0 and vital_spo2 <= 100)`),
   ],
 );
 

@@ -239,6 +239,9 @@ squeeze — and it hides the bottom nav.
     npm run db:verify:appointments
     npm run db:verify:queue
     npm run db:verify:encounters # clinical boundary, version CAS, one-draft race
+    npm run db:verify:migrations # replays every migration into a throwaway
+                                 # database, then proves the newest one upgrades
+                                 # a database that already holds rows
 
 - **Two connection strings.** `DIRECT_URL` (session pooler, **5432**) for
   migrations and scripts; `DATABASE_URL` (transaction pooler, 6543) for app
@@ -253,6 +256,14 @@ squeeze — and it hides the bottom nav.
 - Adding an event table? It **must** carry `practice_location_id`, and it needs
   policies in `supabase/policies/` in the same change. A table with RLS on and no
   policy silently returns zero rows.
+- **An index or CHECK created only in `supabase/policies/` is invisible to
+  drizzle-kit.** It never enters a snapshot, so a later `generate` sees drift and
+  offers to recreate the shape you deliberately replaced — and a fresh database
+  built from migrations alone never gets it. Constraints and indexes belong in
+  `schema.ts` with a migration; the policy file may keep an idempotent
+  assertion, but it must not be the only place the shape exists. When the old
+  shape predates the snapshot, hand-add the `DROP` to the generated migration —
+  drizzle cannot emit a drop for something it never knew about.
 - **`INSERT … RETURNING` applies SELECT policies to the new row**, and
   supabase-js issues RETURNING whenever you chain `.select()`. If the inserting
   user cannot yet read the row, the insert fails with the misleading message

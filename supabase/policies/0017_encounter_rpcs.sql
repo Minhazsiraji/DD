@@ -119,11 +119,118 @@ begin
 end;
 $$;
 
+/**
+ * Vital plausibility. TECHNICAL BOUNDS, NOT NORMAL RANGES.
+ *
+ * The job is to stop corrupt values — a negative weight, an SpO2 of 900, a
+ * transposed field — from entering a clinical record. It is emphatically NOT to
+ * decide whether a patient is well: a tachycardia of 220, a fever of 42°C and a
+ * saturation of 60 are all real things a doctor must be able to record, and
+ * refusing them would be a far worse failure than storing an odd number.
+ *
+ *   height 0–300 cm       taller than any recorded human (272 cm)
+ *   weight 0–700 kg       heavier than any recorded human (635 kg)
+ *   temperature 10–50 °C  outside survivable core temperature in both
+ *                         directions; also catches a Fahrenheit value typed
+ *                         into a Celsius field (98.6 lands well above 50)
+ *   pulse 1–400 bpm       above any sustainable tachyarrhythmia, and above
+ *                         fetal rates, so the ceiling is never in the way
+ *   systolic 1–400        severe hypertensive crisis sits near 250
+ *   diastolic 1–300       always below the systolic ceiling
+ *   resp rate 1–200       far above any human respiratory rate
+ *   SpO2 0–100            a percentage; anything else is arithmetically wrong
+ *
+ * The same bounds are CHECK constraints on the table. This copy exists so the
+ * caller gets our own error code instead of a Postgres constraint-violation
+ * message, which is not UI copy and was never designed to be read by anyone.
+ * The constraint is the boundary; this is the manners.
+ */
+create or replace function public.assert_vital_ranges(p_patch jsonb)
+returns void
+language plpgsql
+immutable
+as $$
+declare
+  v_key   text;
+  v_value numeric;
+  v_bound record;
+begin
+  for v_bound in
+    select * from (values
+      ('vitalHeightCm',      0::numeric, 300::numeric, false),
+      ('vitalWeightKg',      0,          700,          false),
+      ('vitalTemperatureC',  10,         50,           true),
+      ('vitalPulseBpm',      0,          400,          false),
+      ('vitalSystolic',      0,          400,          false),
+      ('vitalDiastolic',     0,          300,          false),
+      ('vitalRespRate',      0,          200,          false),
+      ('vitalSpo2',          0,          100,          true)
+    ) as t(key, lo, hi, lo_inclusive)
+  loop
+    v_key := v_bound.key;
+
+    -- Absent means untouched and null means cleared; neither is a value to
+    -- range-check. Clearing a vital must never be blocked by its bounds.
+    if p_patch ? v_key and jsonb_typeof(p_patch -> v_key) = 'number' then
+      v_value := (p_patch ->> v_key)::numeric;
+      if v_value > v_bound.hi
+         or (v_bound.lo_inclusive and v_value < v_bound.lo)
+         or (not v_bound.lo_inclusive and v_value <= v_bound.lo) then
+        raise exception 'VITAL_OUT_OF_RANGE' using errcode = '22023';
+      end if;
+    end if;
+  end loop;
+end;
+$$;
+
 -- Pure helpers, called only from the DEFINER functions below.
+revoke all on function public.assert_vital_ranges(jsonb)          from public, anon, authenticated;
 revoke all on function public.assert_patch_shape(jsonb, text[]) from public, anon, authenticated;
 revoke all on function public.patch_text(jsonb, text, text)      from public, anon, authenticated;
 revoke all on function public.patch_numeric(jsonb, text, numeric) from public, anon, authenticated;
 revoke all on function public.patch_int(jsonb, text, integer)     from public, anon, authenticated;
+
+/**
+ * The OPERATIONAL trail for one encounter mutation.
+ *
+ * Two trails, and the difference is the whole point (ADR 0010 §10):
+ *
+ *   encounter_events   clinical history. Doctor-only. May name what changed.
+ *   audit_events       operational. Readable by location administrators.
+ *                      IDs, actor, location, action, field NAMES. Nothing else.
+ *
+ * `p_meta` must therefore never carry a complaint, a history, an examination, a
+ * diagnosis label or note, an investigation name or note, a vital VALUE, or a
+ * patient's name or phone number. Callers pass field names and identifiers;
+ * this function does not sanitise, so the rule lives at every call site and is
+ * asserted by the verification suite.
+ *
+ * Written in the SAME transaction as the change. If it cannot be stored, the
+ * clinical mutation does not happen either — ADR 0007's fail-closed rule, which
+ * is why this is not `emitAudit`.
+ */
+create or replace function public.log_encounter_audit(
+  p_encounter_id         uuid,
+  p_practice_location_id uuid,
+  p_action               text,
+  p_meta                 jsonb
+)
+returns void
+language sql
+volatile
+security definer
+set search_path = public, pg_temp
+as $$
+  insert into public.audit_events (
+    practice_location_id, actor_id, action, resource_type, resource_id, meta
+  ) values (
+    p_practice_location_id, auth.uid(), p_action, 'encounter', p_encounter_id,
+    coalesce(p_meta, '{}'::jsonb)
+  );
+$$;
+
+revoke all on function public.log_encounter_audit(uuid, uuid, text, jsonb)
+  from public, anon, authenticated;
 
 /**
  * May the caller act clinically on this patient, here, right now?
@@ -318,13 +425,9 @@ begin
           jsonb_build_object('appointmentLinked', p_appointment_id is not null),
           auth.uid());
 
-  -- Operational trail: ids and field names only, never clinical values.
-  insert into public.audit_events (
-    practice_location_id, actor_id, action, resource_type, resource_id, meta
-  ) values (
-    p_practice_location_id, auth.uid(), 'encounter.created', 'encounter', v_id,
-    jsonb_build_object('appointmentLinked', p_appointment_id is not null)
-  );
+  perform public.log_encounter_audit(
+    v_id, p_practice_location_id, 'encounter.created',
+    jsonb_build_object('appointmentLinked', p_appointment_id is not null));
 
   return v_id;
 end;
@@ -372,6 +475,7 @@ begin
     'examination', 'assessment', 'advice',
     'vitalHeightCm', 'vitalWeightKg', 'vitalTemperatureC', 'vitalPulseBpm',
     'vitalSystolic', 'vitalDiastolic', 'vitalRespRate', 'vitalSpo2']);
+  perform public.assert_vital_ranges(p_patch);
 
   perform public.encounter_for_update(p_encounter_id, p_practice_location_id, p_expected_version);
 
@@ -411,6 +515,11 @@ begin
   values (p_encounter_id, 'SECTIONS_UPDATED',
           jsonb_build_object('fields', to_jsonb(v_fields), 'version', v_next),
           auth.uid());
+
+  -- Field names and the version. No text, no vital VALUES.
+  perform public.log_encounter_audit(
+    p_encounter_id, p_practice_location_id, 'encounter.sections_updated',
+    jsonb_build_object('fields', to_jsonb(v_fields), 'version', v_next));
 
   return v_next;
 end;
@@ -466,6 +575,12 @@ begin
           jsonb_build_object('diagnosisId', v_id, 'label', btrim(p_label),
                              'position', v_pos, 'version', v_next),
           auth.uid());
+
+  -- The label stays in the clinical history above. THAT a diagnosis was added
+  -- is operational; WHICH ONE is clinical.
+  perform public.log_encounter_audit(
+    p_encounter_id, p_practice_location_id, 'encounter.diagnosis_added',
+    jsonb_build_object('diagnosisId', v_id, 'version', v_next));
 
   return v_id;
 end;
@@ -561,6 +676,11 @@ begin
                              'fields', to_jsonb(v_fields), 'version', v_next),
           auth.uid());
 
+  perform public.log_encounter_audit(
+    p_encounter_id, p_practice_location_id, 'encounter.diagnosis_updated',
+    jsonb_build_object('diagnosisId', p_diagnosis_id,
+                       'fields', to_jsonb(v_fields), 'version', v_next));
+
   return v_next;
 end;
 $$;
@@ -610,6 +730,10 @@ begin
           jsonb_build_object('diagnosisId', p_diagnosis_id, 'label', v_removed.label,
                              'version', v_next),
           auth.uid());
+
+  perform public.log_encounter_audit(
+    p_encounter_id, p_practice_location_id, 'encounter.diagnosis_removed',
+    jsonb_build_object('diagnosisId', p_diagnosis_id, 'version', v_next));
 
   return v_next;
 end;
@@ -662,6 +786,10 @@ begin
           jsonb_build_object('investigationId', v_id, 'name', btrim(p_name),
                              'position', v_pos, 'version', v_next),
           auth.uid());
+
+  perform public.log_encounter_audit(
+    p_encounter_id, p_practice_location_id, 'encounter.investigation_added',
+    jsonb_build_object('investigationId', v_id, 'version', v_next));
 
   return v_id;
 end;
@@ -728,6 +856,11 @@ begin
                              'fields', to_jsonb(v_fields), 'version', v_next),
           auth.uid());
 
+  perform public.log_encounter_audit(
+    p_encounter_id, p_practice_location_id, 'encounter.investigation_updated',
+    jsonb_build_object('investigationId', p_investigation_id,
+                       'fields', to_jsonb(v_fields), 'version', v_next));
+
   return v_next;
 end;
 $$;
@@ -775,6 +908,10 @@ begin
           jsonb_build_object('investigationId', p_investigation_id, 'name', v_removed.name,
                              'version', v_next),
           auth.uid());
+
+  perform public.log_encounter_audit(
+    p_encounter_id, p_practice_location_id, 'encounter.investigation_removed',
+    jsonb_build_object('investigationId', p_investigation_id, 'version', v_next));
 
   return v_next;
 end;
@@ -829,12 +966,9 @@ begin
             ::public.encounter_event_type,
           '{}'::jsonb, auth.uid());
 
-  insert into public.audit_events (
-    practice_location_id, actor_id, action, resource_type, resource_id, meta
-  ) values (
-    p_practice_location_id, auth.uid(), 'encounter.closed', 'encounter', p_encounter_id,
-    jsonb_build_object('status', p_status)
-  );
+  perform public.log_encounter_audit(
+    p_encounter_id, p_practice_location_id, 'encounter.closed',
+    jsonb_build_object('status', p_status));
 
   return p_status;
 end;

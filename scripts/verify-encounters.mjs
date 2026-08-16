@@ -633,6 +633,82 @@ try {
       }
 
       /**
+       * TECHNICAL bounds, not normal ranges. Every value a real patient can
+       * produce must be accepted; only impossible ones are refused.
+       */
+      const accepted = [
+        ["a severe tachycardia is a real reading", { vitalPulseBpm: 220 }],
+        ["so is a saturation of 60", { vitalSpo2: 60 }],
+        ["so is a fever of 42", { vitalTemperatureC: 42 }],
+        ["so is a hypertensive crisis", { vitalSystolic: 250, vitalDiastolic: 140 }],
+        ["a newborn's weight", { vitalWeightKg: 2.5 }],
+        ["SpO2 at exactly 0", { vitalSpo2: 0 }],
+        ["SpO2 at exactly 100", { vitalSpo2: 100 }],
+        ["height at exactly 300", { vitalHeightCm: 300 }],
+      ];
+      for (const [label, patch] of accepted) {
+        const v = await patchVersion();
+        let ok = true;
+        try {
+          await tx.savepoint(
+            (t) => t`select public.save_encounter_sections(${apptEncounter}, ${hospital.id},
+                       ${v}, ${patch})`,
+          );
+        } catch (e) {
+          ok = false;
+          check(false, label, e.message);
+        }
+        if (ok) check(true, label);
+      }
+
+      const refused = [
+        ["SpO2 of 900 is impossible", { vitalSpo2: 900 }],
+        ["a negative pulse is impossible", { vitalPulseBpm: -70 }],
+        ["a negative weight is impossible", { vitalWeightKg: -60 }],
+        ["a zero pulse is not a measurement", { vitalPulseBpm: 0 }],
+        ["a height of 3000 is a unit error", { vitalHeightCm: 3000 }],
+        ["a Fahrenheit temperature in the Celsius field", { vitalTemperatureC: 98.6 }],
+        ["a diastolic of 5000 is impossible", { vitalDiastolic: 5000 }],
+        ["a respiratory rate of 900 is impossible", { vitalRespRate: 900 }],
+        ["a weight of 5000 kg is impossible", { vitalWeightKg: 5000 }],
+      ];
+      for (const [label, patch] of refused) {
+        const v = await patchVersion();
+        const denied = await expectDenied(tx, async (t) => {
+          await t`select public.save_encounter_sections(${apptEncounter}, ${hospital.id}, ${v},
+                    ${patch})`;
+        });
+        check(denied, label);
+      }
+
+      // Our own code, not a Postgres constraint string — the UI must never be
+      // handed a message written for a database administrator.
+      let rangeMessage = "";
+      try {
+        const v = await patchVersion();
+        await tx.savepoint(
+          (t) => t`select public.save_encounter_sections(${apptEncounter}, ${hospital.id}, ${v},
+                     ${{ vitalSpo2: 900 }})`,
+        );
+      } catch (e) {
+        rangeMessage = e.message;
+      }
+      check(
+        rangeMessage.includes("VITAL_OUT_OF_RANGE") &&
+          !/violates check constraint|encounters_spo2_range/.test(rangeMessage),
+        "…rejected with our own code, not a constraint violation",
+        rangeMessage,
+      );
+
+      // Clearing is not a value, so bounds must never stand in the way of
+      // removing a wrong reading.
+      await savePatch({ vitalPulseBpm: 220 }, await patchVersion());
+      await savePatch({ vitalPulseBpm: null }, await patchVersion());
+      const [clearedVital] = await tx`
+        select vital_pulse_bpm from public.encounters where id = ${apptEncounter}`;
+      check(clearedVital.vital_pulse_bpm === null, "an out-of-the-ordinary vital can still be cleared");
+
+      /**
        * The clinical event names the fields; the operational log never sees
        * them at all. Clinical text in an admin-readable audit row is the exact
        * leak the two-trail split exists to prevent.
@@ -885,6 +961,196 @@ try {
       });
     }
 
+    /**
+     * The operational contract ADR 0010 §10 now states: ONE audit row per
+     * successful mutation, carrying ids, field names and the version — and
+     * nothing a receptionist or location administrator must not read.
+     */
+    console.log("\nEvery successful mutation writes exactly one operational audit row");
+    const auditCount = async () => {
+      const [r] = await tx`
+        select count(*)::int as n from public.audit_events
+        where resource_id = ${apptEncounter}`;
+      return r.n;
+    };
+    /**
+     * Identify the new row by id, not by timestamp. `occurred_at` defaults to
+     * now(), which is TRANSACTION start — every row written inside this test
+     * shares one timestamp and "order by occurred_at desc" returns an arbitrary
+     * one. Real calls are separate transactions; the test is not.
+     */
+    const auditIds = async () => {
+      const rows = await tx`
+        select id from public.audit_events where resource_id = ${apptEncounter}`;
+      return rows.map((r) => r.id);
+    };
+    const encVersion = async () => {
+      const [{ v }] = await tx`select version as v from public.encounters where id = ${apptEncounter}`;
+      return v;
+    };
+
+    await as(tx, uidA, async () => {
+      const mutations = [
+        ["encounter.sections_updated", async (v) =>
+          tx`select public.save_encounter_sections(${apptEncounter}, ${hospital.id}, ${v},
+               ${{ examination: "Chest clear" }})`],
+        ["encounter.diagnosis_added", async (v) =>
+          tx`select public.add_encounter_diagnosis(${apptEncounter}, ${hospital.id}, ${v},
+               'Audit trial diagnosis', 'PROVISIONAL'::public.diagnosis_certainty, 'a private note')`],
+        ["encounter.diagnosis_updated", async (v) => {
+          const [d] = await tx`
+            select id from public.encounter_diagnoses where encounter_id = ${apptEncounter}
+            order by position desc limit 1`;
+          await tx`select public.update_encounter_diagnosis(${apptEncounter}, ${hospital.id}, ${v},
+                     ${d.id}, ${{ label: "Audit trial revised" }})`;
+        }],
+        ["encounter.diagnosis_removed", async (v) => {
+          const [d] = await tx`
+            select id from public.encounter_diagnoses where encounter_id = ${apptEncounter}
+            order by position desc limit 1`;
+          await tx`select public.remove_encounter_diagnosis(${apptEncounter}, ${hospital.id}, ${v},
+                     ${d.id})`;
+        }],
+        ["encounter.investigation_added", async (v) =>
+          tx`select public.add_encounter_investigation(${apptEncounter}, ${hospital.id}, ${v},
+               'Audit trial test', 'a private note')`],
+        ["encounter.investigation_updated", async (v) => {
+          const [i] = await tx`
+            select id from public.encounter_investigations where encounter_id = ${apptEncounter}
+            order by position desc limit 1`;
+          await tx`select public.update_encounter_investigation(${apptEncounter}, ${hospital.id},
+                     ${v}, ${i.id}, ${{ note: null }})`;
+        }],
+        ["encounter.investigation_removed", async (v) => {
+          const [i] = await tx`
+            select id from public.encounter_investigations where encounter_id = ${apptEncounter}
+            order by position desc limit 1`;
+          await tx`select public.remove_encounter_investigation(${apptEncounter}, ${hospital.id},
+                     ${v}, ${i.id})`;
+        }],
+      ];
+
+      for (const [action, run] of mutations) {
+        const before = await auditIds();
+        await run(await encVersion());
+        const fresh = await tx`
+          select action, meta, practice_location_id, actor_id, resource_type
+          from public.audit_events
+          where resource_id = ${apptEncounter} and not (id = any(${before}))`;
+        check(
+          fresh.length === 1 && fresh[0].action === action,
+          `${action} writes exactly one row`,
+          `${fresh.length} row(s): ${fresh.map((r) => r.action).join(", ")}`,
+        );
+        const row = fresh[0] ?? {};
+        check(
+          row.practice_location_id === hospital.id &&
+            row.actor_id === uidA &&
+            row.resource_type === "encounter" &&
+            typeof row.meta?.version === "number",
+          `…carrying location, actor and version (${action})`,
+        );
+      }
+
+      /**
+       * The whole reason the two trails are separate. Every clinical string
+       * supplied above, checked against every audit row for this encounter.
+       */
+      const all = await tx`
+        select action, meta::text as meta from public.audit_events
+        where resource_id = ${apptEncounter}`;
+      const leaked = all.filter((r) =>
+        /Audit trial|private note|Chest clear|Fever|Dengue|Anaemia|CBC|NS1|Rahim|Hossain|220|250/i.test(
+          r.meta,
+        ),
+      );
+      check(
+        leaked.length === 0,
+        "no clinical string or vital value appears in any audit row",
+        leaked.map((r) => `${r.action}:${r.meta}`).join(" | "),
+      );
+
+      const allMeta = all.map((r) => JSON.parse(r.meta));
+      check(
+        allMeta.every((m) =>
+          Object.keys(m).every((k) =>
+            ["fields", "version", "diagnosisId", "investigationId", "appointmentLinked", "status"]
+              .includes(k),
+          ),
+        ),
+        "…and every meta key is one the ADR lists",
+        JSON.stringify([...new Set(allMeta.flatMap((m) => Object.keys(m)))]),
+      );
+
+      // Rejected calls of every kind must leave no operational trace either.
+      const rejected = [
+        ["a stale save", (t) =>
+          t`select public.save_encounter_sections(${apptEncounter}, ${hospital.id}, 1,
+              ${{ advice: "stale" }})`],
+        ["a cross-location save", async (t) => {
+          const v = await encVersion();
+          await t`select public.save_encounter_sections(${apptEncounter}, ${chamber.id}, ${v},
+                    ${{ advice: "wrong place" }})`;
+        }],
+        ["an out-of-range vital", async (t) => {
+          const v = await encVersion();
+          await t`select public.save_encounter_sections(${apptEncounter}, ${hospital.id}, ${v},
+                    ${{ vitalSpo2: 900 }})`;
+        }],
+        ["an unknown child id", async (t) => {
+          const v = await encVersion();
+          await t`select public.update_encounter_diagnosis(${apptEncounter}, ${hospital.id}, ${v},
+                    ${crypto.randomUUID()}, ${{ label: "ghost" }})`;
+        }],
+      ];
+      for (const [label, fn] of rejected) {
+        const before = await auditCount();
+        check(await expectDenied(tx, fn), `${label} is rejected`);
+        check((await auditCount()) === before, `…and writes no audit row (${label})`);
+      }
+    });
+
+    await as(tx, uidB, async () => {
+      const before = await auditCount();
+      const denied = await expectDenied(tx, async (t) => {
+        await t`select public.save_encounter_sections(${apptEncounter}, ${hospital.id}, 1,
+                  ${{ advice: "not mine" }})`;
+      });
+      check(denied, "an unauthorised save is rejected");
+      check((await auditCount()) === before, "…and writes no audit row");
+    });
+
+    /**
+     * The operational trail is REQUIRED, not best-effort (ADR 0010 §10). If it
+     * cannot be stored, the clinical change must not happen either — otherwise
+     * the record and its trail can disagree, which is worse than either alone.
+     */
+    console.log("\nA failed operational audit rolls the clinical change back");
+    const [beforeAudit] = await tx`
+      select version, advice from public.encounters where id = ${apptEncounter}`;
+
+    await tx`alter table public.audit_events
+             add constraint qa_block_encounter_audit
+             check (action <> 'encounter.sections_updated') not valid`;
+
+    await as(tx, uidA, async () => {
+      const rolled = await expectDenied(tx, async (t) => {
+        await t`select public.save_encounter_sections(${apptEncounter}, ${hospital.id},
+                  ${beforeAudit.version}, ${{ advice: "should not survive" }})`;
+      });
+      check(rolled, "a failing audit write aborts the clinical change");
+    });
+
+    await tx`alter table public.audit_events drop constraint qa_block_encounter_audit`;
+
+    const [afterAudit] = await tx`
+      select version, advice from public.encounters where id = ${apptEncounter}`;
+    check(
+      afterAudit.version === beforeAudit.version && afterAudit.advice === beforeAudit.advice,
+      "…and neither the text nor the version advanced",
+      `v${beforeAudit.version} -> v${afterAudit.version}`,
+    );
+
     // ---- 13. history failure rolls back the clinical change ----------------
     console.log("\nClinical change and its history are atomic");
     const [beforeAtomic] = await tx`
@@ -973,6 +1239,35 @@ try {
      * nothing about the constraint. The point here is that RESTRICT itself
      * stops the row going, even for a caller with full privilege.
      */
+    /**
+     * The RPC's range check is manners; the constraint is the boundary. Run as
+     * the OWNER, with the RPC entirely out of the picture — this is what holds
+     * if anything ever reaches the table another way.
+     */
+    console.log("\nVital ranges hold at the table, not just in the RPC");
+    for (const [label, column, value] of [
+      ["SpO2 of 900", "vital_spo2", 900],
+      ["a negative pulse", "vital_pulse_bpm", -70],
+      ["a negative weight", "vital_weight_kg", -60],
+      ["a height of 3000", "vital_height_cm", 3000],
+      ["a respiratory rate of 900", "vital_resp_rate", 900],
+      ["a diastolic of 900", "vital_diastolic", 900],
+      ["a systolic of 900", "vital_systolic", 900],
+      ["a temperature of 98.6", "vital_temperature_c", 98.6],
+    ]) {
+      const denied = await expectDenied(tx, async (t) => {
+        await t.unsafe(
+          `update public.encounters set ${column} = ${value} where id = '${apptEncounter}'`,
+        );
+      });
+      check(denied, `${label} is refused by the database itself`);
+    }
+
+    const stillClearable = await expectDenied(tx, async (t) => {
+      await t`update public.encounters set vital_spo2 = null where id = ${apptEncounter}`;
+    });
+    check(!stillClearable, "…while null passes every constraint");
+
     console.log("\nClinical history outlives the rows it references");
     for (const [label, fn] of [
       ["a patient with an encounter cannot be deleted", (t) =>
