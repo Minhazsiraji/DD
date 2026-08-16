@@ -56,7 +56,37 @@ doctor's patient, which ADR 0001 forbids outright.
   at that location fails; the created row is owned by the doctor and not by the
   receptionist.
 
+## Duplicate protection, and the cost we accepted
+
+Reception's duplicate check searches ONLY patients the caller can already see.
+
+An earlier version searched the doctor's whole repository and returned a count
+of matches reception was not allowed to see. That removed the identity but kept
+the EXISTENCE — and because the RPC is granted to every front-desk user, it
+could be probed with names and phone numbers to learn whether a doctor has a
+matching private patient. Withholding it in the UI closes nothing.
+
+Privacy wins. The check now behaves identically whether or not a chamber-only
+match exists, which means reception CAN create a duplicate of a patient the
+doctor only sees privately. That is a real cost, taken deliberately: a duplicate
+is repairable by the doctor later; a disclosure is not.
+
+Two supporting controls, because neither can live in the client:
+
+- the normalised name and phone are DERIVED in the database from the raw values.
+  While they were parameters, an honest name could be paired with a dishonest
+  search key and walk straight past the guard.
+- registration takes transaction-scoped advisory locks on (doctor, name) and
+  (doctor, phone) before checking. "Check and insert in one transaction" does
+  not serialise two transactions — both can read no-candidate and both insert.
+
 ## Not decided here
 
 Whether a doctor can later reassign a patient to another doctor. Today they
 cannot, and nothing in this decision creates that path.
+
+**REQUIRED LATER — doctor-only duplicate review and merge.** The privacy
+decision above guarantees that duplicates will occasionally be created against
+chamber-only records. Only the owning doctor can see both sides, so only they
+can resolve it. This is a known, scheduled debt, not an oversight; it must not
+be bolted onto a later stage opportunistically.

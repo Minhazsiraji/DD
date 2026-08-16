@@ -776,6 +776,123 @@ export const appointmentEvents = pgTable(
   ],
 );
 
+// ---------------------------------------------------------------------------
+// Live queue (Stage 5)
+// ---------------------------------------------------------------------------
+
+/**
+ * Why someone was moved up the queue.
+ *
+ * Required whenever priority is set. A queue that lets people jump without
+ * recording why is a queue that will eventually be accused of selling the
+ * privilege — and the assistant who did it will have no way to show otherwise.
+ */
+export const priorityReason = pgEnum("priority_reason", [
+  "EMERGENCY",
+  "ELDERLY",
+  "CHILD",
+  "PREGNANT",
+  "DISABILITY",
+  "UNWELL_WAITING",
+  "DOCTOR_INSTRUCTION",
+  "STAFF_OR_FAMILY",
+  "OTHER",
+]);
+
+/**
+ * The extra facts a queue needs that an appointment does not carry.
+ *
+ * Deliberately NOT a second lifecycle (ADR 0009). There is no status column
+ * here: whether a patient is waiting, with the doctor or finished is answered by
+ * `appointments.status` and nothing else, so the two can never disagree.
+ *
+ * Rows are created lazily — the first time someone is called, skipped or
+ * prioritised — so arriving stays a single write.
+ */
+export const queueEntries = pgTable(
+  "queue_entries",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    /** One row per appointment. RESTRICT: the queue history outlives the day. */
+    appointmentId: uuid("appointment_id")
+      .notNull()
+      .references(() => appointments.id, { onDelete: "restrict" }),
+    /** Denormalised for the queue's hot query; never used for authorisation. */
+    practiceLocationId: uuid("practice_location_id")
+      .notNull()
+      .references(() => practiceLocations.id, { onDelete: "restrict" }),
+    sessionDate: date("session_date").notNull(),
+
+    /**
+     * An announcement, not a state change. A patient can be called three times
+     * and still be outside — which is exactly why call_count exists separately
+     * from anything in the appointment.
+     */
+    calledAt: timestamp("called_at", { withTimezone: true }),
+    callCount: integer("call_count").notNull().default(0),
+
+    /**
+     * They did not answer. Still ARRIVED and still owed a consultation — they
+     * have simply left the front of the line until someone recalls them.
+     */
+    skippedAt: timestamp("skipped_at", { withTimezone: true }),
+    skipCount: integer("skip_count").notNull().default(0),
+
+    /** Higher goes first. 0 is the ordinary queue. */
+    priority: integer("priority").notNull().default(0),
+    priorityReason: priorityReason("priority_reason"),
+    priorityNote: text("priority_note"),
+    prioritySetBy: uuid("priority_set_by").references(() => profiles.id, {
+      onDelete: "set null",
+    }),
+
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("queue_entries_appointment_key").on(t.appointmentId),
+    index("queue_entries_session_idx").on(t.practiceLocationId, t.sessionDate),
+  ],
+);
+
+/**
+ * Append-only record of queue actions.
+ *
+ * Separate from appointment_events because these are not lifecycle changes:
+ * "called serial 12 for the third time" says nothing about whether the patient
+ * has been seen. Mixing them would make the appointment's history unreadable.
+ */
+export const queueEventType = pgEnum("queue_event_type", [
+  "CALLED",
+  "SKIPPED",
+  "RECALLED",
+  "PRIORITY_SET",
+  "PRIORITY_CLEARED",
+]);
+
+export const queueEvents = pgTable(
+  "queue_events",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    appointmentId: uuid("appointment_id")
+      .notNull()
+      .references(() => appointments.id, { onDelete: "restrict" }),
+    practiceLocationId: uuid("practice_location_id")
+      .notNull()
+      .references(() => practiceLocations.id, { onDelete: "restrict" }),
+    eventType: queueEventType("event_type").notNull(),
+    reason: priorityReason("reason"),
+    note: text("note"),
+    actorId: uuid("actor_id").references(() => profiles.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .default(sql`clock_timestamp()`),
+    /** Authoritative order — see the appointment_events comment for why. */
+    seq: bigserial("seq", { mode: "number" }).notNull(),
+  },
+  (t) => [index("queue_events_appointment_idx").on(t.appointmentId, t.seq)],
+);
+
 export type Profile = typeof profiles.$inferSelect;
 export type DoctorProfile = typeof doctorProfiles.$inferSelect;
 export type PracticeLocation = typeof practiceLocations.$inferSelect;
@@ -792,5 +909,7 @@ export type PrescriptionTemplate = typeof prescriptionTemplates.$inferSelect;
 export type Appointment = typeof appointments.$inferSelect;
 export type AppointmentEvent = typeof appointmentEvents.$inferSelect;
 export type AppointmentTokenCounter = typeof appointmentTokenCounters.$inferSelect;
+export type QueueEntry = typeof queueEntries.$inferSelect;
+export type QueueEvent = typeof queueEvents.$inferSelect;
 
 
