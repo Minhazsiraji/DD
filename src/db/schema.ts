@@ -893,6 +893,197 @@ export const queueEvents = pgTable(
   (t) => [index("queue_events_appointment_idx").on(t.appointmentId, t.seq)],
 );
 
+// ---------------------------------------------------------------------------
+// Encounters (Stage 6) — the clinical record
+// ---------------------------------------------------------------------------
+
+/**
+ * DRAFT is the only state in which clinical content may change.
+ *
+ * Deliberately small (ADR 0010). Immutable snapshots, amendment-with-reason and
+ * reopening belong to Stage 9, where prescriptions make them meaningful —
+ * inventing those states now would leave transitions nothing can reach.
+ */
+export const encounterStatus = pgEnum("encounter_status", [
+  "DRAFT",
+  "COMPLETED",
+  "CANCELLED",
+]);
+
+/** A working diagnosis is not a confirmed one, and prescribing differs. */
+export const diagnosisCertainty = pgEnum("diagnosis_certainty", [
+  "PROVISIONAL",
+  "WORKING",
+  "CONFIRMED",
+  "RULED_OUT",
+]);
+
+export const encounterEventType = pgEnum("encounter_event_type", [
+  "CREATED",
+  "SECTIONS_UPDATED",
+  "VITALS_UPDATED",
+  "DIAGNOSIS_ADDED",
+  "DIAGNOSIS_UPDATED",
+  "DIAGNOSIS_REMOVED",
+  "INVESTIGATION_ADDED",
+  "INVESTIGATION_UPDATED",
+  "INVESTIGATION_REMOVED",
+  "COMPLETED",
+  "CANCELLED",
+]);
+
+/**
+ * One consultation episode: one patient, one doctor, one location, one occasion.
+ *
+ * NOT hung off the appointment, for two reasons: a consultation can happen with
+ * no appointment at all, and the appointment row is readable by reception, who
+ * must never see clinical content.
+ */
+export const encounters = pgTable(
+  "encounters",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+
+    /** The ownership boundary (ADR 0001). RESTRICT — history outlives people. */
+    ownerDoctorId: uuid("owner_doctor_id")
+      .notNull()
+      .references(() => doctorProfiles.id, { onDelete: "restrict" }),
+    patientId: uuid("patient_id")
+      .notNull()
+      .references(() => patients.id, { onDelete: "restrict" }),
+    practiceLocationId: uuid("practice_location_id")
+      .notNull()
+      .references(() => practiceLocations.id, { onDelete: "restrict" }),
+
+    /**
+     * Null for an unscheduled walk-in. When present, its doctor, patient and
+     * location must match this encounter's — checked in the write path.
+     */
+    appointmentId: uuid("appointment_id").references(() => appointments.id, {
+      onDelete: "restrict",
+    }),
+
+    status: encounterStatus("status").notNull().default("DRAFT"),
+    startedAt: timestamp("started_at", { withTimezone: true }).notNull().defaultNow(),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+
+    /**
+     * Compare-and-swap guard. Every clinical write must present the version it
+     * read; a stale one is REJECTED rather than merged or overwritten.
+     *
+     * Last-write-wins would silently discard whichever set of notes lost the
+     * race between two open tabs, and nobody would know which.
+     */
+    version: integer("version").notNull().default(1),
+
+    // ---- free-text clinical sections ------------------------------------
+    // Nullable and unordered by design: doctors work differently, and forcing
+    // structure produces either empty fields or lies (ADR 0010).
+    chiefComplaints: text("chief_complaints"),
+    presentIllness: text("present_illness"),
+    pastHistory: text("past_history"),
+    examination: text("examination"),
+    assessment: text("assessment"),
+    advice: text("advice"),
+
+    // ---- vitals, structured because they are numbers ---------------------
+    vitalHeightCm: numeric("vital_height_cm", { precision: 5, scale: 1 }),
+    vitalWeightKg: numeric("vital_weight_kg", { precision: 5, scale: 1 }),
+    vitalTemperatureC: numeric("vital_temperature_c", { precision: 4, scale: 1 }),
+    vitalPulseBpm: integer("vital_pulse_bpm"),
+    vitalSystolic: integer("vital_systolic"),
+    vitalDiastolic: integer("vital_diastolic"),
+    vitalRespRate: integer("vital_resp_rate"),
+    vitalSpo2: integer("vital_spo2"),
+
+    createdBy: uuid("created_by").references(() => profiles.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("encounters_doctor_idx").on(t.ownerDoctorId, t.startedAt),
+    index("encounters_patient_idx").on(t.patientId, t.startedAt),
+    index("encounters_location_idx").on(t.practiceLocationId),
+    index("encounters_appointment_idx").on(t.appointmentId),
+  ],
+);
+
+/**
+ * Diagnoses for an encounter, ordered.
+ *
+ * Their own rows rather than a text blob so they can be reordered, edited
+ * individually, and later attached to a prescription one at a time.
+ */
+export const encounterDiagnoses = pgTable(
+  "encounter_diagnoses",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    encounterId: uuid("encounter_id")
+      .notNull()
+      .references(() => encounters.id, { onDelete: "restrict" }),
+    /** Free text is the primary form for Alpha (ADR 0010). */
+    label: text("label").notNull(),
+    certainty: diagnosisCertainty("certainty").notNull().default("PROVISIONAL"),
+    /**
+     * Stays NULL until a VERIFIED coding source exists. Never populated by an
+     * LLM — the CLAUDE.md rule on generated reference data applies exactly here.
+     */
+    code: text("code"),
+    codeSystem: text("code_system"),
+    note: text("note"),
+    position: integer("position").notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("encounter_diagnoses_encounter_idx").on(t.encounterId, t.position)],
+);
+
+/** Investigations requested during the encounter, ordered. No lab integration. */
+export const encounterInvestigations = pgTable(
+  "encounter_investigations",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    encounterId: uuid("encounter_id")
+      .notNull()
+      .references(() => encounters.id, { onDelete: "restrict" }),
+    name: text("name").notNull(),
+    /** Why it was asked for — clinical reasoning, not a result. */
+    note: text("note"),
+    position: integer("position").notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("encounter_investigations_encounter_idx").on(t.encounterId, t.position)],
+);
+
+/**
+ * CLINICAL change history — append-only, doctor-only.
+ *
+ * Distinct from `audit_events` on purpose (ADR 0010). This may carry clinical
+ * detail because it lives behind the same doctor-only boundary as the encounter.
+ * `audit_events` carries ids and field NAMES only, because roles that must never
+ * see clinical content can read it.
+ */
+export const encounterEvents = pgTable(
+  "encounter_events",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    encounterId: uuid("encounter_id")
+      .notNull()
+      .references(() => encounters.id, { onDelete: "restrict" }),
+    eventType: encounterEventType("event_type").notNull(),
+    /** Which sections changed — names, plus clinical detail where useful. */
+    detail: jsonb("detail").notNull().default({}),
+    actorId: uuid("actor_id").references(() => profiles.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .default(sql`clock_timestamp()`),
+    /** Authoritative order — `now()` is transaction start and can mislead. */
+    seq: bigserial("seq", { mode: "number" }).notNull(),
+  },
+  (t) => [index("encounter_events_encounter_idx").on(t.encounterId, t.seq)],
+);
+
 export type Profile = typeof profiles.$inferSelect;
 export type DoctorProfile = typeof doctorProfiles.$inferSelect;
 export type PracticeLocation = typeof practiceLocations.$inferSelect;
@@ -911,5 +1102,9 @@ export type AppointmentEvent = typeof appointmentEvents.$inferSelect;
 export type AppointmentTokenCounter = typeof appointmentTokenCounters.$inferSelect;
 export type QueueEntry = typeof queueEntries.$inferSelect;
 export type QueueEvent = typeof queueEvents.$inferSelect;
+export type Encounter = typeof encounters.$inferSelect;
+export type EncounterDiagnosis = typeof encounterDiagnoses.$inferSelect;
+export type EncounterInvestigation = typeof encounterInvestigations.$inferSelect;
+export type EncounterEvent = typeof encounterEvents.$inferSelect;
 
 

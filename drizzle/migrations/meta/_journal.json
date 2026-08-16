@@ -64,6 +64,13 @@
       "when": 1786867715410,
       "tag": "0008_early_tinkerer",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1786895522289,
+      "tag": "0009_nosy_frank_castle",
+      "breakpoints": true
     }
   ]
 }

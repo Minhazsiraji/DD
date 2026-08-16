@@ -42,6 +42,15 @@ export type AuditAction =
   | "queue.skipped"
   | "queue.priority_set"
   | "queue.priority_cleared"
+  /**
+   * Encounters. Written INSIDE the RPCs, and carrying ids and field NAMES only
+   * — never clinical values. The CLINICAL change history is a separate
+   * mechanism (encounter_events), readable only by the owning doctor. See
+   * ADR 0010: getting these two backwards is how clinical text leaks into an
+   * admin-readable log.
+   */
+  | "encounter.created"
+  | "encounter.closed"
   | "location.created"
   | "location.updated"
   | "location.switched"

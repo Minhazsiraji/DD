@@ -5,11 +5,15 @@
 AI-enabled clinical + chamber operating system for doctors. One responsive
 Next.js app (desktop, tablet, mobile, installable PWA). No separate native app.
 
-**Current phase: Stage 3 complete + doctor profile / prescription templates.**
+**Current phase: Stage 6A — encounter database foundation, awaiting review.**
 Done: scaffold and design system (1), auth + RBAC + RLS + audit (2), MFA and
-device security (2.5), ADRs (2.6), patients (3) with two hardening rounds, and
-doctor identity + customisable prescription-template settings with an A4
-preview. Next: Stage 4 — appointments. The prescription ENGINE is not built.
+device security (2.5), ADRs (2.6), patients (3) with two hardening rounds,
+doctor identity + prescription templates with an A4 preview, appointments (4),
+the live queue (5), and the Doctor Dashboard P0 pass.
+
+Stage 6A is the encounter DATABASE ONLY — schema, RLS, RPCs, verification.
+**There is no consultation UI, and none is to be built until 6A is approved.**
+The prescription ENGINE is not built.
 
 Detailed architecture: `docs/architecture.md` (do not load unless needed).
 
@@ -232,6 +236,9 @@ squeeze — and it hides the bottom nav.
     npm run db:verify      # assert RLS/grants/helpers are intact — run after ANY policy change
     npm run db:verify:patients   # two doctors + staff, executed, rolled back
     npm run db:verify:templates  # template + signature-storage isolation, same shape
+    npm run db:verify:appointments
+    npm run db:verify:queue
+    npm run db:verify:encounters # clinical boundary, version CAS, one-draft race
 
 - **Two connection strings.** `DIRECT_URL` (session pooler, **5432**) for
   migrations and scripts; `DATABASE_URL` (transaction pooler, 6543) for app
