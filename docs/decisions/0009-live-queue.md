@@ -59,9 +59,29 @@ queue that lets people jump without recording why is a queue that will be
 accused of taking money to do it. The reason is required by the database, not
 by the form.
 
-**Skipping and calling are audited but never fail closed.** They are
-operational, not clinical (ADR 0007): losing an audit row for "called serial 12"
-must not stop the clinic. Finalising a consultation still fails closed.
+**Queue actions are operational only while the patient is ARRIVED.** Once the
+consultation starts they remain visible in the queue as the current patient, but
+calling, skipping and reprioritising are rejected at the database boundary.
+Skipping someone who is sitting in the room would show them as passed over while
+they are being seen. Visible and mutable are different things, and the check
+belongs in the RPC — every front-desk user can call it directly, so a hidden
+button controls nothing.
+
+**A queue mutation and its event are ATOMIC.** They share one transaction: if
+the event cannot be written, the mutation rolls back with it.
+
+An earlier draft of this ADR said these were "audited but never fail closed", by
+analogy with ADR 0007's treatment of viewing a record. That was wrong, and the
+implementation never matched it. The analogy does not hold: a view leaves no
+state behind, whereas a call or a skip CHANGES the queue, and `queue_entries`
+disagreeing with `queue_events` is precisely the row-versus-history split that
+cost the most to fix in Stage 4.
+
+The operational objection — "don't stop the clinic for a log row" — is already
+answered without weakening this: if the software is unavailable, the assistant
+calls the patient's name out loud. Nothing about the queue requires the database
+to be reachable in order for a clinic to keep running. Finalising a consultation
+still fails closed for its own, stronger reasons (ADR 0007).
 
 ## Consequences
 

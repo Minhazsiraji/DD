@@ -40,7 +40,24 @@ begin
     raise exception 'appointment not found' using errcode = '42501';
   end if;
 
-  if v_appt.status not in ('ARRIVED', 'IN_CONSULTATION') then
+  /**
+   * Queue actions require ARRIVED.
+   *
+   * Once the consultation starts the patient is no longer IN the queue — they
+   * are the reason it is moving. Calling, skipping or reprioritising someone
+   * already with the doctor is meaningless at best and, in the case of skip,
+   * actively wrong: it would show a patient as passed over while they are
+   * sitting in the room.
+   *
+   * They stay VISIBLE in get_queue() as the current patient. Visible and
+   * mutable are different things, and the boundary belongs here rather than in
+   * a hidden button — the RPC is granted to every front-desk user.
+   */
+  if v_appt.status = 'IN_CONSULTATION' then
+    raise exception 'that patient is already with the doctor' using errcode = '22023';
+  end if;
+
+  if v_appt.status <> 'ARRIVED' then
     raise exception 'that patient is not in the queue' using errcode = '22023';
   end if;
 

@@ -281,6 +281,118 @@ try {
       check(after.n === 1, "…but the record of why they jumped survives");
     });
 
+    /**
+     * A queue mutation and its event are ATOMIC (ADR 0009).
+     *
+     * Forced by making the event insert fail. If the entry could advance while
+     * its event did not, queue_entries and queue_events would disagree — the
+     * same row-versus-history split that cost the most to fix in Stage 4.
+     *
+     * Runs on made[0], which is ARRIVED and already has a queue row from the
+     * calling tests; a terminal appointment would be rejected earlier and the
+     * test would pass for the wrong reason.
+     */
+    console.log("\nMutation and event are atomic");
+    {
+      const [was] = await tx`
+        select call_count from public.queue_entries where appointment_id = ${made[0]}`;
+      const priorCount = was.call_count;
+      const [eventsWas] = await tx`
+        select count(*)::int as n from public.queue_events where appointment_id = ${made[0]}`;
+
+      // NOT VALID: earlier CALLED events already exist, and a validating
+      // constraint would fail on them instead of on the write under test.
+      await tx`alter table public.queue_events
+               add constraint qa_block_calls check (event_type <> 'CALLED') not valid`;
+
+      const rolled = await as(tx, uidR, async () =>
+        expectDenied(tx, async (t) => {
+          await t`select public.call_patient(${made[0]}, null)`;
+        }),
+      );
+      check(rolled, "a failing queue-event write aborts the call");
+
+      await tx`alter table public.queue_events drop constraint qa_block_calls`;
+
+      const [now] = await tx`
+        select call_count from public.queue_entries where appointment_id = ${made[0]}`;
+      const [eventsNow] = await tx`
+        select count(*)::int as n from public.queue_events where appointment_id = ${made[0]}`;
+      check(
+        now.call_count === priorCount,
+        "…and the call count did NOT advance",
+        `${priorCount} -> ${now.call_count}`,
+      );
+      check(eventsNow.n === eventsWas.n, "…and no event survived either");
+    }
+
+    /**
+     * A patient with the doctor is VISIBLE in the queue but not MUTABLE.
+     *
+     * Skipping someone sitting in the room would show them as passed over while
+     * they are being seen. The boundary has to be in the RPC: every front-desk
+     * user can call it directly, so hiding the button controls nothing.
+     */
+    console.log("\nQueue actions require ARRIVED");
+    {
+      // Give made[1] a queue row first, so "nothing changed" has something to
+      // measure — then move them into the consultation.
+      await as(tx, uidR, async () => {
+        await tx`select public.call_patient(${made[1]}, null)`;
+      });
+      await as(tx, uidA, async () => {
+        await tx`select public.set_appointment_status(${made[1]},
+                   'IN_CONSULTATION'::public.appointment_status, null, null)`;
+      });
+
+      const [before] = await tx`
+        select call_count, skip_count, priority, priority_reason, skipped_at
+        from public.queue_entries where appointment_id = ${made[1]}`;
+      const [eventsBefore] = await tx`
+        select count(*)::int as n from public.queue_events where appointment_id = ${made[1]}`;
+
+      await as(tx, uidR, async () => {
+        const attempts = [
+          ["call_patient rejects a patient with the doctor", async (t) =>
+            t`select public.call_patient(${made[1]}, null)`],
+          ["skip_patient rejects a patient with the doctor", async (t) =>
+            t`select public.skip_patient(${made[1]}, null)`],
+          ["set_queue_priority rejects a patient with the doctor", async (t) =>
+            t`select public.set_queue_priority(${made[1]},
+                'EMERGENCY'::public.priority_reason, null)`],
+          ["clear_queue_priority rejects a patient with the doctor", async (t) =>
+            t`select public.clear_queue_priority(${made[1]})`],
+        ];
+        for (const [label, fn] of attempts) check(await expectDenied(tx, fn), label);
+      });
+
+      const [after] = await tx`
+        select call_count, skip_count, priority, priority_reason, skipped_at
+        from public.queue_entries where appointment_id = ${made[1]}`;
+      const [eventsAfter] = await tx`
+        select count(*)::int as n from public.queue_events where appointment_id = ${made[1]}`;
+
+      check(
+        JSON.stringify(before) === JSON.stringify(after),
+        "…and none of them changed the queue row",
+        JSON.stringify(after),
+      );
+      check(
+        eventsBefore.n === eventsAfter.n,
+        "…nor wrote a queue event",
+        `${eventsBefore.n} -> ${eventsAfter.n}`,
+      );
+
+      await as(tx, uidR, async () => {
+        const q = await tx`select * from public.get_queue(${hospital.id}, ${session}::date)`;
+        const current = q.find((r) => r.appointment_id === made[1]);
+        check(
+          Boolean(current) && current.status === "IN_CONSULTATION",
+          "…while remaining visible as the current patient",
+        );
+      });
+    }
+
     // ---- the queue follows the appointment, never the other way -----------
     console.log("\nThe queue is a projection");
     await as(tx, uidA, async () => {
