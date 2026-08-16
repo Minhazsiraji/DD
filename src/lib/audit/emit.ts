@@ -31,6 +31,11 @@ export type AuditAction =
   | "prescription_template.updated"
   | "prescription_template.deleted"
   | "prescription_template.default_set"
+  // Appointments. The appointment_events table is the operational history;
+  // these rows are the security trail and record WHO acted.
+  | "appointment.created"
+  | "appointment.status_changed"
+  | "appointment.rescheduled"
   | "location.created"
   | "location.updated"
   | "location.switched"
@@ -39,6 +44,13 @@ export type AuditAction =
   | "location_member.removed"
   // Patients. `meta` carries counts and field NAMES only — never clinical values.
   | "patient.created"
+  /**
+   * Written INSIDE register_patient_for_doctor(), not through emitAudit — when
+   * a third party registers someone on a doctor's behalf, "who typed it" must
+   * not be lost to a best-effort log. Listed here so the vocabulary stays in
+   * one place.
+   */
+  | "patient.registered_by_reception"
   | "patient.viewed"
   | "patient.updated"
   | "patient.safety_updated"

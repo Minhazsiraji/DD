@@ -99,6 +99,10 @@ grant execute on function public.can_access_patient(uuid) to authenticated;
 -- Gaps are possible if the surrounding insert fails. Gaps are harmless;
 -- duplicates are not.
 -- -----------------------------------------------------------------------------
+-- NOTE: 0009 REDEFINES this to delegate to allocate_patient_number(), so the
+-- race-free UPDATE ... RETURNING lives in one place and reception can allocate
+-- for a doctor after its own checks. The authorisation rule is identical.
+-- Policy files apply in order, so 0009 is the live definition.
 create or replace function public.next_patient_number(target_doctor uuid)
 returns text
 language plpgsql

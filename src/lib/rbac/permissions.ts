@@ -33,6 +33,12 @@ export const RESOURCES = [
   "prescription",
   "investigation_result",
   "document",
+  /**
+   * Appointments are CANCELLED, never deleted — the append-only event history
+   * would otherwise lose its subject, and "this patient was booked and the
+   * booking vanished" is unanswerable. No role holds `delete` here, and there
+   * is deliberately no DELETE policy in Postgres to match.
+   */
   "appointment",
   "queue",
   "payment",
@@ -92,7 +98,7 @@ const MATRIX: Matrix = {
     prescription: R, // print/hand over only
     investigation_result: NONE, // metadata surfaces via document, not the result body
     document: ["read", "create"],
-    appointment: RWD,
+    appointment: RW,
     queue: RW,
     payment: RW,
     audit_log: NONE,
@@ -114,7 +120,7 @@ const MATRIX: Matrix = {
     prescription: R,
     investigation_result: R,
     document: RW,
-    appointment: RWD,
+    appointment: RW,
     queue: RW,
     payment: RWD,
     audit_log: R,

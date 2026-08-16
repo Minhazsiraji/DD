@@ -17,6 +17,7 @@
     "db:verify": "node --env-file=.env.local scripts/verify-security.mjs",
     "db:verify:patients": "node --env-file=.env.local scripts/verify-patients.mjs",
     "db:verify:templates": "node --env-file=.env.local scripts/verify-templates.mjs",
+    "db:verify:appointments": "node --env-file=.env.local scripts/verify-appointments.mjs",
     "qa:create": "node --env-file=.env.local scripts/qa-fixture.mjs create",
     "qa:destroy": "node --env-file=.env.local scripts/qa-fixture.mjs destroy",
     "qa:status": "node --env-file=.env.local scripts/qa-fixture.mjs status"

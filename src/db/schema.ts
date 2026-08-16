@@ -562,6 +562,151 @@ export const patientAlerts = pgTable(
   (t) => [index("patient_alerts_patient_idx").on(t.patientId)],
 );
 
+// ---------------------------------------------------------------------------
+// Appointments (Stage 4)
+// ---------------------------------------------------------------------------
+
+/**
+ * The appointment lifecycle.
+ *
+ * CANCELLED, COMPLETED and NO_SHOW are terminal. Rescheduling does NOT mutate a
+ * row through some "rescheduled" state: the original is cancelled with reason
+ * RESCHEDULED and a new appointment is created pointing back at it, so the
+ * history of when a patient was originally due survives.
+ */
+export const appointmentStatus = pgEnum("appointment_status", [
+  "SCHEDULED",
+  "CONFIRMED",
+  "ARRIVED",
+  "IN_CONSULTATION",
+  "COMPLETED",
+  "CANCELLED",
+  "NO_SHOW",
+]);
+
+export const visitType = pgEnum("visit_type", [
+  "NEW",
+  "FOLLOW_UP",
+  "REPORT_REVIEW",
+  "PROCEDURE",
+  "EMERGENCY",
+]);
+
+/**
+ * Why an appointment did not happen. Recorded because "cancelled" alone cannot
+ * distinguish a patient who chose not to come from a doctor who was called into
+ * surgery, and the follow-up owed to the patient differs completely.
+ */
+export const cancellationReason = pgEnum("cancellation_reason", [
+  "PATIENT_REQUEST",
+  "PATIENT_UNWELL",
+  "DOCTOR_UNAVAILABLE",
+  "RESCHEDULED",
+  "DUPLICATE",
+  "OTHER",
+]);
+
+export const appointmentEventType = pgEnum("appointment_event_type", [
+  "CREATED",
+  "CONFIRMED",
+  "RESCHEDULED",
+  "ARRIVED",
+  "CONSULTATION_STARTED",
+  "COMPLETED",
+  "CANCELLED",
+  "NO_SHOW",
+]);
+
+export const appointments = pgTable(
+  "appointments",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    /** Whose appointment this is. The ownership boundary — see ADR 0001. */
+    ownerDoctorId: uuid("owner_doctor_id")
+      .notNull()
+      .references(() => doctorProfiles.id, { onDelete: "cascade" }),
+    /** Mandatory on every event table. Where this appointment happens. */
+    practiceLocationId: uuid("practice_location_id")
+      .notNull()
+      .references(() => practiceLocations.id, { onDelete: "restrict" }),
+    patientId: uuid("patient_id")
+      .notNull()
+      .references(() => patients.id, { onDelete: "cascade" }),
+
+    scheduledFor: timestamp("scheduled_for", { withTimezone: true }).notNull(),
+    durationMinutes: integer("duration_minutes").notNull().default(15),
+    visitType: visitType("visit_type").notNull().default("NEW"),
+    status: appointmentStatus("status").notNull().default("SCHEDULED"),
+
+    /** Why the patient is coming, in their own words. Not a diagnosis. */
+    reason: text("reason"),
+
+    /**
+     * Stage 5 will build the live queue on top of this. Allocated at check-in
+     * so the number reflects arrival order, not booking order — the field lives
+     * here now so the queue does not require another migration over live data.
+     */
+    tokenNumber: integer("token_number"),
+
+    arrivedAt: timestamp("arrived_at", { withTimezone: true }),
+    consultationStartedAt: timestamp("consultation_started_at", { withTimezone: true }),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+    cancelledAt: timestamp("cancelled_at", { withTimezone: true }),
+
+    cancellationReason: cancellationReason("cancellation_reason"),
+    /** Free text, doctor/reception-visible. Never a clinical finding. */
+    cancellationNote: text("cancellation_note"),
+
+    /** Set on the NEW appointment, pointing at the one it replaced. */
+    rescheduledFromId: uuid("rescheduled_from_id"),
+
+    /** Who booked it — a receptionist is common and must stay distinguishable. */
+    createdBy: uuid("created_by").references(() => profiles.id, {
+      onDelete: "set null",
+    }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("appointments_doctor_date_idx").on(t.ownerDoctorId, t.scheduledFor),
+    index("appointments_location_date_idx").on(t.practiceLocationId, t.scheduledFor),
+    index("appointments_patient_idx").on(t.patientId),
+    index("appointments_status_idx").on(t.status),
+  ],
+);
+
+/**
+ * Append-only history of everything that happened to an appointment.
+ *
+ * The appointment row holds current state; this holds how it got there. Kept
+ * separate because "cancelled twice, rebooked, then no-showed" is a real
+ * pattern, and a single mutable row cannot answer questions about it. No UPDATE
+ * or DELETE policy will exist for this table, the same as audit_events.
+ */
+export const appointmentEvents = pgTable(
+  "appointment_events",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    appointmentId: uuid("appointment_id")
+      .notNull()
+      .references(() => appointments.id, { onDelete: "cascade" }),
+    practiceLocationId: uuid("practice_location_id")
+      .notNull()
+      .references(() => practiceLocations.id, { onDelete: "restrict" }),
+    eventType: appointmentEventType("event_type").notNull(),
+    fromStatus: appointmentStatus("from_status"),
+    toStatus: appointmentStatus("to_status"),
+    actorId: uuid("actor_id").references(() => profiles.id, { onDelete: "set null" }),
+    /** Operational note only — reasons, not clinical content. */
+    note: text("note"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("appointment_events_appointment_idx").on(t.appointmentId),
+    index("appointment_events_location_idx").on(t.practiceLocationId),
+  ],
+);
+
 export type Profile = typeof profiles.$inferSelect;
 export type DoctorProfile = typeof doctorProfiles.$inferSelect;
 export type PracticeLocation = typeof practiceLocations.$inferSelect;
@@ -575,5 +720,7 @@ export type PatientAlert = typeof patientAlerts.$inferSelect;
 export type PatientContact = typeof patientContacts.$inferSelect;
 export type PatientPrivateNote = typeof patientPrivateNotes.$inferSelect;
 export type PrescriptionTemplate = typeof prescriptionTemplates.$inferSelect;
+export type Appointment = typeof appointments.$inferSelect;
+export type AppointmentEvent = typeof appointmentEvents.$inferSelect;
 
 
