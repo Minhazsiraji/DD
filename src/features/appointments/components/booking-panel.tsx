@@ -3,7 +3,7 @@
 import * as React from "react";
 import { useActionState } from "react";
 import { useRouter } from "next/navigation";
-import { Search, UserPlus, Plus, X, Check, CircleAlert } from "lucide-react";
+import { Search, UserPlus, Plus, X, Check } from "lucide-react";
 import { Field, FormMessage, SubmitButton } from "@/features/auth/components/form-parts";
 import { bookAppointmentAction, registerWalkInAction, type WalkInState } from "../actions";
 import {
@@ -379,21 +379,6 @@ function WalkInForm({
       </p>
 
       <FormMessage state={state} />
-
-      {/*
-        A match this receptionist may not see. There is deliberately nothing to
-        show and no override — they cannot compare what they cannot see, so the
-        only safe resolution is the doctor's.
-      */}
-      {state.needsDoctor ? (
-        <p className="flex items-start gap-2 rounded-xl bg-warning-soft px-3 py-2.5 text-[13px] text-ink">
-          <CircleAlert className="mt-px size-4 shrink-0" aria-hidden="true" />
-          <span>
-            The doctor can register this patient from their own patient list. No
-            further detail is available at the front desk.
-          </span>
-        </p>
-      ) : null}
 
       {/*
         Matches reception CAN see. Picking one is nearly always right, so it is

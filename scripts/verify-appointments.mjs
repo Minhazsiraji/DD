@@ -11,6 +11,7 @@
  */
 import postgres from "postgres";
 import crypto from "node:crypto";
+import { NAME_VECTORS, PHONE_VECTORS } from "./normalization-vectors.mjs";
 
 const url = process.env.DIRECT_URL ?? process.env.DATABASE_URL;
 if (!url) {
@@ -174,6 +175,68 @@ check(
   regForms.every((f) => f.args.includes("p_confirmed_not_duplicate")),
   "and it carries the duplicate-confirmation flag",
 );
+/**
+ * The search keys must not be settable by the caller. While they were
+ * parameters, an honest name could be paired with a dishonest key and walk past
+ * the duplicate guard — a control the client could skip is not a control.
+ */
+check(
+  regForms.every(
+    (f) => !f.args.includes("p_name_normalized") && !f.args.includes("p_phone_normalized"),
+  ),
+  "and it accepts NO caller-supplied normalised keys",
+);
+
+const dupForms = await sql`
+  select pg_get_function_arguments(p.oid) as args
+  from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+  where n.nspname = 'public' and p.proname = 'check_walkin_duplicates'`;
+check(dupForms.length === 1, "exactly one check_walkin_duplicates");
+check(
+  dupForms.every((f) => !f.args.includes("normalized")),
+  "…which also derives its own keys",
+);
+
+const dupReturns = await sql`
+  select pg_get_function_result(p.oid) as result
+  from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+  where n.nspname = 'public' and p.proname = 'check_walkin_duplicates'`;
+check(
+  dupReturns.every((f) => !f.result.includes("hidden")),
+  "and reports NO count of records the caller may not see",
+  dupReturns[0]?.result,
+);
+
+/**
+ * Normalisation parity.
+ *
+ * The rules exist in TypeScript (doctor registers) and SQL (reception
+ * registers). If they drift, the two paths stop matching each other's records
+ * and nothing fails loudly — so both are asserted against one shared table of
+ * vectors. The TypeScript half runs in vitest.
+ */
+console.log("\nNormalisation matches TypeScript, vector for vector");
+{
+  let nameMismatches = 0;
+  for (const [input, expected] of NAME_VECTORS) {
+    const [r] = await sql`select public.normalize_patient_name(${input}) as v`;
+    if (r.v !== expected) {
+      nameMismatches++;
+      console.log(`    ✗ name ${JSON.stringify(input)} -> ${JSON.stringify(r.v)}, expected ${JSON.stringify(expected)}`);
+    }
+  }
+  check(nameMismatches === 0, `normalize_patient_name matches all ${NAME_VECTORS.length} vectors`);
+
+  let phoneMismatches = 0;
+  for (const [input, expected] of PHONE_VECTORS) {
+    const [r] = await sql`select public.normalize_patient_phone(${input}) as v`;
+    if (r.v !== expected) {
+      phoneMismatches++;
+      console.log(`    ✗ phone ${JSON.stringify(input)} -> ${JSON.stringify(r.v)}, expected ${JSON.stringify(expected)}`);
+    }
+  }
+  check(phoneMismatches === 0, `normalize_patient_phone matches all ${PHONE_VECTORS.length} vectors`);
+}
 
 console.log("\nSession date uses the LOCATION's timezone, not the session's");
 {
@@ -677,9 +740,9 @@ try {
     await as(tx, uidR, async () => {
       const [reg] = await tx`
         select * from public.register_patient_for_doctor(
-          ${docA.id}, ${hospital.id}, 'Fatima Begum', 'fatima begum',
+          ${docA.id}, ${hospital.id}, 'Fatima Begum',
           null, 'AGE_ONLY'::public.dob_precision, 34, current_date,
-          'FEMALE'::public.sex, '01712000000', '01712000000',
+          'FEMALE'::public.sex, '01712000000',
           null, null, 'Dhaka', null, null, null, false)`;
       check(Boolean(reg?.patient_id), "reception registers a patient", reg?.patient_number);
 
@@ -696,9 +759,9 @@ try {
 
       const notHere = await expectDenied(tx, async (t) => {
         await t`select * from public.register_patient_for_doctor(
-          ${docB.id}, ${hospital.id}, 'Nobody', 'nobody',
+          ${docB.id}, ${hospital.id}, 'Nobody',
           null, 'AGE_ONLY'::public.dob_precision, 20, current_date,
-          'UNKNOWN'::public.sex, null, null, null, null, null, null, null, null, false)`;
+          'UNKNOWN'::public.sex, null, null, null, null, null, null, null, false)`;
       });
       check(notHere, "cannot register for a doctor who does not practise here");
 
@@ -720,85 +783,131 @@ try {
      * learn that a private patient exists — "no match" versus "a match you may
      * not see" is itself information.
      */
-    console.log("\nWalk-in duplicate guard");
+    console.log("\nWalk-in duplicate guard — visible matches");
     await as(tx, uidR, async () => {
-      // (a) A match reception CAN see: full detail, override permitted.
       const [seen] = await tx`
         select * from public.check_walkin_duplicates(
-          ${docA.id}, ${hospital.id}, 'rahim hossain', null)`;
-      check(seen.visible.length === 1, "a visible duplicate is reported in full");
-      check(seen.hidden_count === 0, "…with nothing hidden");
+          ${docA.id}, ${hospital.id}, 'Md. Rahim Hossain', null)`;
+      check(
+        seen.visible.length === 1,
+        "a visible duplicate is found from the RAW name (honorific and all)",
+      );
 
       const blocked = await expectDenied(tx, async (t) => {
         await t`select * from public.register_patient_for_doctor(
-          ${docA.id}, ${hospital.id}, 'Rahim Hossain', 'rahim hossain',
+          ${docA.id}, ${hospital.id}, 'Rahim Hossain',
           null, 'AGE_ONLY'::public.dob_precision, 40, current_date,
-          'MALE'::public.sex, null, null, null, null, null, null, null, null, false)`;
+          'MALE'::public.sex, null, null, null, null, null, null, null, false)`;
       });
       check(blocked, "registering a visible duplicate is refused");
 
       const [overridden] = await tx`
         select * from public.register_patient_for_doctor(
-          ${docA.id}, ${hospital.id}, 'Rahim Hossain', 'rahim hossain',
+          ${docA.id}, ${hospital.id}, 'Rahim Hossain',
           null, 'AGE_ONLY'::public.dob_precision, 40, current_date,
-          'MALE'::public.sex, null, null, null, null, null, null, null, null, true)`;
+          'MALE'::public.sex, null, null, null, null, null, null, null, true)`;
       check(
         Boolean(overridden?.patient_id),
         "…but reception may override a match it can actually compare",
       );
 
-      // (b) A match reception CANNOT see — the chamber-only patient.
-      const [hidden] = await tx`
-        select * from public.check_walkin_duplicates(
-          ${docA.id}, ${hospital.id}, 'shireen akter', null)`;
-      check(hidden.hidden_count === 1, "a chamber-only match is counted");
-      check(
-        hidden.visible.length === 0,
-        "…and NOTHING about it is returned",
-        JSON.stringify(hidden.visible),
-      );
-
-      const needsDoctor = await expectDenied(tx, async (t) => {
+      const omittedFlag = await expectDenied(tx, async (t) => {
         await t`select * from public.register_patient_for_doctor(
-          ${docA.id}, ${hospital.id}, 'Shireen Akter', 'shireen akter',
-          null, 'AGE_ONLY'::public.dob_precision, 30, current_date,
-          'FEMALE'::public.sex, null, null, null, null, null, null, null, null, false)`;
+          ${docA.id}, ${hospital.id}, 'Rahim Hossain',
+          null, 'AGE_ONLY'::public.dob_precision, 40, current_date,
+          'MALE'::public.sex, null, null, null, null, null, null, null)`;
       });
-      check(needsDoctor, "registering over a hidden match is refused");
-
-      // The override must NOT rescue it: reception cannot judge what it
-      // cannot see, so only the doctor can resolve this one.
-      const overrideRefused = await expectDenied(tx, async (t) => {
-        await t`select * from public.register_patient_for_doctor(
-          ${docA.id}, ${hospital.id}, 'Shireen Akter', 'shireen akter',
-          null, 'AGE_ONLY'::public.dob_precision, 30, current_date,
-          'FEMALE'::public.sex, null, null, null, null, null, null, null, null, true)`;
-      });
-      check(overrideRefused, "a hidden match cannot be overridden by reception");
-
-      /**
-       * (c) There must be no UNCHECKED way in.
-       *
-       * A 17-argument call still resolves — to the checked function, via the
-       * default on p_confirmed_not_duplicate. That is the safe outcome, and the
-       * check below proves it: an omitted flag behaves as "not confirmed"
-       * rather than skipping the guard.
-       */
-      const oldFormGuarded = await expectDenied(tx, async (t) => {
-        await t`select * from public.register_patient_for_doctor(
-          ${docA.id}, ${hospital.id}, 'Shireen Akter', 'shireen akter',
-          null, 'AGE_ONLY'::public.dob_precision, 30, current_date,
-          'FEMALE'::public.sex, null, null, null, null, null, null, null, null)`;
-      });
-      check(oldFormGuarded, "omitting the confirmation flag does NOT skip the guard");
+      check(omittedFlag, "omitting the confirmation flag does NOT skip the guard");
     });
 
-    // (d) Lookup failure must BLOCK, never wave the patient through.
-    //     Simulated by removing the desk relationship the check requires.
+    /**
+     * PRIVACY: a chamber-only patient must be completely invisible — not
+     * merely undisclosed. Reception must get the SAME result and the SAME
+     * registration behaviour whether or not one exists, or the RPC becomes an
+     * oracle for probing names and phone numbers.
+     */
+    console.log("\nWalk-in duplicate guard — hidden patients are not an oracle");
+    await as(tx, uidR, async () => {
+      const [before] = await tx`
+        select * from public.check_walkin_duplicates(
+          ${docA.id}, ${hospital.id}, 'Shireen Akter', '01766001100')`;
+      check(
+        before.visible.length === 0,
+        "a chamber-only match returns nothing at all",
+        JSON.stringify(before.visible),
+      );
+
+      const [registered] = await tx`
+        select * from public.register_patient_for_doctor(
+          ${docA.id}, ${hospital.id}, 'Shireen Akter',
+          null, 'AGE_ONLY'::public.dob_precision, 30, current_date,
+          'FEMALE'::public.sex, '01766001100', null, null, null, null, null, null, false)`;
+      check(
+        Boolean(registered?.patient_id),
+        "registration PROCEEDS — privacy wins over perfect deduplication",
+      );
+    });
+
+    // The control: someone with no chamber-only twin behaves identically.
+    await as(tx, uidR, async () => {
+      const [control] = await tx`
+        select * from public.check_walkin_duplicates(
+          ${docA.id}, ${hospital.id}, 'Nobody Atall', '01700000999')`;
+      check(
+        control.visible.length === 0,
+        "…and a name with NO hidden twin returns exactly the same: nothing",
+        JSON.stringify(control.visible),
+      );
+    });
+
+    console.log("\nNormalisation is derived, never accepted");
+    await as(tx, uidR, async () => {
+      /**
+       * The old signature took p_name_normalized/p_phone_normalized, so a
+       * direct caller could send an honest name with a dishonest search key and
+       * walk straight past the guard. Those parameters no longer exist.
+       */
+      const noKeys = await expectDenied(tx, async (t) => {
+        await t`select * from public.register_patient_for_doctor(
+          ${docA.id}, ${hospital.id}, 'Rahim Hossain', 'totally-different-key',
+          null, 'AGE_ONLY'::public.dob_precision, 40, current_date,
+          'MALE'::public.sex, null, null, null, null, null, null, null, null, false)`;
+      });
+      check(noKeys, "the caller cannot supply a normalised search key at all");
+
+      // A dishonest key is impossible, so the guard catches the honest name
+      // however it is spelled — and the STORED key is the canonical one.
+      const dodge = await expectDenied(tx, async (t) => {
+        await t`select * from public.register_patient_for_doctor(
+          ${docA.id}, ${hospital.id}, 'MD.  RAHIM   HOSSAIN',
+          null, 'AGE_ONLY'::public.dob_precision, 40, current_date,
+          'MALE'::public.sex, null, null, null, null, null, null, null, false)`;
+      });
+      check(dodge, "a differently-spelled duplicate is still caught");
+    });
+
+    await as(tx, uidR, async () => {
+      const [stored] = await tx`
+        select name_normalized, phone_normalized from public.patients
+        where full_name = 'Shireen Akter' and owner_doctor_id = ${docA.id}
+        order by created_at desc limit 1`;
+      check(
+        stored.name_normalized === "shireen akter",
+        "the stored search key is the canonical one",
+        stored.name_normalized,
+      );
+      check(
+        stored.phone_normalized === "01766001100",
+        "…and so is the phone key",
+        stored.phone_normalized,
+      );
+    });
+
+    // Lookup failure must BLOCK, never wave the patient through.
     await as(tx, uidC, async () => {
       const failClosed = await expectDenied(tx, async (t) => {
         await t`select * from public.check_walkin_duplicates(
-          ${docA.id}, ${hospital.id}, 'anybody', null)`;
+          ${docA.id}, ${hospital.id}, 'Anybody', null)`;
       });
       check(failClosed, "duplicate checking refuses a caller who is not the desk");
     });
@@ -807,9 +916,9 @@ try {
     await as(tx, uidC, async () => {
       const denied = await expectDenied(tx, async (t) => {
         await t`select * from public.register_patient_for_doctor(
-          ${docC.id}, ${hospital.id}, 'Self Serve', 'self serve',
+          ${docC.id}, ${hospital.id}, 'Self Serve',
           null, 'AGE_ONLY'::public.dob_precision, 40, current_date,
-          'MALE'::public.sex, null, null, null, null, null, null, null, null, false)`;
+          'MALE'::public.sex, null, null, null, null, null, null, null, false)`;
       });
       check(denied, "a doctor cannot use the reception registration path");
     });
@@ -839,6 +948,8 @@ console.log("\nConcurrent check-in (committed, then cleaned up)");
 
 const cUid = crypto.randomUUID();
 const cDeskUid = crypto.randomUUID();
+/** Every user this section creates, so cleanup can target exactly them. */
+const concurrencyUsers = [cUid, cDeskUid];
 let cLocation, cDoctor;
 /**
  * Timeouts on the racing connections. These transactions deliberately contend
@@ -1069,6 +1180,75 @@ try {
     check(succ.n <= 1, "confirmation + reschedule: at most one successor", `${succ.n}`);
   }
 
+  // -------------------------------------------------------------------------
+  // Two receptionists registering the SAME walk-in at the same moment.
+  //
+  // "Check and insert in one transaction" does not serialise two transactions:
+  // both can read no-candidate and both insert. The advisory lock is what makes
+  // the second caller wait and then see the first one's row.
+  // -------------------------------------------------------------------------
+  {
+    const [deskB] = await sql`select gen_random_uuid() as id`;
+    concurrencyUsers.push(deskB.id);
+    await sql`insert into auth.users (id, email)
+              values (${deskB.id}, ${`${deskB.id}@qa.invalid`})`;
+    await sql`insert into public.profiles (id, full_name)
+              values (${deskB.id}, 'Desk Two')`;
+    await sql`insert into public.practice_location_members
+                (practice_location_id, user_id, role, status)
+              values (${cLocation.id}, ${deskB.id}, 'RECEPTIONIST', 'ACTIVE')`;
+
+    const register = (conn, uid, ready, go) =>
+      conn
+        .begin(async (t) => {
+          await t`select set_config('request.jwt.claims', ${JSON.stringify({
+            sub: uid,
+            role: "authenticated",
+          })}, true)`;
+          await t`set local role authenticated`;
+          ready();
+          await go;
+          await t`select * from public.register_patient_for_doctor(
+            ${cDoctor.id}, ${cLocation.id}, 'Jamal Hossain',
+            null, 'AGE_ONLY'::public.dob_precision, 50, current_date,
+            'MALE'::public.sex, '01733221100',
+            null, null, null, null, null, null, false)`;
+        })
+        .then(
+          () => "registered",
+          (e) => e.message,
+        );
+
+    let readyX, readyY;
+    const both = Promise.all([
+      new Promise((r) => (readyX = r)),
+      new Promise((r) => (readyY = r)),
+    ]);
+    let release;
+    const go = new Promise((r) => (release = r));
+
+    const a = register(connA, cDeskUid, readyX, go);
+    const b = register(connB, deskB.id, readyY, go);
+    await both;
+    release();
+    const outcomes = await Promise.all([a, b]);
+
+    const created = await sql`
+      select id from public.patients
+      where owner_doctor_id = ${cDoctor.id} and phone_normalized = '01733221100'`;
+
+    check(
+      created.length === 1,
+      "two simultaneous registrations create exactly ONE record",
+      `${created.length} created; outcomes: ${JSON.stringify(outcomes)}`,
+    );
+    check(
+      outcomes.filter((o) => o === "registered").length === 1,
+      "…one call succeeded and the other was refused as a duplicate",
+      JSON.stringify(outcomes),
+    );
+  }
+
   const tokens = await sql`
     select id, token_number from public.appointments
     where id in ${sql(made)} order by token_number`;
@@ -1126,7 +1306,14 @@ try {
   }
   if (cDoctor) await sql`delete from public.patients where owner_doctor_id = ${cDoctor.id}`;
   await sql`delete from public.practice_locations where created_by = ${cUid}`;
-  await sql`delete from auth.users where id in (${cUid}, ${cDeskUid})`;
+  /**
+   * Only THIS test's users, by id.
+   *
+   * A broader `email like '%@qa.invalid'` also matched the shared qa-fixture
+   * accounts, which have their own patients and appointments — the RESTRICT
+   * foreign keys then failed the whole statement and these users survived.
+   */
+  await sql`delete from auth.users where id in ${sql(concurrencyUsers)}`;
 
   const [left] = await sql`
     select count(*)::int as n from auth.users where id in (${cUid}, ${cDeskUid})`;

@@ -1,35 +1,112 @@
 -- =============================================================================
 -- Duplicate protection for reception's walk-in registration.
 --
--- Two things are in tension here:
+-- PRIVACY WINS OVER PERFECT DEDUPLICATION.
 --
---   Reception must not create a second record for someone the doctor already
---   has — a split history is the thing patient identity exists to prevent.
+-- An earlier version returned a count of matches the caller could not see. That
+-- removed the identity details but kept the fact of EXISTENCE — and since this
+-- RPC is executable by any front-desk user, reception could probe names and
+-- phone numbers to learn whether a doctor has a matching private patient.
+-- Withholding it in the UI closes nothing.
 --
---   Reception must not learn that a doctor's chamber-only patient EXISTS.
---   Cross-location visibility is the boundary ADR 0001 draws, and "no match
---   found" versus "a match you may not see" is itself information.
+-- So the check now searches ONLY patients the caller is already allowed to see,
+-- and behaves identically whether or not a chamber-only match exists. A duplicate
+-- created against a private record is a real cost, accepted deliberately: it is
+-- repairable by the doctor later, whereas a disclosure is not.
 --
--- So the check runs inside the database, over the doctor's WHOLE repository,
--- and returns detail only for patients reception may already see. Everything
--- else is reduced to a count.
+-- Two further controls live here because they cannot live in the client:
+--   * normalisation is DERIVED in the database, never taken from the caller
+--   * registration serialises on the identity key, so two simultaneous
+--     registrations of the same person cannot both pass the check
 -- =============================================================================
 
+-- -----------------------------------------------------------------------------
+-- Canonical normalisation.
+--
+-- Mirrors normalizeName/normalizePhone in src/features/patients/identity.ts.
+-- The two are held together by shared test vectors (scripts/normalization-
+-- vectors.mjs) asserted on BOTH sides — if they drift, duplicate detection
+-- silently stops matching records created through the other path.
+-- -----------------------------------------------------------------------------
+create or replace function public.normalize_patient_name(input text)
+returns text
+language plpgsql
+immutable
+set search_path = pg_catalog, pg_temp
+as $$
+declare
+  s        text;
+  previous text;
+begin
+  if input is null then return null; end if;
+
+  -- Decompose, drop combining accents, lowercase.
+  s := lower(regexp_replace(normalize(input, NFKD), E'[\\u0300-\\u036F]', '', 'g'));
+  -- Punctuation to spaces, then collapse. Runs BEFORE honorific stripping, so
+  -- "Md." has already become "md " by the time the loop sees it.
+  s := regexp_replace(s, '[^[:alnum:][:space:]]', ' ', 'g');
+  s := btrim(regexp_replace(s, '[[:space:]]+', ' ', 'g'));
+
+  -- Repeatedly, so "Md. Alhaj Rahim" reduces fully.
+  loop
+    previous := s;
+    s := btrim(regexp_replace(
+           s, '^(md|mohammad|muhammad|mohd|mr|mrs|ms|miss|dr|prof|alhaj|hajj)[[:space:]]+',
+           '', 'i'));
+    exit when s = previous or length(s) = 0;
+  end loop;
+
+  return s;
+end;
+$$;
+
+create or replace function public.normalize_patient_phone(input text)
+returns text
+language plpgsql
+immutable
+set search_path = pg_catalog, pg_temp
+as $$
+declare
+  digits text;
+begin
+  if input is null then return null; end if;
+  digits := regexp_replace(input, '[^0-9]', '', 'g');
+  if length(digits) = 0 then return null; end if;
+
+  -- +8801711000124 / 8801711000124 / 01711000124 all fold to 01711000124.
+  if left(digits, 3) = '880' and length(digits) >= 12 then
+    return '0' || substr(digits, 4);
+  end if;
+  if length(digits) = 10 and left(digits, 1) = '1' then
+    return '0' || digits;
+  end if;
+  return digits;
+end;
+$$;
+
+grant execute on function public.normalize_patient_name(text)  to authenticated;
+grant execute on function public.normalize_patient_phone(text) to authenticated;
+
+-- -----------------------------------------------------------------------------
+-- Duplicate candidates the caller may actually see.
+-- -----------------------------------------------------------------------------
+drop function if exists public.check_walkin_duplicates(uuid, uuid, text, text);
+
 /**
- * Duplicate candidates for a walk-in, split by what the caller may know.
+ * Matches for a walk-in, restricted to patients the CALLER could already find
+ * by searching. Chamber-only patients are neither searched nor signalled: this
+ * function must return exactly the same thing whether or not one exists.
  *
- *   visible      full detail — patients already linked to a location where the
- *                caller is an active member, so reception can compare and judge
- *   hidden_count how many further matches the DOCTOR has that the caller may
- *                not see. A number only: no name, no id, no location, nothing.
+ * Takes the RAW name and phone. Normalisation is derived here, so a caller
+ * cannot hand over honest details with dishonest search keys and slip past.
  */
 create or replace function public.check_walkin_duplicates(
   p_owner_doctor_id      uuid,
   p_practice_location_id uuid,
-  p_name_normalized      text,
-  p_phone_normalized     text
+  p_full_name            text,
+  p_phone                text
 )
-returns table (visible jsonb, hidden_count integer)
+returns table (visible jsonb)
 language plpgsql
 stable
 security definer
@@ -37,6 +114,8 @@ set search_path = public, pg_temp
 as $$
 declare
   v_caller uuid := auth.uid();
+  v_name   text := public.normalize_patient_name(p_full_name);
+  v_phone  text := public.normalize_patient_phone(p_phone);
 begin
   if v_caller is null then
     raise exception 'not authenticated' using errcode = '42501';
@@ -59,33 +138,28 @@ begin
   end if;
 
   return query
-  with candidates as (
-    select p.id, p.patient_number, p.full_name, p.phone,
-           exists (
-             select 1
-             from public.patient_location_links l
-             join public.practice_location_members m
-               on m.practice_location_id = l.practice_location_id
-             where l.patient_id = p.id
-               and m.user_id = v_caller
-               and m.status = 'ACTIVE'
-           ) as caller_may_see
-    from public.patients p
-    where p.owner_doctor_id = p_owner_doctor_id
-      and (
-        (p_phone_normalized is not null and p_phone_normalized <> ''
-          and p.phone_normalized = p_phone_normalized)
-        or p.name_normalized = p_name_normalized
-      )
-  )
-  select
-    coalesce(
-      (select jsonb_agg(jsonb_build_object(
-                'id', c.id, 'patientNumber', c.patient_number,
-                'fullName', c.full_name, 'phone', c.phone))
-       from candidates c where c.caller_may_see),
-      '[]'::jsonb),
-    (select count(*)::int from candidates c where not c.caller_may_see);
+  select coalesce(
+    (select jsonb_agg(jsonb_build_object(
+              'id', p.id, 'patientNumber', p.patient_number,
+              'fullName', p.full_name, 'phone', p.phone))
+     from public.patients p
+     where p.owner_doctor_id = p_owner_doctor_id
+       and (
+         (v_phone is not null and p.phone_normalized = v_phone)
+         or p.name_normalized = v_name
+       )
+       -- The visibility rule, restated: a DEFINER function bypasses the
+       -- patients policy, so the caller's own reach must be re-checked.
+       and exists (
+         select 1
+         from public.patient_location_links l
+         join public.practice_location_members m
+           on m.practice_location_id = l.practice_location_id
+         where l.patient_id = p.id
+           and m.user_id = v_caller
+           and m.status = 'ACTIVE'
+       )),
+    '[]'::jsonb);
 end;
 $$;
 
@@ -94,37 +168,48 @@ revoke all on function public.check_walkin_duplicates(uuid, uuid, text, text)
 grant execute on function public.check_walkin_duplicates(uuid, uuid, text, text)
   to authenticated;
 
+-- -----------------------------------------------------------------------------
+-- Registration.
+-- -----------------------------------------------------------------------------
+
+-- Older forms took caller-supplied normalised values, which made the guard
+-- bypassable. Dropped so no unchecked entry point survives.
+drop function if exists public.register_patient_for_doctor(
+  uuid, uuid, text, text, date, public.dob_precision, integer, date, public.sex,
+  text, text, text, text, text, text, text, text);
+drop function if exists public.register_patient_for_doctor(
+  uuid, uuid, text, text, date, public.dob_precision, integer, date, public.sex,
+  text, text, text, text, text, text, text, text, boolean);
+
 /**
- * Registration now REFUSES a probable duplicate, in the database.
+ * Register a patient on behalf of a doctor at the caller's location.
  *
- * Putting the check in the action would make it advisory: the RPC is granted to
- * every authenticated user, so anything the client can skip is not a control.
+ * SECURITY DEFINER — it writes a row the caller could not write themselves.
+ * Everything that makes that safe is checked inside:
  *
- * The two refusals differ on purpose:
+ *   1. the CALLER is an active RECEPTIONIST or LOCATION_ADMIN here
+ *   2. the SELECTED DOCTOR is an active DOCTOR here
+ *   3. owner_doctor_id comes from (2), never from the payload's own claim
+ *   4. created_by records the receptionist — "who typed it" and "whose patient
+ *      it is" are different facts and both must survive
+ *   5. name and phone search keys are DERIVED here, not accepted
+ *   6. registration serialises on the identity key before checking
  *
- *   hidden matches  -> no override at all. Reception cannot see the record and
- *                      therefore cannot judge whether this is the same person.
- *                      Only the doctor can, so the desk is told to ask.
- *   visible matches -> override allowed, because reception HAS the information
- *                      to compare — two people genuinely share a name and a
- *                      household phone, and blocking outright would make the
- *                      product wrong in a common case.
- *
- * The check runs in the same transaction as the insert, so a failure raises and
- * nothing is written: fail-closed by construction, not by convention.
+ * On (6): "check and insert in one transaction" does NOT serialise two
+ * transactions. Both can read no-candidate and both insert. The advisory locks
+ * are transaction-scoped and taken in a fixed order (name, then phone) so two
+ * callers cannot deadlock against each other.
  */
 create or replace function public.register_patient_for_doctor(
   p_owner_doctor_id      uuid,
   p_practice_location_id uuid,
   p_full_name            text,
-  p_name_normalized      text,
   p_dob                  date,
   p_dob_precision        public.dob_precision,
   p_approx_age_years     integer,
   p_age_recorded_on      date,
   p_sex                  public.sex,
   p_phone                text,
-  p_phone_normalized     text,
   p_email                text,
   p_address              text,
   p_district             text,
@@ -141,13 +226,18 @@ set search_path = public, pg_temp
 as $$
 declare
   v_caller  uuid := auth.uid();
+  v_name    text := public.normalize_patient_name(p_full_name);
+  v_phone   text := public.normalize_patient_phone(p_phone);
   v_number  text;
   v_patient uuid;
   v_visible jsonb;
-  v_hidden  integer;
 begin
   if v_caller is null then
     raise exception 'not authenticated' using errcode = '42501';
+  end if;
+
+  if v_name is null or length(v_name) = 0 then
+    raise exception 'a patient needs a name' using errcode = '22023';
   end if;
 
   if not exists (
@@ -166,14 +256,18 @@ begin
       using errcode = '42501';
   end if;
 
-  select d.visible, d.hidden_count into v_visible, v_hidden
-  from public.check_walkin_duplicates(
-         p_owner_doctor_id, p_practice_location_id,
-         p_name_normalized, p_phone_normalized) d;
-
-  if v_hidden > 0 then
-    raise exception 'DUPLICATE_NEEDS_DOCTOR' using errcode = '23505';
+  -- (6) Serialise on the identity key BEFORE looking. Fixed order: name first,
+  --     then phone, so concurrent callers queue rather than deadlock.
+  perform pg_advisory_xact_lock(
+    hashtextextended(p_owner_doctor_id::text || '|n|' || v_name, 0));
+  if v_phone is not null then
+    perform pg_advisory_xact_lock(
+      hashtextextended(p_owner_doctor_id::text || '|p|' || v_phone, 0));
   end if;
+
+  select d.visible into v_visible
+  from public.check_walkin_duplicates(
+         p_owner_doctor_id, p_practice_location_id, p_full_name, p_phone) d;
 
   if jsonb_array_length(coalesce(v_visible, '[]'::jsonb)) > 0
      and not coalesce(p_confirmed_not_duplicate, false) then
@@ -187,10 +281,10 @@ begin
     dob, dob_precision, approx_age_years, age_recorded_on, sex,
     phone, phone_normalized, email, address, district, created_by
   ) values (
-    p_owner_doctor_id, v_number, p_full_name, p_name_normalized,
+    p_owner_doctor_id, v_number, p_full_name, v_name,
     p_dob, coalesce(p_dob_precision, 'AGE_ONLY'), p_approx_age_years,
     p_age_recorded_on, coalesce(p_sex, 'UNKNOWN'),
-    p_phone, p_phone_normalized, p_email, p_address, p_district, v_caller
+    p_phone, v_phone, p_email, p_address, p_district, v_caller
   )
   returning id into v_patient;
 
@@ -221,15 +315,9 @@ begin
 end;
 $$;
 
--- The old 17-argument form had no duplicate guard. Dropped so it cannot be
--- called instead of the checked one.
-drop function if exists public.register_patient_for_doctor(
-  uuid, uuid, text, text, date, public.dob_precision, integer, date, public.sex,
-  text, text, text, text, text, text, text, text);
-
 revoke all on function public.register_patient_for_doctor(
-  uuid, uuid, text, text, date, public.dob_precision, integer, date, public.sex,
-  text, text, text, text, text, text, text, text, boolean) from public, anon;
+  uuid, uuid, text, date, public.dob_precision, integer, date, public.sex,
+  text, text, text, text, text, text, text, boolean) from public, anon;
 grant execute on function public.register_patient_for_doctor(
-  uuid, uuid, text, text, date, public.dob_precision, integer, date, public.sex,
-  text, text, text, text, text, text, text, text, boolean) to authenticated;
+  uuid, uuid, text, date, public.dob_precision, integer, date, public.sex,
+  text, text, text, text, text, text, text, boolean) to authenticated;

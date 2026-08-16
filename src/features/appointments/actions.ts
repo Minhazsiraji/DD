@@ -5,7 +5,6 @@ import { z } from "zod";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { requireUser, requireLocationContext } from "@/lib/auth/session";
 import { emitAudit } from "@/lib/audit/emit";
-import { normalizeName, normalizePhone } from "@/features/patients/identity";
 import { clinicToday } from "@/features/patients/queries";
 import { searchBookablePatients } from "./queries";
 import {
@@ -271,11 +270,6 @@ export interface WalkInState extends AppointmentActionState {
   patientName?: string;
   /** Matches reception may inspect — shown so they can pick one instead. */
   duplicates?: VisibleDuplicate[];
-  /**
-   * A match exists that reception is NOT allowed to see (a chamber-only
-   * patient). No detail is available by design; only the doctor can resolve it.
-   */
-  needsDoctor?: boolean;
 }
 
 export async function registerWalkInAction(
@@ -310,14 +304,12 @@ export async function registerWalkInAction(
       p_owner_doctor_id: v.ownerDoctorId,
       p_practice_location_id: ctx.locationId,
       p_full_name: v.fullName,
-      p_name_normalized: normalizeName(v.fullName),
       p_dob: null,
       p_dob_precision: "AGE_ONLY",
       p_approx_age_years: v.approxAgeYears ?? null,
       p_age_recorded_on: today,
       p_sex: v.sex,
       p_phone: empty(formData.get("phone")),
-      p_phone_normalized: normalizePhone(String(formData.get("phone") ?? "")),
       p_email: null,
       p_address: null,
       p_district: empty(formData.get("district")),
@@ -333,28 +325,12 @@ export async function registerWalkInAction(
   if (error || !created?.patient_id) {
     const raw = error?.message ?? "unknown error";
 
-    /**
-     * A match exists that this receptionist may not see. Say so without saying
-     * anything about it — the fact that a chamber-only patient exists is itself
-     * information the desk is not entitled to.
-     */
-    if (raw.includes("DUPLICATE_NEEDS_DOCTOR")) {
-      return {
-        ok: false,
-        values: echo(formData),
-        needsDoctor: true,
-        message:
-          "This doctor may already have a matching patient record. " +
-          "Ask the doctor to confirm before registering someone new.",
-      };
-    }
-
     if (raw.includes("DUPLICATE_VISIBLE")) {
       const matches = await lookupVisibleDuplicates(
         v.ownerDoctorId,
         ctx.locationId,
-        normalizeName(v.fullName),
-        normalizePhone(String(formData.get("phone") ?? "")),
+        v.fullName,
+        String(formData.get("phone") ?? ""),
       );
       return {
         ok: false,
@@ -395,16 +371,17 @@ export async function registerWalkInAction(
 async function lookupVisibleDuplicates(
   doctorId: string,
   locationId: string,
-  nameNormalized: string,
-  phoneNormalized: string | null,
+  fullName: string,
+  phone: string,
 ): Promise<VisibleDuplicate[]> {
   const supabase = await createSupabaseServerClient();
   const { data, error } = await supabase
     .rpc("check_walkin_duplicates", {
       p_owner_doctor_id: doctorId,
       p_practice_location_id: locationId,
-      p_name_normalized: nameNormalized,
-      p_phone_normalized: phoneNormalized,
+      // Raw values: the database derives the search keys itself.
+      p_full_name: fullName,
+      p_phone: phone,
     })
     .single();
 

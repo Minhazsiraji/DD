@@ -179,6 +179,19 @@ squeeze — and it hides the bottom nav.
 - **`timestamptz::date` uses the SESSION timezone, not the clinic's.** Anything
   that means "which clinic day is this?" must convert through the location's own
   timezone, or a 12:30am Dhaka appointment files itself under the previous day.
+- **A count is still a disclosure.** Returning "there are 2 records you may not
+  see" removes the identity but keeps the EXISTENCE, and any granted RPC can be
+  probed. If a caller must not learn something exists, the function has to
+  behave identically whether it exists or not.
+- **Never accept a search key from the caller.** Normalised name/phone columns
+  are a security control, so they are derived in the database from the raw
+  values — an honest name paired with a dishonest key would otherwise walk past
+  duplicate detection. The SQL and TypeScript rules are held together by shared
+  vectors in `scripts/normalization-vectors.mjs`, asserted on both sides.
+- **"Check and insert in one transaction" does not serialise two
+  transactions.** Both can read no-candidate and both insert. Take a
+  transaction-scoped advisory lock on the identity key BEFORE checking, in a
+  fixed order when there is more than one key, or two callers can deadlock.
 - **`now()` is the TRANSACTION's start time.** For history/event tables use
   `clock_timestamp()`, and add a `bigserial` if order matters — two racing
   transactions can otherwise stamp events in an order that never happened.
