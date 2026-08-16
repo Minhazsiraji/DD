@@ -130,6 +130,15 @@ export type SearchOutcome =
 export async function searchPatients(
   query: string,
   limit = 30,
+  /**
+   * Restrict to one doctor's repository, IN THE DATABASE.
+   *
+   * This has to be part of the query, not a filter applied to the result. RLS
+   * legitimately shows a doctor their colleagues' patients at a shared location
+   * (that is how reception works), so filtering after `limit` means six newer
+   * colleague records can fill the page and hide every one of the doctor's own.
+   */
+  ownerDoctorId?: string | null,
 ): Promise<SearchOutcome> {
   const supabase = await createSupabaseServerClient();
   const today = clinicToday();
@@ -138,9 +147,12 @@ export async function searchPatients(
   let request = supabase
     .from("patients")
     .select(LIST_COLUMNS)
-    .is("deleted_at", null)
-    .order("created_at", { ascending: false })
-    .limit(limit);
+    .is("deleted_at", null);
+
+  // Applied before ordering and limiting — it is part of WHERE, not a post-filter.
+  if (ownerDoctorId) request = request.eq("owner_doctor_id", ownerDoctorId);
+
+  request = request.order("created_at", { ascending: false }).limit(limit);
 
   if (q.length > 0) {
     const name = normalizeName(q);
@@ -164,10 +176,47 @@ export async function searchPatients(
   return { ok: true, patients: (data ?? []).map((row) => toListItem(row, today)) };
 }
 
-/** Recent patients for the dashboard. An outage shows nothing rather than lying. */
-export async function getRecentPatients(limit = 20): Promise<PatientListItem[]> {
-  const result = await searchPatients("", limit);
-  return result.ok ? result.patients : [];
+/**
+ * Recent patients for the dashboard.
+ *
+ * Returns the OUTCOME, not a bare array. Collapsing a failure to `[]` makes the
+ * dashboard say "No patients yet — register your first patient", which is the
+ * same lie as a zero count: an outage rendered as an empty repository.
+ */
+export async function getRecentPatients(
+  limit = 20,
+  ownerDoctorId?: string | null,
+): Promise<SearchOutcome> {
+  return searchPatients("", limit, ownerDoctorId);
+}
+
+export type CountOutcome = { ok: true; count: number } | { ok: false; reason: string };
+
+/**
+ * How many patients are in the repository.
+ *
+ * `count ?? 0` turned a failed query into "you have no patients". A genuine
+ * zero and a broken query are different statements, and only one of them should
+ * make a doctor think they have nothing on file.
+ */
+export async function getPatientCount(ownerDoctorId?: string | null): Promise<CountOutcome> {
+  const supabase = await createSupabaseServerClient();
+
+  let request = supabase
+    .from("patients")
+    .select("id", { count: "exact", head: true })
+    .is("deleted_at", null);
+
+  if (ownerDoctorId) request = request.eq("owner_doctor_id", ownerDoctorId);
+
+  const { count, error } = await request;
+
+  if (error) {
+    console.error("[patients] count failed", error.message);
+    return { ok: false, reason: error.message };
+  }
+  // A successful query with no rows really is zero.
+  return { ok: true, count: count ?? 0 };
 }
 
 /**

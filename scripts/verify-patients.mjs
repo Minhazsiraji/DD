@@ -378,6 +378,110 @@ try {
       check(blocked, "a doctor cannot allocate numbers for another doctor");
     });
 
+    /**
+     * The dashboard's "in your repository" figures.
+     *
+     * RLS deliberately shows a doctor their COLLEAGUES' patients at a shared
+     * location — that is how reception works, and the doctor is a member there.
+     * So "yours" is not what RLS returns; it has to be asked for by
+     * owner_doctor_id, in the query. Filtering afterwards is not equivalent:
+     * newer colleague rows fill the LIMIT and hide the doctor's own.
+     */
+    console.log("\nRepository scoping (dashboard counts and recent list)");
+    {
+      // Doctor B joins the hospital and registers patients that are NEWER than
+      // Doctor A's, at the same location A can see.
+      await tx`insert into public.practice_location_members
+                 (practice_location_id, user_id, role, status)
+               values (${hospital.id}, ${uidB}, 'DOCTOR', 'ACTIVE')`;
+
+      for (let i = 1; i <= 8; i++) {
+        const [p] = await tx`
+          insert into public.patients (owner_doctor_id, patient_number, full_name,
+                                       name_normalized, sex, created_by, created_at)
+          values (${docB.id}, ${`BB-9100${i}`}, ${`Colleague Patient ${i}`},
+                  ${`colleague patient ${i}`}, 'UNKNOWN', ${uidB},
+                  now() + ${`${i} minutes`}::interval)
+          returning id`;
+        await tx`insert into public.patient_location_links (patient_id, practice_location_id)
+                 values (${p.id}, ${hospital.id})`;
+      }
+
+      await as(tx, uidA, async () => {
+        const [visible] = await tx`
+          select count(*)::int as n from public.patients where deleted_at is null`;
+        const [mine] = await tx`
+          select count(*)::int as n from public.patients
+          where deleted_at is null and owner_doctor_id = ${docA.id}`;
+
+        check(
+          visible.n > mine.n,
+          "RLS alone counts colleagues' patients too (so the query MUST scope)",
+          `${visible.n} visible vs ${mine.n} owned`,
+        );
+        check(
+          mine.n > 0 && mine.n < visible.n,
+          "scoping by owner_doctor_id yields only the doctor's own",
+          `${mine.n}`,
+        );
+
+        /**
+         * The ordering half. Eight newer colleague patients exist; an unscoped
+         * "six most recent" is entirely theirs, which is exactly how a doctor
+         * ended up with an empty Recent Patients list.
+         */
+        const unscoped = await tx`
+          select owner_doctor_id from public.patients
+          where deleted_at is null
+          order by created_at desc limit 6`;
+        check(
+          unscoped.every((r) => r.owner_doctor_id === docB.id),
+          "an UNSCOPED recent-six is entirely the colleague's",
+          `${unscoped.filter((r) => r.owner_doctor_id === docA.id).length} of A's`,
+        );
+
+        const scoped = await tx`
+          select owner_doctor_id, created_at from public.patients
+          where deleted_at is null and owner_doctor_id = ${docA.id}
+          order by created_at desc limit 6`;
+        check(
+          scoped.length > 0 && scoped.every((r) => r.owner_doctor_id === docA.id),
+          "scoping BEFORE the limit returns the doctor's own recent patients",
+          `${scoped.length}`,
+        );
+
+        const descending = scoped.every(
+          (r, i) => i === 0 || new Date(scoped[i - 1].created_at) >= new Date(r.created_at),
+        );
+        check(descending, "…in newest-first order");
+      });
+
+      /**
+       * A genuine zero must stay distinguishable from a failure. Doctor C works
+       * at the same hospital and can SEE plenty of patients — none of them
+       * theirs — so the scoped count is a real zero, not an outage.
+       */
+      const uidC = crypto.randomUUID();
+      await tx`insert into auth.users (id, email) values (${uidC}, ${`${uidC}@qa.invalid`})`;
+      await tx`insert into public.profiles (id, full_name) values (${uidC}, 'Dr C')`;
+      const [docC] = await tx`
+        insert into public.doctor_profiles (user_id, patient_number_prefix)
+        values (${uidC}, 'CC') returning id`;
+      await tx`insert into public.practice_location_members
+                 (practice_location_id, user_id, role, status)
+               values (${hospital.id}, ${uidC}, 'DOCTOR', 'ACTIVE')`;
+
+      await as(tx, uidC, async () => {
+        const [visible] = await tx`
+          select count(*)::int as n from public.patients where deleted_at is null`;
+        const [none] = await tx`
+          select count(*)::int as n from public.patients
+          where deleted_at is null and owner_doctor_id = ${docC.id}`;
+        check(visible.n > 0, "a new doctor can still SEE the location's patients", `${visible.n}`);
+        check(none.n === 0, "…but their own repository count is a true zero");
+      });
+    }
+
     // ---- 7. anon reaches nothing -------------------------------------------
     console.log("\nAnonymous access");
     const anonBlocked = await expectDenied(tx, async (sp) => {

@@ -17,7 +17,12 @@ import { RecentPatients } from "@/features/dashboard/components/recent-patients"
 import { formatDate } from "@/lib/format";
 import { requireLocationContext } from "@/lib/auth/session";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { getRecentPatients, clinicToday, getCurrentDoctorId } from "@/features/patients/queries";
+import {
+  getRecentPatients,
+  getPatientCount,
+  clinicToday,
+  getCurrentDoctorId,
+} from "@/features/patients/queries";
 import { getDayCounts } from "@/features/appointments/queries";
 import { todayInDhaka } from "@/features/appointments/schema";
 import { getQueue } from "@/features/queue/queries";
@@ -56,17 +61,23 @@ export default async function DashboardPage() {
 
   const myDoctorId = await getCurrentDoctorId();
 
-  const [{ data: profile }, { count }, recent, today, queue] = await Promise.all([
+  /**
+   * Every repository read is scoped to this doctor IN THE DATABASE.
+   *
+   * RLS legitimately shows a doctor their colleagues' patients at a shared
+   * location — that is how reception works — so "in your repository" has to be
+   * asked for explicitly. Reception passes no doctor id and keeps the
+   * location-wide view they need.
+   */
+  const [{ data: profile }, patients, recent, today, queue] = await Promise.all([
     supabase.from("profiles").select("full_name").eq("id", ctx.user.id).maybeSingle(),
-    supabase.from("patients").select("id", { count: "exact", head: true }).is("deleted_at", null),
-    getRecentPatients(6),
-    // Scoped to this doctor when they are one; reception sees the whole desk.
+    getPatientCount(myDoctorId),
+    getRecentPatients(6, myDoctorId),
     getDayCounts(sessionDate, myDoctorId),
     getQueue(ctx.locationId, sessionDate),
   ]);
 
   const doctorName = profile?.full_name ?? ctx.user.email?.split("@")[0] ?? "Doctor";
-  const patientCount = count ?? 0;
 
   /**
    * Filter to this doctor, then take the head of each group.
@@ -83,16 +94,17 @@ export default async function DashboardPage() {
   const next = groups.waiting[0] ?? null;
 
   /**
-   * Recent patients, restricted to this doctor's own repository.
+   * Belt and braces only — the query above already scoped this.
    *
-   * RLS legitimately lets a doctor READ a colleague's patient at a shared
-   * hospital — that is how reception works, and the doctor is a member there.
-   * But presenting them under "Recent patients" on a doctor's own dashboard
-   * reads as "yours", which they are not (ADR 0001).
+   * Kept because a wrong row here reads as "your patient" and would be acted
+   * on, but it must never be the primary control: filtering after LIMIT is what
+   * let six newer colleague records hide a doctor's own list.
    */
-  const myRecent = myDoctorId
-    ? recent.filter((p) => p.ownerDoctorId === myDoctorId)
-    : recent;
+  const myRecent = recent.ok
+    ? myDoctorId
+      ? recent.patients.filter((p) => p.ownerDoctorId === myDoctorId)
+      : recent.patients
+    : [];
 
   return (
     <div className="space-y-4 sm:space-y-5">
@@ -116,14 +128,18 @@ export default async function DashboardPage() {
         whole page scrolls sideways on a phone.
       */}
       <div className="grid grid-cols-2 gap-3 [&>*]:min-w-0 sm:gap-4 lg:grid-cols-4">
-        <StatCard
-          label="Patients"
-          value={patientCount}
-          icon={<Users className="size-5" />}
-          accent="brand"
-          hint="In your repository"
-          href="/patients"
-        />
+        {patients.ok ? (
+          <StatCard
+            label="Patients"
+            value={patients.count}
+            icon={<Users className="size-5" />}
+            accent="brand"
+            hint="In your repository"
+            href="/patients"
+          />
+        ) : (
+          <UnavailableStat label="Patients" icon={<Users className="size-5" />} />
+        )}
         {today.ok ? (
           <StatCard
             label="Seen today"
@@ -214,6 +230,22 @@ export default async function DashboardPage() {
                 locationName: p.lastSeenLocation ?? ctx.locationName,
               }))}
             />
+          ) : !recent.ok ? (
+            /*
+              A failed read is not an empty repository. Offering "register your
+              first patient" here would invite a duplicate of someone the doctor
+              already has.
+            */
+            <SectionCard className="overflow-hidden">
+              <SectionHeader title="Recent patients" icon={<Users className="size-4" />} />
+              <div className="p-4 sm:p-5">
+                <p className="flex items-start gap-2 rounded-xl bg-warning-soft px-3 py-2.5 text-[13px] font-medium text-ink">
+                  <TriangleAlert className="mt-px size-4 shrink-0 text-[#8a3f07]" aria-hidden="true" />
+                  Your patient list could not be loaded. This is not an empty
+                  repository — reload before registering anyone new.
+                </p>
+              </div>
+            </SectionCard>
           ) : (
             <SectionCard className="overflow-hidden">
               <SectionHeader title="Recent patients" icon={<Users className="size-4" />} />
