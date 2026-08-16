@@ -95,6 +95,12 @@ if (mode === "destroy") {
     const locationIds = locations.map((l) => l.id);
 
     if (locationIds.length > 0) {
+      // Queue history first: queue_events and queue_entries RESTRICT on the
+      // appointment, so the appointment cannot go until they have.
+      await sql`delete from public.queue_events
+                where practice_location_id in ${sql(locationIds)}`;
+      await sql`delete from public.queue_entries
+                where practice_location_id in ${sql(locationIds)}`;
       await sql`delete from public.appointment_events
                 where practice_location_id in ${sql(locationIds)}`;
       await sql`delete from public.appointments

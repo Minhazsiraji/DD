@@ -36,6 +36,12 @@ export type AuditAction =
   | "appointment.created"
   | "appointment.status_changed"
   | "appointment.rescheduled"
+  // Queue. Operational, and the reason on a priority change is the whole point
+  // of recording it — a category, never a clinical value.
+  | "queue.called"
+  | "queue.skipped"
+  | "queue.priority_set"
+  | "queue.priority_cleared"
   | "location.created"
   | "location.updated"
   | "location.switched"
