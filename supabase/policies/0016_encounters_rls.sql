@@ -100,8 +100,20 @@ create unique index if not exists encounters_one_draft_per_appointment
   on public.encounters (appointment_id)
   where status = 'DRAFT' and appointment_id is not null;
 
-create unique index if not exists encounters_one_unscheduled_draft
-  on public.encounters (owner_doctor_id, patient_id)
+/**
+ * LOCATION IS PART OF THE IDENTITY.
+ *
+ * An encounter is one doctor, one patient, one LOCATION, one occasion. Keying
+ * the unscheduled draft on (doctor, patient) alone meant opening that patient
+ * at the chamber could hand back the draft started at the hospital — and every
+ * subsequent write would then fail the location check, leaving the doctor in a
+ * consultation they could not save. Same patient, same doctor, different place
+ * is a different occasion.
+ */
+drop index if exists public.encounters_one_unscheduled_draft;
+
+create unique index if not exists encounters_one_unscheduled_draft_at_location
+  on public.encounters (owner_doctor_id, patient_id, practice_location_id)
   where status = 'DRAFT' and appointment_id is null;
 
 -- -----------------------------------------------------------------------------

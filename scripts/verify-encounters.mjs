@@ -89,8 +89,10 @@ for (const fn of [
   "open_encounter",
   "save_encounter_sections",
   "add_encounter_diagnosis",
+  "update_encounter_diagnosis",
   "remove_encounter_diagnosis",
   "add_encounter_investigation",
+  "update_encounter_investigation",
   "remove_encounter_investigation",
   "close_encounter",
   "encounter_for_update",
@@ -109,10 +111,53 @@ for (const fn of [
   );
 }
 
-const [internal] = await sql`
-  select has_function_privilege('authenticated',
-    'public.encounter_for_update(uuid, uuid, integer)', 'EXECUTE') as ok`;
-check(internal.ok === false, "the internal load-for-update helper is not executable");
+for (const [sig, label] of [
+  ["public.encounter_for_update(uuid, uuid, integer)", "load-for-update helper"],
+  ["public.assert_patch_shape(jsonb, text[])", "patch validator"],
+  ["public.patch_text(jsonb, text, text)", "patch_text"],
+  ["public.patch_numeric(jsonb, text, numeric)", "patch_numeric"],
+  ["public.patch_int(jsonb, text, integer)", "patch_int"],
+]) {
+  const [p] = await sql`select has_function_privilege('authenticated', ${sig}, 'EXECUTE') as ok`;
+  check(p.ok === false, `the internal ${label} is not executable`);
+}
+
+/**
+ * Changing a signature with `create or replace` does NOT remove the old one —
+ * it creates an OVERLOAD, and the old one keeps whatever grant it had. A caller
+ * would still resolve to it by arity, so the seventeen-parameter save with its
+ * uncleerable vitals would remain fully reachable.
+ */
+console.log("\nNo legacy overloads survive the signature changes");
+for (const fn of [
+  "save_encounter_sections",
+  "open_encounter",
+  "add_encounter_diagnosis",
+  "update_encounter_diagnosis",
+  "remove_encounter_diagnosis",
+  "add_encounter_investigation",
+  "update_encounter_investigation",
+  "remove_encounter_investigation",
+  "close_encounter",
+]) {
+  const overloads = await sql`
+    select pg_get_function_identity_arguments(p.oid) as args,
+           has_function_privilege('authenticated', p.oid, 'EXECUTE') as granted
+    from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+    where n.nspname = 'public' and p.proname = ${fn}`;
+  const granted = overloads.filter((o) => o.granted);
+  check(
+    overloads.length === 1 && granted.length === 1,
+    `${fn}: exactly one definition, one grant`,
+    overloads.map((o) => `(${o.args})${o.granted ? " granted" : ""}`).join(" | "),
+  );
+}
+
+const [legacySave] = await sql`
+  select count(*)::int as n from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+  where n.nspname = 'public' and p.proname = 'save_encounter_sections'
+    and pg_get_function_identity_arguments(p.oid) like '%text, text, text%'`;
+check(legacySave.n === 0, "the 17-parameter positional save is gone, not shadowed");
 
 /**
  * Clinical history must survive the removal of anything it points at. Cascades
@@ -133,8 +178,23 @@ check(cascading.length === 0, "no encounter foreign key cascades on delete",
 const [draftIdx] = await sql`
   select count(*)::int as n from pg_indexes
   where schemaname = 'public' and tablename = 'encounters'
-    and indexname in ('encounters_one_draft_per_appointment','encounters_one_unscheduled_draft')`;
+    and indexname in ('encounters_one_draft_per_appointment',
+                      'encounters_one_unscheduled_draft_at_location')`;
 check(draftIdx.n === 2, "partial unique indexes enforce one active draft", `${draftIdx.n}`);
+
+// The location-blind index would silently re-enable cross-location resume.
+const [oldIdx] = await sql`
+  select count(*)::int as n from pg_indexes
+  where schemaname = 'public' and indexname = 'encounters_one_unscheduled_draft'`;
+check(oldIdx.n === 0, "the location-blind unscheduled index is gone");
+
+const [idxDef] = await sql`
+  select indexdef from pg_indexes
+  where schemaname = 'public' and indexname = 'encounters_one_unscheduled_draft_at_location'`;
+check(
+  /practice_location_id/.test(idxDef?.indexdef ?? ""),
+  "…and location is part of the unscheduled draft identity",
+);
 
 // ---------------------------------------------------------------------------
 // Executed
@@ -189,11 +249,13 @@ try {
       values (${docB.id}, 'BB-900001', 'Karim Mia', 'karim mia', 'MALE', ${uidB})
       returning id`;
 
+    // IN_CONSULTATION: the doctor has already pressed Start on the queue, which
+    // is now the precondition for opening an appointment-linked draft.
     const [appt] = await tx`
       insert into public.appointments (owner_doctor_id, practice_location_id, patient_id,
                                        scheduled_for, session_date, status, created_by)
       values (${docA.id}, ${hospital.id}, ${patA.id},
-              '2026-09-01T10:00:00+06:00'::timestamptz, '2026-09-01', 'ARRIVED', ${uidA})
+              '2026-09-01T10:00:00+06:00'::timestamptz, '2026-09-01', 'IN_CONSULTATION', ${uidA})
       returning id`;
 
     // ---- 1 & 2. creating drafts -------------------------------------------
@@ -218,6 +280,120 @@ try {
         select count(*)::int as n from public.encounter_events
         where encounter_id = ${apptEncounter} and event_type = 'CREATED'`;
       check(ev.n === 1, "creation writes its clinical history in the same transaction");
+    });
+
+    /**
+     * A clinical draft may only be opened once the consultation has actually
+     * started. Anything else would record a consultation that operationally
+     * never happened — against a cancelled slot, a no-show, or a visit that
+     * finished last month.
+     */
+    console.log("\nAn appointment-linked draft requires IN_CONSULTATION");
+    for (const status of [
+      "SCHEDULED",
+      "CONFIRMED",
+      "ARRIVED",
+      "CANCELLED",
+      "NO_SHOW",
+      "COMPLETED",
+    ]) {
+      const [other] = await tx`
+        insert into public.appointments (owner_doctor_id, practice_location_id, patient_id,
+                                         scheduled_for, session_date, status, created_by)
+        values (${docA.id}, ${hospital.id}, ${patA.id},
+                '2026-09-03T10:00:00+06:00'::timestamptz, '2026-09-03',
+                ${status}::public.appointment_status, ${uidA})
+        returning id`;
+
+      const [beforeEnc] = await tx`select count(*)::int as n from public.encounters`;
+      const [beforeEvt] = await tx`select count(*)::int as n from public.encounter_events`;
+      const [beforeAud] = await tx`select count(*)::int as n from public.audit_events`;
+
+      let message = "";
+      await as(tx, uidA, async () => {
+        const denied = await expectDenied(tx, async (t) => {
+          await t`select public.open_encounter(${patA.id}, ${hospital.id}, ${other.id})`;
+        }).catch(() => true);
+        check(denied, `${status} is rejected`);
+
+        // Capture the wording separately — expectDenied swallows it by design.
+        try {
+          await tx.savepoint(
+            (t) => t`select public.open_encounter(${patA.id}, ${hospital.id}, ${other.id})`,
+          );
+        } catch (e) {
+          message = e.message;
+        }
+      });
+
+      const [afterEnc] = await tx`select count(*)::int as n from public.encounters`;
+      const [afterEvt] = await tx`select count(*)::int as n from public.encounter_events`;
+      const [afterAud] = await tx`select count(*)::int as n from public.audit_events`;
+      check(
+        beforeEnc.n === afterEnc.n && beforeEvt.n === afterEvt.n && beforeAud.n === afterAud.n,
+        `…writing no encounter, clinical event or audit row (${status})`,
+        `${afterEnc.n - beforeEnc.n}/${afterEvt.n - beforeEvt.n}/${afterAud.n - beforeAud.n}`,
+      );
+
+      /**
+       * The caller already owns this appointment, so naming the STATE problem
+       * discloses nothing and tells them what to do. What must never appear is
+       * a patient name, a scheduled time, or another party's details.
+       */
+      check(
+        message.includes("APPOINTMENT_NOT_IN_CONSULTATION") &&
+          !/Rahim|Hossain|2026-09-03|AA-9000/.test(message),
+        `…with an actionable message that discloses nothing (${status})`,
+        message,
+      );
+
+      await tx`delete from public.appointments where id = ${other.id}`;
+    }
+
+    await as(tx, uidA, async () => {
+      // …and the encounter RPC did not move the appointment to get there.
+      const [a] = await tx`select status from public.appointments where id = ${appt.id}`;
+      check(a.status === "IN_CONSULTATION", "opening a draft does not change appointment status");
+    });
+
+    /**
+     * Location is part of the unscheduled draft's identity. Before the fix,
+     * opening at the chamber returned the hospital's draft — and then every
+     * chamber write failed the location check, stranding the doctor in a
+     * consultation they could not save.
+     */
+    console.log("\nAn unscheduled draft belongs to ONE location");
+    let atHospital, atChamber;
+    await as(tx, uidA, async () => {
+      [{ open_encounter: atHospital }] = await tx`
+        select public.open_encounter(${patA.id}, ${hospital.id}, null)`;
+      [{ open_encounter: atChamber }] = await tx`
+        select public.open_encounter(${patA.id}, ${chamber.id}, null)`;
+      check(atHospital !== atChamber, "opening at B never returns A's draft");
+
+      const [resumeA] = await tx`
+        select public.open_encounter(${patA.id}, ${hospital.id}, null) as id`;
+      check(resumeA.id === atHospital, "opening again at A resumes A's own draft");
+
+      const [resumeB] = await tx`
+        select public.open_encounter(${patA.id}, ${chamber.id}, null) as id`;
+      check(resumeB.id === atChamber, "…and at B resumes B's own draft");
+
+      const [rows] = await tx`
+        select count(*)::int as n from public.encounters
+        where patient_id = ${patA.id} and appointment_id is null and status = 'DRAFT'`;
+      check(rows.n === 2, "two locations, two drafts — one occasion each", `${rows.n}`);
+
+      const crossWrite = await expectDenied(tx, async (t) => {
+        const [{ v }] = await t`select version as v from public.encounters where id = ${atHospital}`;
+        await t`select public.save_encounter_sections(${atHospital}, ${chamber.id}, ${v},
+                  '{"chiefComplaints":"written from the wrong location"}'::jsonb)`;
+      });
+      check(crossWrite, "a location-B mutation cannot alter A's draft");
+
+      const [untouched] = await tx`
+        select chief_complaints from public.encounters where id = ${atHospital}`;
+      check(untouched.chief_complaints === null, "…and A's draft is unchanged");
     });
 
     // ---- 3. lineage cannot be forged --------------------------------------
@@ -268,7 +444,7 @@ try {
 
         const cannotWrite = await expectDenied(tx, async (t) => {
           await t`select public.save_encounter_sections(${apptEncounter}, ${hospital.id}, 1,
-                    'forged complaint')`;
+                    '{"chiefComplaints":"forged complaint"}'::jsonb)`;
         });
         check(cannotWrite, `${who} cannot write clinical content`);
 
@@ -309,13 +485,14 @@ try {
     await as(tx, uidA, async () => {
       // Dr A legitimately works at BOTH locations — that is the dangerous case.
       const wrongLocation = await expectDenied(tx, async (t) => {
-        await t`select public.save_encounter_sections(${apptEncounter}, ${chamber.id}, 1, 'x')`;
+        await t`select public.save_encounter_sections(${apptEncounter}, ${chamber.id}, 1,
+                  '{"chiefComplaints":"x"}'::jsonb)`;
       });
       check(wrongLocation, "the hospital encounter cannot be edited from the chamber");
 
       const [v] = await tx`
         select public.save_encounter_sections(${apptEncounter}, ${hospital.id}, 1,
-          'Fever for three days') as v`;
+          '{"chiefComplaints":"Fever for three days"}'::jsonb) as v`;
       check(v.v === 2, "…while the correct location succeeds and bumps the version", `v${v.v}`);
     });
 
@@ -357,7 +534,7 @@ try {
       const stale = await expectDenied(tx, async (t) => {
         // Version 1 was already consumed by the save above.
         await t`select public.save_encounter_sections(${apptEncounter}, ${hospital.id}, 1,
-                  'stale tab overwrite')`;
+                  '{"chiefComplaints":"stale tab overwrite"}'::jsonb)`;
       });
       check(stale, "a save carrying an old version is REJECTED");
 
@@ -370,9 +547,120 @@ try {
       );
     });
 
+    /**
+     * The patch contract. A doctor who mistyped a blood pressure must be able
+     * to REMOVE it — with `coalesce(p_new, existing)` that value was permanent.
+     */
+    console.log("\nUntouched, set and cleared are three different things");
+    const patchVersion = async () => {
+      const [{ v }] = await tx`select version as v from public.encounters where id = ${apptEncounter}`;
+      return v;
+    };
+    const savePatch = (patch, version) =>
+      tx`select public.save_encounter_sections(${apptEncounter}, ${hospital.id},
+           ${version}, ${patch}) as v`;
+
+    await as(tx, uidA, async () => {
+      await savePatch(
+        {
+          presentIllness: "Three days of fever",
+          advice: "Rest and fluids",
+          vitalSystolic: 120,
+          vitalDiastolic: 80,
+          vitalTemperatureC: 38.4,
+          vitalSpo2: 97,
+        },
+        await patchVersion(),
+      );
+
+      // Touch ONE field; everything else must survive.
+      await savePatch({ advice: "Rest, fluids, review in 3 days" }, await patchVersion());
+      const [kept] = await tx`
+        select chief_complaints, present_illness, advice, vital_systolic
+        from public.encounters where id = ${apptEncounter}`;
+      check(
+        kept.present_illness === "Three days of fever" &&
+          kept.chief_complaints === "Fever for three days" &&
+          Number(kept.vital_systolic) === 120,
+        "a partial save leaves untouched fields alone",
+      );
+      check(kept.advice === "Rest, fluids, review in 3 days", "…and applies the one supplied");
+
+      // Explicit clear, field by field.
+      const before = await patchVersion();
+      await savePatch({ presentIllness: null }, before);
+      const [clearedText] = await tx`
+        select present_illness, version from public.encounters where id = ${apptEncounter}`;
+      check(clearedText.present_illness === null, "text can be explicitly cleared");
+      check(clearedText.version === before + 1, "…and clearing increments the version");
+
+      for (const [key, column] of [
+        ["vitalSystolic", "vital_systolic"],
+        ["vitalDiastolic", "vital_diastolic"],
+        ["vitalTemperatureC", "vital_temperature_c"],
+        ["vitalSpo2", "vital_spo2"],
+      ]) {
+        await savePatch({ [key]: null }, await patchVersion());
+        const [row] = await tx`
+          select ${tx(column)} as value from public.encounters where id = ${apptEncounter}`;
+        check(row.value === null, `${key} can be explicitly cleared`);
+      }
+
+      // An empty string is the same clear a doctor makes by emptying the box.
+      await savePatch({ advice: "  " }, await patchVersion());
+      const [blanked] = await tx`select advice from public.encounters where id = ${apptEncounter}`;
+      check(blanked.advice === null, "an emptied text box clears rather than storing blanks");
+
+      const staleClear = await expectDenied(tx, async (t) => {
+        await t`select public.save_encounter_sections(${apptEncounter}, ${hospital.id}, 1,
+                  ${{ examination: null }})`;
+      });
+      check(staleClear, "a stale CLEAR is rejected like any other stale save");
+
+      for (const [label, patch] of [
+        ["an unknown field is rejected, not ignored", { chiefComplaint: "typo" }],
+        ["an empty patch is rejected", {}],
+        ["a string where a vital belongs is rejected", { vitalPulseBpm: "72" }],
+        ["a fractional integer vital is rejected rather than rounded", { vitalPulseBpm: 72.4 }],
+        ["a number where text belongs is rejected", { advice: 5 }],
+      ]) {
+        const v = await patchVersion();
+        const denied = await expectDenied(tx, async (t) => {
+          await t`select public.save_encounter_sections(${apptEncounter}, ${hospital.id}, ${v},
+                    ${patch})`;
+        });
+        check(denied, label);
+      }
+
+      /**
+       * The clinical event names the fields; the operational log never sees
+       * them at all. Clinical text in an admin-readable audit row is the exact
+       * leak the two-trail split exists to prevent.
+       */
+      const [ev] = await tx`
+        select detail from public.encounter_events
+        where encounter_id = ${apptEncounter} and event_type = 'SECTIONS_UPDATED'
+        order by seq desc limit 1`;
+      check(
+        JSON.stringify(ev.detail).includes("fields") &&
+          !/fever|rest|fluids|review/i.test(JSON.stringify(ev.detail)),
+        "the clinical event records field names and version, not values",
+        JSON.stringify(ev.detail),
+      );
+
+      const auditRows = await tx`
+        select meta::text as meta from public.audit_events
+        where resource_id = ${apptEncounter}`;
+      check(
+        auditRows.every((r) => !/fever|rest|fluids|Three days|Rahim/i.test(r.meta)),
+        "…and no clinical value reaches the operational audit trail",
+        auditRows.map((r) => r.meta).join(" "),
+      );
+    });
+
     // ---- 11 & 12. diagnoses and investigations -----------------------------
     console.log("\nDiagnoses and investigations stay ordered");
-    let dx1, dx2;
+    let dx1, dx2, inv1;
     await as(tx, uidA, async () => {
       const [{ v }] = await tx`select version as v from public.encounters where id = ${apptEncounter}`;
       [{ add_encounter_diagnosis: dx1 }] = await tx`
@@ -431,10 +719,171 @@ try {
       const [{ v: v3 }] = await tx`select version as v from public.encounters where id = ${apptEncounter}`;
       await tx`select public.remove_encounter_investigation(${apptEncounter}, ${hospital.id}, ${v3}, ${inv2})`;
       const after = await tx`
-        select name, position from public.encounter_investigations
+        select id, name, position from public.encounter_investigations
         where encounter_id = ${apptEncounter} order by position`;
       check(after.length === 1 && after[0].position === 1, "…and stay ordered after a removal");
+      inv1 = after[0].id;
     });
+
+    /**
+     * Correcting a finding IN PLACE. Remove-and-re-add is not the same thing:
+     * it changes the row id, moves the entry to the end of the list, and reads
+     * in the history as one diagnosis withdrawn and another raised. A doctor
+     * fixing a typo did neither.
+     */
+    console.log("\nFindings are corrected in place");
+    await as(tx, uidA, async () => {
+      const version = async () => {
+        const [{ v }] = await tx`select version as v from public.encounters where id = ${apptEncounter}`;
+        return v;
+      };
+      const [before] = await tx`
+        select id, label, certainty, position from public.encounter_diagnoses
+        where id = ${dx1}`;
+
+      await tx`select public.update_encounter_diagnosis(${apptEncounter}, ${hospital.id},
+                 ${await version()}, ${dx1},
+                 ${{ label: "Dengue fever with warning signs", certainty: "CONFIRMED",
+                     note: "Platelets falling" }})`;
+
+      const [updated] = await tx`
+        select id, label, certainty, note, position from public.encounter_diagnoses
+        where id = ${dx1}`;
+      check(
+        updated.label === "Dengue fever with warning signs" &&
+          updated.certainty === "CONFIRMED" &&
+          updated.note === "Platelets falling",
+        "a diagnosis label, certainty and note can all be corrected",
+      );
+      check(
+        updated.id === before.id && updated.position === before.position,
+        "…keeping its identity and its place in the list",
+        `${before.position} -> ${updated.position}`,
+      );
+
+      await tx`select public.update_encounter_diagnosis(${apptEncounter}, ${hospital.id},
+                 ${await version()}, ${dx1}, ${{ note: null }})`;
+      const [cleared] = await tx`
+        select label, certainty, note from public.encounter_diagnoses where id = ${dx1}`;
+      check(cleared.note === null, "a diagnosis note can be explicitly cleared");
+      check(
+        cleared.label === "Dengue fever with warning signs" && cleared.certainty === "CONFIRMED",
+        "…without disturbing the fields it did not mention",
+      );
+
+      await tx`select public.update_encounter_investigation(${apptEncounter}, ${hospital.id},
+                 ${await version()}, ${inv1}, ${{ name: "CBC with platelet count" }})`;
+      const [inv] = await tx`
+        select name, note, position from public.encounter_investigations where id = ${inv1}`;
+      check(
+        inv.name === "CBC with platelet count" && inv.note === "Rule out dengue",
+        "an investigation name can be corrected without losing its note",
+      );
+
+      await tx`select public.update_encounter_investigation(${apptEncounter}, ${hospital.id},
+                 ${await version()}, ${inv1}, ${{ note: null }})`;
+      const [invCleared] = await tx`
+        select name, note from public.encounter_investigations where id = ${inv1}`;
+      check(invCleared.note === null, "an investigation note can be explicitly cleared");
+
+      const [bumped] = await tx`
+        select version from public.encounters where id = ${apptEncounter}`;
+      const [evt] = await tx`
+        select event_type, detail from public.encounter_events
+        where encounter_id = ${apptEncounter} order by seq desc limit 1`;
+      check(
+        evt.event_type === "INVESTIGATION_UPDATED" &&
+          evt.detail.version === bumped.version &&
+          Array.isArray(evt.detail.fields),
+        "…each correction bumps the version and writes its own clinical event",
+        JSON.stringify(evt.detail),
+      );
+
+      const rejections = [
+        ["a stale diagnosis update is rejected", (t) =>
+          t`select public.update_encounter_diagnosis(${apptEncounter}, ${hospital.id}, 1, ${dx1},
+              ${{ label: "stale" }})`],
+        ["a stale investigation update is rejected", (t) =>
+          t`select public.update_encounter_investigation(${apptEncounter}, ${hospital.id}, 1,
+              ${inv1}, ${{ name: "stale" }})`],
+        ["a diagnosis cannot be updated through another encounter", async (t) => {
+          const [{ v }] = await t`select version as v from public.encounters where id = ${walkInEncounter}`;
+          await t`select public.update_encounter_diagnosis(${walkInEncounter}, ${chamber.id}, ${v},
+                    ${dx1}, ${{ label: "reached through the wrong encounter" }})`;
+        }],
+        ["an investigation cannot be updated through another encounter", async (t) => {
+          const [{ v }] = await t`select version as v from public.encounters where id = ${walkInEncounter}`;
+          await t`select public.update_encounter_investigation(${walkInEncounter}, ${chamber.id},
+                    ${v}, ${inv1}, ${{ name: "reached through the wrong encounter" }})`;
+        }],
+        ["a diagnosis cannot be updated from the wrong location", async (t) => {
+          const [{ v }] = await t`select version as v from public.encounters where id = ${apptEncounter}`;
+          await t`select public.update_encounter_diagnosis(${apptEncounter}, ${chamber.id}, ${v},
+                    ${dx1}, ${{ label: "wrong location" }})`;
+        }],
+        ["a diagnosis label cannot be cleared", async (t) => {
+          const [{ v }] = await t`select version as v from public.encounters where id = ${apptEncounter}`;
+          await t`select public.update_encounter_diagnosis(${apptEncounter}, ${hospital.id}, ${v},
+                    ${dx1}, ${{ label: null }})`;
+        }],
+        ["an investigation name cannot be cleared", async (t) => {
+          const [{ v }] = await t`select version as v from public.encounters where id = ${apptEncounter}`;
+          await t`select public.update_encounter_investigation(${apptEncounter}, ${hospital.id},
+                    ${v}, ${inv1}, ${{ name: null }})`;
+        }],
+        ["an invalid certainty is rejected without a raw enum error", async (t) => {
+          const [{ v }] = await t`select version as v from public.encounters where id = ${apptEncounter}`;
+          await t`select public.update_encounter_diagnosis(${apptEncounter}, ${hospital.id}, ${v},
+                    ${dx1}, ${{ certainty: "PROBABLY" }})`;
+        }],
+        ["an unknown diagnosis field is rejected", async (t) => {
+          const [{ v }] = await t`select version as v from public.encounters where id = ${apptEncounter}`;
+          await t`select public.update_encounter_diagnosis(${apptEncounter}, ${hospital.id}, ${v},
+                    ${dx1}, ${{ code: "A90" }})`;
+        }],
+        ["an unknown child id is a safe not-found", async (t) => {
+          const [{ v }] = await t`select version as v from public.encounters where id = ${apptEncounter}`;
+          await t`select public.update_encounter_diagnosis(${apptEncounter}, ${hospital.id}, ${v},
+                    ${crypto.randomUUID()}, ${{ label: "ghost" }})`;
+        }],
+      ];
+      for (const [label, fn] of rejections) check(await expectDenied(tx, fn), label);
+
+      // The wording of the invalid-certainty rejection must not be Postgres's.
+      let enumMessage = "";
+      try {
+        const [{ v }] = await tx`select version as v from public.encounters where id = ${apptEncounter}`;
+        await tx.savepoint(
+          (t) => t`select public.update_encounter_diagnosis(${apptEncounter}, ${hospital.id}, ${v},
+                     ${dx1}, ${{ certainty: "PROBABLY" }})`,
+        );
+      } catch (e) {
+        enumMessage = e.message;
+      }
+      check(
+        enumMessage.includes("PATCH_INVALID") && !/invalid input value for enum/.test(enumMessage),
+        "…with our own message, not the database's enum error",
+        enumMessage,
+      );
+
+      const [survived] = await tx`
+        select label, certainty from public.encounter_diagnoses where id = ${dx1}`;
+      check(
+        survived.label === "Dengue fever with warning signs" && survived.certainty === "CONFIRMED",
+        "…and every rejection left the row exactly as it was",
+      );
+    });
+
+    console.log("\nUpdates obey the same boundaries as every other write");
+    for (const [uid, who] of [[uidB, "a colleague doctor"], [uidR, "reception"]]) {
+      await as(tx, uid, async () => {
+        const denied = await expectDenied(tx, async (t) => {
+          await t`select public.update_encounter_diagnosis(${apptEncounter}, ${hospital.id}, 1,
+                    ${dx1}, ${{ label: "not theirs" }})`;
+        });
+        check(denied, `${who} cannot correct a diagnosis`);
+      });
+    }
 
     // ---- 13. history failure rolls back the clinical change ----------------
     console.log("\nClinical change and its history are atomic");
@@ -453,7 +902,7 @@ try {
     await as(tx, uidA, async () => {
       const rolled = await expectDenied(tx, async (t) => {
         await t`select public.save_encounter_sections(${apptEncounter}, ${hospital.id},
-                  ${beforeAtomic.version}, null, null, null, null, 'Likely viral')`;
+                  ${beforeAtomic.version}, '{"assessment":"Likely viral"}'::jsonb)`;
       });
       check(rolled, "a failing history write aborts the clinical change");
     });
@@ -483,12 +932,25 @@ try {
       const [{ v: v2 }] = await tx`select version as v from public.encounters where id = ${walkInEncounter}`;
       const attempts = [
         ["sections cannot be edited after completion", async (t) =>
-          t`select public.save_encounter_sections(${walkInEncounter}, ${chamber.id}, ${v2}, 'late')`],
+          t`select public.save_encounter_sections(${walkInEncounter}, ${chamber.id}, ${v2},
+              '{"advice":"late"}'::jsonb)`],
         ["a diagnosis cannot be added after completion", async (t) =>
           t`select public.add_encounter_diagnosis(${walkInEncounter}, ${chamber.id}, ${v2}, 'late',
               'PROVISIONAL'::public.diagnosis_certainty, null)`],
         ["an investigation cannot be added after completion", async (t) =>
           t`select public.add_encounter_investigation(${walkInEncounter}, ${chamber.id}, ${v2}, 'late', null)`],
+        ["a diagnosis cannot be corrected after completion", async (t) => {
+          const [d] = await t`
+            select id from public.encounter_diagnoses where encounter_id = ${walkInEncounter} limit 1`;
+          await t`select public.update_encounter_diagnosis(${walkInEncounter}, ${chamber.id}, ${v2},
+                    ${d?.id ?? crypto.randomUUID()}, ${{ label: "late correction" }})`;
+        }],
+        ["an investigation cannot be corrected after completion", async (t) => {
+          const [i] = await t`
+            select id from public.encounter_investigations where encounter_id = ${walkInEncounter} limit 1`;
+          await t`select public.update_encounter_investigation(${walkInEncounter}, ${chamber.id},
+                    ${v2}, ${i?.id ?? crypto.randomUUID()}, ${{ name: "late correction" }})`;
+        }],
         ["it cannot be closed twice", async (t) =>
           t`select public.close_encounter(${walkInEncounter}, ${chamber.id}, ${v2},
               'CANCELLED'::public.encounter_status)`],
@@ -583,7 +1045,7 @@ try {
     insert into public.appointments (owner_doctor_id, practice_location_id, patient_id,
                                      scheduled_for, session_date, status, created_by)
     values (${cDoc.id}, ${cLoc.id}, ${cPatient.id},
-            '2026-09-01T10:00:00+06:00'::timestamptz, '2026-09-01', 'ARRIVED', ${cUid})
+            '2026-09-01T10:00:00+06:00'::timestamptz, '2026-09-01', 'IN_CONSULTATION', ${cUid})
     returning id`;
 
   const claims = JSON.stringify({ sub: cUid, role: "authenticated" });
@@ -631,7 +1093,7 @@ try {
 
   const saves = await race(
     (t) => t`select public.save_encounter_sections(${encounterId}, ${cLoc.id}, ${v0},
-               ${`note from ${Math.random()}`})`,
+               ${{ chiefComplaints: `note from ${Math.random()}` }})`,
   );
   const won = saves.filter((r) => r.ok).length;
   check(won === 1, "two simultaneous saves on one version: exactly one wins", `${won} won`);
