@@ -81,30 +81,22 @@ revoke all on function public.may_hand_over_prescription(uuid) from public, anon
 grant execute on function public.may_hand_over_prescription(uuid) to authenticated;
 
 -- -----------------------------------------------------------------------------
--- READ policies
+-- READS ARE RPC-ONLY TOO, and that is the point.
+--
+-- A location-scoped read FUNCTION is not a boundary while the caller can also
+-- `select * from prescriptions`. A receptionist with memberships at two clinics
+-- would simply skip the function and read both — the scoping would be a
+-- convention, not a rule. RLS filters ROWS by what a user MAY see; it cannot
+-- express "…and only at the location you are working in right now", because
+-- that is session state the database never sees.
+--
+-- So SELECT is revoked on the two tables that carry a location, and every read
+-- goes through a function that takes the active location as an argument.
+-- `prescription_events` keeps an ordinary policy: it is doctor-only and has no
+-- location dimension to scope, so there is nothing for a direct read to bypass.
 -- -----------------------------------------------------------------------------
 drop policy if exists prescriptions_select on public.prescriptions;
-create policy prescriptions_select
-  on public.prescriptions for select to authenticated
-  using (
-    owner_doctor_id = public.current_doctor_id()
-    or (
-      status = 'FINALIZED'
-      and (
-        public.runs_front_desk_at(practice_location_id)
-        or public.has_location_role(practice_location_id, array['LOCATION_ADMIN']::public.location_role[])
-      )
-      and public.may_see_patient(patient_id)
-    )
-  );
-
 drop policy if exists prescription_items_select on public.prescription_items;
-create policy prescription_items_select
-  on public.prescription_items for select to authenticated
-  using (
-    public.owns_prescription(prescription_id)
-    or public.may_hand_over_prescription(prescription_id)
-  );
 
 /**
  * Clinical history is DOCTOR-ONLY, even for a finalised prescription. Reception
@@ -115,21 +107,11 @@ create policy prescription_events_select
   on public.prescription_events for select to authenticated
   using (public.owns_prescription(prescription_id));
 
--- -----------------------------------------------------------------------------
--- WRITES ARE RPC-ONLY.
---
--- Supabase's default privileges hand `authenticated` every verb on a new table,
--- so omitting a verb from a GRANT does not remove it. Each must be revoked, and
--- no write policy exists — one would advertise a direct path that must not be
--- taken, and would let a future GRANT quietly re-open it.
--- -----------------------------------------------------------------------------
-grant select on public.prescriptions       to authenticated;
-grant select on public.prescription_items  to authenticated;
 grant select on public.prescription_events to authenticated;
 
-revoke insert, update, delete on public.prescriptions       from authenticated;
-revoke insert, update, delete on public.prescription_items  from authenticated;
-revoke insert, update, delete on public.prescription_events from authenticated;
+revoke select, insert, update, delete on public.prescriptions      from authenticated;
+revoke select, insert, update, delete on public.prescription_items from authenticated;
+revoke insert, update, delete on public.prescription_events        from authenticated;
 
 -- -----------------------------------------------------------------------------
 -- Write-once storage for finalised assets.
@@ -153,12 +135,53 @@ create policy prescription_assets_insert
     and (storage.foldername(name))[1] = auth.uid()::text
   );
 
+/**
+ * Who may fetch a frozen signature.
+ *
+ * The doctor who owns it, and anyone entitled to hand the finalised
+ * prescription over. Reception must be able to PRINT what they are allowed to
+ * print — a policy that only let the owner read it would leave the signature
+ * block blank on the one copy that matters.
+ *
+ * The prescription id is the SECOND path segment. Parsed defensively: an
+ * unparseable name simply is not readable, rather than raising inside a policy
+ * and taking the whole query down.
+ */
+create or replace function public.may_read_prescription_asset(object_name text)
+returns boolean
+language plpgsql
+stable
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_parts text[] := storage.foldername(object_name);
+  v_rx    uuid;
+begin
+  if array_length(v_parts, 1) is null or array_length(v_parts, 1) < 2 then
+    return false;
+  end if;
+  if v_parts[1] = auth.uid()::text then
+    return true;
+  end if;
+  begin
+    v_rx := v_parts[2]::uuid;
+  exception when others then
+    return false;
+  end;
+  return public.may_hand_over_prescription(v_rx);
+end;
+$$;
+
+revoke all on function public.may_read_prescription_asset(text) from public, anon;
+grant execute on function public.may_read_prescription_asset(text) to authenticated;
+
 drop policy if exists prescription_assets_select on storage.objects;
 create policy prescription_assets_select
   on storage.objects for select to authenticated
   using (
     bucket_id = 'prescription-assets'
-    and (storage.foldername(name))[1] = auth.uid()::text
+    and public.may_read_prescription_asset(name)
   );
 
 /**

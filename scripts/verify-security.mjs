@@ -176,6 +176,27 @@ if (users.length === 0) {
   }
 }
 
+/**
+ * TRUNCATE bypasses Row Level Security entirely.
+ *
+ * Supabase's default privileges hand `authenticated` every verb on a new
+ * table, TRUNCATE included — so a signed-in user could empty patients,
+ * encounters or prescriptions, and `cascade` would take the audit trail with
+ * it. No policy in supabase/policies is consulted for a TRUNCATE, so this is
+ * the only thing standing in the way.
+ */
+console.log("\nTRUNCATE is revoked everywhere");
+const truncatable = await sql`
+  select table_name from information_schema.role_table_grants
+  where table_schema = 'public' and grantee in ('authenticated', 'anon')
+    and privilege_type = 'TRUNCATE'
+  order by 1`;
+check(
+  truncatable.length === 0,
+  "no public table may be truncated by authenticated or anon",
+  truncatable.map((t) => t.table_name).join(", "),
+);
+
 await sql.end();
 
 console.log(

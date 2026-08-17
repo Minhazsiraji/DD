@@ -1215,6 +1215,18 @@ export const prescriptions = pgTable(
     locationSnapshot: jsonb("location_snapshot"),
     patientSnapshot: jsonb("patient_snapshot"),
     templateSnapshot: jsonb("template_snapshot"),
+    /** The medicine lines exactly as approved, so a reprint cannot drift. */
+    itemsSnapshot: jsonb("items_snapshot"),
+    /** The frozen signature's TRUSTED identity, read from storage at finalisation. */
+    signatureSnapshot: jsonb("signature_snapshot"),
+    /**
+     * SHA-256 of the canonical review bundle the doctor approved.
+     *
+     * Every stored snapshot is built by trusted code, so this is not what makes
+     * them authentic — it is what proves the doctor saw THIS content and not
+     * something edited a moment later in another tab.
+     */
+    reviewDigest: text("review_digest"),
     /** The template this was resolved from, for provenance only. */
     templateId: uuid("template_id").references(() => prescriptionTemplates.id, {
       onDelete: "set null",
@@ -1261,6 +1273,8 @@ export const prescriptions = pgTable(
         and location_snapshot is not null
         and patient_snapshot is not null
         and template_snapshot is not null
+        and items_snapshot is not null
+        and review_digest is not null
       )`,
     ),
     check(

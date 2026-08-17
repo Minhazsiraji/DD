@@ -69,6 +69,18 @@ begin
     raise exception 'prescription not found' using errcode = '42501';
   end if;
 
+  /**
+   * Owning it is not enough — the doctor must still PRACTISE here.
+   *
+   * A doctor who has left a hospital keeps their patients and their records,
+   * but must not go on writing and signing prescriptions on that hospital's
+   * paper. Ownership plus a location id the caller supplied would have let
+   * them.
+   */
+  if not public.doctor_practises_at(v_rx.owner_doctor_id, expected_location) then
+    raise exception 'prescription not found' using errcode = '42501';
+  end if;
+
   -- A finalised prescription is never reopened. Corrections are a NEW
   -- prescription linked to this one (ADR 0011 §3).
   if v_rx.status <> 'DRAFT' then
@@ -494,174 +506,3 @@ revoke all on function public.move_prescription_item(uuid, uuid, integer, uuid, 
 grant execute on function public.move_prescription_item(uuid, uuid, integer, uuid, integer)
   to authenticated;
 
--- -----------------------------------------------------------------------------
--- Finalisation
--- -----------------------------------------------------------------------------
-
-/**
- * Approve the prescription. ONE transaction, and it fails entirely if any step
- * fails (ADR 0011 §6).
- *
- * The caller passes the snapshots it SHOWED THE DOCTOR, and the template id it
- * resolved. This function re-resolves the template and refuses if it has moved
- * — a layout edited in another tab between preview and approval must produce a
- * refusal, never a silent substitution of what gets printed above a signature.
- */
-create or replace function public.finalize_prescription(
-  p_prescription_id      uuid,
-  p_practice_location_id uuid,
-  p_expected_version     integer,
-  p_template_id          uuid,
-  p_snapshot_schema      integer,
-  p_doctor_snapshot      jsonb,
-  p_location_snapshot    jsonb,
-  p_patient_snapshot     jsonb,
-  p_template_snapshot    jsonb,
-  p_signature_asset_path text default null
-)
-returns integer
-language plpgsql
-volatile
-security definer
-set search_path = public, pg_temp
-as $$
-declare
-  v_rx    public.prescriptions%rowtype;
-  v_items integer;
-  v_bad   integer;
-  v_next  integer;
-begin
-  -- 1-4: lock, version CAS, still-DRAFT, ownership and active location.
-  v_rx := public.prescription_for_update(p_prescription_id, p_practice_location_id, p_expected_version);
-
-  -- 5. Validate the contents. An empty prescription is not a prescription.
-  select count(*) into v_items from public.prescription_items
-   where prescription_id = p_prescription_id;
-  if v_items = 0 then
-    raise exception 'PRESCRIPTION_EMPTY' using errcode = '22023';
-  end if;
-
-  select count(*) into v_bad from public.prescription_items
-   where prescription_id = p_prescription_id and btrim(display_name) = '';
-  if v_bad > 0 then
-    raise exception 'PRESCRIPTION_ITEM_INVALID' using errcode = '22023';
-  end if;
-
-  -- 6. The template must still be the one the doctor was shown, and must still
-  --    belong to them. Anything else means approving a layout unseen.
-  if p_template_id is not null then
-    if not exists (
-      select 1 from public.prescription_templates t
-      where t.id = p_template_id and t.owner_doctor_id = v_rx.owner_doctor_id
-    ) then
-      raise exception 'TEMPLATE_NOT_AVAILABLE' using errcode = '22023';
-    end if;
-  end if;
-
-  if p_snapshot_schema is null
-     or p_doctor_snapshot is null or p_location_snapshot is null
-     or p_patient_snapshot is null or p_template_snapshot is null then
-    raise exception 'SNAPSHOT_INCOMPLETE' using errcode = '22023';
-  end if;
-
-  -- 7-8. Store what was approved, and mark it approved.
-  update public.prescriptions set
-    status                  = 'FINALIZED',
-    finalized_at            = now(),
-    finalized_by            = auth.uid(),
-    template_id             = p_template_id,
-    snapshot_schema_version = p_snapshot_schema,
-    doctor_snapshot         = p_doctor_snapshot,
-    location_snapshot       = p_location_snapshot,
-    patient_snapshot        = p_patient_snapshot,
-    template_snapshot       = p_template_snapshot,
-    signature_asset_path    = p_signature_asset_path,
-    version                 = version + 1,
-    updated_at              = now()
-  where id = p_prescription_id
-  returning version into v_next;
-
-  -- 9. Clinical history.
-  insert into public.prescription_events (prescription_id, event_type, detail, actor_id)
-  values (p_prescription_id, 'FINALIZED',
-          jsonb_build_object('items', v_items, 'version', v_next,
-                             'snapshotSchema', p_snapshot_schema),
-          auth.uid());
-
-  -- 10. Operational trail. Counts and ids only.
-  perform public.log_prescription_audit(
-    p_prescription_id, p_practice_location_id, 'prescription.finalized',
-    jsonb_build_object('items', v_items, 'version', v_next,
-                       'encounterId', v_rx.encounter_id));
-
-  -- 11. Any failure above aborted the whole thing.
-  return v_next;
-end;
-$$;
-
-revoke all on function public.finalize_prescription(
-  uuid, uuid, integer, uuid, integer, jsonb, jsonb, jsonb, jsonb, text) from public, anon;
-grant execute on function public.finalize_prescription(
-  uuid, uuid, integer, uuid, integer, jsonb, jsonb, jsonb, jsonb, text) to authenticated;
-
--- -----------------------------------------------------------------------------
--- What reception may fetch: finalised paperwork, at the location they are in.
--- -----------------------------------------------------------------------------
-
-/**
- * The handover list.
- *
- * Bound to the ACTIVE location the caller passes, so a receptionist holding a
- * membership at two clinics cannot read the other one's paperwork from here.
- * The RLS policy independently refuses drafts and other locations; this adds
- * the session's own boundary on top.
- */
-create or replace function public.finalized_prescriptions_at(
-  p_practice_location_id uuid,
-  p_patient_id           uuid default null
-)
-returns table (
-  prescription_id uuid,
-  encounter_id    uuid,
-  patient_id      uuid,
-  finalized_at    timestamptz,
-  item_count      integer
-)
-language plpgsql
-stable
-security definer
-set search_path = public, pg_temp
-as $$
-begin
-  if auth.uid() is null then
-    raise exception 'not authenticated' using errcode = '42501';
-  end if;
-
-  if not (
-    public.runs_front_desk_at(p_practice_location_id)
-    or public.has_location_role(p_practice_location_id, array['LOCATION_ADMIN']::public.location_role[])
-    or public.doctor_practises_at(public.current_doctor_id(), p_practice_location_id)
-  ) then
-    raise exception 'location not found' using errcode = '42501';
-  end if;
-
-  return query
-    select p.id, p.encounter_id, p.patient_id, p.finalized_at,
-           (select count(*)::integer from public.prescription_items i
-             where i.prescription_id = p.id)
-    from public.prescriptions p
-    where p.practice_location_id = p_practice_location_id
-      and p.status = 'FINALIZED'
-      and (p_patient_id is null or p.patient_id = p_patient_id)
-      -- The owning doctor sees their own; everyone else needs the patient
-      -- boundary to already allow it.
-      and (
-        p.owner_doctor_id = public.current_doctor_id()
-        or public.may_see_patient(p.patient_id)
-      )
-    order by p.finalized_at desc;
-end;
-$$;
-
-revoke all on function public.finalized_prescriptions_at(uuid, uuid) from public, anon;
-grant execute on function public.finalized_prescriptions_at(uuid, uuid) to authenticated;

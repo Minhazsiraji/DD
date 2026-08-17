@@ -85,6 +85,13 @@
       "when": 1786949254281,
       "tag": "0011_stiff_tombstone",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1786954845473,
+      "tag": "0012_small_annihilus",
+      "breakpoints": true
     }
   ]
 }
