@@ -101,6 +101,24 @@ if (mode === "destroy") {
        * consultation cannot be erased as a side effect of tidying up, which is
        * the whole point of Stage 6A's foreign keys.
        */
+      /**
+       * Prescriptions before encounters. `prescriptions.encounter_id`
+       * RESTRICTS, so an encounter that was prescribed from cannot be tidied
+       * away until its prescription is — and the replacement chain has to
+       * unwind newest-first for the same reason.
+       */
+      const prescriptions = await sql`
+        select id from public.prescriptions
+        where practice_location_id in ${sql(locationIds)}`;
+      if (prescriptions.length > 0) {
+        const rxIds = prescriptions.map((r) => r.id);
+        await sql`delete from public.prescription_events where prescription_id in ${sql(rxIds)}`;
+        await sql`delete from public.prescription_items where prescription_id in ${sql(rxIds)}`;
+        await sql`update public.prescriptions set replaces_prescription_id = null
+                  where id in ${sql(rxIds)}`;
+        await sql`delete from public.prescriptions where id in ${sql(rxIds)}`;
+      }
+
       const encounters = await sql`
         select id from public.encounters
         where practice_location_id in ${sql(locationIds)}`;

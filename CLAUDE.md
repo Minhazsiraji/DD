@@ -5,7 +5,7 @@
 AI-enabled clinical + chamber operating system for doctors. One responsive
 Next.js app (desktop, tablet, mobile, installable PWA). No separate native app.
 
-**Current phase: Stage 7A — prescription database foundation, awaiting review.**
+**Current phase: Stage 7B — prescription composer (draft only), awaiting review.**
 Done: scaffold and design system (1), auth + RBAC + RLS + audit (2), MFA and
 device security (2.5), ADRs (2.6), patients (3) with two hardening rounds,
 doctor identity + prescription templates with an A4 preview, appointments (4),
@@ -15,11 +15,17 @@ Stage 6 is accepted in full: 6A (encounter database), 6B (consultation screen)
 and 6C (diagnoses and investigations), all on ONE shared encounter version and
 ONE mutation queue (ADR 0010 §6c).
 
-Stage 7A is the prescription DATABASE ONLY — schema, RLS, RPCs, the
-finalisation contract and verification (ADR 0011). **There is no composer, no
-medicine search, no print and no PDF, and none is to be built until 7A is
-approved.** Investigation RESULTS, encounter completion and encounter
-amendment are still not built.
+Stage 7A (prescription database — schema, RLS, RPCs, the finalisation contract
+and verification, ADR 0011) is accepted and closed, including its security gate
+(`npm run db:gate`).
+
+Stage 7B is the prescription COMPOSER and it is a **DRAFT workflow only**:
+open/resume, add, edit, remove, reorder, suggestions from the doctor's own
+signed wording, save states and version conflicts. **There is no approval, no
+finalisation UI, no print, no PDF, no voice and no AI in it, and none is to be
+built until 7B is approved.** `finalize_prescription` is called from nowhere in
+the app. Investigation RESULTS, encounter completion and encounter amendment
+are still not built.
 
 Detailed architecture: `docs/architecture.md` (do not load unless needed).
 
@@ -200,11 +206,13 @@ squeeze — and it hides the bottom nav.
   `UnsavedGuard`.** It intercepts anchor clicks in the capture phase and guards
   `popstate`, which covers every navigation control in the shell today. A
   programmatic `router.push()` — or anything equivalent — BYPASSES it silently
-  and drops typed clinical text with no warning. If programmatic navigation is
-  ever needed from the consultation screen, add a guarded navigation API or give
-  the consultation its own shell with a single guarded exit; do not call the
-  router directly. The guard's `dirty` input must include every unsaved editor
-  on the screen, not only the notes draft.
+  and drops typed clinical text with no warning. Use
+  `requestGuardedNavigation(run, onCancel)` from the same module instead; never
+  call the router directly from a guarded screen. **Pass `onCancel` whenever the
+  caller entered a loading state on the way in** — the prescription entry button
+  sat at "Opening…" for the rest of the consultation without it, found by
+  clicking it. The guard's `dirty` input must include every unsaved editor on
+  the screen, not only the notes draft.
 - **Never raise SQLSTATE `40001` for a business rule.** It means
   `serialization_failure` — "transient, retrying may succeed" — and PostgREST
   duly retries it. A deterministic refusal (a version conflict, a state-machine
@@ -262,6 +270,11 @@ squeeze — and it hides the bottom nav.
     npm run db:verify:queue
     npm run db:verify:encounters # clinical boundary, version CAS, one-draft race
     npm run db:verify:prescriptions # identity, handover boundary, immutability
+    npm run db:gate              # Stage 7A security gate: a FRESH database built
+                                 # from migrations + policies, then an adversarial
+                                 # suite. Run it with NO QA fixture present — it
+                                 # asserts that no `@qa.invalid` user is left over
+                                 # and `qa:create` accounts will fail that check.
     npm run db:verify:migrations # replays every migration into a throwaway
                                  # database, then rehearses the shape-changing
                                  # one against a database that holds rows

@@ -5,6 +5,45 @@ import { useRouter } from "next/navigation";
 import { TriangleAlert } from "lucide-react";
 
 /**
+ * A departure the guard has agreed to but not yet performed.
+ *
+ * A plain pathname covers every link in the shell. `__back__` is the history
+ * entry the guard itself pushed. `run` is the escape hatch for a departure that
+ * cannot be expressed as an href — the callback is executed only after the
+ * doctor has answered, exactly where `router.push` would have run.
+ */
+type PendingNav =
+  | { kind: "path"; path: string }
+  | { kind: "back" }
+  | { kind: "run"; run: () => void; onCancel?: () => void };
+
+/**
+ * The one registered guard, if a guarded screen is mounted.
+ *
+ * A module-level handle rather than a context because the guard is a sibling of
+ * the screen it protects, not its ancestor — and only one guarded screen is
+ * ever mounted at a time.
+ */
+let activeGuard: ((run: () => void, onCancel?: () => void) => void) | null = null;
+
+/**
+ * Programmatic navigation that still asks.
+ *
+ * `router.push()` called directly from a guarded screen silently discards typed
+ * clinical text: the guard only sees anchor clicks and `popstate`. Anything
+ * that must navigate by code goes through here instead, and if nothing is
+ * mounted to ask, it simply proceeds.
+ *
+ * `onCancel` runs if the doctor decides to stay. A caller that put itself into a
+ * loading state on the way in MUST supply it, or staying leaves the control it
+ * came from disabled forever — found exactly that way in the browser.
+ */
+export function requestGuardedNavigation(run: () => void, onCancel?: () => void) {
+  if (activeGuard) activeGuard(run, onCancel);
+  else run();
+}
+
+/**
  * Leaving a consultation with unsaved notes.
  *
  * `beforeunload` covers reload, closing the tab and typing a new URL. It does
@@ -12,18 +51,19 @@ import { TriangleAlert } from "lucide-react";
  * this screen: a sidebar link, a search result, the browser's Back button. Any
  * of those would drop typed clinical text with no warning at all.
  *
- * So three routes are covered:
+ * So four routes are covered:
  *
  *   1. beforeunload      — reload / close / external
  *   2. captured clicks   — every internal link in the shell
  *   3. popstate          — Back and Forward
+ *   4. requestGuardedNavigation — departures with no href to click
  *
  * Nothing is ever saved automatically on the way out. The doctor decides, and
  * cancelling leaves every character exactly where it was.
  */
 export function UnsavedGuard({ dirty }: { dirty: boolean }) {
   const router = useRouter();
-  const [pending, setPending] = React.useState<string | null>(null);
+  const [pending, setPending] = React.useState<PendingNav | null>(null);
 
   /**
    * Read inside listeners that are registered once — a stale `dirty` captured
@@ -75,11 +115,32 @@ export function UnsavedGuard({ dirty }: { dirty: boolean }) {
 
       e.preventDefault();
       e.stopPropagation();
-      setPending(url.pathname + url.search);
+      setPending({ kind: "path", path: url.pathname + url.search });
     };
 
     document.addEventListener("click", onClick, true);
     return () => document.removeEventListener("click", onClick, true);
+  }, []);
+
+  /**
+   * Register for programmatic departures.
+   *
+   * Clean, or already approved, and the callback runs at once — the guard exists
+   * to ask, not to add a click.
+   */
+  React.useEffect(() => {
+    const ask = (run: () => void, onCancel?: () => void) => {
+      if (!isDirty.current || leaving.current) {
+        leaving.current = true;
+        run();
+        return;
+      }
+      setPending({ kind: "run", run, onCancel });
+    };
+    activeGuard = ask;
+    return () => {
+      if (activeGuard === ask) activeGuard = null;
+    };
   }, []);
 
   /**
@@ -103,7 +164,7 @@ export function UnsavedGuard({ dirty }: { dirty: boolean }) {
       if (isDirty.current && !leaving.current) {
         // Undo the browser's move, then ask.
         window.history.pushState(null, "", window.location.href);
-        setPending("__back__");
+        setPending({ kind: "back" });
         return;
       }
       // Clean, or already approved: spend the spare entry rather than sitting on it.
@@ -115,17 +176,31 @@ export function UnsavedGuard({ dirty }: { dirty: boolean }) {
     return () => window.removeEventListener("popstate", onPop);
   }, []);
 
+  /**
+   * The doctor is staying. Anything that entered a loading state on the way to
+   * the question has to be told, or it stays loading with nothing to load.
+   */
+  function stay() {
+    if (pending?.kind === "run") pending.onCancel?.();
+    setPending(null);
+  }
+
   function leave() {
     const target = pending;
     leaving.current = true;
     setPending(null);
+    if (!target) return;
 
-    if (target === "__back__") {
+    if (target.kind === "back") {
       sentinel.current = false;
       window.history.go(-2);
       return;
     }
-    if (target) router.push(target);
+    if (target.kind === "run") {
+      target.run();
+      return;
+    }
+    router.push(target.path);
   }
 
   if (!pending) return null;
@@ -155,7 +230,7 @@ export function UnsavedGuard({ dirty }: { dirty: boolean }) {
           <button
             type="button"
             autoFocus
-            onClick={() => setPending(null)}
+            onClick={stay}
             className="inline-flex h-11 items-center justify-center rounded-xl bg-brand px-4 text-[13px] font-semibold text-white shadow-soft hover:bg-brand-hover focus-visible:focus-ring"
           >
             Stay and save

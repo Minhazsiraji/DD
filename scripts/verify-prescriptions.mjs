@@ -129,6 +129,7 @@ for (const fn of [
   "finalized_prescriptions_at",
   "prescriptions_for_doctor",
   "prescription_detail",
+  "prescription_item_suggestions",
   "may_read_prescription_asset",
   "owns_prescription",
   "may_hand_over_prescription",
@@ -896,6 +897,71 @@ try {
       select detail::text as d from public.prescription_events
       where prescription_id = ${rx} and event_type = 'ITEM_ADDED' limit 1`;
     check(/Napa/.test(clinical.d), "the clinical history DOES name the medicine");
+
+    // ---- 16b. suggestions are the doctor's own signed wording only ---------
+    /**
+     * `prescription_item_suggestions` is the ONLY thing Stage 7B added to the
+     * database, and it is SECURITY DEFINER — so it gets the same treatment as
+     * every other read: proved to be scoped, not assumed to be.
+     *
+     * It is deliberately NOT a source of truth. It returns text, never an item
+     * id, so choosing a suggestion copies wording into the current draft and a
+     * finalised prescription can never change because a later one was worded
+     * differently.
+     */
+    console.log("\nMedicine suggestions");
+
+    // A DRAFT line, so the FINALIZED-only filter has something to exclude.
+    await as(tx, uidA, async () => {
+      await tx`select public.add_prescription_item(${replacement}, ${hospital.id},
+                 ${await version(replacement)}, ${{ displayName: "Zzqadraftonly 999" }})`;
+    });
+
+    await as(tx, uidA, async () => {
+      const own = await tx`select * from public.prescription_item_suggestions('Napa', 8)`;
+      check(
+        own.some((r) => r.display_name === "Napa 500"),
+        "a doctor is offered wording from their own finalised prescriptions",
+      );
+      check(
+        own.every((r) => Object.keys(r).every((k) => k !== "id" && !k.endsWith("_id"))),
+        "…as text only, carrying no item id to bind a draft to history",
+      );
+
+      const draftOnly = await tx`select * from public.prescription_item_suggestions('Zzqa', 8)`;
+      check(draftOnly.length === 0, "a DRAFT medicine is never suggested");
+
+      const across = await tx`select * from public.prescription_item_suggestions('Chamber', 8)`;
+      check(
+        across.some((r) => r.display_name === "Chamber medicine"),
+        "…and the doctor's own history spans their own locations (one timeline)",
+      );
+
+      const nothing = await tx`select * from public.prescription_item_suggestions('Qqqzzz', 8)`;
+      check(nothing.length === 0, "the query filter actually filters");
+
+      const capped = await tx`select * from public.prescription_item_suggestions(null, 1)`;
+      check(capped.length <= 1, "the limit is honoured");
+    });
+
+    await as(tx, uidB, async () => {
+      const other = await tx`select * from public.prescription_item_suggestions('Napa', 8)`;
+      check(
+        other.length === 0,
+        "a colleague at the SAME hospital gets none of Dr A's wording",
+        other.map((r) => r.display_name).join(", "),
+      );
+    });
+
+    await as(tx, uidR, async () => {
+      // Refused outright rather than answered with an empty list. Nobody but a
+      // doctor prescribes, so a non-doctor asking is a bug or an attack, and
+      // both are better raised than quietly returned as "nothing here".
+      const staffRefused = await expectDenied(tx, async (t) => {
+        await t`select * from public.prescription_item_suggestions(null, 8)`;
+      });
+      check(staffRefused, "reception is refused, not answered with an empty list");
+    });
 
     // ---- 17. history survives deletion attempts ----------------------------
     console.log("\nHistory cannot be erased by deleting a parent");

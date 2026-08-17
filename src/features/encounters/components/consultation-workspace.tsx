@@ -9,6 +9,7 @@ import { FindingConflictPanel } from "./finding-conflict-panel";
 import { SaveBar } from "./save-bar";
 import { UnsavedGuard } from "./unsaved-guard";
 import { FindingList } from "./finding-list";
+import { OpenPrescriptionButton } from "@/features/prescriptions/components/open-prescription-button";
 import { useConsultation } from "../use-consultation";
 import {
   addDiagnosisAction,
@@ -265,6 +266,12 @@ export function ConsultationWorkspace({
           onCancelRemove={s.cancelRemove}
           onConfirmRemove={(row) => confirmRemove("investigation", row)}
         />
+
+        {/*
+          Prescribing is a separate screen, not a section — it has its own
+          aggregate, its own version and its own conflicts (ADR 0011 §1).
+        */}
+        {readOnly ? null : <OpenPrescriptionButton encounterId={consultation.id} />}
       </div>
 
       {readOnly ? null : (
