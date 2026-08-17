@@ -74,13 +74,42 @@ export function versionMoved(earned: number, observed: number): boolean {
 }
 
 /**
- * Every list mutation answers one of three ways.
+ * The version an RPC reported, or null if it cannot be believed.
+ *
+ * `Number(data) || expected + 1` was the wrong shape: null, 0, NaN and a
+ * malformed payload all fell through to a guess that LOOKED like success. A
+ * version we invented is then sent as the expected version of the next
+ * mutation, so one unnoticed anomaly becomes a wrong write.
+ *
+ * The accepted contract is exact — every mutating RPC advances the version by
+ * one — so anything else means we no longer know the state of the record and
+ * must stop rather than continue on an assumption.
+ */
+export function acceptVersion(data: unknown, expectedVersion: number): number | null {
+  if (typeof data !== "number" && typeof data !== "string") return null;
+  const n = Number(data);
+  if (!Number.isInteger(n) || n <= 0) return null;
+  if (n !== expectedVersion + 1) return null;
+  return n;
+}
+
+/**
+ * Every list mutation answers one of four ways.
  *
  * A conflict carries the encounter's CURRENT state, because a conflict is about
  * the encounter rather than about one widget: whatever moved it, the notes and
  * both lists on this screen are now potentially behind.
+ *
+ * `unconfirmed` is the uncomfortable one, and it exists because the honest
+ * answer is sometimes "we do not know". The write may well have committed; what
+ * failed was learning the result. It must never read as a failure — that
+ * invites a duplicate clinical record — and never as a success.
  */
 export type ListResult =
   | { ok: true; version: number }
   | { ok: false; kind: "conflict"; message: string; server: ServerState }
+  | { ok: false; kind: "unconfirmed"; message: string }
   | { ok: false; kind: "error"; message: string };
+
+export const UNCONFIRMED_MESSAGE =
+  "Saved, but the updated list could not be loaded. Do not add it again — retry loading to see the current record.";

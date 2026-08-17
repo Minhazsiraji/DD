@@ -3,106 +3,66 @@
 import * as React from "react";
 import { CircleAlert, Pencil, Plus, Trash2 } from "lucide-react";
 import { SectionCard, SectionHeader } from "@/components/common/section-card";
-import { certaintyLabel, type Certainty, type ListResult } from "../list-schema";
-import { FindingForm, emptyFinding, type FindingDraft } from "./finding-form";
-
-export interface FindingRow {
-  id: string;
-  title: string;
-  note: string | null;
-  position: number;
-  certainty?: string;
-}
+import { certaintyLabel } from "../list-schema";
+import type { FindingDraft, FindingEditor, FindingRow, ListKind } from "../finding-types";
+import { FindingForm } from "./finding-form";
 
 /**
  * Diagnoses or investigations for this consultation.
  *
- * Rows render in the DATABASE's `position` order, never re-sorted here: the
- * order a doctor put their findings in is part of the record, and the RPCs
- * close the gap when one is removed.
+ * CONTROLLED: the open editor and the pending removal live in the coordinator,
+ * not here. That is not tidiness — it is what lets a conflict inspect the row a
+ * doctor is editing, and what stops an editor becoming stranded when its row is
+ * deleted elsewhere (this list would otherwise keep `{editing: goneId}`
+ * forever: no form rendered, Add hidden, and typed text nobody could reach).
  *
- * Neither list is required. An empty one says so plainly rather than nagging.
+ * Rows render in the DATABASE's `position` order, never re-sorted here.
+ * Neither list is required; an empty one says so plainly rather than nagging.
  */
 export function FindingList({
   kind,
   title,
   icon,
   rows,
+  editor,
+  confirmingRow,
   readOnly,
   busy,
   blocked,
   error,
-  onAdd,
-  onUpdate,
-  onRemove,
-  onDirtyChange,
+  onOpenAdd,
+  onOpenEdit,
+  onCloseEditor,
+  onDraftChange,
+  onSubmit,
+  onAskRemove,
+  onCancelRemove,
+  onConfirmRemove,
   onDismissError,
 }: {
-  kind: "diagnosis" | "investigation";
+  kind: ListKind;
   title: string;
   icon: React.ReactNode;
   rows: FindingRow[];
+  editor: FindingEditor | null;
+  confirmingRow: FindingRow | null;
   readOnly: boolean;
   /** A mutation from THIS list is in flight. */
   busy: boolean;
-  /** Something else on the screen is mutating, or a conflict is unresolved. */
+  /** Something else owns the encounter: another mutation, a conflict, a desync. */
   blocked: boolean;
   error: string | null;
-  onAdd: (draft: FindingDraft) => Promise<ListResult | null>;
-  onUpdate: (row: FindingRow, draft: FindingDraft) => Promise<ListResult | null>;
-  onRemove: (row: FindingRow) => Promise<ListResult | null>;
-  /** True while an add or edit form holds text that is not in the record. */
-  onDirtyChange: (dirty: boolean) => void;
+  onOpenAdd: () => void;
+  onOpenEdit: (row: FindingRow) => void;
+  onCloseEditor: () => void;
+  onDraftChange: (draft: FindingDraft) => void;
+  onSubmit: () => void;
+  onAskRemove: (row: FindingRow) => void;
+  onCancelRemove: () => void;
+  onConfirmRemove: (row: FindingRow) => void;
   onDismissError: () => void;
 }) {
-  const [mode, setMode] = React.useState<"idle" | "add" | { editing: string }>("idle");
-  const [draft, setDraft] = React.useState<FindingDraft>(emptyFinding());
-  const [confirming, setConfirming] = React.useState<string | null>(null);
-
-  const formOpen = mode !== "idle";
-  const dirty = formOpen && (draft.title.trim() !== "" || draft.note.trim() !== "");
-
-  // Reported upward so the navigation guard covers a half-written finding, not
-  // only the notes draft.
-  React.useEffect(() => {
-    onDirtyChange(dirty);
-    return () => onDirtyChange(false);
-  }, [dirty, onDirtyChange]);
-
-  function startAdd() {
-    onDismissError();
-    setDraft(emptyFinding());
-    setMode("add");
-  }
-
-  function startEdit(row: FindingRow) {
-    onDismissError();
-    setDraft({
-      title: row.title,
-      note: row.note ?? "",
-      certainty: (row.certainty as Certainty) ?? "PROVISIONAL",
-    });
-    setMode({ editing: row.id });
-  }
-
-  function close() {
-    setMode("idle");
-    setDraft(emptyFinding());
-  }
-
-  async function submit() {
-    // The form stays open and populated unless the database actually accepted
-    // it — closing on send would claim success we have not been given.
-    const result =
-      mode === "add"
-        ? await onAdd(draft)
-        : typeof mode === "object"
-          ? await onUpdate(rows.find((r) => r.id === mode.editing)!, draft)
-          : null;
-
-    if (result?.ok) close();
-  }
-
+  const formOpen = editor !== null;
   const disabled = readOnly || blocked;
 
   return (
@@ -115,7 +75,7 @@ export function FindingList({
           readOnly || formOpen ? null : (
             <button
               type="button"
-              onClick={startAdd}
+              onClick={onOpenAdd}
               disabled={disabled}
               className="inline-flex h-11 items-center gap-1.5 rounded-xl border border-hairline bg-white px-3 text-[13px] font-semibold text-ink transition-colors hover:bg-surface-muted disabled:cursor-not-allowed disabled:opacity-55 focus-visible:focus-ring"
             >
@@ -146,19 +106,21 @@ export function FindingList({
         {rows.length > 0 ? (
           <ol className="divide-y divide-hairline">
             {rows.map((row) => {
-              const editingThis = typeof mode === "object" && mode.editing === row.id;
+              const editingThis = editor?.mode === "edit" && editor.rowId === row.id;
+              const confirmingThis = confirmingRow?.id === row.id;
+
               return (
                 <li key={row.id} className="py-2.5 first:pt-0 last:pb-0">
                   {editingThis ? (
                     <FindingForm
                       kind={kind}
-                      value={draft}
+                      value={editor.draft}
                       busy={busy}
                       blocked={blocked}
                       submitLabel="Save changes"
-                      onChange={setDraft}
-                      onSubmit={submit}
-                      onCancel={close}
+                      onChange={onDraftChange}
+                      onSubmit={onSubmit}
+                      onCancel={onCloseEditor}
                     />
                   ) : (
                     <div className="flex items-start gap-3">
@@ -184,7 +146,7 @@ export function FindingList({
                         <div className="flex shrink-0 gap-1">
                           <button
                             type="button"
-                            onClick={() => startEdit(row)}
+                            onClick={() => onOpenEdit(row)}
                             disabled={disabled || formOpen}
                             aria-label={`Edit ${row.title}`}
                             className="inline-flex size-11 items-center justify-center rounded-xl text-ink-secondary transition-colors hover:bg-surface-muted disabled:opacity-40 focus-visible:focus-ring"
@@ -195,7 +157,7 @@ export function FindingList({
                             type="button"
                             onClick={() => {
                               onDismissError();
-                              setConfirming(row.id);
+                              onAskRemove(row);
                             }}
                             disabled={disabled || formOpen}
                             aria-label={`Remove ${row.title}`}
@@ -210,33 +172,38 @@ export function FindingList({
 
                   {/*
                     Removing a finding is a clinical statement, so it is
-                    confirmed by name — not by an icon that happened to be
-                    under a thumb.
+                    confirmed by name. The Remove button obeys `blocked`: a
+                    confirmation opened BEFORE a conflict arrived must not be
+                    able to delete a finding while that conflict is unanswered.
+                    The coordinator refuses it too; this is the visible half.
                   */}
-                  {confirming === row.id ? (
+                  {confirmingThis ? (
                     <div className="mt-2 flex flex-wrap items-center gap-2 rounded-xl bg-danger-soft px-3 py-2.5">
                       <span className="text-[13px] text-ink">
                         Remove <strong className="font-semibold">{row.title}</strong>?
                       </span>
                       <button
                         type="button"
-                        disabled={busy}
-                        onClick={async () => {
-                          const result = await onRemove(row);
-                          if (result?.ok) setConfirming(null);
-                        }}
-                        className="inline-flex h-11 items-center justify-center rounded-xl bg-danger px-3.5 text-[13px] font-semibold text-white disabled:opacity-55 focus-visible:focus-ring"
+                        disabled={disabled}
+                        onClick={() => onConfirmRemove(row)}
+                        className="inline-flex h-11 items-center justify-center rounded-xl bg-danger px-3.5 text-[13px] font-semibold text-white disabled:cursor-not-allowed disabled:opacity-55 focus-visible:focus-ring"
                       >
                         {busy ? "Removing…" : "Remove"}
                       </button>
+                      {/* Cancelling is always safe, so it is never blocked. */}
                       <button
                         type="button"
                         disabled={busy}
-                        onClick={() => setConfirming(null)}
+                        onClick={onCancelRemove}
                         className="inline-flex h-11 items-center justify-center rounded-xl border border-hairline bg-white px-3.5 text-[13px] font-semibold text-ink disabled:opacity-55 focus-visible:focus-ring"
                       >
                         Keep it
                       </button>
+                      {blocked && !busy ? (
+                        <span className="basis-full text-[12px] font-medium text-ink-secondary">
+                          Settle the change above before removing anything.
+                        </span>
+                      ) : null}
                     </div>
                   ) : null}
                 </li>
@@ -245,16 +212,16 @@ export function FindingList({
           </ol>
         ) : null}
 
-        {mode === "add" ? (
+        {editor?.mode === "add" ? (
           <FindingForm
             kind={kind}
-            value={draft}
+            value={editor.draft}
             busy={busy}
             blocked={blocked}
             submitLabel={kind === "diagnosis" ? "Add diagnosis" : "Add investigation"}
-            onChange={setDraft}
-            onSubmit={submit}
-            onCancel={close}
+            onChange={onDraftChange}
+            onSubmit={onSubmit}
+            onCancel={onCloseEditor}
           />
         ) : null}
       </div>

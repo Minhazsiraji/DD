@@ -5,7 +5,12 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { requireLocationContext } from "@/lib/auth/session";
 import { getServerState } from "./queries";
 import { translateSaveError } from "./errors";
-import { CERTAINTIES, type ListResult } from "./list-schema";
+import {
+  CERTAINTIES,
+  UNCONFIRMED_MESSAGE,
+  acceptVersion,
+  type ListResult,
+} from "./list-schema";
 
 /**
  * Diagnosis and investigation writes.
@@ -78,9 +83,21 @@ async function finish(
   encounterId: string,
   locationId: string,
   error: { message: string } | null,
-  version: number,
+  version: number | null,
 ): Promise<ListResult> {
-  if (!error) return { ok: true, version };
+  if (!error) {
+    /**
+     * The RPC accepted the write but reported a version we cannot believe.
+     * Reporting failure would invite a duplicate clinical record; reporting
+     * success would carry a guessed version into the next mutation. Neither is
+     * acceptable, so the caller is told plainly that the state is unknown.
+     */
+    if (version === null) {
+      console.error(`[encounters] ${action} returned an unusable version`);
+      return { ok: false, kind: "unconfirmed", message: UNCONFIRMED_MESSAGE };
+    }
+    return { ok: true, version };
+  }
 
   const translated = translateSaveError(error.message);
   if (translated.unexpected) {
@@ -171,7 +188,7 @@ export async function updateDiagnosisAction(input: unknown): Promise<ListResult>
     parsed.data.encounterId,
     ctx.locationId,
     error,
-    Number(data) || parsed.data.expectedVersion + 1,
+    acceptVersion(data, parsed.data.expectedVersion),
   );
 }
 
@@ -194,7 +211,7 @@ export async function removeDiagnosisAction(input: unknown): Promise<ListResult>
     parsed.data.encounterId,
     ctx.locationId,
     error,
-    Number(data) || parsed.data.expectedVersion + 1,
+    acceptVersion(data, parsed.data.expectedVersion),
   );
 }
 
@@ -250,7 +267,7 @@ export async function updateInvestigationAction(input: unknown): Promise<ListRes
     parsed.data.encounterId,
     ctx.locationId,
     error,
-    Number(data) || parsed.data.expectedVersion + 1,
+    acceptVersion(data, parsed.data.expectedVersion),
   );
 }
 
@@ -273,7 +290,7 @@ export async function removeInvestigationAction(input: unknown): Promise<ListRes
     parsed.data.encounterId,
     ctx.locationId,
     error,
-    Number(data) || parsed.data.expectedVersion + 1,
+    acceptVersion(data, parsed.data.expectedVersion),
   );
 }
 

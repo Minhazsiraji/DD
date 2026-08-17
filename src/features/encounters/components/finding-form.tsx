@@ -2,20 +2,8 @@
 
 import * as React from "react";
 import { cn } from "@/lib/utils";
-import { CERTAINTIES, CERTAINTY_HINT, CERTAINTY_LABEL, type Certainty } from "../list-schema";
-
-export interface FindingDraft {
-  /** Diagnosis label or investigation name — the row's meaning, never blank. */
-  title: string;
-  note: string;
-  certainty: Certainty;
-}
-
-export const emptyFinding = (): FindingDraft => ({
-  title: "",
-  note: "",
-  certainty: "PROVISIONAL",
-});
+import { CERTAINTIES, CERTAINTY_HINT, CERTAINTY_LABEL } from "../list-schema";
+import type { FindingDraft, ListKind } from "../finding-types";
 
 /**
  * The one form used to add a finding and to correct one.
@@ -37,7 +25,7 @@ export function FindingForm({
   onSubmit,
   onCancel,
 }: {
-  kind: "diagnosis" | "investigation";
+  kind: ListKind;
   value: FindingDraft;
   /** This form's own mutation is in flight. */
   busy: boolean;
