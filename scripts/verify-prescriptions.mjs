@@ -774,6 +774,13 @@ try {
         select public.open_prescription(${encC.id}, ${chamber.id}, null)`;
       await tx`select public.add_prescription_item(${rxChamber}, ${chamber.id},
                  ${await version(rxChamber)}, ${{ displayName: "Chamber medicine" }})`;
+      /**
+       * Deliberately alphabetically LAST while being the most recently signed.
+       * Ordering and limiting in one pass returned the alphabetically earliest
+       * rows and called them the most recent; this row is what catches that.
+       */
+      await tx`select public.add_prescription_item(${rxChamber}, ${chamber.id},
+                 ${await version(rxChamber)}, ${{ displayName: "Zinc syrup" }})`;
     });
 
     // This doctor has a signature, so this prescription needs its own frozen
@@ -942,6 +949,42 @@ try {
 
       const capped = await tx`select * from public.prescription_item_suggestions(null, 1)`;
       check(capped.length <= 1, "the limit is honoured");
+
+      /**
+       * "Recent" has to mean recent.
+       *
+       * `distinct on` dictates its own ORDER BY, so the inner query can only be
+       * ordered by name. Limiting there returned the alphabetically earliest
+       * medicines under the label "what you last prescribed" — the re-ordering
+       * has to happen OUTSIDE it, before the limit bites.
+       *
+       * Every row in this file is written inside ONE transaction, and `now()`
+       * is the TRANSACTION's start time — so every prescription here carries
+       * the identical `finalized_at` and no ordering assertion could tell the
+       * right answer from the wrong one. The hospital one is backdated as the
+       * table owner purely so recency has something to sort by.
+       */
+      await asOwner(tx, () => tx`
+        update public.prescriptions set finalized_at = finalized_at - interval '1 day'
+        where id = ${rx}`);
+
+      const recent = await tx`select * from public.prescription_item_suggestions(null, 25)`;
+      const stamps = recent.map((r) => new Date(r.last_used).getTime());
+      check(
+        stamps.every((t, i) => i === 0 || stamps[i - 1] >= t),
+        "suggestions come back most recently used first",
+        recent.map((r) => r.display_name).join(" | "),
+      );
+
+      // The chamber pair was signed last; "Zinc syrup" sorts alphabetically
+      // after everything, so it only survives a limit if recency really ordered.
+      const topTwo = await tx`select * from public.prescription_item_suggestions(null, 2)`;
+      const names = topTwo.map((r) => r.display_name).sort();
+      check(
+        names.length === 2 && names[0] === "Chamber medicine" && names[1] === "Zinc syrup",
+        "…so a limit keeps the most RECENT, not the alphabetically first",
+        names.join(" | "),
+      );
     });
 
     await as(tx, uidB, async () => {

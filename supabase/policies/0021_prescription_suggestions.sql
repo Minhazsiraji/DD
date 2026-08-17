@@ -47,33 +47,46 @@ begin
 
   return query
     /**
-     * One row per distinct wording, most recently used first. `distinct on`
-     * keeps the LATEST version of each medicine's wording — a doctor who has
-     * refined how they write a line wants the refined one back, not the first
-     * time they ever typed it.
+     * Two steps, and the order of them is the whole point.
+     *
+     * INNER: `distinct on` keeps the LATEST wording of each medicine — a doctor
+     * who has refined how they write a line wants the refined one back, not the
+     * first time they ever typed it. `distinct on` dictates its own ORDER BY,
+     * so that inner order is by NAME and can only be by name.
+     *
+     * OUTER: re-order by when it was actually last used, and only then LIMIT.
+     * Ordering and limiting in one step returned the alphabetically earliest
+     * eight medicines while calling them the most recent eight.
      */
-    select distinct on (lower(btrim(i.display_name)))
-      i.display_name, i.brand_name, i.generic_name, i.strength_text, i.dose_text,
-      i.dosage_form, i.route, i.schedule_text, i.duration_text, i.quantity_text,
-      i.food_relation, i.is_prn, i.instructions, i.substitution_allowed,
-      p.finalized_at,
-      (select count(*)::integer
-         from public.prescription_items i2
-         join public.prescriptions p2 on p2.id = i2.prescription_id
-        where p2.owner_doctor_id = v_doctor
-          and p2.status = 'FINALIZED'
-          and lower(btrim(i2.display_name)) = lower(btrim(i.display_name)))
-    from public.prescription_items i
-    join public.prescriptions p on p.id = i.prescription_id
-    where p.owner_doctor_id = v_doctor
-      and p.status = 'FINALIZED'
-      and (
-        v_q is null
-        or i.display_name ilike '%' || v_q || '%'
-        or i.generic_name ilike '%' || v_q || '%'
-        or i.brand_name  ilike '%' || v_q || '%'
-      )
-    order by lower(btrim(i.display_name)), p.finalized_at desc
+    select s.display_name, s.brand_name, s.generic_name, s.strength_text, s.dose_text,
+           s.dosage_form, s.route, s.schedule_text, s.duration_text, s.quantity_text,
+           s.food_relation, s.is_prn, s.instructions, s.substitution_allowed,
+           s.last_used, s.times_used
+    from (
+      select distinct on (lower(btrim(i.display_name)))
+        i.display_name, i.brand_name, i.generic_name, i.strength_text, i.dose_text,
+        i.dosage_form, i.route, i.schedule_text, i.duration_text, i.quantity_text,
+        i.food_relation, i.is_prn, i.instructions, i.substitution_allowed,
+        p.finalized_at as last_used,
+        (select count(*)::integer
+           from public.prescription_items i2
+           join public.prescriptions p2 on p2.id = i2.prescription_id
+          where p2.owner_doctor_id = v_doctor
+            and p2.status = 'FINALIZED'
+            and lower(btrim(i2.display_name)) = lower(btrim(i.display_name))) as times_used
+      from public.prescription_items i
+      join public.prescriptions p on p.id = i.prescription_id
+      where p.owner_doctor_id = v_doctor
+        and p.status = 'FINALIZED'
+        and (
+          v_q is null
+          or i.display_name ilike '%' || v_q || '%'
+          or i.generic_name ilike '%' || v_q || '%'
+          or i.brand_name  ilike '%' || v_q || '%'
+        )
+      order by lower(btrim(i.display_name)), p.finalized_at desc
+    ) s
+    order by s.last_used desc, s.times_used desc, lower(btrim(s.display_name))
     limit greatest(1, least(coalesce(p_limit, 8), 25));
 end;
 $$;

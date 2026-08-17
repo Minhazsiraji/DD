@@ -2,14 +2,19 @@
 
 import * as React from "react";
 import {
-  Check, CircleAlert, CloudAlert, Loader2, Lock, Pill, Plus, RefreshCw, TriangleAlert,
+  Check, CircleAlert, CloudAlert, Info, Loader2, Lock, Pill, Plus, RefreshCw, TriangleAlert,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { SectionCard, SectionHeader } from "@/components/common/section-card";
 import { ConsultationIdentity } from "@/features/encounters/components/consultation-identity";
 import { UnsavedGuard } from "@/features/encounters/components/unsaved-guard";
 import { usePrescription } from "../use-prescription";
-import { RX_TITLE_UNKNOWN } from "../errors";
+import {
+  RX_TITLE_ADVANCED,
+  RX_TITLE_CONFLICT,
+  RX_TITLE_CONFLICT_UNLOADABLE,
+  RX_TITLE_UNKNOWN,
+} from "../errors";
 import type { PrescriptionDetail } from "../queries";
 import { MedicineForm } from "./medicine-form";
 import { MedicineList } from "./medicine-list";
@@ -42,6 +47,7 @@ export function PrescriptionComposer({
   );
 
   const status = describe(rx.state, rx.busy, readOnly);
+  const panel = recoveryPanel(rx.state);
 
   return (
     <div className="space-y-4 pb-2">
@@ -67,24 +73,30 @@ export function PrescriptionComposer({
       ) : null}
 
       {/*
-        Refused, or unknown. Kept apart because the right response is opposite:
-        one preserves the form below, the other closed it so the medicine
-        cannot be entered a second time.
+        Four different things can go wrong, and each gets its own words. The
+        distinction the doctor is actually reading for is whether their change
+        is on the record — "was not saved" and "was saved" ask for opposite
+        next actions, and "may have been" asks for a third.
       */}
-      {rx.state.kind === "conflict" || rx.state.kind === "unknown" ? (
+      {panel ? (
         <div
           role="alert"
-          className="clinical-surface rounded-glass-lg border-l-4 border-l-warning p-4 shadow-soft sm:p-5"
+          className={cn(
+            "clinical-surface rounded-glass-lg border-l-4 p-4 shadow-soft sm:p-5",
+            panel.committed ? "border-l-success" : "border-l-warning",
+          )}
         >
           <div className="flex items-start gap-2.5">
-            <CloudAlert className="mt-0.5 size-5 shrink-0 text-warning" aria-hidden="true" />
+            <CloudAlert
+              className={cn(
+                "mt-0.5 size-5 shrink-0",
+                panel.committed ? "text-success" : "text-warning",
+              )}
+              aria-hidden="true"
+            />
             <div className="min-w-0">
-              <h2 className="text-[15px] font-semibold text-ink">
-                {rx.state.kind === "conflict"
-                  ? "This prescription changed somewhere else"
-                  : RX_TITLE_UNKNOWN}
-              </h2>
-              <p className="mt-1 text-[13px] text-ink-secondary">{rx.state.message}</p>
+              <h2 className="text-[15px] font-semibold text-ink">{panel.title}</h2>
+              <p className="mt-1 text-[13px] text-ink-secondary">{panel.message}</p>
             </div>
           </div>
           <button
@@ -97,6 +109,28 @@ export function PrescriptionComposer({
             {rx.busy ? "Loading…" : "Reload the prescription"}
           </button>
         </div>
+      ) : null}
+
+      {/*
+        Something moved under the doctor while they were recovering. Not a
+        conflict — there is nothing left to settle — but they should not have to
+        spot it for themselves.
+      */}
+      {rx.notice ? (
+        <p
+          role="status"
+          className="clinical-surface flex flex-wrap items-center gap-x-3 gap-y-2 rounded-glass border-l-4 border-l-brand px-4 py-3 text-[13px] text-ink-secondary"
+        >
+          <Info className="size-4 shrink-0 text-brand" aria-hidden="true" />
+          <span className="min-w-0 flex-1">{rx.notice}</span>
+          <button
+            type="button"
+            onClick={rx.dismissNotice}
+            className="inline-flex h-11 items-center rounded-xl px-3 text-[13px] font-semibold text-ink hover:bg-surface-muted focus-visible:focus-ring"
+          >
+            Dismiss
+          </button>
+        </p>
       ) : null}
 
       <SectionCard>
@@ -181,6 +215,28 @@ export function PrescriptionComposer({
 }
 
 /**
+ * The recovery panel, or nothing.
+ *
+ * `committed` is not decoration: it decides whether the panel reads as a
+ * warning about lost work or a confirmation of saved work, and those are the
+ * two things the doctor is scanning for.
+ */
+function recoveryPanel(state: ReturnType<typeof usePrescription>["state"]) {
+  switch (state.kind) {
+    case "conflict":
+      return { title: RX_TITLE_CONFLICT, message: state.message, committed: false };
+    case "conflict-unloadable":
+      return { title: RX_TITLE_CONFLICT_UNLOADABLE, message: state.message, committed: false };
+    case "advanced":
+      return { title: RX_TITLE_ADVANCED, message: state.message, committed: true };
+    case "unknown":
+      return { title: RX_TITLE_UNKNOWN, message: state.message, committed: false };
+    default:
+      return null;
+  }
+}
+
+/**
  * Never claims more than is known.
  *
  * "Saved" appears only after the database returned a new version; a refusal
@@ -222,6 +278,22 @@ function describe(
         icon: <TriangleAlert className="size-4 shrink-0" aria-hidden="true" />,
         text: "Not saved — this prescription changed elsewhere.",
         tone: "text-warning",
+      };
+    case "conflict-unloadable":
+      return {
+        icon: <TriangleAlert className="size-4 shrink-0" aria-hidden="true" />,
+        text: "Not saved. Your text is still here; the latest version could not be loaded.",
+        tone: "text-warning",
+      };
+    /**
+     * The write COMMITTED. This line must never read like a failure — a doctor
+     * who believes their medicine was rejected will enter it again.
+     */
+    case "advanced":
+      return {
+        icon: <Check className="size-4 shrink-0" aria-hidden="true" />,
+        text: "Saved — but this prescription changed again elsewhere. Reload before writing more.",
+        tone: "text-success",
       };
     case "unknown":
       return {

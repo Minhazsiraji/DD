@@ -213,6 +213,19 @@ squeeze — and it hides the bottom nav.
   sat at "Opening…" for the rest of the consultation without it, found by
   clicking it. The guard's `dirty` input must include every unsaved editor on
   the screen, not only the notes draft.
+- **A failed write has FIVE outcomes, not two, and they must never merge.**
+  Every one answers "did it commit?" — `no` + state readable, `no` + state
+  unreadable, `unknown`, `yes` + the record moved on, and an ordinary refusal.
+  The editor closes on exactly the ones where the write is or may be on the
+  record; it stays open on the others, because a refused change is the doctor's
+  only copy. Two of these merged in Stage 7B the moment the rule lived as
+  branches in two files: a refusal whose read-back failed was reported as "may
+  have been saved" (closing the form and destroying typed Bangla instructions),
+  and a committed write the record had moved past was reported as a refusal
+  (leaving an Add form resubmittable — a duplicated medicine). Keep the decision
+  in ONE pure table (`src/features/prescriptions/recovery.ts`) that both the
+  server action and the coordinator import, and keep a test that fails when any
+  two rows become indistinguishable.
 - **Never raise SQLSTATE `40001` for a business rule.** It means
   `serialization_failure` — "transient, retrying may succeed" — and PostgREST
   duly retries it. A deterministic refusal (a version conflict, a state-machine
@@ -236,6 +249,16 @@ squeeze — and it hides the bottom nav.
 - **`now()` is the TRANSACTION's start time.** For history/event tables use
   `clock_timestamp()`, and add a `bigserial` if order matters — two racing
   transactions can otherwise stamp events in an order that never happened.
+  This also silently defeats any *test* of recency ordering: every row a
+  rollback-style verification script writes carries the identical timestamp, so
+  the assertion passes against both the right implementation and the wrong one.
+  Backdate explicitly before asserting on order.
+- **`DISTINCT ON` dictates its own `ORDER BY`, so it cannot also rank.** Its
+  leading sort columns must be the distinct keys, which means "one row per
+  medicine" and "most recent first" cannot happen in one pass — and a `LIMIT`
+  there takes the alphabetically first rows while the label says "most recent".
+  Do the de-duplication in an inner query and re-order in an outer one, with
+  the limit outside.
 - **A defaulted parameter is still a parameter a caller may supply.** To stop
   callers setting a field, remove it from the public function's signature and
   `DROP` the old overload; an unused default is not a control.

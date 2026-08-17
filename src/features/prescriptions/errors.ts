@@ -120,13 +120,48 @@ export function translateRxError(message: string): TranslatedRxError {
 }
 
 /**
- * The write may or may not have landed, and we could not find out.
+ * Three ways a write can end badly, and they must never be blurred.
  *
- * Kept apart from a refusal for the reason Stage 6C established: telling a
- * doctor "failed" when it may have succeeded is what produces a duplicate
- * medicine on a prescription.
+ * The question that decides the copy — and everything the screen then does —
+ * is: DID IT COMMIT?
+ *
+ *   definitely not      the text is the doctor's only copy: preserve it
+ *   we cannot tell      it may be on the record: close the form, never retry
+ *   definitely yes      it is on the record: close the form, never retry
+ *
+ * Getting the middle one wrong in either direction is how a patient ends up
+ * with a duplicated medicine, or a doctor retypes a line they can see. Stage 6C
+ * cost a full correction pass to learn this; these are separate constants so
+ * that a future edit cannot quietly collapse two of them into one sentence.
  */
+
+/** Definitely refused. The current state IS available and shown below. */
+export const RX_TITLE_CONFLICT = "This prescription changed somewhere else";
+
+/**
+ * Definitely refused, and the latest state could not be loaded.
+ *
+ * The refusal is certain, so this must NOT say "may have been saved" — that
+ * sentence belongs only to a write whose fate is genuinely unknown.
+ */
+export const RX_TITLE_CONFLICT_UNLOADABLE = "Not saved — and the latest version could not be loaded";
+
+export const RX_CONFLICT_UNLOADABLE_MESSAGE =
+  "Your change was NOT saved, because this prescription changed somewhere else. Nothing was overwritten and everything you typed is still here. We also could not load the latest version just now — reload before saving again.";
+
+/** May or may not have landed. The only sentence allowed to say "may". */
+export const RX_TITLE_UNKNOWN = "This prescription may be out of date";
+
 export const RX_UNCONFIRMED_MESSAGE =
   "Your change may already have been saved, but the result could not be loaded. Do not enter it again — reload to see what the prescription actually holds.";
 
-export const RX_TITLE_UNKNOWN = "This prescription may be out of date";
+/**
+ * Definitely committed, and then somebody else moved the record.
+ *
+ * The RPC succeeded. Telling this doctor their change was not saved would be a
+ * lie that invites them to enter the same medicine a second time.
+ */
+export const RX_TITLE_ADVANCED = "Saved — then changed somewhere else";
+
+export const RX_ADVANCED_MESSAGE =
+  "Your change WAS saved. This prescription then changed somewhere else, so what is on screen may already be behind. Do not enter your change again — reload to see the latest.";

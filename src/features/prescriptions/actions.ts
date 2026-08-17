@@ -6,7 +6,13 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { requireLocationContext } from "@/lib/auth/session";
 import { acceptVersion } from "@/features/encounters/version-contract";
 import { getMedicineSuggestions, getPrescription } from "./queries";
-import { RX_UNCONFIRMED_MESSAGE, translateRxError } from "./errors";
+import {
+  RX_ADVANCED_MESSAGE,
+  RX_CONFLICT_UNLOADABLE_MESSAGE,
+  RX_UNCONFIRMED_MESSAGE,
+  translateRxError,
+} from "./errors";
+import { classifyWrite } from "./recovery";
 import { medicineInputSchema, type MedicineRow, type Suggestion } from "./schema";
 
 /**
@@ -27,9 +33,37 @@ function safe(action: string, message: string) {
   return t;
 }
 
+/**
+ * What became of one write.
+ *
+ * `ok: true` means BOTH that the write committed AND that the screen is now in
+ * step with the record — it is the only outcome that may carry on writing. Every
+ * other kind answers a different question, and the caller must treat them
+ * differently:
+ *
+ *   conflict             refused, and here is what the record now holds
+ *   conflict-unloadable  refused, and we could not load what it holds
+ *   write-confirmed-advanced   COMMITTED, then somebody else moved the record
+ *   unconfirmed          we cannot tell whether it committed
+ *   error                refused for a reason the doctor can act on
+ *
+ * The two "refused" kinds preserve the doctor's typed text, because it is their
+ * only copy. The two kinds where the write may or did land close the form,
+ * because resubmitting is how a medicine gets onto a prescription twice.
+ */
 export type RxResult =
   | { ok: true; version: number; items: MedicineRow[] }
   | { ok: false; kind: "conflict"; message: string; version: number; items: MedicineRow[] }
+  /** Definitely refused. Nothing to adopt — preserve the screen exactly. */
+  | { ok: false; kind: "conflict-unloadable"; message: string }
+  /** Definitely committed, and the record moved again before we read it back. */
+  | {
+      ok: false;
+      kind: "write-confirmed-advanced";
+      message: string;
+      version: number;
+      items: MedicineRow[];
+    }
   /** The write may have landed and we could not find out. Never a plain error. */
   | { ok: false; kind: "unconfirmed"; message: string }
   | { ok: false; kind: "error"; message: string };
@@ -47,6 +81,14 @@ async function reread(prescriptionId: string, locationId: string) {
   return outcome.ok ? outcome.prescription : null;
 }
 
+/**
+ * Turn one RPC answer into an outcome the screen can act on.
+ *
+ * The decision itself is `classifyWrite` — pure, tabulated and tested away from
+ * a database. This function's only job is to gather the three facts it needs
+ * and attach the right sentence, so the classification cannot drift into
+ * branches nobody can see all of at once.
+ */
 async function finish(
   action: string,
   prescriptionId: string,
@@ -54,60 +96,62 @@ async function finish(
   error: { message: string } | null,
   earnedVersion: number | null,
 ): Promise<RxResult> {
-  if (error) {
-    const t = safe(action, error.message);
+  // An ordinary refusal: nothing was written and there is nothing to recover.
+  const translated = error ? safe(action, error.message) : null;
+  if (translated && translated.kind !== "conflict") {
+    return { ok: false, kind: "error", message: translated.message };
+  }
+  const refused = translated !== null;
 
-    if (t.kind === "conflict") {
-      const current = await reread(prescriptionId, locationId);
-      /**
-       * The refusal is CERTAIN; only the current state is missing. Reporting a
-       * plain error would leave the screen on a stale version, free to retry
-       * into the same wall.
-       */
-      if (!current) {
-        return { ok: false, kind: "unconfirmed", message: RX_UNCONFIRMED_MESSAGE };
-      }
+  if (!refused && earnedVersion === null) {
+    console.error(`[prescriptions] ${action} returned an unusable version`);
+  }
+
+  /**
+   * Read back even when refused: knowing what the record now holds is the
+   * difference between the doctor being able to settle the conflict here and
+   * being sent away to reload.
+   */
+  const current = await reread(prescriptionId, locationId);
+  const kind = classifyWrite({
+    refused,
+    earnedVersion,
+    currentVersion: current?.version ?? null,
+  });
+
+  switch (kind) {
+    case "ok":
+      return { ok: true, version: current!.version, items: current!.items };
+
+    case "conflict":
       return {
         ok: false,
         kind: "conflict",
-        message: t.message,
-        version: current.version,
-        items: current.items,
+        message: translated!.message,
+        version: current!.version,
+        items: current!.items,
       };
-    }
-    return { ok: false, kind: "error", message: t.message };
+
+    case "conflict-unloadable":
+      return { ok: false, kind: "conflict-unloadable", message: RX_CONFLICT_UNLOADABLE_MESSAGE };
+
+    case "write-confirmed-advanced":
+      return {
+        ok: false,
+        kind: "write-confirmed-advanced",
+        message: RX_ADVANCED_MESSAGE,
+        version: current!.version,
+        items: current!.items,
+      };
+
+    default:
+      if (current && earnedVersion !== null && current.version < earnedVersion) {
+        console.error(
+          `[prescriptions] ${action} earned v${earnedVersion} but the record reports v${current.version}`,
+        );
+      }
+      return { ok: false, kind: "unconfirmed", message: RX_UNCONFIRMED_MESSAGE };
   }
-
-  /**
-   * A version we cannot believe means the write MAY have committed. Same
-   * contract the notes editor uses: never a retryable error, because that is
-   * what produces a duplicate.
-   */
-  if (earnedVersion === null) {
-    console.error(`[prescriptions] ${action} returned an unusable version`);
-    return { ok: false, kind: "unconfirmed", message: RX_UNCONFIRMED_MESSAGE };
-  }
-
-  const current = await reread(prescriptionId, locationId);
-  if (!current) return { ok: false, kind: "unconfirmed", message: RX_UNCONFIRMED_MESSAGE };
-
-  /**
-   * The version we EARNED, checked against what the record now reports. A
-   * higher number means somebody else moved it between our write and this
-   * read; adopting it silently would hide a real conflict.
-   */
-  if (current.version !== earnedVersion) {
-    return {
-      ok: false,
-      kind: "conflict",
-      message:
-        "This prescription changed somewhere else while your change was saving. What you typed is still here.",
-      version: current.version,
-      items: current.items,
-    };
-  }
-
-  return { ok: true, version: current.version, items: current.items };
 }
 
 export async function openPrescriptionAction(input: {

@@ -207,6 +207,35 @@ export function changedPatch(
   return patch;
 }
 
+/**
+ * Re-base an open editor onto the medicine as it now stands.
+ *
+ * After a conflict, `editor.row` is the version the doctor last saw, and both
+ * the form and the patch are measured against it. Leaving it stale is the
+ * Stage 6B mistake in a new place: `changedPatch` would then include fields the
+ * OTHER device changed and this doctor never touched, and re-saving would
+ * silently revert somebody else's work.
+ *
+ * So: a field the doctor typed into keeps their text — it is their only copy —
+ * and a field they never touched adopts what the record now says, because
+ * showing them a value that is no longer true is its own small lie.
+ */
+export function rebaseDraft(
+  draft: MedicineDraft,
+  base: MedicineDraft,
+  fresh: MedicineDraft,
+): MedicineDraft {
+  const next = { ...draft };
+  for (const f of MEDICINE_FIELDS) {
+    if (draft[f.key].trim() === base[f.key].trim()) next[f.key] = fresh[f.key];
+  }
+  if (draft.isPrn === base.isPrn) next.isPrn = fresh.isPrn;
+  if (draft.substitutionAllowed === base.substitutionAllowed) {
+    next.substitutionAllowed = fresh.substitutionAllowed;
+  }
+  return next;
+}
+
 export function medicineIsDirty(draft: MedicineDraft, base: MedicineDraft | null): boolean {
   if (!base) {
     return (
