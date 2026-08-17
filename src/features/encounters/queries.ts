@@ -11,6 +11,21 @@ import { emptyDraft, DRAFT_KEYS, type DraftValues, type DraftKey } from "./schem
  * the editor needs.
  */
 
+export interface DiagnosisRow {
+  id: string;
+  label: string;
+  certainty: string;
+  note: string | null;
+  position: number;
+}
+
+export interface InvestigationRow {
+  id: string;
+  name: string;
+  note: string | null;
+  position: number;
+}
+
 export interface Consultation {
   id: string;
   status: "DRAFT" | "COMPLETED" | "CANCELLED";
@@ -20,7 +35,48 @@ export interface Consultation {
   appointmentId: string | null;
   practiceLocationId: string;
   values: DraftValues;
+  diagnoses: DiagnosisRow[];
+  investigations: InvestigationRow[];
   patient: PatientDetail;
+}
+
+/**
+ * Ordering is the database's, not the client's.
+ *
+ * `position` is maintained by the RPCs and closed up on removal, so sorting
+ * here by anything else — created_at, id — would let the screen disagree with
+ * the record about the order a doctor put their findings in.
+ */
+async function readLists(
+  supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>,
+  encounterId: string,
+): Promise<{ diagnoses: DiagnosisRow[]; investigations: InvestigationRow[] } | null> {
+  const [dx, inv] = await Promise.all([
+    supabase
+      .from("encounter_diagnoses")
+      .select("id, label, certainty, note, position")
+      .eq("encounter_id", encounterId)
+      .order("position"),
+    supabase
+      .from("encounter_investigations")
+      .select("id, name, note, position")
+      .eq("encounter_id", encounterId)
+      .order("position"),
+  ]);
+
+  if (dx.error || inv.error) {
+    console.error(
+      "[encounters] readLists failed",
+      encounterId,
+      dx.error?.message ?? inv.error?.message,
+    );
+    return null;
+  }
+
+  return {
+    diagnoses: (dx.data ?? []) as DiagnosisRow[],
+    investigations: (inv.data ?? []) as InvestigationRow[],
+  };
 }
 
 /**
@@ -130,12 +186,17 @@ export async function getConsultation(
    * being written into the wrong patient's record. If it cannot be loaded, the
    * consultation must not render at all.
    */
-  const patient = await getPatient(row.patient_id as string);
-  if (!patient) return { ok: false, reason: "unavailable" };
+  const [patient, lists] = await Promise.all([
+    getPatient(row.patient_id as string),
+    readLists(supabase, encounterId),
+  ]);
+  if (!patient || !lists) return { ok: false, reason: "unavailable" };
 
   return {
     ok: true,
     consultation: {
+      diagnoses: lists.diagnoses,
+      investigations: lists.investigations,
       id: row.id as string,
       status: row.status as Consultation["status"],
       version: row.version as number,
@@ -149,23 +210,45 @@ export async function getConsultation(
   };
 }
 
+export interface ServerState {
+  version: number;
+  values: DraftValues;
+  diagnoses: DiagnosisRow[];
+  investigations: InvestigationRow[];
+}
+
 /**
- * The clinical text as it stands right now, for resolving a conflict.
+ * The encounter as it stands right now, for resolving a conflict.
  *
- * Read AFTER a rejected save, so the doctor is shown what they would have been
- * writing over rather than being asked to decide blind.
+ * Read AFTER a rejected mutation, so the doctor is shown what they would have
+ * been writing over rather than being asked to decide blind. Includes the lists
+ * because a conflict is about the ENCOUNTER: whatever moved it, everything on
+ * the screen is now potentially behind.
  */
-export async function getConsultationValues(
+export async function getServerState(
   encounterId: string,
-): Promise<{ version: number; values: DraftValues } | null> {
+  activeLocationId: string,
+): Promise<ServerState | null> {
   const supabase = await createSupabaseServerClient();
   const { data, error } = await supabase
     .from("encounters")
     .select(ENCOUNTER_COLUMNS)
     .eq("id", encounterId)
+    // Same binding as the read path: a refresh must not reach across locations
+    // any more than a render may.
+    .eq("practice_location_id", activeLocationId)
     .maybeSingle();
 
   if (error || !data) return null;
   const row = data as unknown as Record<string, unknown>;
-  return { version: row.version as number, values: rowToValues(row) };
+
+  const lists = await readLists(supabase, encounterId);
+  if (!lists) return null;
+
+  return {
+    version: row.version as number,
+    values: rowToValues(row),
+    diagnoses: lists.diagnoses,
+    investigations: lists.investigations,
+  };
 }

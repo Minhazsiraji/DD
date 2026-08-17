@@ -734,6 +734,55 @@ try {
       );
     });
 
+    /**
+     * The contract the UI's version coordinator depends on.
+     *
+     * The add functions return the new row's ID, not the new version, so the
+     * caller computes it as expectedVersion + 1. That is only safe if the add
+     * increments the version EXACTLY ONCE — no more, no less — so it is
+     * asserted here rather than assumed. Re-reading the version from the
+     * database instead would absorb another device's increment and mask a real
+     * conflict, which is why the arithmetic is preferred to a fetch.
+     */
+    console.log("\nAn add advances the version by exactly one");
+    const versionNow = async () => {
+      const [{ v }] = await tx`select version as v from public.encounters where id = ${apptEncounter}`;
+      return v;
+    };
+    await as(tx, uidA, async () => {
+      const before = await versionNow();
+      const [{ add_encounter_diagnosis: id }] = await tx`
+        select public.add_encounter_diagnosis(${apptEncounter}, ${hospital.id}, ${before},
+          'Version contract', 'PROVISIONAL'::public.diagnosis_certainty, null)`;
+      const afterAdd = await versionNow();
+      check(afterAdd === before + 1, "add_encounter_diagnosis: expectedVersion + 1",
+        `v${before} -> v${afterAdd}`);
+
+      // …and the caller's arithmetic is immediately usable as the next expected
+      // version, which is the whole point.
+      const nextVersion = await tx`
+        select public.update_encounter_diagnosis(${apptEncounter}, ${hospital.id},
+          ${before + 1}, ${id}, ${{ note: "still current" }}) as v`;
+      check(nextVersion[0].v === before + 2, "…and that number is accepted by the next mutation");
+
+      const beforeInv = await versionNow();
+      await tx`select public.add_encounter_investigation(${apptEncounter}, ${hospital.id},
+                 ${beforeInv}, 'Version contract', null)`;
+      const afterInv = await versionNow();
+      check(afterInv === beforeInv + 1, "add_encounter_investigation: expectedVersion + 1",
+        `v${beforeInv} -> v${afterInv}`);
+
+      // Clean up so later ordering assertions still describe what they expect.
+      const [{ v: vNow }] = await tx`select version as v from public.encounters where id = ${apptEncounter}`;
+      await tx`select public.remove_encounter_diagnosis(${apptEncounter}, ${hospital.id}, ${vNow}, ${id})`;
+      const [inv] = await tx`
+        select id from public.encounter_investigations
+        where encounter_id = ${apptEncounter} and name = 'Version contract'`;
+      const [{ v: vNow2 }] = await tx`select version as v from public.encounters where id = ${apptEncounter}`;
+      await tx`select public.remove_encounter_investigation(${apptEncounter}, ${hospital.id},
+                 ${vNow2}, ${inv.id})`;
+    });
+
     // ---- 11 & 12. diagnoses and investigations -----------------------------
     console.log("\nDiagnoses and investigations stay ordered");
     let dx1, dx2, inv1;

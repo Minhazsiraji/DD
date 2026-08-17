@@ -178,6 +178,38 @@ Upper bounds also sit inside each column's declared numeric precision, so a
 value can never be rejected by overflow instead of by the check that explains
 itself.
 
+### 6c. One version, one queue, one guarded exit
+
+**Every mutation on an encounter shares `encounters.version`** — notes, vitals,
+diagnoses and investigations alike. There is no per-section version and there
+must never be one: two counters over one record would let a screen conflict with
+itself, and would make "is my copy current?" unanswerable.
+
+Consequences the UI has to honour:
+
+- One coordinator owns the version for the whole screen. A successful list
+  mutation advances the number the notes editor will send next.
+- Mutations from one screen are SERIALISED. Two in flight against the same
+  expected version means one of them is already stale when it leaves.
+- The version a screen may claim is the one it EARNED. `add_encounter_diagnosis`
+  and `add_encounter_investigation` return the new row's id, and increment the
+  version exactly once, so the caller's new version is `expectedVersion + 1`.
+  Re-reading it from the database instead would silently absorb somebody else's
+  increment and mask a genuine conflict — the fetched number is not proof this
+  screen is current. Asserted by `db:verify:encounters`.
+- A conflict is about the ENCOUNTER, not about one widget. Any mutation that
+  hits one puts the whole screen into conflict, and every editor on it keeps its
+  unsaved contents until the doctor decides.
+- List ROWS are server state and are re-read on conflict; the doctor's
+  half-typed add/edit form is local and is never touched by a refresh.
+- Nothing is auto-merged, and nothing is resolved by reloading the page — a
+  reload discards unsaved notes, which is the failure being prevented.
+
+**Navigation with unsaved clinical data goes through `UnsavedGuard`**, whose
+`dirty` input covers every editor on the screen. A programmatic `router.push()`
+bypasses it; if one is ever needed, add a guarded navigation API or a dedicated
+consultation shell first.
+
 ### 7. Structured versus free text
 
 Free text: chief complaints, present illness, past history, examination,

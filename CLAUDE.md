@@ -5,17 +5,17 @@
 AI-enabled clinical + chamber operating system for doctors. One responsive
 Next.js app (desktop, tablet, mobile, installable PWA). No separate native app.
 
-**Current phase: Stage 6B — consultation UI, awaiting review.**
+**Current phase: Stage 6C — diagnoses and investigations, awaiting review.**
 Done: scaffold and design system (1), auth + RBAC + RLS + audit (2), MFA and
 device security (2.5), ADRs (2.6), patients (3) with two hardening rounds,
 doctor identity + prescription templates with an A4 preview, appointments (4),
 the live queue (5), and the Doctor Dashboard P0 pass.
 
-Stage 6A (encounter database) is accepted. Stage 6B adds the consultation
-screen: open/resume, identity strip, sections and vitals, explicit save state
-and conflict resolution. **Diagnoses and investigations have RPCs but no UI —
-that is Stage 6C.** Completing an encounter is deliberately not built; the
-draft stays open. The prescription ENGINE is not built.
+Stages 6A (encounter database) and 6B (consultation screen) are accepted. 6C
+adds diagnoses and investigations to that screen, on ONE shared version and
+ONE mutation queue (ADR 0010 §6c). Investigation RESULTS are not built — this
+records what was ordered. Completing an encounter is deliberately not built;
+the draft stays open. The prescription ENGINE is not built.
 
 Detailed architecture: `docs/architecture.md` (do not load unless needed).
 
@@ -192,6 +192,15 @@ squeeze — and it hides the bottom nav.
 - **`timestamptz::date` uses the SESSION timezone, not the clinic's.** Anything
   that means "which clinic day is this?" must convert through the location's own
   timezone, or a 12:30am Dhaka appointment files itself under the previous day.
+- **Consultation navigation with unsaved clinical data goes through
+  `UnsavedGuard`.** It intercepts anchor clicks in the capture phase and guards
+  `popstate`, which covers every navigation control in the shell today. A
+  programmatic `router.push()` — or anything equivalent — BYPASSES it silently
+  and drops typed clinical text with no warning. If programmatic navigation is
+  ever needed from the consultation screen, add a guarded navigation API or give
+  the consultation its own shell with a single guarded exit; do not call the
+  router directly. The guard's `dirty` input must include every unsaved editor
+  on the screen, not only the notes draft.
 - **Never raise SQLSTATE `40001` for a business rule.** It means
   `serialization_failure` — "transient, retrying may succeed" — and PostgREST
   duly retries it. A deterministic refusal (a version conflict, a state-machine

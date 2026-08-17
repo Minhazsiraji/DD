@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { requireLocationContext } from "@/lib/auth/session";
-import { getConsultationValues } from "./queries";
+import { getServerState } from "./queries";
 import { translateSaveError } from "./errors";
 import { saveInputSchema, type SaveInput, type SaveResult } from "./schema";
 
@@ -91,7 +91,7 @@ export async function saveConsultationAction(input: SaveInput): Promise<SaveResu
     const translated = safeMessage("save_encounter_sections", error.message);
 
     if (translated.kind === "conflict") {
-      const current = await getConsultationValues(parsed.data.encounterId);
+      const current = await getServerState(parsed.data.encounterId, ctx.locationId);
       /**
        * If the follow-up read also fails we must NOT fall back to reporting a
        * plain error — the save really was rejected for a conflict, and calling
