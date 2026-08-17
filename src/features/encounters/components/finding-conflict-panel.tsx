@@ -15,6 +15,36 @@ import type { FindingDraft, FindingRow } from "../finding-types";
  * conflict through the notes panel and then letting the stale finding through
  * is last-write-wins with an unrelated dialog in front of it.
  */
+type Kind = FindingConflict["kind"];
+
+const TITLE: Record<Kind, (noun: string) => string> = {
+  changed: (n) => `This ${n} changed somewhere else`,
+  removed: (n) => `This ${n} was removed somewhere else`,
+  interrupted: (n) => `Your unfinished ${n} was not saved`,
+  "removal-stale": (n) => `The ${n} was not removed`,
+  "removal-changed": (n) => `That ${n} changed before it could be removed`,
+  "removal-gone": (n) => `That ${n} was already removed`,
+};
+
+const BODY: Record<Kind, (noun: string) => string> = {
+  changed: () => "Compare the two before choosing — nothing is merged for you.",
+  removed: () =>
+    "Someone deleted it while you were editing. What you typed is below and has not been lost.",
+  interrupted: () =>
+    "The consultation moved on before you finished. Your text is still in the form; carry on and add it when you are ready.",
+  /**
+   * A refused removal always asks again. The doctor agreed to delete a
+   * particular finding; the record has moved since, so that agreement no
+   * longer covers what is there now.
+   */
+  "removal-stale": (n) =>
+    `The consultation changed before the delete went through, so nothing was removed. The ${n} is unchanged — confirm again if you still want it gone.`,
+  "removal-changed": () =>
+    "Nothing was removed. Someone edited it in the meantime, so read what is stored now before deciding again.",
+  "removal-gone": () =>
+    "Someone else deleted it first. Nothing more needs doing — it is already out of the record.",
+};
+
 export function FindingConflictPanel({
   conflict,
   onResolve,
@@ -36,18 +66,10 @@ export function FindingConflictPanel({
             id={`finding-conflict-${conflict.kind}-${conflict.list}`}
             className="text-[15px] font-semibold text-ink"
           >
-            {conflict.kind === "removed"
-              ? `This ${noun} was removed somewhere else`
-              : conflict.kind === "changed"
-                ? `This ${noun} changed somewhere else`
-                : `Your unfinished ${noun} was not saved`}
+            {TITLE[conflict.kind](noun)}
           </h2>
           <p className="mt-1 text-[13px] text-ink-secondary">
-            {conflict.kind === "removed"
-              ? `Someone deleted it while you were editing. What you typed is below and has not been lost.`
-              : conflict.kind === "changed"
-                ? `Compare the two before choosing — nothing is merged for you.`
-                : `The consultation moved on before you finished. Your text is still in the form; carry on and add it when you are ready.`}
+            {BODY[conflict.kind](noun)}
           </p>
         </div>
       </div>
@@ -63,6 +85,26 @@ export function FindingConflictPanel({
           {conflict.mine.note.trim() ? (
             <p className="mt-0.5 text-[13px] whitespace-pre-wrap text-ink-secondary">
               {conflict.mine.note}
+            </p>
+          ) : null}
+        </div>
+      ) : null}
+
+      {/* What is stored NOW, so the second confirmation is an informed one. */}
+      {conflict.kind === "removal-changed" || conflict.kind === "removal-stale" ? (
+        <div className="mt-3 border-t border-hairline px-4 py-3 sm:px-5">
+          <p className="text-[12px] font-semibold text-ink-secondary">Currently saved</p>
+          <p className="mt-1 text-[15px] text-ink">
+            {(conflict.kind === "removal-changed" ? conflict.theirs : conflict.base).title}
+          </p>
+          {conflict.kind === "removal-changed" && conflict.theirs.certainty ? (
+            <p className="mt-0.5 text-[12px] font-semibold text-brand">
+              {certaintyLabel(conflict.theirs.certainty)}
+            </p>
+          ) : null}
+          {(conflict.kind === "removal-changed" ? conflict.theirs.note : conflict.base.note) ? (
+            <p className="mt-0.5 text-[13px] whitespace-pre-wrap text-ink-secondary">
+              {conflict.kind === "removal-changed" ? conflict.theirs.note : conflict.base.note}
             </p>
           ) : null}
         </div>
@@ -99,6 +141,28 @@ export function FindingConflictPanel({
         {conflict.kind === "interrupted" ? (
           <button type="button" onClick={() => onResolve("acknowledge")} className={primary}>
             Continue
+          </button>
+        ) : null}
+
+        {/*
+          A refused removal never deletes on acknowledgement. It restores the
+          confirmation against the CURRENT finding, so the doctor presses
+          Remove again knowing what is actually there.
+        */}
+        {conflict.kind === "removal-stale" || conflict.kind === "removal-changed" ? (
+          <>
+            <button type="button" onClick={() => onResolve("acknowledge")} className={primary}>
+              Review it again
+            </button>
+            <button type="button" onClick={() => onResolve("discard")} className={secondary}>
+              Keep it after all
+            </button>
+          </>
+        ) : null}
+
+        {conflict.kind === "removal-gone" ? (
+          <button type="button" onClick={() => onResolve("acknowledge")} className={primary}>
+            Understood
           </button>
         ) : null}
       </div>

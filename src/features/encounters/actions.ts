@@ -5,6 +5,7 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { requireLocationContext } from "@/lib/auth/session";
 import { getServerState } from "./queries";
 import { translateSaveError } from "./errors";
+import { UNLOADABLE_CONFLICT_MESSAGE } from "./list-schema";
 import { saveInputSchema, type SaveInput, type SaveResult } from "./schema";
 
 /**
@@ -97,13 +98,13 @@ export async function saveConsultationAction(input: SaveInput): Promise<SaveResu
        * plain error — the save really was rejected for a conflict, and calling
        * it something else would invite the doctor to retry into the same wall.
        */
+      /**
+       * The refusal is CERTAIN; only the newer version is missing. Reporting a
+       * plain error would leave the screen on a stale version and free to try
+       * again, and every attempt can only be refused until the state loads.
+       */
       if (!current) {
-        return {
-          ok: false,
-          kind: "error",
-          message:
-            "These notes were saved somewhere else, and the newer version could not be loaded. Your text is still here — reload before saving again.",
-        };
+        return { ok: false, kind: "desync", message: UNLOADABLE_CONFLICT_MESSAGE };
       }
       return {
         ok: false,

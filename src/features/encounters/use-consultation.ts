@@ -14,6 +14,7 @@ import {
 } from "./draft-state";
 import {
   detectFindingConflict,
+  detectRemovalConflict,
   editorAsNewFinding,
   editorKeepingMine,
   editorTakingTheirs,
@@ -22,6 +23,7 @@ import {
 } from "./finding-conflict";
 import {
   UNCONFIRMED_MESSAGE,
+  UNLOADABLE_CONFLICT_MESSAGE,
   versionMoved,
   type ListResult,
 } from "./list-schema";
@@ -34,6 +36,7 @@ import {
   type FindingRow,
   type ListKind,
 } from "./finding-types";
+import { MutationGate } from "./mutation-gate";
 import type { Consultation, ServerState } from "./queries";
 import type { DraftKey, DraftValues } from "./schema";
 
@@ -97,6 +100,8 @@ export interface ConsultationSession {
   busy: MutationKind | null;
   blocked: boolean;
   listError: string | null;
+  notice: string | null;
+  dismissNotice: () => void;
   desynced: string | null;
   retrySync: () => Promise<void>;
   clearListError: () => void;
@@ -110,6 +115,17 @@ export interface ConsultationSession {
   anythingUnsaved: boolean;
 }
 
+/**
+ * The truthful notes state when there is no notes DECISION to make.
+ *
+ * Never fabricates "dirty" — a save bar that says "0 unsaved changes" is
+ * reporting a state that cannot exist, and it appeared because a finding-only
+ * conflict was setting the notes to dirty on the way past.
+ */
+function deriveNotesState(values: DraftValues, baseline: DraftValues): SaveState {
+  return ownedKeys(values, baseline).length > 0 ? { kind: "dirty" } : { kind: "clean" };
+}
+
 export function useConsultation(consultation: Consultation): ConsultationSession {
   const encounterId = consultation.id;
 
@@ -120,6 +136,8 @@ export function useConsultation(consultation: Consultation): ConsultationSession
   const [busy, setBusy] = React.useState<MutationKind | null>(null);
   const [listError, setListError] = React.useState<string | null>(null);
   const [desynced, setDesynced] = React.useState<string | null>(null);
+  /** Read synchronously when deciding whether the gate may reopen. */
+  const desyncedRef = React.useRef<string | null>(null);
   const [conflict, setConflict] = React.useState<ConflictState | null>(null);
 
   const [diagnoses, setDiagnoses] = React.useState<FindingRow[]>(
@@ -139,15 +157,17 @@ export function useConsultation(consultation: Consultation): ConsultationSession
   });
   const [confirmingRemoval, setConfirmingRemoval] =
     React.useState<{ list: ListKind; row: FindingRow } | null>(null);
+  /** Informational only — the encounter moved but nothing here disagreed. */
+  const [notice, setNotice] = React.useState<string | null>(null);
 
   // Live copies, readable from inside an awaited mutation — the closure
   // captured when a request left is stale by the time it returns.
   const liveValues = React.useRef(consultation.values);
   const liveVersion = React.useRef(consultation.version);
   const liveEditors = React.useRef(editors);
-  const inFlight = React.useRef(false);
-  /** Mirrors "a conflict or desync owns the encounter", for the gate in `run`. */
-  const gated = React.useRef(false);
+  const livePending = React.useRef<{ list: ListKind; row: FindingRow } | null>(null);
+  /** One gate for the whole screen; see mutation-gate.ts. */
+  const gate = React.useRef(new MutationGate()).current;
 
   const commitValues = React.useCallback((next: DraftValues) => {
     liveValues.current = next;
@@ -163,6 +183,19 @@ export function useConsultation(consultation: Consultation): ConsultationSession
     (next: Record<ListKind, FindingEditor | null>) => {
       liveEditors.current = next;
       setEditors(next);
+    },
+    [],
+  );
+
+  /**
+   * The pending removal is mirrored into a ref because conflict detection runs
+   * inside an awaited mutation, where React state is a stale closure. It is a
+   * conflict SUBJECT, not a piece of view state.
+   */
+  const commitPending = React.useCallback(
+    (next: { list: ListKind; row: FindingRow } | null) => {
+      livePending.current = next;
+      setConfirmingRemoval(next);
     },
     [],
   );
@@ -193,9 +226,26 @@ export function useConsultation(consultation: Consultation): ConsultationSession
   const hasVitalErrors = Object.keys(vitalErrors).length > 0;
   const blocked = conflict !== null || desynced !== null || busy !== null;
 
-  React.useEffect(() => {
-    gated.current = conflict !== null || desynced !== null;
-  }, [conflict, desynced]);
+  /**
+   * The gate closes SYNCHRONOUSLY, never from an effect.
+   *
+   * A conflict schedules React state, but the mutation that produced it
+   * releases `inFlight` in its own `finally` — which runs before any effect. In
+   * that window `gated.current` was still false, so a direct coordinator call
+   * could start another mutation against a version we already knew was stale.
+   * Button state hid it; the coordinator is supposed to BE the invariant.
+   */
+  const closeGate = React.useCallback(() => gate.close(), [gate]);
+  const openGate = React.useCallback(() => gate.open(), [gate]);
+
+  const enterDesync = React.useCallback(
+    (message: string) => {
+      closeGate();
+      desyncedRef.current = message;
+      setDesynced(message);
+    },
+    [closeGate],
+  );
 
   const setField = React.useCallback(
     (key: DraftKey, value: string) => {
@@ -222,12 +272,47 @@ export function useConsultation(consultation: Consultation): ConsultationSession
 
       const findings: FindingConflict[] = [];
       for (const list of ["diagnosis", "investigation"] as ListKind[]) {
-        const found = detectFindingConflict(liveEditors.current[list], rowsFor(list, server));
-        if (found) findings.push(found);
+        const rows = rowsFor(list, server);
+        const fromEditor = detectFindingConflict(liveEditors.current[list], rows);
+        if (fromEditor) findings.push(fromEditor);
+
+        /**
+         * A PENDING REMOVAL is a subject too. It has no open editor, so it used
+         * to produce nothing at all — and a conflict with no subjects renders
+         * no panel while still blocking every mutation. The doctor was left
+         * looking at "settle the change above" with nothing above to settle.
+         */
+        const pending = livePending.current;
+        if (pending && pending.list === list) {
+          const fromRemoval = detectRemovalConflict(pending, rows);
+          if (fromRemoval) findings.push(fromRemoval);
+        }
       }
 
       const notesDiffer = notesConflicted(liveValues.current, server.values);
 
+      /**
+       * NO SUBJECTS, NO CONFLICT.
+       *
+       * The encounter moved, but nothing on this screen disagrees with it: the
+       * notes match, no editor is stale, no pending removal is affected. There
+       * is no clinical decision to ask for, so the refreshed state is simply
+       * adopted and the doctor is told what happened. Storing a conflict here
+       * is what produced a screen that could not be unblocked.
+       */
+      if (!notesDiffer && findings.length === 0) {
+        setBaseline(server.values);
+        setConflict(null);
+        openGate();
+        setNotice(
+          "This consultation was updated somewhere else. Nothing you typed was affected, and the latest version is shown.",
+        );
+        setState(deriveNotesState(liveValues.current, server.values));
+        return;
+      }
+
+      closeGate();
+      setNotice(null);
       setConflict({
         message,
         server,
@@ -235,31 +320,34 @@ export function useConsultation(consultation: Consultation): ConsultationSession
         findings,
       });
 
-      // The notes banner is a notes decision; it must not appear when the
-      // notes agree and only a finding moved.
-      setState(
+      /**
+       * The notes banner is a NOTES decision. When only a finding moved it must
+       * not appear — and it must not invent a dirty state either, or the save
+       * bar ends up announcing "0 unsaved changes".
+       */
+      setState((prev) =>
         notesDiffer
           ? { kind: "conflict", message, theirs: server.values, version: server.version }
-          : { kind: "dirty" },
+          : prev.kind === "saving"
+            ? deriveNotesState(liveValues.current, baseline)
+            : prev,
       );
     },
-    [applyRows, commitVersion, rowsFor],
+    [applyRows, baseline, closeGate, commitVersion, openGate, rowsFor],
   );
 
   /** Every mutation on this screen passes through here, or does not happen. */
   const run = React.useCallback(
     async <T,>(kind: MutationKind, fn: () => Promise<T>): Promise<T | null> => {
-      if (inFlight.current || gated.current) return null;
-      inFlight.current = true;
+      if (gate.isBusy || gate.isClosed) return null;
       setBusy(kind);
       try {
-        return await fn();
+        return await gate.run(fn);
       } finally {
-        inFlight.current = false;
         setBusy(null);
       }
     },
-    [],
+    [gate],
   );
 
   const save = React.useCallback(async () => {
@@ -282,12 +370,24 @@ export function useConsultation(consultation: Consultation): ConsultationSession
         patch: attempt.patch,
       });
 
+      /**
+       * The refusal is certain but the current state is unreachable. Blocking
+       * is the only honest answer: retrying against a version we already know
+       * is stale can only be refused again, and there is nothing to show.
+       */
+      if (!result.ok && result.kind === "desync") {
+        setState(deriveNotesState(liveValues.current, baseline));
+        enterDesync(result.message);
+        return;
+      }
+
       if (!result.ok && result.kind === "conflict") {
         const refreshed = await refreshListsAction(encounterId);
         if (refreshed.ok) {
           enterConflict(refreshed.server, result.message);
         } else {
-          setState({ kind: "error", message: result.message });
+          setState(deriveNotesState(liveValues.current, baseline));
+          enterDesync(UNLOADABLE_CONFLICT_MESSAGE);
         }
         return;
       }
@@ -303,7 +403,7 @@ export function useConsultation(consultation: Consultation): ConsultationSession
       if (applied.version !== undefined) commitVersion(applied.version);
       setState(applied.state);
     });
-  }, [encounterId, baseline, commitValues, commitVersion, enterConflict, run]);
+  }, [encounterId, baseline, commitValues, commitVersion, enterConflict, enterDesync, run]);
 
   const runList = React.useCallback(
     async (
@@ -329,8 +429,8 @@ export function useConsultation(consultation: Consultation): ConsultationSession
             if (options?.closeEditorOnSuccess !== false) {
               commitEditors({ ...liveEditors.current, [list]: null });
             }
-            setConfirmingRemoval(null);
-            setDesynced(UNCONFIRMED_MESSAGE);
+            commitPending(null);
+            enterDesync(UNCONFIRMED_MESSAGE);
             return result;
           }
 
@@ -347,23 +447,28 @@ export function useConsultation(consultation: Consultation): ConsultationSession
           if (options?.closeEditorOnSuccess !== false) {
             commitEditors({ ...liveEditors.current, [list]: null });
           }
-          setConfirmingRemoval(null);
+          commitPending(null);
           return result;
         }
 
         if (result.kind === "conflict") {
           enterConflict(result.server, result.message);
-        } else if (result.kind === "unconfirmed") {
-          // Same reasoning as a failed readback: the write may be committed.
+        } else if (result.kind === "desync") {
+          /**
+           * Either the write may have committed and could not be read back, or
+           * it was certainly refused and the current state is unreachable.
+           * Both must block: one to avoid a duplicate clinical record, the
+           * other to avoid a retry that can only fail.
+           */
           commitEditors({ ...liveEditors.current, [list]: null });
-          setConfirmingRemoval(null);
-          setDesynced(result.message);
+          commitPending(null);
+          enterDesync(result.message);
         } else {
           setListError(result.message);
         }
         return result;
       }),
-    [encounterId, applyRows, commitEditors, commitVersion, enterConflict, run],
+    [encounterId, applyRows, commitEditors, commitPending, commitVersion, enterConflict, enterDesync, run],
   );
 
   /**
@@ -375,28 +480,36 @@ export function useConsultation(consultation: Consultation): ConsultationSession
    * than being adopted quietly.
    */
   const retrySync = React.useCallback(async () => {
-    if (inFlight.current) return;
-    inFlight.current = true;
+    if (gate.isBusy) return;
     setBusy("list");
     try {
       const refreshed = await refreshListsAction(encounterId);
       if (!refreshed.ok) return;
 
       applyRows(refreshed.server);
+      desyncedRef.current = null;
       setDesynced(null);
 
+      /**
+       * Recovery runs FULL subject detection, pending removal included — the
+       * state we could not read may have moved for a reason the doctor still
+       * has to decide about. `enterConflict` reopens the gate itself when it
+       * finds nothing to settle.
+       */
       if (versionMoved(liveVersion.current, refreshed.server.version)) {
-        gated.current = false;
         enterConflict(
           refreshed.server,
           "This consultation changed somewhere else. Your text is still here — choose which version to keep.",
         );
+      } else {
+        // Back in step and nothing to settle: the doctor has the encounter.
+        commitVersion(refreshed.server.version);
+        openGate();
       }
     } finally {
-      inFlight.current = false;
       setBusy(null);
     }
-  }, [encounterId, applyRows, enterConflict]);
+  }, [encounterId, applyRows, commitVersion, enterConflict, gate, openGate]);
 
   // ---- editors ------------------------------------------------------------
   const openAdd = React.useCallback(
@@ -435,25 +548,39 @@ export function useConsultation(consultation: Consultation): ConsultationSession
     [commitEditors],
   );
 
-  const askRemove = React.useCallback((list: ListKind, row: FindingRow) => {
-    setListError(null);
-    setConfirmingRemoval({ list, row });
-  }, []);
+  const askRemove = React.useCallback(
+    (list: ListKind, row: FindingRow) => {
+      setListError(null);
+      commitPending({ list, row });
+    },
+    [commitPending],
+  );
 
-  const cancelRemove = React.useCallback(() => setConfirmingRemoval(null), []);
+  const cancelRemove = React.useCallback(() => commitPending(null), [commitPending]);
 
   // ---- conflict resolution ------------------------------------------------
+  /**
+   * Settling a subject, and reopening the gate the moment the last one goes.
+   *
+   * The gate is released HERE rather than in an effect, so it can never be open
+   * while an unresolved subject is still on screen, or closed after the last
+   * one is answered.
+   */
   const settle = React.useCallback(
-    (next: Partial<Pick<ConflictState, "notes" | "findings">>) => {
+    (next: { notes?: null; drop?: FindingConflict }) => {
       setConflict((prev) => {
         if (!prev) return prev;
-        const merged = { ...prev, ...next };
-        // Every subject settled: the encounter is the doctor's again.
-        if (merged.notes === null && merged.findings.length === 0) return null;
-        return merged;
+        const notes = next.notes === null ? null : prev.notes;
+        const findings = next.drop ? prev.findings.filter((f) => f !== next.drop) : prev.findings;
+
+        if (notes === null && findings.length === 0) {
+          if (desyncedRef.current === null) openGate();
+          return null;
+        }
+        return { ...prev, notes, findings };
       });
     },
-    [],
+    [openGate],
   );
 
   const keepMine = React.useCallback(() => {
@@ -492,22 +619,35 @@ export function useConsultation(consultation: Consultation): ConsultationSession
           commitEditors({ ...liveEditors.current, [target.list]: editorKeepingMine(editor, target.theirs) });
         } else if (target.kind === "removed" && choice === "as-new") {
           commitEditors({ ...liveEditors.current, [target.list]: editorAsNewFinding(editor) });
-        } else if (choice === "discard") {
+        } else if (choice === "discard" && target.kind !== "removal-gone") {
           commitEditors({ ...liveEditors.current, [target.list]: null });
         }
       }
 
-      setConflict((prev) => {
-        if (!prev) return prev;
-        const findings = prev.findings.filter((f) => f !== target);
-        if (prev.notes === null && findings.length === 0) return null;
-        return { ...prev, findings };
-      });
+      /**
+       * A refused removal always demands a FRESH confirmation. The doctor
+       * agreed to delete a particular finding; the record has moved since, so
+       * that agreement no longer covers what is there now.
+       */
+      if (target.kind === "removal-gone") {
+        // Already deleted elsewhere. Acknowledging must not issue a second
+        // delete — there is nothing left to remove.
+        commitPending(null);
+      } else if (target.kind === "removal-changed") {
+        // Re-anchored to what is actually stored, so the confirmation now names
+        // the current finding rather than the one they first saw.
+        commitPending(choice === "discard" ? null : { list: target.list, row: target.theirs });
+      } else if (target.kind === "removal-stale") {
+        commitPending(choice === "discard" ? null : { list: target.list, row: target.base });
+      }
+
+      settle({ drop: target });
     },
-    [commitEditors],
+    [commitEditors, commitPending, settle],
   );
 
   const clearListError = React.useCallback(() => setListError(null), []);
+  const dismissNotice = React.useCallback(() => setNotice(null), []);
 
   const anythingUnsaved =
     isDirty || editorIsDirty(editors.diagnosis) || editorIsDirty(editors.investigation);
@@ -516,7 +656,7 @@ export function useConsultation(consultation: Consultation): ConsultationSession
     values, dirtyKeys, isDirty, vitalErrors, hasVitalErrors, setField, save,
     diagnoses, investigations, editors, confirmingRemoval,
     openAdd, openEdit, closeEditor, setDraft, askRemove, cancelRemove, runList,
-    version, state, busy, blocked, listError, desynced, retrySync, clearListError,
+    version, state, busy, blocked, listError, notice, dismissNotice, desynced, retrySync, clearListError,
     conflict, keepMine, takeTheirs, resolveFinding, anythingUnsaved,
   };
 }

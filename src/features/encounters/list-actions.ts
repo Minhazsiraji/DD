@@ -8,6 +8,7 @@ import { translateSaveError } from "./errors";
 import {
   CERTAINTIES,
   UNCONFIRMED_MESSAGE,
+  UNLOADABLE_CONFLICT_MESSAGE,
   acceptVersion,
   type ListResult,
 } from "./list-schema";
@@ -94,7 +95,7 @@ async function finish(
      */
     if (version === null) {
       console.error(`[encounters] ${action} returned an unusable version`);
-      return { ok: false, kind: "unconfirmed", message: UNCONFIRMED_MESSAGE };
+      return { ok: false, kind: "desync", message: UNCONFIRMED_MESSAGE };
     }
     return { ok: true, version };
   }
@@ -107,13 +108,13 @@ async function finish(
 
   if (translated.kind === "conflict") {
     const server = await getServerState(encounterId, locationId);
+    /**
+     * The refusal is CERTAIN; only the current state is missing. Treating that
+     * as an ordinary error would leave the screen on a stale version, free to
+     * try again — and every attempt can only be refused until the state loads.
+     */
     if (!server) {
-      return {
-        ok: false,
-        kind: "error",
-        message:
-          "This consultation changed somewhere else, and the newer version could not be loaded. Nothing here has been lost — reload before trying again.",
-      };
+      return { ok: false, kind: "desync", message: UNLOADABLE_CONFLICT_MESSAGE };
     }
     return { ok: false, kind: "conflict", message: translated.message, server };
   }

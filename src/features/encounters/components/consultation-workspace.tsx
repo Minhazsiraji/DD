@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { CloudAlert, Lock, RefreshCw, Stethoscope, TestTube } from "lucide-react";
+import { CloudAlert, Info, Lock, RefreshCw, Stethoscope, TestTube } from "lucide-react";
 import { ConsultationIdentity } from "./consultation-identity";
 import { SectionFields, VitalFields } from "./draft-fields";
 import { ConflictPanel } from "./conflict-panel";
@@ -153,6 +153,28 @@ export function ConsultationWorkspace({
             {s.busy ? "Loading…" : "Retry loading"}
           </button>
         </div>
+      ) : null}
+
+      {/*
+        The encounter moved but nothing here disagreed with it. Informational,
+        dismissible, and NOT a conflict — storing a conflict with no subject is
+        what left the screen blocked with nothing to settle.
+      */}
+      {s.notice ? (
+        <p
+          role="status"
+          className="clinical-surface mb-4 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-glass border-l-4 border-l-brand px-4 py-3 text-[13px] text-ink-secondary"
+        >
+          <Info className="size-4 shrink-0 text-brand" aria-hidden="true" />
+          <span className="min-w-0 flex-1">{s.notice}</span>
+          <button
+            type="button"
+            onClick={s.dismissNotice}
+            className="inline-flex h-11 items-center rounded-xl px-3 text-[13px] font-semibold text-ink hover:bg-surface-muted focus-visible:focus-ring"
+          >
+            Dismiss
+          </button>
+        </p>
       ) : null}
 
       {/* One panel per unsettled decision, each about its own subject. */}

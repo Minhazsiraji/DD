@@ -100,16 +100,26 @@ export function acceptVersion(data: unknown, expectedVersion: number): number | 
  * the encounter rather than about one widget: whatever moved it, the notes and
  * both lists on this screen are now potentially behind.
  *
- * `unconfirmed` is the uncomfortable one, and it exists because the honest
- * answer is sometimes "we do not know". The write may well have committed; what
- * failed was learning the result. It must never read as a failure — that
- * invites a duplicate clinical record — and never as a success.
+ * `desync` is the uncomfortable one, and it exists because the honest answer is
+ * sometimes "we do not know what the record looks like". Two different things
+ * arrive here, and both must block rather than invite another attempt:
+ *
+ *   - the write may have committed, but reading the result failed
+ *   - the write was definitely REFUSED for a conflict, but the current state
+ *     could not be loaded, so there is nothing to show the doctor and no safe
+ *     version to retry against
+ *
+ * Neither may read as an ordinary error: one would invite a duplicate clinical
+ * record, the other an attempt that can only be refused again.
  */
 export type ListResult =
   | { ok: true; version: number }
   | { ok: false; kind: "conflict"; message: string; server: ServerState }
-  | { ok: false; kind: "unconfirmed"; message: string }
+  | { ok: false; kind: "desync"; message: string }
   | { ok: false; kind: "error"; message: string };
 
 export const UNCONFIRMED_MESSAGE =
   "Saved, but the updated list could not be loaded. Do not add it again — retry loading to see the current record.";
+
+export const UNLOADABLE_CONFLICT_MESSAGE =
+  "This consultation changed somewhere else, and the newer version could not be loaded. Nothing you typed has been lost and nothing was overwritten — retry loading before trying again.";

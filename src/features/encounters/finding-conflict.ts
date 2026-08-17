@@ -22,7 +22,16 @@ export type FindingConflict =
   /** The row being edited is gone. The typed text must not vanish with it. */
   | { kind: "removed"; list: ListKind; rowId: string; mine: FindingDraft; base: FindingRow }
   /** An add form held text when something unrelated moved the encounter. */
-  | { kind: "interrupted"; list: ListKind; mine: FindingDraft };
+  | { kind: "interrupted"; list: ListKind; mine: FindingDraft }
+  /**
+   * A PENDING REMOVAL was refused. These three exist because a removal has no
+   * open editor, so it had no subject at all — and a conflict with no subject
+   * renders no panel while still blocking the screen. That is a consultation a
+   * doctor cannot get out of.
+   */
+  | { kind: "removal-stale"; list: ListKind; rowId: string; base: FindingRow }
+  | { kind: "removal-changed"; list: ListKind; rowId: string; base: FindingRow; theirs: FindingRow }
+  | { kind: "removal-gone"; list: ListKind; rowId: string; base: FindingRow };
 
 function sameFinding(a: FindingRow, b: FindingRow): boolean {
   return (
@@ -59,6 +68,36 @@ export function detectFindingConflict(
   if (sameFinding(theirs, editor.base)) return null;
 
   return { kind: "changed", list: editor.list, rowId: editor.rowId, mine: editor.draft, base: editor.base, theirs };
+}
+
+/**
+ * A removal that the database refused.
+ *
+ * The doctor confirmed "remove this", the encounter had already moved, and the
+ * delete did not happen. They are owed one of three different sentences — and
+ * in every case a FRESH confirmation, because the thing they agreed to remove
+ * may no longer be the thing that is there.
+ */
+export function detectRemovalConflict(
+  pending: { list: ListKind; row: FindingRow } | null,
+  serverRows: readonly FindingRow[],
+): FindingConflict | null {
+  if (!pending) return null;
+
+  const theirs = serverRows.find((r) => r.id === pending.row.id);
+  if (!theirs) {
+    return { kind: "removal-gone", list: pending.list, rowId: pending.row.id, base: pending.row };
+  }
+  if (!sameFinding(theirs, pending.row)) {
+    return {
+      kind: "removal-changed",
+      list: pending.list,
+      rowId: pending.row.id,
+      base: pending.row,
+      theirs,
+    };
+  }
+  return { kind: "removal-stale", list: pending.list, rowId: pending.row.id, base: pending.row };
 }
 
 /**
