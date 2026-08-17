@@ -195,9 +195,8 @@ export type SaveResult =
    * can see what they would be writing over — never resolved automatically.
    */
   | { ok: false; kind: "conflict"; version: number; values: DraftValues; message: string }
-  /**
-   * The refusal is certain, the current state is not loadable. Must block
-   * rather than invite a retry that can only be refused again.
-   */
-  | { ok: false; kind: "desync"; message: string }
+  /** The save may already be in the record; the result could not be read. */
+  | { ok: false; kind: "write-unconfirmed"; message: string }
+  /** The save was definitely refused; only the newer state is missing. */
+  | { ok: false; kind: "conflict-unloadable"; message: string }
   | { ok: false; kind: "error"; message: string };

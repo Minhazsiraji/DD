@@ -19,6 +19,7 @@ import {
   updateInvestigationAction,
 } from "../list-actions";
 import { noteInstruction } from "../list-schema";
+import { DESYNC_TITLE } from "../version-contract";
 import type { FindingRow, ListKind } from "../finding-types";
 import type { Consultation } from "../queries";
 
@@ -126,8 +127,10 @@ export function ConsultationWorkspace({
       ) : null}
 
       {/*
-        The write landed but the read did not. Says so without implying failure
-        — implying failure is what makes a doctor record the same finding twice.
+        Something about the record is unknown. Two very different unknowns —
+        "may already have saved" and "was definitely refused" — and the copy
+        must not blur them: one would make a doctor enter a finding twice, the
+        other would make them retype work that is still on the screen.
       */}
       {s.desynced ? (
         <div
@@ -136,11 +139,16 @@ export function ConsultationWorkspace({
         >
           <div className="flex items-start gap-2.5">
             <CloudAlert className="mt-0.5 size-5 shrink-0 text-warning" aria-hidden="true" />
+            {/*
+              Neutral title: the unknown may be the notes, the lists, or the
+              encounter version itself. "The list below may be out of date" was
+              wrong for a rejected note save. The MESSAGE carries the part that
+              actually matters — whether the change may have landed, or
+              definitely did not.
+            */}
             <div className="min-w-0">
-              <h2 className="text-[15px] font-semibold text-ink">
-                The list below may be out of date
-              </h2>
-              <p className="mt-1 text-[13px] text-ink-secondary">{s.desynced}</p>
+              <h2 className="text-[15px] font-semibold text-ink">{DESYNC_TITLE}</h2>
+              <p className="mt-1 text-[13px] text-ink-secondary">{s.desynced.message}</p>
             </div>
           </div>
           <button

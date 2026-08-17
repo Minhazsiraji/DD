@@ -73,25 +73,8 @@ export function versionMoved(earned: number, observed: number): boolean {
   return observed !== earned;
 }
 
-/**
- * The version an RPC reported, or null if it cannot be believed.
- *
- * `Number(data) || expected + 1` was the wrong shape: null, 0, NaN and a
- * malformed payload all fell through to a guess that LOOKED like success. A
- * version we invented is then sent as the expected version of the next
- * mutation, so one unnoticed anomaly becomes a wrong write.
- *
- * The accepted contract is exact — every mutating RPC advances the version by
- * one — so anything else means we no longer know the state of the record and
- * must stop rather than continue on an assumption.
- */
-export function acceptVersion(data: unknown, expectedVersion: number): number | null {
-  if (typeof data !== "number" && typeof data !== "string") return null;
-  const n = Number(data);
-  if (!Number.isInteger(n) || n <= 0) return null;
-  if (n !== expectedVersion + 1) return null;
-  return n;
-}
+// The version rule is shared with the note save; it lives in version-contract.ts.
+export { acceptVersion } from "./version-contract";
 
 /**
  * Every list mutation answers one of four ways.
@@ -100,26 +83,23 @@ export function acceptVersion(data: unknown, expectedVersion: number): number | 
  * the encounter rather than about one widget: whatever moved it, the notes and
  * both lists on this screen are now potentially behind.
  *
- * `desync` is the uncomfortable one, and it exists because the honest answer is
- * sometimes "we do not know what the record looks like". Two different things
- * arrive here, and both must block rather than invite another attempt:
+ * The last two are BOTH "we do not know what the record looks like", and they
+ * must stay apart, because the right response to each is the opposite of the
+ * other:
  *
- *   - the write may have committed, but reading the result failed
- *   - the write was definitely REFUSED for a conflict, but the current state
- *     could not be loaded, so there is nothing to show the doctor and no safe
- *     version to retry against
+ *   write-unconfirmed   — the write may already be in the record, so the form
+ *                         CLOSES; leaving it open invites a duplicate.
+ *   conflict-unloadable — the write was definitely REFUSED, so the form and
+ *                         every character in it STAYS; closing it throws away
+ *                         work the database never took, and destroys the
+ *                         subject that recovery needs in order to compare.
  *
- * Neither may read as an ordinary error: one would invite a duplicate clinical
- * record, the other an attempt that can only be refused again.
+ * Collapsing them into one "desync" is what made a rejected diagnosis edit
+ * vanish from the screen.
  */
 export type ListResult =
   | { ok: true; version: number }
   | { ok: false; kind: "conflict"; message: string; server: ServerState }
-  | { ok: false; kind: "desync"; message: string }
+  | { ok: false; kind: "write-unconfirmed"; message: string }
+  | { ok: false; kind: "conflict-unloadable"; message: string }
   | { ok: false; kind: "error"; message: string };
-
-export const UNCONFIRMED_MESSAGE =
-  "Saved, but the updated list could not be loaded. Do not add it again — retry loading to see the current record.";
-
-export const UNLOADABLE_CONFLICT_MESSAGE =
-  "This consultation changed somewhere else, and the newer version could not be loaded. Nothing you typed has been lost and nothing was overwritten — retry loading before trying again.";

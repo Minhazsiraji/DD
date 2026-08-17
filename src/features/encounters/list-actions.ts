@@ -5,13 +5,12 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { requireLocationContext } from "@/lib/auth/session";
 import { getServerState } from "./queries";
 import { translateSaveError } from "./errors";
+import { CERTAINTIES, type ListResult } from "./list-schema";
 import {
-  CERTAINTIES,
-  UNCONFIRMED_MESSAGE,
-  UNLOADABLE_CONFLICT_MESSAGE,
+  CONFLICT_UNLOADABLE_MESSAGE,
+  WRITE_UNCONFIRMED_MESSAGE,
   acceptVersion,
-  type ListResult,
-} from "./list-schema";
+} from "./version-contract";
 
 /**
  * Diagnosis and investigation writes.
@@ -95,7 +94,7 @@ async function finish(
      */
     if (version === null) {
       console.error(`[encounters] ${action} returned an unusable version`);
-      return { ok: false, kind: "desync", message: UNCONFIRMED_MESSAGE };
+      return { ok: false, kind: "write-unconfirmed", message: WRITE_UNCONFIRMED_MESSAGE };
     }
     return { ok: true, version };
   }
@@ -114,7 +113,7 @@ async function finish(
      * try again — and every attempt can only be refused until the state loads.
      */
     if (!server) {
-      return { ok: false, kind: "desync", message: UNLOADABLE_CONFLICT_MESSAGE };
+      return { ok: false, kind: "conflict-unloadable", message: CONFLICT_UNLOADABLE_MESSAGE };
     }
     return { ok: false, kind: "conflict", message: translated.message, server };
   }

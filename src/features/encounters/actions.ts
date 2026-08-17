@@ -5,7 +5,11 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { requireLocationContext } from "@/lib/auth/session";
 import { getServerState } from "./queries";
 import { translateSaveError } from "./errors";
-import { UNLOADABLE_CONFLICT_MESSAGE } from "./list-schema";
+import {
+  CONFLICT_UNLOADABLE_MESSAGE,
+  WRITE_UNCONFIRMED_MESSAGE,
+  acceptVersion,
+} from "./version-contract";
 import { saveInputSchema, type SaveInput, type SaveResult } from "./schema";
 
 /**
@@ -94,17 +98,12 @@ export async function saveConsultationAction(input: SaveInput): Promise<SaveResu
     if (translated.kind === "conflict") {
       const current = await getServerState(parsed.data.encounterId, ctx.locationId);
       /**
-       * If the follow-up read also fails we must NOT fall back to reporting a
-       * plain error — the save really was rejected for a conflict, and calling
-       * it something else would invite the doctor to retry into the same wall.
-       */
-      /**
        * The refusal is CERTAIN; only the newer version is missing. Reporting a
        * plain error would leave the screen on a stale version and free to try
        * again, and every attempt can only be refused until the state loads.
        */
       if (!current) {
-        return { ok: false, kind: "desync", message: UNLOADABLE_CONFLICT_MESSAGE };
+        return { ok: false, kind: "conflict-unloadable", message: CONFLICT_UNLOADABLE_MESSAGE };
       }
       return {
         ok: false,
@@ -118,10 +117,21 @@ export async function saveConsultationAction(input: SaveInput): Promise<SaveResu
     return { ok: false, kind: "error", message: translated.message };
   }
 
-  const version = Number(data);
-  if (!Number.isFinite(version)) {
-    console.error("[encounters] save returned a non-numeric version", data);
-    return { ok: false, kind: "error", message: "Saved, but the screen is out of step. Reload the consultation." };
+  /**
+   * The SAME contract the list mutations use, and for the same reason.
+   *
+   * `Number(data)` turned null into 0, accepted fractions and negatives, and
+   * waved through a jump of +3 — and the coordinator would then carry a
+   * version it never earned into the next write. The version is shared, so
+   * validating it on only one side left the defect fully alive on the other.
+   *
+   * An unusable answer means the save MAY already have committed, so it is
+   * reported as unconfirmed rather than as a retryable error.
+   */
+  const version = acceptVersion(data, parsed.data.expectedVersion);
+  if (version === null) {
+    console.error("[encounters] save returned an unusable version", data);
+    return { ok: false, kind: "write-unconfirmed", message: WRITE_UNCONFIRMED_MESSAGE };
   }
 
   return { ok: true, version, savedAt: new Date().toISOString() };

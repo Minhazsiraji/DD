@@ -21,12 +21,12 @@ import {
   notesConflicted,
   type FindingConflict,
 } from "./finding-conflict";
+import { versionMoved, type ListResult } from "./list-schema";
 import {
-  UNCONFIRMED_MESSAGE,
-  UNLOADABLE_CONFLICT_MESSAGE,
-  versionMoved,
-  type ListResult,
-} from "./list-schema";
+  CONFLICT_UNLOADABLE_MESSAGE,
+  WRITE_UNCONFIRMED_MESSAGE,
+  type DesyncKind,
+} from "./version-contract";
 import {
   draftFromRow,
   editorIsDirty,
@@ -102,7 +102,7 @@ export interface ConsultationSession {
   listError: string | null;
   notice: string | null;
   dismissNotice: () => void;
-  desynced: string | null;
+  desynced: { kind: DesyncKind; message: string } | null;
   retrySync: () => Promise<void>;
   clearListError: () => void;
   conflict: ConflictState | null;
@@ -135,9 +135,9 @@ export function useConsultation(consultation: Consultation): ConsultationSession
   const [state, setState] = React.useState<SaveState>({ kind: "clean" });
   const [busy, setBusy] = React.useState<MutationKind | null>(null);
   const [listError, setListError] = React.useState<string | null>(null);
-  const [desynced, setDesynced] = React.useState<string | null>(null);
+  const [desynced, setDesynced] = React.useState<{ kind: DesyncKind; message: string } | null>(null);
   /** Read synchronously when deciding whether the gate may reopen. */
-  const desyncedRef = React.useRef<string | null>(null);
+  const desyncedRef = React.useRef<{ kind: DesyncKind; message: string } | null>(null);
   const [conflict, setConflict] = React.useState<ConflictState | null>(null);
 
   const [diagnoses, setDiagnoses] = React.useState<FindingRow[]>(
@@ -239,10 +239,11 @@ export function useConsultation(consultation: Consultation): ConsultationSession
   const openGate = React.useCallback(() => gate.open(), [gate]);
 
   const enterDesync = React.useCallback(
-    (message: string) => {
+    (message: string, kind: DesyncKind) => {
       closeGate();
-      desyncedRef.current = message;
-      setDesynced(message);
+      const next = { kind, message };
+      desyncedRef.current = next;
+      setDesynced(next);
     },
     [closeGate],
   );
@@ -374,10 +375,20 @@ export function useConsultation(consultation: Consultation): ConsultationSession
        * The refusal is certain but the current state is unreachable. Blocking
        * is the only honest answer: retrying against a version we already know
        * is stale can only be refused again, and there is nothing to show.
+       *
+       * The notes text is untouched either way — the draft is not an editor
+       * that can be "closed", so both outcomes preserve it. What differs is
+       * what the doctor is TOLD about whether it landed.
        */
-      if (!result.ok && result.kind === "desync") {
+      if (!result.ok && result.kind === "conflict-unloadable") {
         setState(deriveNotesState(liveValues.current, baseline));
-        enterDesync(result.message);
+        enterDesync(result.message, "conflict-unloadable");
+        return;
+      }
+
+      if (!result.ok && result.kind === "write-unconfirmed") {
+        setState(deriveNotesState(liveValues.current, baseline));
+        enterDesync(result.message, "write-unconfirmed");
         return;
       }
 
@@ -387,7 +398,7 @@ export function useConsultation(consultation: Consultation): ConsultationSession
           enterConflict(refreshed.server, result.message);
         } else {
           setState(deriveNotesState(liveValues.current, baseline));
-          enterDesync(UNLOADABLE_CONFLICT_MESSAGE);
+          enterDesync(CONFLICT_UNLOADABLE_MESSAGE, "conflict-unloadable");
         }
         return;
       }
@@ -430,7 +441,7 @@ export function useConsultation(consultation: Consultation): ConsultationSession
               commitEditors({ ...liveEditors.current, [list]: null });
             }
             commitPending(null);
-            enterDesync(UNCONFIRMED_MESSAGE);
+            enterDesync(WRITE_UNCONFIRMED_MESSAGE, "write-unconfirmed");
             return result;
           }
 
@@ -453,16 +464,24 @@ export function useConsultation(consultation: Consultation): ConsultationSession
 
         if (result.kind === "conflict") {
           enterConflict(result.server, result.message);
-        } else if (result.kind === "desync") {
+        } else if (result.kind === "write-unconfirmed") {
           /**
-           * Either the write may have committed and could not be read back, or
-           * it was certainly refused and the current state is unreachable.
-           * Both must block: one to avoid a duplicate clinical record, the
-           * other to avoid a retry that can only fail.
+           * The write MAY be in the record. Closing the form is the whole
+           * point: leaving it open invites the doctor to enter the same
+           * finding a second time.
            */
           commitEditors({ ...liveEditors.current, [list]: null });
           commitPending(null);
-          enterDesync(result.message);
+          enterDesync(result.message, "write-unconfirmed");
+        } else if (result.kind === "conflict-unloadable") {
+          /**
+           * The database definitely REFUSED this. Nothing was saved, so the
+           * editor, its baseline and every character in it stay exactly where
+           * they are — and so does the pending removal. Closing them would
+           * throw away work the record never took, and would destroy the very
+           * subjects recovery needs in order to compare anything.
+           */
+          enterDesync(result.message, "conflict-unloadable");
         } else {
           setListError(result.message);
         }
