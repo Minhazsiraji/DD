@@ -22,6 +22,7 @@
     "db:verify:encounters": "node --env-file=.env.local scripts/verify-encounters.mjs",
     "db:verify:prescriptions": "node --env-file=.env.local scripts/verify-prescriptions.mjs",
     "db:verify:migrations": "node --env-file=.env.local scripts/verify-migrations.mjs",
+    "db:gate": "node --env-file=.env.local scripts/security-gate.mjs",
     "qa:create": "node --env-file=.env.local scripts/qa-fixture.mjs create",
     "qa:destroy": "node --env-file=.env.local scripts/qa-fixture.mjs destroy",
     "qa:status": "node --env-file=.env.local scripts/qa-fixture.mjs status"
