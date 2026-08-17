@@ -25,18 +25,25 @@ export function ConflictPanel({
   message,
   mine,
   theirs,
-  touched,
+  unsavedKeys,
   onKeepMine,
   onTakeTheirs,
 }: {
   message: string;
   mine: DraftValues;
   theirs: DraftValues;
-  /** Fields typed into on THIS screen — the only ones "keep mine" asserts. */
-  touched: ReadonlySet<DraftKey>;
+  /**
+   * Fields still UNSAVED on this screen — the only ones "keep mine" asserts.
+   *
+   * Not "fields I typed into at some point". A section saved successfully ten
+   * minutes ago belongs to the record, not to this tab, and anything newer on
+   * the server is newer than what is here.
+   */
+  unsavedKeys: readonly DraftKey[];
   onKeepMine: () => void;
   onTakeTheirs: () => void;
 }) {
+  const unsaved = new Set(unsavedKeys);
   const differing = (Object.keys(LABEL) as DraftKey[]).filter(
     (key) => (mine[key] ?? "").trim() !== (theirs[key] ?? "").trim(),
   );
@@ -64,7 +71,7 @@ export function ConflictPanel({
                 Field
               </th>
               <th scope="col" className="px-4 py-2 font-semibold text-ink">
-                On this screen
+                Unsaved here
               </th>
               <th scope="col" className="px-4 py-2 font-semibold text-ink">
                 Already saved
@@ -88,11 +95,11 @@ export function ConflictPanel({
                 </td>
                 {/*
                   Spelled out per field, because "keep mine" is not a blanket
-                  overwrite: a section this screen never typed into keeps the
-                  newer text, whichever button is pressed.
+                  overwrite: a section with nothing unsaved here keeps the newer
+                  text, whichever button is pressed.
                 */}
                 <td className="px-4 py-2.5 text-[12px] font-medium text-ink-secondary">
-                  {touched.has(key) ? "Yours is kept" : "Saved version is kept"}
+                  {unsaved.has(key) ? "Yours is kept" : "Saved version is kept"}
                 </td>
               </tr>
             ))}
@@ -123,8 +130,9 @@ export function ConflictPanel({
         the other device wrote elsewhere survives either way.
       */}
       <p className="px-4 pb-4 text-[12px] text-ink-muted sm:px-5">
-        Keeping your text re-sends only the fields you typed into here; everything else takes the
-        saved version. Using the saved version discards what you typed on this screen.
+        Keeping your text re-sends only the fields still unsaved on this screen; everything else
+        takes the saved version, including anything you saved earlier and someone has since
+        changed. Using the saved version discards what is unsaved here.
       </p>
     </section>
   );

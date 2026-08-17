@@ -2,28 +2,34 @@
 
 import * as React from "react";
 import { saveConsultationAction } from "./actions";
-import { type DraftKey, type DraftValues } from "./schema";
-import { buildPatch, changedKeys, validateVitals } from "./draft-patch";
+import { validateVitals } from "./draft-patch";
+import {
+  applySaveResult,
+  beginSave,
+  keepLocalEdits,
+  ownedKeys,
+  takeServerVersion,
+  type Applied,
+  type SaveState,
+} from "./draft-state";
+import type { DraftKey, DraftValues } from "./schema";
+
+export type { SaveState } from "./draft-state";
 
 /**
- * The consultation draft.
+ * The consultation draft — a thin React binding over the rules in
+ * draft-state.ts.
  *
  * ONE RULE ABOVE ALL OTHERS: what the doctor typed is never discarded, never
  * silently replaced, and never overwritten by anything arriving from the
- * server. Every branch below is written so that `values` only ever changes
- * because the doctor changed it, or because they explicitly asked for the
- * saved version.
+ * server. `values` changes only because the doctor changed it, or because they
+ * explicitly asked for the saved version.
+ *
+ * There is deliberately no "fields I have ever touched" set. Ownership is
+ * always measured against the last ACKNOWLEDGED baseline, which a successful
+ * save moves — otherwise a section saved an hour ago stays claimed forever and
+ * gets re-asserted over a colleague's newer text at the next conflict.
  */
-
-export type SaveState =
-  | { kind: "clean" }
-  | { kind: "dirty" }
-  | { kind: "saving" }
-  | { kind: "saved"; at: string }
-  | { kind: "error"; message: string }
-  /** Their text is intact; `theirs` is what is on the server. */
-  | { kind: "conflict"; message: string; theirs: DraftValues; version: number };
-
 export function useDraft(encounterId: string, initial: DraftValues, initialVersion: number) {
   const [values, setValues] = React.useState<DraftValues>(initial);
   const [baseline, setBaseline] = React.useState<DraftValues>(initial);
@@ -31,105 +37,93 @@ export function useDraft(encounterId: string, initial: DraftValues, initialVersi
   const [state, setState] = React.useState<SaveState>({ kind: "clean" });
 
   /**
-   * Fields the doctor has actually TYPED INTO on this screen — which is not the
-   * same as fields that differ from the server. When another device changes a
-   * section this doctor never touched, "keep what I typed" must not revert it:
-   * they did not type there, so they are not asserting anything about it.
+   * The live editor contents, readable from inside an awaited save.
+   *
+   * The closure captured when the request left is stale by the time it returns
+   * — and the difference between those two is exactly the typing that must not
+   * be reported as saved.
    */
-  const [touched, setTouched] = React.useState<ReadonlySet<DraftKey>>(new Set());
+  const liveValues = React.useRef(initial);
+
+  const commit = React.useCallback((next: DraftValues) => {
+    liveValues.current = next;
+    setValues(next);
+  }, []);
+
+  const apply = React.useCallback(
+    (applied: Applied) => {
+      if (applied.values) commit(applied.values);
+      setBaseline(applied.baseline);
+      if (applied.version !== undefined) setVersion(applied.version);
+      setState(applied.state);
+    },
+    [commit],
+  );
 
   // Derived during render, never mirrored into state — a second copy of "is
   // this dirty" is a second thing that can be wrong.
-  const dirtyKeys = changedKeys(values, baseline);
+  const dirtyKeys = ownedKeys(values, baseline);
   const isDirty = dirtyKeys.length > 0;
   const vitalErrors = validateVitals(values);
   const hasVitalErrors = Object.keys(vitalErrors).length > 0;
 
-  const setField = React.useCallback((key: DraftKey, value: string) => {
-    setValues((prev) => (prev[key] === value ? prev : { ...prev, [key]: value }));
-    setTouched((prev) => (prev.has(key) ? prev : new Set(prev).add(key)));
-    /**
-     * Typing clears a finished save message but NEVER a conflict. A conflict is
-     * an unresolved decision about the record; carrying on typing does not
-     * answer it, and hiding the banner would leave them saving into a stale
-     * version with no idea why it keeps failing.
-     */
-    setState((prev) =>
-      prev.kind === "conflict" ? prev : isDirtyState(prev) ? prev : { kind: "dirty" },
-    );
-  }, []);
+  const setField = React.useCallback(
+    (key: DraftKey, value: string) => {
+      if (liveValues.current[key] === value) return;
+      commit({ ...liveValues.current, [key]: value });
+
+      /**
+       * Typing clears a finished save message but NEVER a conflict. A conflict
+       * is an unresolved decision about the record; carrying on typing does not
+       * answer it, and hiding the banner would leave them saving into a stale
+       * version with no idea why it keeps failing.
+       */
+      setState((prev) =>
+        prev.kind === "conflict" || prev.kind === "saving" ? prev : { kind: "dirty" },
+      );
+    },
+    [commit],
+  );
 
   const save = React.useCallback(async () => {
-    const patch = buildPatch(values, baseline);
-    if (Object.keys(patch).length === 0) {
+    const attempt = beginSave(liveValues.current, baseline);
+    if (!attempt) {
       setState({ kind: "clean" });
       return;
     }
-    if (Object.keys(validateVitals(values)).length > 0) {
+    if (Object.keys(validateVitals(liveValues.current)).length > 0) {
       setState({ kind: "error", message: "Check the highlighted vitals before saving." });
       return;
     }
 
     setState({ kind: "saving" });
-    // Snapshot what we are saving: the doctor may keep typing while it is in
-    // flight, and only the fields actually sent may be marked saved.
-    const sent = { ...values };
 
     const result = await saveConsultationAction({
       encounterId,
       expectedVersion: version,
-      patch,
+      patch: attempt.patch,
     });
 
-    if (result.ok) {
-      setVersion(result.version);
-      setBaseline(sent);
-      setState({ kind: "saved", at: result.savedAt });
-      return;
-    }
-    if (result.kind === "conflict") {
-      setVersion(result.version);
-      setState({
-        kind: "conflict",
-        message: result.message,
-        theirs: result.values,
-        version: result.version,
-      });
-      return;
-    }
-    setState({ kind: "error", message: result.message });
-  }, [encounterId, values, baseline, version]);
+    // `liveValues.current`, not `values`: the doctor may have kept typing.
+    apply(
+      applySaveResult({
+        sent: attempt.sent,
+        current: liveValues.current,
+        baseline,
+        result,
+      }),
+    );
+  }, [encounterId, baseline, version, apply]);
 
-  /**
-   * Resolving a conflict, both ways — and both are the doctor's explicit
-   * choice, made after seeing the other version.
-   */
   const keepMine = React.useCallback(() => {
     if (state.kind !== "conflict") return;
-    /**
-     * Rebase onto their text, keeping this doctor's words ONLY where they
-     * actually typed. Everything else takes the newer version — including
-     * sections this screen merely had open and stale.
-     *
-     * Re-saving every differing field would silently undo the other device's
-     * work on sections nobody here touched, which is last-write-wins wearing a
-     * confirmation dialog.
-     */
-    const merged = { ...state.theirs };
-    for (const key of touched) merged[key] = values[key];
-
-    setValues(merged);
-    setBaseline(state.theirs);
-    setState({ kind: "dirty" });
-  }, [state, touched, values]);
+    apply(keepLocalEdits({ current: liveValues.current, baseline, theirs: state.theirs }));
+  }, [state, baseline, apply]);
 
   const takeTheirs = React.useCallback(() => {
     if (state.kind !== "conflict") return;
-    setValues(state.theirs);
-    setBaseline(state.theirs);
-    setTouched(new Set());
-    setState({ kind: "clean" });
-  }, [state]);
+    apply(takeServerVersion(state.theirs));
+  }, [state, apply]);
 
   return {
     values,
@@ -137,7 +131,6 @@ export function useDraft(encounterId: string, initial: DraftValues, initialVersi
     version,
     state,
     dirtyKeys,
-    touched,
     isDirty,
     vitalErrors,
     hasVitalErrors,
@@ -146,8 +139,4 @@ export function useDraft(encounterId: string, initial: DraftValues, initialVersi
     keepMine,
     takeTheirs,
   };
-}
-
-function isDirtyState(s: SaveState) {
-  return s.kind === "dirty" || s.kind === "saving";
 }

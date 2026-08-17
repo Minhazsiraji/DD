@@ -35,7 +35,14 @@ export interface Consultation {
 export type ConsultationOutcome =
   | { ok: true; consultation: Consultation }
   | { ok: false; reason: "not-found" }
-  | { ok: false; reason: "unavailable" };
+  | { ok: false; reason: "unavailable" }
+  /**
+   * The encounter is legitimately theirs, but it belongs to a different
+   * location than the one they are working in. Carries the encounter's real
+   * location so the caller can name it — the doctor already has access to it,
+   * so there is nothing to withhold.
+   */
+  | { ok: false; reason: "wrong-location"; locationId: string };
 
 const COLUMN_BY_KEY: Record<DraftKey, string> = {
   chiefComplaints: "chief_complaints",
@@ -80,7 +87,21 @@ export function rowToValues(row: Record<string, unknown>): DraftValues {
   return values;
 }
 
-export async function getConsultation(encounterId: string): Promise<ConsultationOutcome> {
+/**
+ * Load a consultation FOR A SPECIFIC LOCATION.
+ *
+ * The active location is a required argument rather than something the caller
+ * may remember to check, because forgetting it does not fail loudly: a doctor
+ * who works at two places can open a bookmarked Location A encounter while
+ * Location B is active, and the screen will happily label A's consultation with
+ * B's name. The write RPC refuses eventually — but by then the identity strip
+ * has already told a doctor the wrong thing about where they are, which is the
+ * one thing that strip exists to get right.
+ */
+export async function getConsultation(
+  encounterId: string,
+  activeLocationId: string,
+): Promise<ConsultationOutcome> {
   const supabase = await createSupabaseServerClient();
 
   const { data, error } = await supabase
@@ -96,6 +117,13 @@ export async function getConsultation(encounterId: string): Promise<Consultation
   if (!data) return { ok: false, reason: "not-found" };
 
   const row = data as unknown as Record<string, unknown>;
+
+  // Fail closed BEFORE loading the patient: a mismatch must not render notes,
+  // an identity strip, or anything else editable.
+  const encounterLocation = row.practice_location_id as string;
+  if (encounterLocation !== activeLocationId) {
+    return { ok: false, reason: "wrong-location", locationId: encounterLocation };
+  }
 
   /**
    * The identity strip is not decoration — it is the thing that stops notes

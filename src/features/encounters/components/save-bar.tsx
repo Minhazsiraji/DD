@@ -75,6 +75,18 @@ export function SaveBar({
 }
 
 function describe(state: SaveState, dirtyCount: number) {
+  /**
+   * A last guard, deliberately duplicating the hook's rule.
+   *
+   * "Saved" alongside unsaved changes is the most dangerous sentence this bar
+   * can produce — a doctor who reads it walks away from work that is only on
+   * this screen. The state machine already refuses to emit it; this makes the
+   * bar incapable of rendering it even if that ever regresses.
+   */
+  if (state.kind === "saved" && dirtyCount > 0) {
+    return describe({ kind: "dirty" }, dirtyCount);
+  }
+
   switch (state.kind) {
     case "saving":
       return {

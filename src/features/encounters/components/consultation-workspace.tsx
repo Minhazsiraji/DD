@@ -6,6 +6,7 @@ import { ConsultationIdentity } from "./consultation-identity";
 import { SectionFields, VitalFields } from "./draft-fields";
 import { ConflictPanel } from "./conflict-panel";
 import { SaveBar } from "./save-bar";
+import { UnsavedGuard } from "./unsaved-guard";
 import { useDraft } from "../use-draft";
 import type { Consultation } from "../queries";
 
@@ -27,20 +28,14 @@ export function ConsultationWorkspace({
   const readOnly = consultation.status !== "DRAFT";
   const conflict = draft.state.kind === "conflict" ? draft.state : null;
 
-  /**
-   * The browser's own "leave site?" prompt is the last line of defence for
-   * text that exists only on this screen. Registered while dirty and removed
-   * as soon as it is not, so it never nags without cause.
-   */
-  React.useEffect(() => {
-    if (!draft.isDirty || readOnly) return;
-    const warn = (e: BeforeUnloadEvent) => e.preventDefault();
-    window.addEventListener("beforeunload", warn);
-    return () => window.removeEventListener("beforeunload", warn);
-  }, [draft.isDirty, readOnly]);
-
   return (
     <div className="pb-2">
+      {/*
+        Covers reload, every internal link in the shell, and Back/Forward.
+        beforeunload alone would have let a sidebar tap discard typed notes
+        without a word.
+      */}
+      <UnsavedGuard dirty={draft.isDirty && !readOnly} />
       <div className="sticky top-0 z-30 -mx-4 bg-background/80 px-4 pt-1 pb-3 backdrop-blur-sm sm:-mx-6 sm:px-6">
         <ConsultationIdentity patient={consultation.patient} locationName={locationName} />
       </div>
@@ -62,7 +57,7 @@ export function ConsultationWorkspace({
             message={conflict.message}
             mine={draft.values}
             theirs={conflict.theirs}
-            touched={draft.touched}
+            unsavedKeys={draft.dirtyKeys}
             onKeepMine={draft.keepMine}
             onTakeTheirs={draft.takeTheirs}
           />

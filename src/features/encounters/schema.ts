@@ -187,6 +187,7 @@ export const saveInputSchema = z.object({
 
 export type SaveInput = z.infer<typeof saveInputSchema>;
 
+/** Lives here rather than in draft-state so the Server Action can return it. */
 export type SaveResult =
   | { ok: true; version: number; savedAt: string }
   /**
