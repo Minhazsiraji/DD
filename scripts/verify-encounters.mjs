@@ -1108,9 +1108,20 @@ try {
       const all = await tx`
         select action, meta::text as meta from public.audit_events
         where resource_id = ${apptEncounter}`;
+      /**
+       * Strip the UUIDs before looking for leaked values.
+       *
+       * Matching a bare "220" against the raw meta made this test depend on
+       * random ids: an investigationId beginning "220dc122" reported a vital
+       * leak that was not there. A check that fails on some runs and not others
+       * is worse than no check — it trains people to re-run it.
+       */
+      const withoutIds = (meta) =>
+        meta.replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi, "");
+
       const leaked = all.filter((r) =>
-        /Audit trial|private note|Chest clear|Fever|Dengue|Anaemia|CBC|NS1|Rahim|Hossain|220|250/i.test(
-          r.meta,
+        /Audit trial|private note|Chest clear|Fever|Dengue|Anaemia|CBC|NS1|Rahim|Hossain|\b220\b|\b250\b/i.test(
+          withoutIds(r.meta),
         ),
       );
       check(

@@ -1,4 +1,5 @@
 import {
+  type AnyPgColumn,
   pgTable,
   pgSchema,
   pgEnum,
@@ -1135,6 +1136,210 @@ export const encounterEvents = pgTable(
   (t) => [index("encounter_events_encounter_idx").on(t.encounterId, t.seq)],
 );
 
+/**
+ * Prescriptions (ADR 0011).
+ *
+ * Its OWN aggregate with its OWN version — it never reads or increments
+ * `encounters.version`. Two documents a doctor edits in one sitting must not
+ * fight over a single counter.
+ */
+export const prescriptionStatus = pgEnum("prescription_status", [
+  "DRAFT",
+  "FINALIZED",
+  /** Reserved for the Stage 7C void path. Nothing in 7A sets it. */
+  "VOIDED",
+]);
+
+export const prescriptionEventType = pgEnum("prescription_event_type", [
+  "CREATED",
+  "ITEM_ADDED",
+  "ITEM_UPDATED",
+  "ITEM_REMOVED",
+  "ITEM_MOVED",
+  "FINALIZED",
+  "REPLACEMENT_STARTED",
+]);
+
+export const prescriptions = pgTable(
+  "prescriptions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+
+    /**
+     * The ONLY identity a caller supplies. Doctor, patient and location are
+     * derived from this encounter inside the RPC — a caller is never asked, so
+     * it can never name someone else's.
+     */
+    encounterId: uuid("encounter_id")
+      .notNull()
+      .references(() => encounters.id, { onDelete: "restrict" }),
+
+    ownerDoctorId: uuid("owner_doctor_id")
+      .notNull()
+      .references(() => doctorProfiles.id, { onDelete: "restrict" }),
+    patientId: uuid("patient_id")
+      .notNull()
+      .references(() => patients.id, { onDelete: "restrict" }),
+    practiceLocationId: uuid("practice_location_id")
+      .notNull()
+      .references(() => practiceLocations.id, { onDelete: "restrict" }),
+
+    status: prescriptionStatus("status").notNull().default("DRAFT"),
+    /** Compare-and-swap guard, independent of the encounter's. */
+    version: integer("version").notNull().default(1),
+
+    /**
+     * Correction lineage. A finalised prescription is never edited; a
+     * correction is a NEW prescription pointing back at the one it replaces.
+     */
+    replacesPrescriptionId: uuid("replaces_prescription_id").references(
+      (): AnyPgColumn => prescriptions.id,
+      { onDelete: "restrict" },
+    ),
+    replacementReason: text("replacement_reason"),
+
+    finalizedAt: timestamp("finalized_at", { withTimezone: true }),
+    finalizedBy: uuid("finalized_by").references(() => profiles.id, {
+      onDelete: "set null",
+    }),
+
+    /**
+     * What was actually approved, kept so the paper still prints after the
+     * doctor changes their name, template, chamber or signature.
+     *
+     * Only what the prescription needs. A patient's phone, address and private
+     * notes are not on the paper and are not copied here.
+     */
+    snapshotSchemaVersion: integer("snapshot_schema_version"),
+    doctorSnapshot: jsonb("doctor_snapshot"),
+    locationSnapshot: jsonb("location_snapshot"),
+    patientSnapshot: jsonb("patient_snapshot"),
+    templateSnapshot: jsonb("template_snapshot"),
+    /** The template this was resolved from, for provenance only. */
+    templateId: uuid("template_id").references(() => prescriptionTemplates.id, {
+      onDelete: "set null",
+    }),
+    /**
+     * An immutable storage PATH, never a signed URL — those expire, and a
+     * prescription that stops printing after an hour is not a record. The
+     * object lives in a write-once bucket that a later profile-signature
+     * deletion cannot reach.
+     */
+    signatureAssetPath: text("signature_asset_path"),
+
+    createdBy: uuid("created_by").references(() => profiles.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("prescriptions_encounter_idx").on(t.encounterId),
+    index("prescriptions_doctor_idx").on(t.ownerDoctorId, t.createdAt),
+    index("prescriptions_patient_idx").on(t.patientId, t.createdAt),
+    index("prescriptions_location_idx").on(t.practiceLocationId),
+
+    /** One draft per encounter — two tabs are the normal case, not the exception. */
+    uniqueIndex("prescriptions_one_draft_per_encounter")
+      .on(t.encounterId)
+      .where(sql`status = 'DRAFT'`),
+
+    /**
+     * One direct replacement per prescription. Without it a finalised
+     * prescription could grow several competing "corrections" and nobody could
+     * say which one the patient is holding.
+     */
+    uniqueIndex("prescriptions_one_replacement")
+      .on(t.replacesPrescriptionId)
+      .where(sql`replaces_prescription_id is not null`),
+
+    /** A finalised row must carry everything needed to print it, forever. */
+    check(
+      "prescriptions_finalized_is_complete",
+      sql`status <> 'FINALIZED' or (
+        finalized_at is not null
+        and snapshot_schema_version is not null
+        and doctor_snapshot is not null
+        and location_snapshot is not null
+        and patient_snapshot is not null
+        and template_snapshot is not null
+      )`,
+    ),
+    check(
+      "prescriptions_replacement_has_reason",
+      sql`replaces_prescription_id is null or replacement_reason is not null`,
+    ),
+  ],
+);
+
+/**
+ * One medicine line.
+ *
+ * STRENGTH IS NOT DOSE. `strength_text` is what the tablet contains ("500 mg");
+ * `dose_text` is what the patient takes ("1 tablet", "½ tablet", "5 ml").
+ * Storing only the former leaves a pharmacist inferring the instruction.
+ *
+ * ONE representation per concept — `schedule_text` holds "1+0+1" and nothing
+ * holds a parallel structure to disagree with it (ADR 0011 §5).
+ */
+export const prescriptionItems = pgTable(
+  "prescription_items",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    prescriptionId: uuid("prescription_id")
+      .notNull()
+      .references(() => prescriptions.id, { onDelete: "restrict" }),
+
+    /** What prints. The only required medicine field. */
+    displayName: text("display_name").notNull(),
+    brandName: text("brand_name"),
+    genericName: text("generic_name"),
+
+    strengthText: text("strength_text"),
+    doseText: text("dose_text"),
+    dosageForm: text("dosage_form"),
+    route: text("route"),
+    scheduleText: text("schedule_text"),
+    durationText: text("duration_text"),
+    quantityText: text("quantity_text"),
+    foodRelation: text("food_relation"),
+    isPrn: boolean("is_prn").notNull().default(false),
+    /** Unicode/Bangla-capable free text. */
+    instructions: text("instructions"),
+    substitutionAllowed: boolean("substitution_allowed").notNull().default(true),
+
+    position: integer("position").notNull(),
+
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("prescription_items_prescription_idx").on(t.prescriptionId, t.position),
+    check("prescription_items_name_not_blank", sql`btrim(display_name) <> ''`),
+  ],
+);
+
+/**
+ * The CLINICAL history of a prescription. Doctor-only, so it may name items.
+ * `audit_events` carries the operational trail and never a medicine name.
+ */
+export const prescriptionEvents = pgTable(
+  "prescription_events",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    prescriptionId: uuid("prescription_id")
+      .notNull()
+      .references(() => prescriptions.id, { onDelete: "restrict" }),
+    eventType: prescriptionEventType("event_type").notNull(),
+    detail: jsonb("detail").notNull().default({}),
+    actorId: uuid("actor_id").references(() => profiles.id, { onDelete: "set null" }),
+    /** clock_timestamp(), not now() — now() is transaction start. */
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .default(sql`clock_timestamp()`),
+    seq: bigserial("seq", { mode: "number" }).notNull(),
+  },
+  (t) => [index("prescription_events_prescription_idx").on(t.prescriptionId, t.seq)],
+);
+
 export type Profile = typeof profiles.$inferSelect;
 export type DoctorProfile = typeof doctorProfiles.$inferSelect;
 export type PracticeLocation = typeof practiceLocations.$inferSelect;
@@ -1157,5 +1362,8 @@ export type Encounter = typeof encounters.$inferSelect;
 export type EncounterDiagnosis = typeof encounterDiagnoses.$inferSelect;
 export type EncounterInvestigation = typeof encounterInvestigations.$inferSelect;
 export type EncounterEvent = typeof encounterEvents.$inferSelect;
+export type Prescription = typeof prescriptions.$inferSelect;
+export type PrescriptionItem = typeof prescriptionItems.$inferSelect;
+export type PrescriptionEvent = typeof prescriptionEvents.$inferSelect;
 
 

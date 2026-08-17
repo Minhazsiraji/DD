@@ -243,28 +243,48 @@ back to the configured slot length. Plain SQL, ~30 lines. No ML.
 
 ### Clinical encounter
 
+> **Corrected in Stage 7A.** This section previously described encounters as
+> `FINALIZED`/`AMENDED` with an `encounter_revisions` table, and prescription
+> items carrying catalogue foreign keys and two schedule representations. ADR
+> 0010 and ADR 0011 are authoritative and describe what was actually built.
+
 ```
-encounters(id, doctor_id, location_id, patient_id, appointment_id?,
-           encounter_date, status ∈ {DRAFT, FINALIZED, AMENDED},
-           chief_complaint, hpi, examination, assessment, advice,
-           private_notes, finalized_at, version)
-  ├── encounter_revisions(version, snapshot jsonb, changed_by, reason)
-  ├── vitals · diagnoses · investigation_orders · investigation_results
-  └── prescriptions
-        └── prescription_items(generic_id?, brand_id?, presentation_id?,
-              display_name, strength_text, form, route,
-              dose_amount, dose_unit, frequency_code, frequency_struct jsonb,
-              duration_value, duration_unit, prn, food_relation,
-              instruction_text, substitution_allowed)
+encounters(id, owner_doctor_id, practice_location_id, patient_id, appointment_id?,
+           status ∈ {DRAFT, COMPLETED, CANCELLED},          ← ADR 0010
+           chief_complaints, present_illness, past_history,
+           examination, assessment, advice, vitals…, version)
+  ├── encounter_diagnoses · encounter_investigations
+  └── encounter_events                                       ← clinical history
+
+prescriptions(id, encounter_id, owner_doctor_id, patient_id,
+              practice_location_id, status ∈ {DRAFT, FINALIZED, VOIDED},
+              version, replaces_prescription_id?, replacement_reason?,
+              snapshot_schema_version, doctor/location/patient/template
+              snapshots, signature_asset_path)               ← ADR 0011
+  ├── prescription_items(display_name, brand_name?, generic_name?,
+        strength_text?, dose_text?, dosage_form?, route?, schedule_text?,
+        duration_text?, quantity_text?, food_relation?, is_prn,
+        instructions?, substitution_allowed, position)
+  └── prescription_events                                    ← clinical history
 ```
 
-- `private_notes` is a **separate column with its own policy** — staff never see
-  it. This only works as a distinct column, not a UI flag.
-- `FINALIZED` encounters and prescriptions are **immutable**. A correction
-  creates a new version plus a revision row with a reason. Trivial now, painful
-  to retrofit, and what makes the record defensible.
-- `frequency_code` stores `"1+0+1"` for fast entry and display;
-  `frequency_struct` stores the machine-readable truth. Both, always.
+- `private_notes` is a **separate table with its own policy** — staff never see
+  it. This only works as a distinct table, not a UI flag.
+- **The prescription is its own aggregate**, with its own `version`. It never
+  reads or increments `encounters.version` (ADR 0011 §1).
+- **`FINALIZED` prescriptions are immutable.** A correction creates a NEW
+  prescription linked through `replaces_prescription_id` with a reason; the
+  finalised row is never edited. Encounters have no `AMENDED` state and no
+  revisions table — amendment of a completed encounter is Stage 9 and is not
+  what makes a prescription defensible.
+- **One representation per instruction.** `schedule_text` holds "1+0+1" and
+  nothing holds a parallel structure. Two independently editable fields
+  describing one instruction will eventually disagree, and a printed paper
+  disagreeing with "machine truth" about dosing frequency is worse than having
+  no machine truth. Structure arrives only when something consumes it, derived
+  in the database rather than stored twice (ADR 0011 §5).
+- **No catalogue foreign keys yet.** `generic_id` / `brand_id` land with the
+  catalogue and its identity model, not before.
 
 ### Medicine Intelligence
 

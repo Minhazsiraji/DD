@@ -5,17 +5,21 @@
 AI-enabled clinical + chamber operating system for doctors. One responsive
 Next.js app (desktop, tablet, mobile, installable PWA). No separate native app.
 
-**Current phase: Stage 6C — diagnoses and investigations, awaiting review.**
+**Current phase: Stage 7A — prescription database foundation, awaiting review.**
 Done: scaffold and design system (1), auth + RBAC + RLS + audit (2), MFA and
 device security (2.5), ADRs (2.6), patients (3) with two hardening rounds,
 doctor identity + prescription templates with an A4 preview, appointments (4),
 the live queue (5), and the Doctor Dashboard P0 pass.
 
-Stages 6A (encounter database) and 6B (consultation screen) are accepted. 6C
-adds diagnoses and investigations to that screen, on ONE shared version and
-ONE mutation queue (ADR 0010 §6c). Investigation RESULTS are not built — this
-records what was ordered. Completing an encounter is deliberately not built;
-the draft stays open. The prescription ENGINE is not built.
+Stage 6 is accepted in full: 6A (encounter database), 6B (consultation screen)
+and 6C (diagnoses and investigations), all on ONE shared encounter version and
+ONE mutation queue (ADR 0010 §6c).
+
+Stage 7A is the prescription DATABASE ONLY — schema, RLS, RPCs, the
+finalisation contract and verification (ADR 0011). **There is no composer, no
+medicine search, no print and no PDF, and none is to be built until 7A is
+approved.** Investigation RESULTS, encounter completion and encounter
+amendment are still not built.
 
 Detailed architecture: `docs/architecture.md` (do not load unless needed).
 
@@ -257,9 +261,10 @@ squeeze — and it hides the bottom nav.
     npm run db:verify:appointments
     npm run db:verify:queue
     npm run db:verify:encounters # clinical boundary, version CAS, one-draft race
+    npm run db:verify:prescriptions # identity, handover boundary, immutability
     npm run db:verify:migrations # replays every migration into a throwaway
-                                 # database, then proves the newest one upgrades
-                                 # a database that already holds rows
+                                 # database, then rehearses the shape-changing
+                                 # one against a database that holds rows
 
 - **Two connection strings.** `DIRECT_URL` (session pooler, **5432**) for
   migrations and scripts; `DATABASE_URL` (transaction pooler, 6543) for app

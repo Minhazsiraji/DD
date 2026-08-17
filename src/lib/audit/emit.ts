@@ -58,6 +58,19 @@ export type AuditAction =
   | "encounter.investigation_updated"
   | "encounter.investigation_removed"
   | "encounter.closed"
+  /**
+   * Prescriptions. Written INSIDE the RPCs, carrying ids, counts, field names
+   * and the version — NEVER a medicine name, dose, schedule or instruction.
+   * Which drug a patient was given is clinical and belongs in
+   * prescription_events; that one was written is operational (ADR 0011 §8).
+   */
+  | "prescription.created"
+  | "prescription.replacement_started"
+  | "prescription.item_added"
+  | "prescription.item_updated"
+  | "prescription.item_removed"
+  | "prescription.item_moved"
+  | "prescription.finalized"
   | "location.created"
   | "location.updated"
   | "location.switched"

@@ -139,10 +139,19 @@ try {
 // ---------------------------------------------------------------------------
 console.log("\nUpgrade path: an existing database with encounter rows");
 
-const forward = readFileSync(
-  path.join(MIGRATIONS, migrationsInOrder().at(-1).tag + ".sql"),
-  "utf8",
-);
+/**
+ * The migration that CHANGES an existing shape, named explicitly.
+ *
+ * Not "the newest one": a purely additive migration (new tables, new types)
+ * cannot be replayed against a database that already has them, and there is
+ * nothing to prove by trying — the fresh half above already covers it. What
+ * needs a data-carrying rehearsal is a migration that replaces something, and
+ * 0010 is the one that swapped the location-blind draft index. Point this at a
+ * newer tag when another such migration lands.
+ */
+const UPGRADE_UNDER_TEST = "0010_marvelous_greymalkin";
+
+const forward = readFileSync(path.join(MIGRATIONS, `${UPGRADE_UNDER_TEST}.sql`), "utf8");
 
 const uid = crypto.randomUUID();
 

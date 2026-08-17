@@ -183,7 +183,26 @@ begin
 end;
 $$;
 
+create or replace function public.patch_bool(p_patch jsonb, p_key text, p_current boolean)
+returns boolean
+language plpgsql
+immutable
+as $$
+declare
+  v jsonb;
+begin
+  if not (p_patch ? p_key) then return p_current; end if;
+  v := p_patch -> p_key;
+  if jsonb_typeof(v) = 'null' then return null; end if;
+  if jsonb_typeof(v) <> 'boolean' then
+    raise exception 'PATCH_INVALID' using errcode = '22023';
+  end if;
+  return (p_patch ->> p_key)::boolean;
+end;
+$$;
+
 -- Pure helpers, called only from the DEFINER functions below.
+revoke all on function public.patch_bool(jsonb, text, boolean)    from public, anon, authenticated;
 revoke all on function public.assert_vital_ranges(jsonb)          from public, anon, authenticated;
 revoke all on function public.assert_patch_shape(jsonb, text[]) from public, anon, authenticated;
 revoke all on function public.patch_text(jsonb, text, text)      from public, anon, authenticated;
