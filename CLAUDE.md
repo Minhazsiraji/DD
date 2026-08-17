@@ -5,15 +5,17 @@
 AI-enabled clinical + chamber operating system for doctors. One responsive
 Next.js app (desktop, tablet, mobile, installable PWA). No separate native app.
 
-**Current phase: Stage 6A — encounter database foundation, awaiting review.**
+**Current phase: Stage 6B — consultation UI, awaiting review.**
 Done: scaffold and design system (1), auth + RBAC + RLS + audit (2), MFA and
 device security (2.5), ADRs (2.6), patients (3) with two hardening rounds,
 doctor identity + prescription templates with an A4 preview, appointments (4),
 the live queue (5), and the Doctor Dashboard P0 pass.
 
-Stage 6A is the encounter DATABASE ONLY — schema, RLS, RPCs, verification.
-**There is no consultation UI, and none is to be built until 6A is approved.**
-The prescription ENGINE is not built.
+Stage 6A (encounter database) is accepted. Stage 6B adds the consultation
+screen: open/resume, identity strip, sections and vitals, explicit save state
+and conflict resolution. **Diagnoses and investigations have RPCs but no UI —
+that is Stage 6C.** Completing an encounter is deliberately not built; the
+draft stays open. The prescription ENGINE is not built.
 
 Detailed architecture: `docs/architecture.md` (do not load unless needed).
 
@@ -190,6 +192,13 @@ squeeze — and it hides the bottom nav.
 - **`timestamptz::date` uses the SESSION timezone, not the clinic's.** Anything
   that means "which clinic day is this?" must convert through the location's own
   timezone, or a 12:30am Dhaka appointment files itself under the previous day.
+- **Never raise SQLSTATE `40001` for a business rule.** It means
+  `serialization_failure` — "transient, retrying may succeed" — and PostgREST
+  duly retries it. A deterministic refusal (a version conflict, a state-machine
+  violation) raised as 40001 turns one rejected save into a retry storm: the
+  encounter version conflict spent **126 seconds** in one action call before it
+  answered, with the doctor watching a spinner. Use the plpgsql default
+  (`P0001`) for business refusals, `42501` for authorisation.
 - **A count is still a disclosure.** Returning "there are 2 records you may not
   see" removes the identity but keeps the EXISTENCE, and any granted RPC can be
   probed. If a caller must not learn something exists, the function has to

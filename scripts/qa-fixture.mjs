@@ -95,7 +95,27 @@ if (mode === "destroy") {
     const locationIds = locations.map((l) => l.id);
 
     if (locationIds.length > 0) {
-      // Queue history first: queue_events and queue_entries RESTRICT on the
+      /**
+       * Encounters first of all. They RESTRICT on the appointment, the patient
+       * and the location, and their own children RESTRICT on them — a
+       * consultation cannot be erased as a side effect of tidying up, which is
+       * the whole point of Stage 6A's foreign keys.
+       */
+      const encounters = await sql`
+        select id from public.encounters
+        where practice_location_id in ${sql(locationIds)}`;
+      if (encounters.length > 0) {
+        const encounterIds = encounters.map((e) => e.id);
+        await sql`delete from public.encounter_events
+                  where encounter_id in ${sql(encounterIds)}`;
+        await sql`delete from public.encounter_diagnoses
+                  where encounter_id in ${sql(encounterIds)}`;
+        await sql`delete from public.encounter_investigations
+                  where encounter_id in ${sql(encounterIds)}`;
+        await sql`delete from public.encounters where id in ${sql(encounterIds)}`;
+      }
+
+      // Queue history next: queue_events and queue_entries RESTRICT on the
       // appointment, so the appointment cannot go until they have.
       await sql`delete from public.queue_events
                 where practice_location_id in ${sql(locationIds)}`;

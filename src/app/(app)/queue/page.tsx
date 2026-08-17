@@ -6,6 +6,7 @@ import { requireLocationContext } from "@/lib/auth/session";
 import { getQueue } from "@/features/queue/queries";
 import { QueueBoard } from "@/features/queue/components/queue-board";
 import { todayInDhaka } from "@/features/appointments/schema";
+import { getCurrentDoctorId } from "@/features/patients/queries";
 
 export const metadata: Metadata = { title: "Live queue" };
 
@@ -18,7 +19,17 @@ export const metadata: Metadata = { title: "Live queue" };
 export default async function QueuePage() {
   const ctx = await requireLocationContext();
   const sessionDate = todayInDhaka();
-  const outcome = await getQueue(ctx.locationId, sessionDate);
+
+  /**
+   * Reception sees this board too, and only the OWNING DOCTOR may open notes.
+   * Null for anyone who is not a doctor, so the button never appears where it
+   * could only fail. The database refuses regardless — this is about not
+   * offering an action that cannot work.
+   */
+  const [outcome, currentDoctorId] = await Promise.all([
+    getQueue(ctx.locationId, sessionDate),
+    getCurrentDoctorId(),
+  ]);
 
   return (
     <div className="space-y-5 sm:space-y-6">
@@ -57,6 +68,7 @@ export default async function QueuePage() {
         sessionDate={sessionDate}
         locationId={ctx.locationId}
         locationName={ctx.locationName}
+        currentDoctorId={currentDoctorId}
       />
 
       <p className="text-xs text-ink-muted">

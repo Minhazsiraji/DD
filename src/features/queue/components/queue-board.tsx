@@ -30,12 +30,15 @@ export function QueueBoard({
   sessionDate,
   locationId,
   locationName,
+  currentDoctorId = null,
 }: {
   initialRows: QueueRow[];
   initiallyOk: boolean;
   sessionDate: string;
   locationId: string;
   locationName: string;
+  /** Null when the viewer is not a doctor — reception sees this board too. */
+  currentDoctorId?: string | null;
 }) {
   const { rows, connection, failed, lastUpdated, refreshing, refresh } = useLiveQueue({
     sessionDate,
@@ -114,6 +117,7 @@ export function QueueBoard({
               variant="current"
               now={now}
               onChanged={refresh}
+              currentDoctorId={currentDoctorId}
             />
           ))}
         </Section>

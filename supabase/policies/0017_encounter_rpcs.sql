@@ -296,11 +296,19 @@ begin
 
   /**
    * The stale-tab guard. A save carrying an old version is REJECTED — never
-   * merged, never allowed to overwrite. The caller gets a distinct code so the
-   * UI can keep the doctor's unsaved text rather than discarding it.
+   * merged, never allowed to overwrite. The caller gets a distinct message so
+   * the UI can keep the doctor's unsaved text rather than discarding it.
+   *
+   * NOT 40001. That is `serialization_failure`, which every layer in the stack
+   * is entitled to read as "transient, try again" — and PostgREST duly did,
+   * turning one rejected save into a two-minute retry storm while the doctor
+   * watched a spinner. This conflict is DETERMINISTIC: the same request will be
+   * refused every time until a human decides what to keep. P0001 (the plpgsql
+   * default for a business-rule refusal, as used by the queue RPCs) says
+   * exactly that and is never retried.
    */
   if expected_version is not null and v_enc.version <> expected_version then
-    raise exception 'ENCOUNTER_VERSION_CONFLICT' using errcode = '40001';
+    raise exception 'ENCOUNTER_VERSION_CONFLICT';
   end if;
 
   return v_enc;

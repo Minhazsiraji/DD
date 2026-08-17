@@ -29,6 +29,7 @@ import {
   type QueueRow,
 } from "../schema";
 import { PriorityForm } from "./priority-form";
+import { OpenConsultation } from "@/features/encounters/components/open-consultation";
 
 /**
  * One patient in the queue.
@@ -42,12 +43,15 @@ export function QueueCard({
   variant,
   now,
   onChanged,
+  currentDoctorId = null,
 }: {
   row: QueueRow;
   variant: "current" | "waiting" | "skipped";
   /** Passed in so every card agrees, and so the server render is stable. */
   now: number;
   onChanged: () => void;
+  /** The viewer's own doctor_profiles.id, or null if they are not a doctor. */
+  currentDoctorId?: string | null;
 }) {
   const [panel, setPanel] = React.useState<"none" | "priority">("none");
   const waited = waitLabel(waitedMinutes(row.arrivedAt, now));
@@ -129,10 +133,20 @@ export function QueueCard({
         </div>
 
         {variant === "current" ? (
-          <span className="inline-flex shrink-0 items-center gap-1.5 rounded-xl bg-brand-soft px-3 py-2 text-[13px] font-semibold text-brand">
-            <Stethoscope className="size-4" aria-hidden="true" />
-            With doctor
-          </span>
+          <div className="flex shrink-0 flex-wrap items-center gap-2">
+            <span className="inline-flex items-center gap-1.5 rounded-xl bg-brand-soft px-3 py-2 text-[13px] font-semibold text-brand">
+              <Stethoscope className="size-4" aria-hidden="true" />
+              With doctor
+            </span>
+            {/*
+              Only the owning doctor. Reception stands in front of this same
+              board, and offering them a button the database will refuse is
+              worse than not offering one at all.
+            */}
+            {currentDoctorId && row.ownerDoctorId === currentDoctorId ? (
+              <OpenConsultation patientId={row.patientId} appointmentId={row.appointmentId} />
+            ) : null}
+          </div>
         ) : (
           <Actions
             row={row}

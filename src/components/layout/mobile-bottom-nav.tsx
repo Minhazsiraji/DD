@@ -13,12 +13,16 @@ import { QuickActionMenu } from "./quick-action-menu";
  * Fixed, glass, and safe-area aware. Hidden from lg upward where the sidebar
  * takes over.
  *
- * Note for Phase 6: this bar must be hidden during a consultation — the mobile
- * step flow owns the bottom of the screen for Back / Next / Save draft.
+ * Hidden during a consultation: the save bar owns the bottom of the screen
+ * there, and two stacked bars on a phone leave almost nothing for the notes.
+ * Navigating away mid-consultation should also be a deliberate act, not a
+ * thumb landing on Home while reaching for Save.
  */
 export function MobileBottomNav() {
   const pathname = usePathname();
   const [left, right] = [MOBILE_NAV.slice(0, 2), MOBILE_NAV.slice(2)];
+
+  if (pathname.startsWith("/consultation/")) return null;
 
   return (
     <nav

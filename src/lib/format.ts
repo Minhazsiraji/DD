@@ -37,6 +37,25 @@ export function formatTime(hhmm: string): string {
   return `${hour12}:${String(m).padStart(2, "0")} ${period}`;
 }
 
+/**
+ * A full ISO instant as a chamber-local clock time: "6:05 PM".
+ *
+ * Locale and timezone are both pinned. The runtime default would put a save
+ * confirmation into the SERVER's timezone, and a doctor reading "saved at
+ * 12:35" for something they did at 6:35 would reasonably conclude the save
+ * belonged to someone else's session.
+ */
+export function formatInstantTime(iso: string): string {
+  const at = new Date(iso);
+  if (Number.isNaN(at.getTime())) return "";
+  return new Intl.DateTimeFormat("en-US", {
+    timeZone: "Asia/Dhaka",
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+  }).format(at);
+}
+
 /** Whole days between two ISO dates (b - a). */
 export function daysBetween(aISO: string, bISO: string): number {
   const a = Date.parse(`${aISO}T00:00:00Z`);
@@ -79,7 +98,9 @@ const SEX_LABEL: Record<string, string> = {
 export function formatAgeSex(
   ageYears: number | null,
   sex: Sex | string,
-  precision: DobPrecision = "DAY",
+  // Widened like `sex`: these arrive as plain strings from the database enum,
+  // and the comparisons below already treat an unrecognised value as exact.
+  precision: DobPrecision | string = "DAY",
 ): string {
   const approx = precision === "AGE_ONLY" || precision === "YEAR" ? "~" : "";
   const label = SEX_LABEL[sex] ?? "";
