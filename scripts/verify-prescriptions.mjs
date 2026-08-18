@@ -152,6 +152,7 @@ for (const fn of [
   "finalized_prescriptions_at",
   "prescriptions_for_doctor",
   "prescription_detail",
+  "finalized_prescription_detail",
   "prescription_item_suggestions",
   "may_read_prescription_asset",
   "owns_prescription",
@@ -191,6 +192,28 @@ const cascades = await sql`
 const cascading = cascades.filter((c) => c.confdeltype === "c").map((c) => c.conname);
 check(cascading.length === 0, "no prescription foreign key cascades on delete",
   cascading.join(", "));
+
+/**
+ * The database itself refuses an incomplete finalisation.
+ *
+ * Stronger than a test: `review_bundle_snapshot` cannot be omitted even by a
+ * future edit to the function, because the row will not be accepted. Asserted
+ * statically so that relaxing the constraint is a visible act.
+ */
+const [completeness] = await sql`
+  select pg_get_constraintdef(c.oid) as def
+  from pg_constraint c join pg_class t on t.oid = c.conrelid
+  where t.relname = 'prescriptions' and c.conname = 'prescriptions_finalized_is_complete'`;
+// Postgres normalises the stored definition, so match case-insensitively.
+const completenessDef = completeness?.def ?? "";
+check(
+  /review_bundle_snapshot IS NOT NULL/i.test(completenessDef),
+  "a FINALIZED row cannot exist without the approved bundle",
+);
+check(
+  /review_bundle_snapshot \? 'clinicalDate'/i.test(completenessDef),
+  "…and not without the date the age was computed from",
+);
 
 const [draftIdx] = await sql`
   select count(*)::int as n from pg_indexes
@@ -707,10 +730,13 @@ try {
       returning id`;
 
     let finalDigest;
+    // Kept so finalisation can be compared against the exact object approved.
+    let finalBundle;
     await as(tx, uidA, async () => {
       const [review] = await tx`
         select public.prescription_review_bundle(${rx}, ${hospital.id}, ${globalTpl.id}) as r`;
       finalDigest = review.r.digest;
+      finalBundle = review.r.bundle;
       check(
         review.r.bundle.signature.objectId === sigObj.id,
         "the bundle now carries the object's trusted identity",
@@ -1039,6 +1065,82 @@ try {
           !String(row.signature_asset_path).startsWith("http"),
         "…and the signature by object identity, never a signed URL",
       );
+
+      /**
+       * ---- The invariant: if the digest covers it, finalisation preserves it.
+       *
+       * `clinicalDate` was covered by the digest and dropped on the way in,
+       * because the snapshot was a hand-maintained list of columns. The whole
+       * approved bundle is stored now, so this compares the ENTIRE object
+       * rather than naming fields — a future addition cannot be approved and
+       * then forgotten, because nobody has to remember anything.
+       */
+      const [snap] = await asOwner(tx, () => tx`
+        select review_bundle_snapshot as b from public.prescriptions where id = ${rx}`);
+      check(!!snap.b, "the whole approved bundle is stored");
+      check(
+        JSON.stringify(snap.b) === JSON.stringify(finalBundle),
+        "…byte-for-byte the bundle whose digest matched",
+      );
+      check(
+        typeof snap.b?.clinicalDate === "string" && snap.b.clinicalDate === finalBundle.clinicalDate,
+        "…including clinicalDate, which used to be discarded",
+        String(snap.b?.clinicalDate),
+      );
+
+      // Every top-level printable key survives, whatever they happen to be.
+      const missing = Object.keys(finalBundle).filter((k) => !(k in (snap.b ?? {})));
+      check(
+        missing.length === 0,
+        "…and every top-level canonical field, named or not",
+        missing.join(", "),
+      );
+
+      const [digestOfSnapshot] = await asOwner(tx, () => tx`
+        select encode(sha256(convert_to(review_bundle_snapshot::text, 'UTF8')), 'hex') as d
+        from public.prescriptions where id = ${rx}`);
+      check(
+        digestOfSnapshot.d === finalDigest,
+        "…so re-hashing the stored bundle reproduces the approved digest",
+      );
+
+      check(
+        row.snapshot_schema_version === finalBundle.schemaVersion,
+        "…and the snapshot schema version matches the bundle's",
+        `${row.snapshot_schema_version} vs ${finalBundle.schemaVersion}`,
+      );
+
+      /**
+       * The point of storing the date: history must not move when the live
+       * encounter does. Nothing may recompute it from `started_at` again.
+       */
+      const before = snap.b.clinicalDate;
+      await asOwner(tx, () => tx`
+        update public.encounters set started_at = started_at - interval '900 days'
+        where id = ${encA.id}`);
+      const [after] = await asOwner(tx, () => tx`
+        select review_bundle_snapshot ->> 'clinicalDate' as d,
+               patient_snapshot ->> 'dob' as dob
+        from public.prescriptions where id = ${rx}`);
+      check(
+        after.d === before,
+        "moving the consultation's date cannot change the finalised clinical date",
+        `${before} -> ${after.d}`,
+      );
+
+      const [reread] = await as(tx, uidA, () => tx`
+        select public.finalized_prescription_detail(${rx}, ${hospital.id}) as d`);
+      check(
+        reread.d.bundle.clinicalDate === before,
+        "…and the finalised read still reports the approved date",
+      );
+      check(
+        reread.d.bundle.patient.fullName === row.patient_snapshot.fullName,
+        "…serving the approved patient identity, not today's row",
+      );
+      await asOwner(tx, () => tx`
+        update public.encounters set started_at = started_at + interval '900 days'
+        where id = ${encA.id}`);
 
       const [ev] = await asOwner(tx, () => tx`
         select count(*)::int as n from public.prescription_events

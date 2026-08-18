@@ -1204,8 +1204,33 @@ export const prescriptions = pgTable(
     }),
 
     /**
-     * What was actually approved, kept so the paper still prints after the
-     * doctor changes their name, template, chamber or signature.
+     * THE canonical review bundle, exactly as the doctor approved it.
+     *
+     * The whole trusted object whose digest matched — not a selection from it.
+     * Everything printable lives here, and `prescription_review_bundle` is the
+     * only thing that ever builds it.
+     *
+     * This exists because the columns below were a list somebody had to keep in
+     * step by hand. `clinicalDate` was added to the bundle in schema v2, the
+     * digest covered it, the doctor approved it — and finalisation quietly
+     * dropped it, because nobody remembered to add a matching column. A
+     * finalised prescription would then have had to recompute the printed date
+     * from `encounters.started_at`, which is exactly the live-data dependency
+     * that version existed to remove.
+     *
+     * So the invariant is structural now, not remembered:
+     *
+     *     IF THE DIGEST COVERS IT, FINALISATION PRESERVES IT.
+     *
+     * A future schema version can add fields without anyone touching this
+     * table, and they cannot be approved-then-forgotten.
+     */
+    reviewBundleSnapshot: jsonb("review_bundle_snapshot"),
+
+    /**
+     * The same content, split out for querying and for readers that predate the
+     * canonical snapshot. Kept deliberately — they are useful indexes into the
+     * bundle — but they are a PROJECTION of it, never the source of truth.
      *
      * Only what the prescription needs. A patient's phone, address and private
      * notes are not on the paper and are not copied here.
@@ -1263,12 +1288,20 @@ export const prescriptions = pgTable(
       .on(t.replacesPrescriptionId)
       .where(sql`replaces_prescription_id is not null`),
 
-    /** A finalised row must carry everything needed to print it, forever. */
+    /**
+     * A finalised row must carry everything needed to print it, forever.
+     *
+     * `review_bundle_snapshot` is the load-bearing one: it is the whole
+     * approved document. The rest are its projection, and are asserted too so
+     * that a half-written finalisation cannot exist even briefly.
+     */
     check(
       "prescriptions_finalized_is_complete",
       sql`status <> 'FINALIZED' or (
         finalized_at is not null
         and snapshot_schema_version is not null
+        and review_bundle_snapshot is not null
+        and review_bundle_snapshot ? 'clinicalDate'
         and doctor_snapshot is not null
         and location_snapshot is not null
         and patient_snapshot is not null

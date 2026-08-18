@@ -92,6 +92,13 @@
       "when": 1786954845473,
       "tag": "0012_small_annihilus",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1787047415510,
+      "tag": "0013_chief_squadron_supreme",
+      "breakpoints": true
     }
   ]
 }

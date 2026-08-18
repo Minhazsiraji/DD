@@ -327,12 +327,27 @@ begin
     raise exception 'SIGNATURE_NOT_FROZEN' using errcode = '22023';
   end if;
 
-  -- 7-8. Store ONLY what trusted code built, and mark it approved.
+  /**
+   * 7-8. Store ONLY what trusted code built, and mark it approved.
+   *
+   * `review_bundle_snapshot` is the WHOLE approved document — the same
+   * `v_bundle` whose digest just matched, stored entire rather than picked
+   * over. The columns beneath it are a projection kept for querying.
+   *
+   * Storing the whole thing is the correction that matters: `clinicalDate` was
+   * added to the bundle in schema v2, the digest covered it, the doctor
+   * approved it, and finalisation dropped it because there was no column for
+   * it. A finalised prescription would then have had to recompute the printed
+   * date from `encounters.started_at` — a live row — which is precisely what
+   * that version existed to stop. Any future field is now preserved without
+   * anyone remembering to add anything.
+   */
   update public.prescriptions set
     status                  = 'FINALIZED',
     finalized_at            = now(),
     finalized_by            = auth.uid(),
     template_id             = nullif(v_bundle -> 'template' ->> 'templateId', '')::uuid,
+    review_bundle_snapshot  = v_bundle,
     snapshot_schema_version = (v_bundle ->> 'schemaVersion')::integer,
     doctor_snapshot         = v_bundle -> 'doctor',
     location_snapshot       = v_bundle -> 'location',
@@ -521,6 +536,13 @@ begin
     'finalizedAt', v_rx.finalized_at,
     'replacesPrescriptionId', v_rx.replaces_prescription_id,
     'replacementReason', v_rx.replacement_reason,
+    /**
+     * The approved document, for a FINALIZED prescription. Null while DRAFT,
+     * because there is nothing approved to show — the composer reads `items`.
+     */
+    'reviewBundleSnapshot', v_rx.review_bundle_snapshot,
+    'reviewDigest', v_rx.review_digest,
+    'snapshotSchemaVersion', v_rx.snapshot_schema_version,
     'doctorSnapshot', v_rx.doctor_snapshot,
     'locationSnapshot', v_rx.location_snapshot,
     'patientSnapshot', v_rx.patient_snapshot,
@@ -529,6 +551,64 @@ begin
     'items', v_items);
 end;
 $$;
+
+/**
+ * A finalised prescription, read ONLY from what was approved.
+ *
+ * Deliberately separate from `prescription_detail`, which is the composer's
+ * read and returns LIVE `prescription_items`. Stage 7C-3 renders history from
+ * this, so the renderer has no way to reach today's doctor, patient, location
+ * or template rows even by accident — the immutability is structural rather
+ * than something the caller has to be careful about.
+ *
+ * Returns nothing for a DRAFT: there is no approved document yet, and inventing
+ * one from live rows is the whole mistake this exists to prevent.
+ */
+create or replace function public.finalized_prescription_detail(
+  p_prescription_id      uuid,
+  p_practice_location_id uuid
+)
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_rx public.prescriptions%rowtype;
+begin
+  select * into v_rx from public.prescriptions
+   where id = p_prescription_id and practice_location_id = p_practice_location_id;
+
+  -- Same single answer for missing, not-yours and elsewhere.
+  if not found
+     or v_rx.status <> 'FINALIZED'
+     or not (
+       coalesce(v_rx.owner_doctor_id = public.current_doctor_id(), false)
+       or public.may_hand_over_prescription(v_rx.id)
+     ) then
+    raise exception 'prescription not found' using errcode = '42501';
+  end if;
+
+  return jsonb_build_object(
+    'id', v_rx.id,
+    'status', v_rx.status,
+    'finalizedAt', v_rx.finalized_at,
+    'finalizedBy', v_rx.finalized_by,
+    'encounterId', v_rx.encounter_id,
+    'patientId', v_rx.patient_id,
+    'replacesPrescriptionId', v_rx.replaces_prescription_id,
+    'replacementReason', v_rx.replacement_reason,
+    'reviewDigest', v_rx.review_digest,
+    'snapshotSchemaVersion', v_rx.snapshot_schema_version,
+    'signatureAssetPath', v_rx.signature_asset_path,
+    -- The approved document itself. Everything printable is inside it.
+    'bundle', v_rx.review_bundle_snapshot);
+end;
+$$;
+
+revoke all on function public.finalized_prescription_detail(uuid, uuid) from public, anon;
+grant execute on function public.finalized_prescription_detail(uuid, uuid) to authenticated;
 
 revoke all on function public.prescription_detail(uuid, uuid) from public, anon;
 grant execute on function public.prescription_detail(uuid, uuid) to authenticated;
