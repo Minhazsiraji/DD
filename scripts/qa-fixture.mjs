@@ -25,6 +25,7 @@
  */
 import postgres from "postgres";
 import crypto from "node:crypto";
+import { readFile, writeFile } from "node:fs/promises";
 
 const url = process.env.DIRECT_URL ?? process.env.DATABASE_URL;
 if (!url) {
@@ -45,17 +46,62 @@ const PEOPLE = {
 const sql = postgres(url, { max: 1, prepare: false, onnotice: () => {} });
 
 /**
- * Delete every QA storage object under these user ids, through the Storage API.
+ * The QA fixture's own record of every account it has ever created.
  *
- * Best-effort and loudly skipped without a service-role key, because the
- * clinical bucket has no DELETE policy — that is the control, and a fixture
- * script is not a reason to weaken it.
+ * This exists so that deletion is driven by PROOF of provenance. An earlier
+ * version inferred it instead — "this folder's uid is not in auth.users, so it
+ * must be junk" — which is not a safe rule anywhere and is a dangerous one in
+ * a clinical bucket. A real doctor's auth account may be closed long after
+ * their prescriptions were signed; the frozen signatures on those
+ * prescriptions must outlive the account, because the prescriptions do.
+ *
+ * Not in git: it names throwaway ids on one developer's machine.
+ */
+const MANIFEST = new URL("../.qa-fixture-uids.json", import.meta.url);
+
+async function readManifest() {
+  try {
+    const raw = await readFile(MANIFEST, "utf8");
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed.filter((v) => typeof v === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+async function rememberQaUsers(userIds) {
+  const known = new Set(await readManifest());
+  for (const id of userIds) known.add(String(id));
+  await writeFile(MANIFEST, JSON.stringify([...known], null, 2));
+}
+
+async function forgetQaUsers(userIds) {
+  const gone = new Set(userIds.map(String));
+  const left = (await readManifest()).filter((id) => !gone.has(id));
+  await writeFile(MANIFEST, JSON.stringify(left, null, 2));
+}
+
+/**
+ * Delete QA storage objects — and ONLY objects proven to be QA fixtures.
+ *
+ * Provenance comes from two places, both of which are records of what this
+ * script did:
+ *
+ *   1. the QA accounts being destroyed right now (resolved from `@qa.invalid`);
+ *   2. the manifest, for accounts a previous run destroyed before this script
+ *      could remove their files.
+ *
+ * Anything else in these buckets is REPORTED AND LEFT ALONE. If an object
+ * cannot be proven to be ours, leaking a few kilobytes in a development bucket
+ * is the cheap mistake; deleting an unknown clinical asset is the expensive
+ * one, and it is not reversible.
+ *
+ * Skipped without a service-role key. The clinical bucket has no DELETE policy
+ * — that is the control, and a fixture script is not a reason to weaken it.
  */
 async function removeQaStorage(userIds) {
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
   const projectUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  // No early return on an empty user list: the orphan sweep below still has
-  // work to do when a previous destroy ran without a key.
   if (!serviceKey || !projectUrl) return;
 
   const { createClient } = await import("@supabase/supabase-js");
@@ -63,23 +109,23 @@ async function removeQaStorage(userIds) {
     auth: { persistSession: false },
   }).storage;
 
-  /**
-   * Also sweep orphans: top-level folders whose owning user no longer exists.
-   * An earlier destroy that ran without a service-role key left its files
-   * behind, and nothing else will ever come looking for them.
-   */
-  const live = await sql`select id::text as id from auth.users`;
-  const liveIds = new Set(live.map((r) => r.id));
-  const targets = new Set(userIds.map(String));
+  const provenQa = new Set([...userIds.map(String), ...(await readManifest())]);
 
   let removed = 0;
+  const unknown = new Set();
+
   for (const bucket of ["doctor-assets", "prescription-assets"]) {
     const { data: folders } = await storage.from(bucket).list("", { limit: 1000 });
-    for (const folder of folders ?? []) {
-      if (!folder.id && !liveIds.has(folder.name)) targets.add(folder.name);
-    }
 
-    for (const uid of targets) {
+    for (const folder of folders ?? []) {
+      if (folder.id) continue; // a loose file at the root, not a user folder
+      if (!provenQa.has(folder.name)) {
+        // Not ours as far as we can prove. Say so; touch nothing.
+        unknown.add(folder.name);
+        continue;
+      }
+
+      const uid = folder.name;
       // Files sit at <uid>/… and, for frozen signatures, <uid>/<rx>/signature.
       const { data: top } = await storage.from(bucket).list(uid, { limit: 1000 });
       const paths = [];
@@ -88,20 +134,29 @@ async function removeQaStorage(userIds) {
           paths.push(`${uid}/${entry.name}`);
           continue;
         }
-        // A folder: one prescription's assets.
         const { data: inner } = await storage.from(bucket).list(`${uid}/${entry.name}`, {
           limit: 1000,
         });
         for (const file of inner ?? []) paths.push(`${uid}/${entry.name}/${file.name}`);
       }
       if (paths.length === 0) continue;
+
       const { data } = await storage.from(bucket).remove(paths);
       // Counted from the returned rows: a blocked delete removes nothing and
       // raises nothing, so the absence of an error proves nothing.
       removed += (data ?? []).length;
     }
   }
+
   if (removed > 0) console.log(`removed ${removed} QA storage object(s)`);
+  if (unknown.size > 0) {
+    console.log(
+      `LEFT ALONE: ${unknown.size} storage folder(s) not provably created by QA.\n` +
+        "  They are not deleted, on purpose — a closed doctor account does not\n" +
+        "  make its frozen prescription signatures disposable. Remove them by\n" +
+        "  hand if you know what they are.",
+    );
+  }
 }
 const mode = process.argv[2] ?? "status";
 
@@ -239,6 +294,13 @@ if (mode === "destroy") {
   }
   console.log(`removed ${rows.length} QA account(s): ${rows.map((r) => r.email).join(", ") || "none"}`);
 
+  /**
+   * Forget them only AFTER their files are gone. Dropping the record first
+   * would leave objects behind with no remaining proof of what they were —
+   * and this script would then, correctly, refuse to ever touch them again.
+   */
+  await forgetQaUsers(rows.map((r) => r.id));
+
   const [left] = await sql`
     select
       (select count(*)::int from auth.users where email like ${"%" + QA_DOMAIN}) as users,
@@ -281,6 +343,16 @@ await sql.begin(async (tx) => {
   const doctorUser = await createUser(tx, PEOPLE.doctor.email, PEOPLE.doctor.name);
   const otherUser = await createUser(tx, PEOPLE.other.email, PEOPLE.other.name);
   const deskUser = await createUser(tx, PEOPLE.reception.email, PEOPLE.reception.name);
+
+  /**
+   * Recorded now, while we still know these ids are ours.
+   *
+   * `destroy` deletes storage only under ids it can PROVE this script created.
+   * If a later destroy runs after the accounts are gone — or without a
+   * service-role key, so the files outlive them — this is the only remaining
+   * evidence of provenance.
+   */
+  await rememberQaUsers([doctorUser, otherUser, deskUser]);
 
   await tx`insert into public.doctor_profiles (user_id, qualification, specialization,
              designation, bmdc_registration_no, patient_number_prefix)

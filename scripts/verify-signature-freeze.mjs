@@ -158,8 +158,25 @@ try {
     const bytes = new Uint8Array(await response.arrayBuffer());
     check(sha256(bytes) === sha256(SIG_A), "…and serves the frozen bytes");
 
+    /**
+     * Re-issuing must give a working URL for the SAME object — that is the
+     * property that matters, because a signed URL expires and a prescription
+     * does not.
+     *
+     * Deliberately NOT asserting that the two URLs differ: Supabase signs with
+     * second-resolution timestamps, so two calls within the same second
+     * legitimately produce an identical token. An earlier version asserted it
+     * and failed on a fast run — a flaky test about a guarantee nobody makes.
+     */
     const second = await service.storage.from(FROZEN_BUCKET).createSignedUrl(destA, 60);
-    check(second.data.signedUrl !== data.signedUrl, "…and a fresh one differs from the last");
+    check(!second.error && !!second.data?.signedUrl, "…and can be re-issued", second.error?.message ?? "");
+
+    const again = await fetch(second.data.signedUrl);
+    const againBytes = new Uint8Array(await again.arrayBuffer());
+    check(
+      sha256(againBytes) === sha256(SIG_A),
+      "…serving the same frozen bytes, so the clinical identity is unchanged",
+    );
 
     // The URL is a delivery detail. Nothing clinical may remember it.
     const token = new URL(data.signedUrl).searchParams.get("token") ?? "";

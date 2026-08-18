@@ -39,3 +39,7 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# QA fixture provenance — throwaway ids on one developer's machine.
+# `qa:destroy` deletes storage only under ids this file proves it created.
+.qa-fixture-uids.json
