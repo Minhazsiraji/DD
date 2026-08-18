@@ -121,19 +121,36 @@ revoke insert, update, delete on public.prescription_events        from authenti
 -- record. The object lives here, where nothing can update or delete it, so a
 -- doctor later removing their profile signature cannot reach into a
 -- prescription that was already approved.
+--
+-- TWO TRUST CLASSES, TWO BUCKETS. `doctor-assets` (0005) holds the doctor's own
+-- profile signature: they upload it, replace it, delete it, and it is theirs.
+-- THIS bucket holds immutable clinical snapshots, and nothing a browser can
+-- reach may write here.
 -- -----------------------------------------------------------------------------
 insert into storage.buckets (id, name, public)
 values ('prescription-assets', 'prescription-assets', false)
 on conflict (id) do nothing;
 
+/**
+ * NO INSERT POLICY. Read-only to every authenticated user, without exception.
+ *
+ * This previously granted INSERT wherever the first path segment matched
+ * `auth.uid()` — the shape that is right for a personal upload bucket and wrong
+ * for this one. The frozen path is `prescription_signature_path()`, which is
+ * derivable by anyone holding the prescription id, so secrecy was never the
+ * control; the write privilege was. A modified browser could therefore plant an
+ * arbitrary image at the destination BEFORE any trusted code ran, and because
+ * this bucket deliberately has no UPDATE or DELETE policy, that object would
+ * then be permanent — attested by the review bundle and printed on the
+ * prescription as the doctor's frozen signature. Proved by executing it.
+ *
+ * The freeze is therefore service-role orchestration (Stage 7C-2A): trusted
+ * code authenticates the doctor, location and prescription, reads the SOURCE
+ * signature from `doctor-assets`, writes the destination here, and verifies
+ * what it wrote. Service role bypasses RLS, so it needs no policy — and the
+ * absence of one is what makes "server-only" true rather than intended.
+ */
 drop policy if exists prescription_assets_insert on storage.objects;
-create policy prescription_assets_insert
-  on storage.objects for insert to authenticated
-  with check (
-    bucket_id = 'prescription-assets'
-    -- prescription-assets/<doctor user id>/<prescription id>/<file>
-    and (storage.foldername(name))[1] = auth.uid()::text
-  );
 
 /**
  * Who may fetch a frozen signature.

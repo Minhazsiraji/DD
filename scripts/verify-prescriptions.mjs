@@ -41,6 +41,29 @@ async function expectDenied(tx, fn) {
 }
 
 /**
+ * Did this write get through? — asked without letting it stand.
+ *
+ * `expectDenied` leaves a successful write committed inside the transaction,
+ * which is fine for a delete that changes nothing but wrong for an INSERT we
+ * are hoping is impossible: the planted row would then collide with the real
+ * freeze a few lines later and hide the failure it was meant to expose. So the
+ * savepoint is always rolled back, and only the verdict comes back.
+ */
+async function refused(tx, fn) {
+  let got = false;
+  try {
+    await tx.savepoint(async (sp) => {
+      await fn(sp);
+      got = true;
+      throw new Error("__undo__");
+    });
+  } catch (e) {
+    if (e.message !== "__undo__") return true;
+  }
+  return !got;
+}
+
+/**
  * Read the stored state as the table OWNER.
  *
  * Direct SELECT is revoked for authenticated, which is the point of the
@@ -183,6 +206,16 @@ const cmds = assetPolicies.map((p) => p.cmd).sort();
 check(
   !cmds.includes("UPDATE") && !cmds.includes("DELETE"),
   "finalised assets have no update or delete policy",
+  cmds.join(", "),
+);
+/**
+ * And no INSERT policy either. An immutable clinical asset that a browser may
+ * create is not immutable — it is merely write-once by whoever gets there
+ * first, and the doctor can always get there first.
+ */
+check(
+  !cmds.includes("INSERT"),
+  "…and no insert policy: the clinical bucket is server-only",
   cmds.join(", "),
 );
 
@@ -610,6 +643,63 @@ try {
       expectedPath.p,
     );
 
+    /**
+     * The browser must NOT be able to get there first.
+     *
+     * `prescription-assets` holds immutable clinical snapshots, not user
+     * uploads, and the two need different trust classes. While `authenticated`
+     * could INSERT anywhere under its own uid, a modified browser could plant
+     * an arbitrary image at the computed frozen path before any trusted code
+     * ran — and because the bucket deliberately has no UPDATE or DELETE policy,
+     * that planted object would then be permanent and would be the thing the
+     * review bundle attested and the prescription printed. The doctor would be
+     * choosing their own "frozen" signature.
+     *
+     * The path is derivable by anyone who knows the prescription id, so secrecy
+     * was never the control. The write privilege is.
+     */
+    console.log("\nThe frozen-signature destination is server-only");
+    await as(tx, uidA, async () => {
+      check(
+        await refused(tx, (t) => t`
+          insert into storage.objects (bucket_id, name, owner, metadata)
+          values ('prescription-assets', ${expectedPath.p}, ${uidA},
+                  ${{ size: 1, mimetype: "image/png" }})`),
+        "the owning doctor cannot pre-create the frozen signature",
+      );
+      check(
+        await refused(tx, (t) => t`
+          insert into storage.objects (bucket_id, name, owner, metadata)
+          values ('prescription-assets', ${`${uidA}/anything/else`}, ${uidA}, ${{ size: 1 }})`),
+        "…nor write anywhere else in the clinical bucket",
+      );
+    });
+    await as(tx, uidB, async () => {
+      check(
+        await refused(tx, (t) => t`
+          insert into storage.objects (bucket_id, name, owner, metadata)
+          values ('prescription-assets', ${expectedPath.p}, ${uidB}, ${{ size: 1 }})`),
+        "…nor can a colleague at the same hospital",
+      );
+    });
+
+    /**
+     * The SOURCE signature is a different trust class and must keep working —
+     * closing the clinical bucket must not cost a doctor the ability to manage
+     * their own profile image.
+     */
+    await as(tx, uidA, async () => {
+      check(
+        !(await refused(tx, (t) => t`
+          insert into storage.objects (bucket_id, name, owner, metadata)
+          values ('doctor-assets', ${`${uidA}/signature-qa.png`}, ${uidA},
+                  ${{ size: 2048, mimetype: "image/png" }})`)),
+        "…while the doctor's own profile signature bucket still accepts uploads",
+      );
+    });
+
+    // The server-only freeze: written by trusted code, which is why this test
+    // steps outside `authenticated` to do it.
     const [sigObj] = await tx`
       insert into storage.objects (bucket_id, name, owner, metadata)
       values ('prescription-assets', ${expectedPath.p}, ${uidA},
