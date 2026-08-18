@@ -1,6 +1,6 @@
 import "server-only";
 import { serviceStorage } from "@/lib/supabase/service";
-import type { Fetched, SignatureStore, Written } from "./freeze";
+import type { Described, Fetched, SignatureStore, Written } from "./freeze";
 
 /**
  * The freeze port, bound to the real Supabase Storage API.
@@ -42,21 +42,52 @@ export function supabaseSignatureStore(): SignatureStore {
       return { kind: "bytes", bytes, contentType: data.type || null };
     },
 
-    async write(bucket, path, bytes, contentType): Promise<Written> {
+    async write(bucket, path, bytes, contentType, marker): Promise<Written> {
       /**
        * `upsert: false` is the control, not a preference. The destination is
        * append-only and must stay that way: a second attempt has to be told
        * "already there" so it can VERIFY, rather than quietly replacing a
        * signature a review may already have attested.
+       *
+       * The marker travels as custom metadata and is written ONCE, with the
+       * object. It records what was frozen and for which prescription, so a
+       * later retry can be checked against the freeze itself rather than
+       * against the doctor's profile — which may legitimately have changed.
        */
       const { error } = await storage.from(bucket).upload(path, bytes, {
         contentType,
         upsert: false,
+        metadata: { ...marker },
       });
 
       if (!error) return { kind: "ok" };
       const message = error.message ?? String(error);
       return isDuplicate(message) ? { kind: "exists" } : { kind: "error", message };
+    },
+
+    async describe(bucket, path): Promise<Described> {
+      const { data, error } = await storage.from(bucket).info(path);
+
+      if (error) {
+        const message = error.message ?? String(error);
+        return isMissing(message) ? { kind: "missing" } : { kind: "error", message };
+      }
+      if (!data) return { kind: "missing" };
+
+      /**
+       * Custom metadata only. `size`, `mimetype` and `eTag` are Supabase's own
+       * derived fields and are NOT the integrity control — the bytes are.
+       */
+      const custom = (data.metadata ?? {}) as Record<string, unknown>;
+      return {
+        kind: "found",
+        marker: {
+          frozenBy: typeof custom.frozenBy === "string" ? custom.frozenBy : undefined,
+          frozenFor: typeof custom.frozenFor === "string" ? custom.frozenFor : undefined,
+          sourceSha256:
+            typeof custom.sourceSha256 === "string" ? custom.sourceSha256 : undefined,
+        },
+      };
     },
   };
 }

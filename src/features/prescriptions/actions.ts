@@ -442,6 +442,7 @@ export async function prepareForReviewAction(input: {
     }
 
     const frozen = await freezeSignature(supabaseSignatureStore(), {
+      prescriptionId,
       sourcePath: need.sourcePath,
       // Derived by the database from the OWNING doctor and this prescription.
       // The browser never supplies it and never sees it before this point.
@@ -533,14 +534,13 @@ function failedFreeze(outcome: Extract<FreezeOutcome, { ok: false }>): PrepareRe
           "Your signature image could not be found. Re-upload it in Settings → Your profile, then prepare this prescription again.",
       };
 
+    /**
+     * We wrote and read back different bytes than we sent. Storage disagreed
+     * with itself; nothing about the prescription is wrong.
+     */
     case "mismatch":
-      /**
-       * A different object is already at this prescription's signature path.
-       * It CANNOT be repaired — the bucket is append-only by design — so this
-       * is a refusal and an alert, never an overwrite.
-       */
       console.error(
-        "[prescriptions] FROZEN SIGNATURE MISMATCH — manual review required",
+        "[prescriptions] FROZEN SIGNATURE WRITE MISMATCH — manual review required",
         outcome.path,
         `expected ${outcome.expected}`,
         `found ${outcome.found}`,
@@ -549,7 +549,41 @@ function failedFreeze(outcome: Extract<FreezeOutcome, { ok: false }>): PrepareRe
         ok: false,
         kind: "mismatch",
         message:
-          "This prescription already has a different signature fixed to it, and a signed prescription's signature can never be replaced. Write a new prescription for this patient instead.",
+          "The signature could not be stored correctly. Nothing has been changed — try again, and tell support if it keeps happening.",
+      };
+
+    /**
+     * Something is at this prescription's signature path that trusted code did
+     * not put there, or our own object no longer hashes to what we recorded.
+     * The bucket is append-only, so there is no repair — only a refusal and an
+     * alert. NOT the same as "the doctor changed their profile signature",
+     * which is handled by reusing the frozen object.
+     */
+    case "untrusted":
+      console.error(
+        "[prescriptions] UNTRUSTED OBJECT AT FROZEN SIGNATURE PATH — manual review required",
+        outcome.path,
+        outcome.reason,
+      );
+      return {
+        ok: false,
+        kind: "mismatch",
+        message:
+          "This prescription's signature could not be verified, so it cannot be prepared. Write a new prescription for this patient, and tell support about this one.",
+      };
+
+    case "corrupt":
+      console.error(
+        "[prescriptions] FROZEN SIGNATURE FAILED ITS OWN CHECKSUM — manual review required",
+        outcome.path,
+        `expected ${outcome.expected}`,
+        `found ${outcome.found}`,
+      );
+      return {
+        ok: false,
+        kind: "mismatch",
+        message:
+          "This prescription's signature no longer matches what was stored with it, so it cannot be prepared. Write a new prescription for this patient, and tell support about this one.",
       };
 
     case "unverifiable":

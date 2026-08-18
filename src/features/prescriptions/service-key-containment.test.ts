@@ -90,6 +90,29 @@ describe("the privileged Storage client", () => {
     expect(source).toMatch(/typeof window !== "undefined"/);
   });
 
+  it("is never printed, logged or returned to a caller", async () => {
+    /**
+     * A key in a log line is a leaked key. `serviceRoleKey()` is the only way
+     * to obtain it, so nothing may pass its result to a logger, a thrown
+     * message, or a return value.
+     */
+    const offenders: string[] = [];
+    for (const file of await walk(SRC)) {
+      if (file.endsWith("service-key-containment.test.ts")) continue;
+      const source = await readFile(file, "utf8");
+
+      for (const line of source.split("\n")) {
+        const mentionsKey = /serviceRoleKey\(\)|SUPABASE_SERVICE_ROLE_KEY/.test(line);
+        if (!mentionsKey) continue;
+        // Reading the NAME to test for presence is fine; emitting the VALUE is not.
+        if (/console\.|throw new Error|JSON\.stringify|return\s/.test(line)) {
+          if (/serviceRoleKey\(\)/.test(line)) offenders.push(`${path.relative(SRC, file)}: ${line.trim()}`);
+        }
+      }
+    }
+    expect(offenders).toEqual([]);
+  });
+
   it("exposes storage only — never a privileged database handle", async () => {
     const source = await readFile(path.join(SRC, "lib/supabase/service.ts"), "utf8");
     // A privileged `.from()` would bypass owner_doctor_id and every location
