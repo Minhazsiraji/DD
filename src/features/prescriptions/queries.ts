@@ -98,6 +98,8 @@ export type ReviewOutcome =
   | { ok: true; review: ReviewEnvelope }
   | { ok: false; reason: "not-found" }
   | { ok: false; reason: "template-unavailable" }
+  /** The layout asks to print something the bundle cannot attest. */
+  | { ok: false; reason: "logo-unsupported" }
   /** A bundle shape this build does not know. Refused, never guessed at. */
   | { ok: false; reason: "unsupported-schema"; found: number }
   | { ok: false; reason: "unavailable" };
@@ -116,6 +118,9 @@ export async function getReviewBundle(
   });
 
   if (error) {
+    if (/TEMPLATE_LOGO_UNSUPPORTED/i.test(error.message)) {
+      return { ok: false, reason: "logo-unsupported" };
+    }
     if (/TEMPLATE_NOT_AVAILABLE/i.test(error.message)) {
       return { ok: false, reason: "template-unavailable" };
     }

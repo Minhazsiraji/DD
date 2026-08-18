@@ -213,6 +213,22 @@ squeeze — and it hides the bottom nav.
   sat at "Opening…" for the rest of the consultation without it, found by
   clicking it. The guard's `dirty` input must include every unsaved editor on
   the screen, not only the notes draft.
+- **Anything a doctor APPROVES must contain everything that prints — including
+  the date it is measured against.** A digest covers the bundle, so a printable
+  value computed from anything outside the bundle is a value nobody approved.
+  The review renderer took a `todayISO` argument for hydration safety, and the
+  same digest then rendered a different patient age on a different day — a
+  prescription reprinted a year later would have aged the patient by a year.
+  The fix is never "pass the clock in consistently"; it is to put the
+  authoritative date IN the bundle (`clinicalDate`, the encounter's clinic day
+  in the location's timezone) and compute from that. Same rule for assets: a
+  template switch like `showClinicLogo` with no trusted asset identity in the
+  bundle must FAIL CLOSED in the bundle builder, not render nothing.
+- **Freezing an asset changes the digest, so it must happen BEFORE the review
+  that gets approved.** The frozen signature's identity is inside the bundle. A
+  flow that approves `signature: null` and then freezes is approving one
+  document while a different one becomes permanent — `finalize_prescription`
+  would rightly refuse it with `REVIEW_STALE`. See ADR 0012.
 - **A failed write has FIVE outcomes, not two, and they must never merge.**
   Every one answers "did it commit?" — `no` + state readable, `no` + state
   unreadable, `unknown`, `yes` + the record moved on, and an ordinary refusal.

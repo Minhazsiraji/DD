@@ -49,6 +49,20 @@ export function translateRxError(message: string): TranslatedRxError {
     };
   }
 
+  /**
+   * A printable switch with nothing printable behind it. Told plainly, with
+   * the one action that unblocks the doctor — vague refusals on this screen
+   * end with a handwritten prescription instead.
+   */
+  if (m.includes("TEMPLATE_LOGO_UNSUPPORTED")) {
+    return {
+      kind: "error",
+      message:
+        "This layout is set to show a clinic logo, which prescriptions cannot carry yet. Turn off “Show clinic logo” in Settings → Prescription layout, then review again.",
+      unexpected: false,
+    };
+  }
+
   if (m.includes("PRESCRIPTION_NOT_DRAFT")) {
     return {
       kind: "error",

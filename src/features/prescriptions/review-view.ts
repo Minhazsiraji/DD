@@ -54,6 +54,7 @@ export interface ReviewHeader {
 export interface ReviewPatient {
   fullName: string | null;
   patientNumber: string | null;
+  /** Computed from `bundle.clinicalDate`, never from a clock. */
   ageSex: string;
 }
 
@@ -66,6 +67,8 @@ export type SignatureState =
   | { kind: "not-frozen" };
 
 export interface ReviewView {
+  /** The clinic day this prescription was written. Printed, and inside the digest. */
+  clinicalDate: string;
   paperSize: "A4" | "A5";
   marginMm: number;
   baseFontPt: number;
@@ -123,15 +126,20 @@ export function toLine(item: BundleItem): ReviewLine {
 }
 
 /**
- * Build the printable view from the canonical bundle.
+ * Build the printable view from the canonical bundle — and from NOTHING else.
  *
- * `todayISO` is passed in rather than read from the clock so the same bundle
- * renders identically in a test, on the server and in the browser — an age
- * computed from `new Date()` during render is a hydration mismatch waiting to
- * happen, and on this screen it would be a hydration mismatch about a patient's
- * age.
+ * This function takes one argument on purpose. It used to take a second,
+ * `todayISO`, which the caller read from the clock; the age was computed from
+ * that. The bundle and its digest were then identical on two different days
+ * while the printed age differed, and a prescription reprinted a year later
+ * would have aged the patient by a year. A digest that does not cover what
+ * prints is not an approval of what prints.
+ *
+ * So the date comes from inside the bundle, where the digest can reach it. If
+ * a printable value ever needs "now" again, the answer is to put the right
+ * date in the bundle, never to pass a clock in here.
  */
-export function toReviewView(bundle: ReviewBundle, todayISO: string): ReviewView {
+export function toReviewView(bundle: ReviewBundle): ReviewView {
   const t = bundle.template;
 
   const age = computeAge(
@@ -141,7 +149,7 @@ export function toReviewView(bundle: ReviewBundle, todayISO: string): ReviewView
       approxAgeYears: bundle.patient.approxAgeYears,
       ageRecordedOn: bundle.patient.ageRecordedOn,
     },
-    todayISO,
+    bundle.clinicalDate,
   );
 
   const credentials = [
@@ -179,6 +187,7 @@ export function toReviewView(bundle: ReviewBundle, todayISO: string): ReviewView
       : { kind: "not-frozen" };
 
   return {
+    clinicalDate: bundle.clinicalDate,
     // The template's paper, never a hardcoded A4 — A5 is a supported layout and
     // silently printing it on A4 would change what the doctor approved.
     paperSize: t.paperSize,

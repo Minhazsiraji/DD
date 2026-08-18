@@ -38,14 +38,12 @@ export function ReviewScreen({
   initialReview,
   templates,
   initialTemplateId,
-  todayISO,
 }: {
   prescriptionId: string;
   encounterId: string;
   initialReview: ReviewEnvelope;
   templates: TemplateChoice[];
   initialTemplateId: string | null;
-  todayISO: string;
 }) {
   const router = useRouter();
   const [review, setReview] = React.useState(initialReview);
@@ -53,7 +51,7 @@ export function ReviewScreen({
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
 
-  const view = React.useMemo(() => toReviewView(review.bundle, todayISO), [review, todayISO]);
+  const view = React.useMemo(() => toReviewView(review.bundle), [review]);
 
   /**
    * A different layout is a different printable prescription, so it is a new
@@ -174,10 +172,18 @@ export function ReviewScreen({
         <ReviewSheet view={view} />
       </div>
 
+      {/*
+        The signature is frozen BEFORE the review that gets approved, not
+        during approval — freezing changes the bundle, and therefore the digest
+        (ADR 0012). So this screen shows an empty block and says so, rather than
+        drawing the doctor's live profile signature, which the bundle does not
+        attest and which could change afterwards.
+      */}
       {view.signature.kind === "not-frozen" ? (
         <p className="text-[12px] text-ink-muted">
-          The signature block is shown empty. The signature is copied onto the prescription at
-          approval, so that it can never change afterwards.
+          The signature block is empty because nothing has been fixed to this prescription yet.
+          Preparing it for final review copies the signature in, and you will read and approve the
+          prescription with the signature already on it.
         </p>
       ) : null}
 

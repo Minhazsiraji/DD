@@ -1,5 +1,6 @@
 import * as React from "react";
 import { cn } from "@/lib/utils";
+import { formatDate } from "@/lib/format";
 import { PAPER_MM } from "@/features/doctor/schema";
 import type { ReviewView } from "../review-view";
 
@@ -101,6 +102,12 @@ export function ReviewSheet({ view, className }: { view: ReviewView; className?:
               {view.patient.patientNumber}
             </span>
           ) : null}
+          {/*
+            The prescription's date, and the same value the age was computed
+            from. Printed so the paper says which day it speaks for — and so a
+            reprint years later is obviously historical rather than current.
+          */}
+          <span className="ml-auto tabular-nums">{formatDate(view.clinicalDate)}</span>
         </section>
 
         <section>

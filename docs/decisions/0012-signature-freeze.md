@@ -40,26 +40,68 @@ and the verification asserts both halves.
 
 ## Order of operations
 
-Freeze **first**, finalise **second**.
+**The freeze happens before the review the doctor approves — not after it.**
+
+This is the correction that matters most in this document, and the reasoning is
+short. The frozen object's identity is *inside* the canonical bundle, and the
+digest covers it. So freezing **changes the digest**:
 
 ```
-doctor asks to finalise
-        │
-        ├─ server verifies session, doctor, active location, prescription,
-        │  still-DRAFT, and that the review digest still matches
-        │
-        ├─ FREEZE (service role)
-        │     read the source object from doctor-assets
-        │     write <uid>/<rx-id>/signature into prescription-assets
-        │     VERIFY what is now at the destination
-        │
-        └─ finalize_prescription(...)   ← rebuilds the bundle, which now
-                                           observes the frozen object
+before freeze   bundle.signature = null            digest = ABC
+after  freeze   bundle.signature = { objectId… }   digest = XYZ
 ```
+
+An earlier draft of this ADR had the doctor approve `ABC` and then had the
+system freeze a signature and finalise `XYZ`. That is not a smaller version of
+the same thing — it is the doctor approving one document and a different one
+becoming permanent. `finalize_prescription()` would in fact have refused it with
+`REVIEW_STALE`, correctly, because it rebuilds the bundle and compares. The
+contract was right; the workflow around it was backwards.
+
+So Stage 7C-2A is a **review-preparation** step, not a finalisation step:
+
+```
+DRAFT
+  │
+  ├─ "Prepare for final review"                    ← 7C-2A
+  │     server verifies session, doctor, active location, prescription, DRAFT
+  │     FREEZE (service role)
+  │         read the source object from doctor-assets
+  │         write <uid>/<rx-id>/signature into prescription-assets
+  │         VERIFY what is now at the destination
+  │
+  ├─ fetch a FRESH canonical bundle
+  │     it now observes the frozen object; the digest is new
+  │
+  ├─ doctor reads THAT bundle, including the actual frozen signature image
+  │
+  ├─ doctor approves THAT digest                   ← 7C-2B
+  │
+  └─ finalize_prescription(…, digest)
+        rebuilds the same authoritative bundle
+        digest matches → FINALIZED
+```
+
+The invariant this preserves is the one the whole design rests on:
+
+> what the doctor sees → what the digest represents → what becomes immutable
+> must be exactly the same thing.
+
+Two consequences for the UI, both binding on 7C-2B:
+
+- **The approval control stays disabled until the doctor is looking at a
+  post-freeze bundle.** A screen showing `signature: null` may never offer
+  approval.
+- **The review must render the actual frozen signature image**, retrieved
+  through a short-lived authorised URL — not a line labelled "Signature". Today's
+  7C-1 preview draws the empty block because nothing is frozen yet and drawing
+  the doctor's *live* profile signature would show them something the bundle
+  does not attest. That is correct for 7C-1 and must change in 7C-2B.
 
 A frozen object with no finalised prescription is a harmless orphan. A finalised
 prescription with no signature is an unprintable permanent clinical record. The
-order follows from which of those we would rather have.
+order follows from which of those we would rather have — and, now, from the fact
+that the signature must be inside the thing being approved.
 
 ## Idempotency and the retry rule
 
@@ -136,6 +178,8 @@ turn a permanent record into a temporary one.
 | Ordinary user tries to create the frozen object | Refused (asserted today) |
 | Ordinary user tries to replace or delete it | Refused (asserted today) |
 | Unauthorised retrieval | Zero rows, asserted from rows |
+| Approval attempted on a pre-freeze bundle | Refused — the control is not offered, and `finalize_prescription` would raise `REVIEW_STALE` anyway |
+| Freeze runs twice for one prescription | One object, one identity, one digest |
 
 The standard: **no incorrect prescription, no duplicate finalisation, no mutable
 historical asset, and safe retry.**
@@ -149,3 +193,12 @@ historical asset, and safe retry.**
 
 It holds the prescription id, the selected template id, the expected version,
 the canonical bundle and its digest. Nothing else.
+
+## What "Stage 7C-2A" is called, and why it matters
+
+The user-facing action is **"Prepare prescription for final review"**, never
+"Finalize". A doctor pressing it has not approved anything and nothing becomes
+immutable; they have asked the system to fix the signature so that there is
+something complete to read. Naming it as finalisation would make the irreversible
+step feel like it had already happened one screen early — which is the same class
+of mistake as approving a bundle before the signature is in it.

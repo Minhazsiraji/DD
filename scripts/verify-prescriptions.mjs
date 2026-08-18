@@ -910,6 +910,80 @@ try {
                     where id = ${sigObj.id}`,
       );
 
+      /**
+       * The clinical date is IN the bundle, so time cannot move underneath a
+       * digest. Before this, the printed age came from whatever clock rendered
+       * the page: the same digest could show two different ages, and a
+       * prescription reprinted a year later aged the patient by a year.
+       */
+      let bundleNow;
+      await as(tx, uidA, async () => {
+        const [r] = await tx`
+          select public.prescription_review_bundle(${rx}, ${hospital.id}, ${globalTpl.id}) as r`;
+        bundleNow = r.r.bundle;
+      });
+      check(
+        typeof bundleNow.clinicalDate === "string" && /^\d{4}-\d{2}-\d{2}$/.test(bundleNow.clinicalDate),
+        "the bundle carries the prescription's own clinical date",
+        String(bundleNow.clinicalDate),
+      );
+      check(bundleNow.schemaVersion === 2, "…under schema version 2", String(bundleNow.schemaVersion));
+
+      const [encDay] = await asOwner(tx, () => tx`
+        select public.session_date_for(${hospital.id}, e.started_at)::text as d
+        from public.encounters e where e.id = ${encA.id}`);
+      check(
+        bundleNow.clinicalDate === encDay.d,
+        "…taken from the encounter, through the LOCATION's timezone",
+        `${bundleNow.clinicalDate} vs ${encDay.d}`,
+      );
+
+      // And it is load-bearing: move the consultation, the digest moves.
+      await movesOn(
+        "moving the consultation's date changes the digest",
+        (t) => t`select started_at::text as v from public.encounters where id = ${encA.id}`,
+        (t, v) => t`update public.encounters
+                    set started_at = coalesce(${v}::timestamptz, now() - interval '400 days')
+                    where id = ${encA.id}`,
+      );
+
+      /**
+       * A printable switch with no printable content behind it.
+       *
+       * `showClinicLogo` has no trusted asset anywhere in the bundle, so
+       * nothing can attest what would be drawn. Rendering nothing would
+       * silently drop something the template says prints, so BOTH review and
+       * finalisation refuse — and finalisation refuses because it rebuilds this
+       * same bundle, which is why the check lives here and not in the UI.
+       */
+      await asOwner(tx, () => tx`
+        update public.prescription_templates set show_clinic_logo = true
+        where id = ${globalTpl.id}`);
+      await as(tx, uidA, async () => {
+        check(
+          await expectDenied(tx, (t) => t`
+            select public.prescription_review_bundle(${rx}, ${hospital.id}, ${globalTpl.id})`),
+          "a clinic-logo template cannot be reviewed while no logo asset exists",
+        );
+
+        const vNow = await version(rx);
+        check(
+          await expectDenied(tx, (t) => t`
+            select public.finalize_prescription(${rx}, ${hospital.id},
+              ${vNow}, ${globalTpl.id}, ${"x".repeat(64)})`),
+          "…and cannot be finalised either",
+        );
+      });
+      await asOwner(tx, () => tx`
+        update public.prescription_templates set show_clinic_logo = false
+        where id = ${globalTpl.id}`);
+
+      let afterLogo;
+      await as(tx, uidA, async () => {
+        afterLogo = await digestNow();
+      });
+      check(afterLogo === baseline, "…and turning it back off restores the digest");
+
       // A template the doctor may not use cannot even be reviewed with.
       await as(tx, uidB, async () => {
         check(

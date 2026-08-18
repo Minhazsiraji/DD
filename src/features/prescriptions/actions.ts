@@ -336,6 +336,8 @@ export async function refreshReviewAction(input: {
   if (outcome.ok) return { ok: true, review: outcome.review };
 
   switch (outcome.reason) {
+    case "logo-unsupported":
+      return { ok: false, message: translateRxError("TEMPLATE_LOGO_UNSUPPORTED").message };
     case "template-unavailable":
       return { ok: false, message: "That layout is not available for this prescription." };
     case "not-found":

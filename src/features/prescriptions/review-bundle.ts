@@ -22,8 +22,8 @@ import { z } from "zod";
  * doctor would approve a digest covering content their screen never showed.
  * Fail closed, always.
  */
-export const SUPPORTED_BUNDLE_SCHEMA_VERSIONS = [1] as const;
-export const CURRENT_BUNDLE_SCHEMA_VERSION = 1;
+export const SUPPORTED_BUNDLE_SCHEMA_VERSIONS = [2] as const;
+export const CURRENT_BUNDLE_SCHEMA_VERSION = 2;
 
 /** Kept lenient about NULLs, strict about presence: the DB emits explicit nulls. */
 const nullableText = z.string().nullable();
@@ -114,6 +114,15 @@ export const reviewBundleSchema = z.object({
   schemaVersion: z.number().int(),
   prescriptionId: z.uuid(),
   encounterId: z.uuid(),
+  /**
+   * The prescription's own date — the clinic day the patient was seen, in the
+   * LOCATION's timezone.
+   *
+   * Every printable value that depends on time is computed from this and
+   * nothing else. Required, not optional: a bundle without it cannot render an
+   * age that the digest covers, and a bundle we cannot render is one we refuse.
+   */
+  clinicalDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "not a clinic date"),
   doctor: bundleDoctorSchema,
   location: bundleLocationSchema,
   patient: bundlePatientSchema,
@@ -158,10 +167,12 @@ export type ReviewParse =
 export function parseReview(raw: unknown): ReviewParse {
   const version = (raw as { bundle?: { schemaVersion?: unknown } })?.bundle?.schemaVersion;
 
-  if (typeof version === "number") {
-    if (!SUPPORTED_BUNDLE_SCHEMA_VERSIONS.includes(version as 1)) {
-      return { ok: false, reason: "unsupported-schema", found: version };
-    }
+  // Widened deliberately: a cast to the current literal version would have to
+  // be edited every time a version is added, and forgetting is silent.
+  const supported: readonly number[] = SUPPORTED_BUNDLE_SCHEMA_VERSIONS;
+
+  if (typeof version === "number" && !supported.includes(version)) {
+    return { ok: false, reason: "unsupported-schema", found: version };
   }
 
   const parsed = reviewEnvelopeSchema.safeParse(raw);

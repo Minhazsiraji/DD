@@ -33,9 +33,12 @@ function envelope(over: Record<string, unknown> = {}): unknown {
   };
 
   const bundle: Record<string, unknown> = {
-    schemaVersion: 1,
+    schemaVersion: 2,
       prescriptionId: "11111111-1111-4111-8111-111111111111",
       encounterId: "22222222-2222-4222-8222-222222222222",
+      // The clinic day the patient was seen. Every printable value that
+      // depends on time is computed from this, and the digest covers it.
+      clinicalDate: "2026-08-18",
       doctor: {
         fullName: "Dr Rahima Khatun",
         qualification: "MBBS, FCPS (Medicine)",
@@ -122,12 +125,23 @@ describe("parseReview", () => {
   });
 
   it("fails closed on a schema version from a newer build", () => {
-    const parsed = parseReview(envelope({ bundle: { schemaVersion: 2 } }));
+    const parsed = parseReview(envelope({ bundle: { schemaVersion: 3 } }));
     expect(parsed.ok).toBe(false);
     if (!parsed.ok) {
       expect(parsed.reason).toBe("unsupported-schema");
-      if (parsed.reason === "unsupported-schema") expect(parsed.found).toBe(2);
+      if (parsed.reason === "unsupported-schema") expect(parsed.found).toBe(3);
     }
+  });
+
+  /**
+   * And an OLDER one too. A v1 bundle carried no `clinicalDate`, so its printed
+   * age came from whatever clock rendered it — exactly the defect this version
+   * exists to close. Rendering one with today's rules would reintroduce it.
+   */
+  it("fails closed on a schema version from an older build", () => {
+    const parsed = parseReview(envelope({ bundle: { schemaVersion: 1 } }));
+    expect(parsed.ok).toBe(false);
+    if (!parsed.ok) expect(parsed.reason).toBe("unsupported-schema");
   });
 
   it("reports an unknown schema as such, not as a pile of field errors", () => {
@@ -169,8 +183,18 @@ describe("the client never rewrites the bundle", () => {
     const parsed = parseReview(envelope());
     if (!parsed.ok) throw new Error("unreachable");
     const before = JSON.stringify(parsed.review.bundle);
-    toReviewView(parsed.review.bundle, "2026-08-18");
+    toReviewView(parsed.review.bundle);
     expect(JSON.stringify(parsed.review.bundle)).toBe(before);
+  });
+
+  it("rejects a bundle with no clinical date", () => {
+    // Without it there is no date the digest covers, and the age would have to
+    // come from a clock again.
+    const { clinicalDate, ...rest } = (
+      envelope() as { bundle: Record<string, unknown> }
+    ).bundle;
+    void clinicalDate;
+    expect(parseReview({ ...(envelope() as object), bundle: rest }).ok).toBe(false);
   });
 });
 
@@ -178,7 +202,7 @@ describe("toReviewView", () => {
   function view(over: Record<string, unknown> = {}) {
     const parsed = parseReview(envelope(over));
     if (!parsed.ok) throw new Error("fixture did not parse");
-    return toReviewView(parsed.review.bundle, "2026-08-18");
+    return toReviewView(parsed.review.bundle);
   }
 
   it("uses the template's paper size, never a hardcoded A4", () => {
@@ -241,17 +265,62 @@ describe("toReviewView", () => {
     expect(frozen.signature).toEqual({ kind: "frozen", path: "uid/rx/signature" });
   });
 
-  it("ages the patient from the bundle, not from the clock", () => {
-    // Recorded as 38 in 2026-01; still 38 in 2026-08 of the same year. The
-    // "~" is the app's mark for an age that was stated rather than dated.
-    expect(view().patient.ageSex).toBe("~38y · F");
+  it("prints the clinical date from the bundle", () => {
+    expect(view().clinicalDate).toBe("2026-08-18");
   });
 
-  it("ages forward when the recorded year has passed", () => {
-    expect(view().patient.ageSex).toBe("~38y · F");
+  /**
+   * The defect this schema version exists to close.
+   *
+   * The age used to be computed from a `todayISO` the caller read off a clock,
+   * so the SAME bundle and the SAME digest rendered a different age on a
+   * different day — and a prescription reprinted a year later aged the patient
+   * by a year. The digest has to cover everything that prints, or it is not an
+   * approval of what prints.
+   */
+  it("renders an identical age no matter when it is rendered", () => {
     const parsed = parseReview(envelope());
     if (!parsed.ok) throw new Error("unreachable");
-    expect(toReviewView(parsed.review.bundle, "2029-08-18").patient.ageSex).toBe("~41y · F");
+
+    // The only clock a renderer could reach, moved four years.
+    const realNow = Date.now;
+    try {
+      const first = toReviewView(parsed.review.bundle).patient.ageSex;
+      Date.now = () => new Date("2030-12-31T00:00:00Z").getTime();
+      const later = toReviewView(parsed.review.bundle).patient.ageSex;
+      expect(later).toBe(first);
+      expect(later).toBe("~38y · F");
+    } finally {
+      Date.now = realNow;
+    }
+  });
+
+  it("ages the patient only when the CLINICAL date moves", () => {
+    // Recorded as 38 in 2026-01, so still 38 on the 2026-08 clinic day…
+    expect(view().patient.ageSex).toBe("~38y · F");
+    // …and 41 on a prescription written three years later.
+    expect(view({ bundle: { clinicalDate: "2029-08-18" } }).patient.ageSex).toBe("~41y · F");
+  });
+
+  it("keeps an exact date of birth stable too", () => {
+    const dated = {
+      bundle: {
+        patient: {
+          fullName: "Karim Uddin",
+          patientNumber: "AR-000002",
+          sex: "MALE",
+          dob: "1984-03-02",
+          dobPrecision: "DAY",
+          approxAgeYears: null,
+          ageRecordedOn: null,
+        },
+      },
+    };
+    // No "~": the date of birth is known to the day.
+    expect(view(dated).patient.ageSex).toBe("42y · M");
+    expect(view({ bundle: { ...dated.bundle, clinicalDate: "2027-01-01" } }).patient.ageSex).toBe(
+      "42y · M",
+    );
   });
 });
 

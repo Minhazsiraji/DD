@@ -134,6 +134,8 @@ declare
   v_items    jsonb;
   v_sig      jsonb;
   v_sig_path text;
+  v_enc      public.encounters%rowtype;
+  v_date     date;
   v_bundle   jsonb;
 begin
   select * into v_rx from public.prescriptions where id = p_prescription_id;
@@ -150,6 +152,43 @@ begin
 
   v_template := public.resolve_prescription_template(
     v_rx.owner_doctor_id, v_rx.practice_location_id, p_template_id);
+
+  /**
+   * A printable feature must carry its printable CONTENT, or it cannot print.
+   *
+   * `showClinicLogo` is a real template switch with no asset behind it: there
+   * is no trusted logo identity in this bundle, so nothing can attest what
+   * would be drawn. Rendering nothing would be a silent lie; rendering the
+   * location's current logo — if one ever existed — would put an unattested
+   * image on an approved prescription and let it change afterwards.
+   *
+   * So it fails closed here, where BOTH review and finalisation pass. When
+   * logos are built they must be frozen exactly like signatures, with their
+   * identity inside this bundle and therefore inside the digest.
+   */
+  if (v_template ->> 'showClinicLogo')::boolean then
+    raise exception 'TEMPLATE_LOGO_UNSUPPORTED' using errcode = '22023';
+  end if;
+
+  /**
+   * The prescription's own date, and the only date anything printable may use.
+   *
+   * Taken from the ENCOUNTER's start — the day the patient was actually seen —
+   * converted through the LOCATION's timezone, the same rule appointments use
+   * for `session_date`. `timestamptz::date` in the session's zone would file a
+   * late-evening Dhaka consultation under the previous day.
+   *
+   * Deliberately NOT `finalized_at`: that is written BY finalisation, so a
+   * bundle containing it would hash differently before and after approval and
+   * every finalisation would refuse itself with REVIEW_STALE.
+   *
+   * Everything printable that depends on time — the patient's age above all —
+   * is computed from this value, so it is inside the digest and inside the
+   * finalised snapshot. A prescription printed a year later shows the age the
+   * patient was on the day it was written.
+   */
+  select * into v_enc from public.encounters where id = v_rx.encounter_id;
+  v_date := public.session_date_for(v_rx.practice_location_id, v_enc.started_at);
 
   select coalesce(jsonb_agg(to_jsonb(i) order by i.position), '[]'::jsonb) into v_items
   from (
@@ -176,9 +215,12 @@ begin
   end if;
 
   v_bundle := jsonb_build_object(
-    'schemaVersion', 1,
+    -- 2: adds `clinicalDate`. A v1 bundle computed the printed age from the
+    -- reader's clock, so the same digest could render two different ages.
+    'schemaVersion', 2,
     'prescriptionId', v_rx.id,
     'encounterId', v_rx.encounter_id,
+    'clinicalDate', v_date,
     'doctor', jsonb_build_object(
       'fullName', v_user.full_name, 'qualification', v_doc.qualification,
       'specialization', v_doc.specialization, 'designation', v_doc.designation,

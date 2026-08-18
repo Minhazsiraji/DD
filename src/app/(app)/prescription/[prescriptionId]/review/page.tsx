@@ -1,8 +1,9 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ArrowLeft, CloudOff, FileWarning, Lock } from "lucide-react";
+import { ArrowLeft, CloudOff, FileWarning, ImageOff, Lock } from "lucide-react";
 import { requireLocationContext } from "@/lib/auth/session";
+import { translateRxError } from "@/features/prescriptions/errors";
 import { getPrescription, getReviewBundle, getSelectableTemplates } from "@/features/prescriptions/queries";
 import { ReviewScreen } from "@/features/prescriptions/components/review-screen";
 
@@ -38,6 +39,23 @@ export default async function ReviewPage({
         icon={<Lock className="mx-auto size-8 text-ink-muted" aria-hidden="true" />}
         title="This prescription cannot be shown safely"
         body="It was prepared by a newer version of Doctor's Diary. Update the app before reviewing it — showing it here could leave something out."
+      />
+    );
+  }
+
+  /**
+   * The layout asks for a clinic logo, and no trusted logo identity exists in
+   * the bundle to attest what would be drawn. Refusing is the point: rendering
+   * nothing would silently drop something the template says prints.
+   */
+  if (!outcome.ok && outcome.reason === "logo-unsupported") {
+    return (
+      <Refusal
+        icon={<ImageOff className="mx-auto size-8 text-ink-muted" aria-hidden="true" />}
+        title="This layout cannot be reviewed yet"
+        body={translateRxError("TEMPLATE_LOGO_UNSUPPORTED").message}
+        href="/settings/prescription"
+        cta="Open prescription layout settings"
       />
     );
   }
@@ -83,10 +101,6 @@ export default async function ReviewPage({
       initialReview={outcome.review}
       templates={templates}
       initialTemplateId={null}
-      // Passed in so the age on the sheet is identical on the server and in the
-      // browser. `new Date()` during render is a hydration mismatch, and here it
-      // would be a hydration mismatch about a patient's age.
-      todayISO={new Date().toISOString().slice(0, 10)}
     />
   );
 }
@@ -95,10 +109,15 @@ function Refusal({
   icon,
   title,
   body,
+  href = "/queue",
+  cta = "Back to the queue",
 }: {
   icon: React.ReactNode;
   title: string;
   body: string;
+  /** Where the doctor can actually fix it, when there is such a place. */
+  href?: string;
+  cta?: string;
 }) {
   return (
     <div className="mx-auto max-w-md py-16 text-center">
@@ -106,11 +125,11 @@ function Refusal({
       <h1 className="mt-3 text-lg font-semibold text-ink">{title}</h1>
       <p className="mt-2 text-[13px] text-ink-secondary">{body}</p>
       <Link
-        href="/queue"
+        href={href}
         className="mt-5 inline-flex h-11 items-center justify-center gap-1.5 rounded-xl border border-hairline bg-white px-4 text-[13px] font-semibold text-ink hover:bg-surface-muted focus-visible:focus-ring"
       >
         <ArrowLeft className="size-4" aria-hidden="true" />
-        Back to the queue
+        {cta}
       </Link>
     </div>
   );
