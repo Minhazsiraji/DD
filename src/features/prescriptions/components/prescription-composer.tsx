@@ -1,8 +1,10 @@
 "use client";
 
 import * as React from "react";
+import Link from "next/link";
 import {
-  Check, CircleAlert, CloudAlert, Info, Loader2, Lock, Pill, Plus, RefreshCw, TriangleAlert,
+  Check, CircleAlert, CloudAlert, FileText, Info, Loader2, Lock, Pill, Plus, RefreshCw,
+  TriangleAlert,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { SectionCard, SectionHeader } from "@/components/common/section-card";
@@ -204,11 +206,26 @@ export function PrescriptionComposer({
           {status.icon}
           <span className="min-w-0">{status.text}</span>
         </p>
-        <p className="text-[12px] text-ink-muted">
-          {readOnly
-            ? "Approved — part of the patient's permanent record."
-            : "Draft — approval and printing come later."}
-        </p>
+        {/*
+          A LINK, so the unsaved guard sees it — an unfinished medicine must not
+          be lost by stepping over to the review. And a link to a read-only
+          screen, not a save: nothing here approves anything.
+        */}
+        {readOnly || rx.items.length === 0 ? (
+          <p className="text-[12px] text-ink-muted">
+            {readOnly
+              ? "Approved — part of the patient's permanent record."
+              : "Draft — add a medicine, then review it."}
+          </p>
+        ) : (
+          <Link
+            href={`/prescription/${prescription.id}/review`}
+            className="inline-flex h-11 items-center justify-center gap-1.5 rounded-xl border border-hairline bg-white px-4 text-[13px] font-semibold text-ink transition-colors hover:bg-surface-muted focus-visible:focus-ring"
+          >
+            <FileText className="size-4" aria-hidden="true" />
+            Review prescription
+          </Link>
+        )}
       </div>
     </div>
   );

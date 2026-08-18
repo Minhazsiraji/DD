@@ -1,6 +1,7 @@
 import "server-only";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getPatient, type PatientDetail } from "@/features/patients/queries";
+import { parseReview, type ReviewEnvelope } from "./review-bundle";
 import { emptyMedicine, type MedicineRow, type Suggestion } from "./schema";
 
 /**
@@ -81,6 +82,91 @@ export async function getPrescription(
       practiceLocationId: activeLocationId,
     },
   };
+}
+
+/**
+ * The canonical review bundle.
+ *
+ * The ONLY source the review screen may render from. It is built entirely from
+ * authoritative rows inside `prescription_review_bundle` — the caller supplies
+ * a template id at most, and even that is checked for ownership and location
+ * scope inside the resolver. Nothing here reassembles a prescription from
+ * today's doctor, patient, location or template rows: the doctor must read
+ * exactly the content whose digest they will later approve.
+ */
+export type ReviewOutcome =
+  | { ok: true; review: ReviewEnvelope }
+  | { ok: false; reason: "not-found" }
+  | { ok: false; reason: "template-unavailable" }
+  /** A bundle shape this build does not know. Refused, never guessed at. */
+  | { ok: false; reason: "unsupported-schema"; found: number }
+  | { ok: false; reason: "unavailable" };
+
+export async function getReviewBundle(
+  prescriptionId: string,
+  activeLocationId: string,
+  templateId: string | null,
+): Promise<ReviewOutcome> {
+  const supabase = await createSupabaseServerClient();
+
+  const { data, error } = await supabase.rpc("prescription_review_bundle", {
+    p_prescription_id: prescriptionId,
+    p_practice_location_id: activeLocationId,
+    p_template_id: templateId,
+  });
+
+  if (error) {
+    if (/TEMPLATE_NOT_AVAILABLE/i.test(error.message)) {
+      return { ok: false, reason: "template-unavailable" };
+    }
+    // Missing, not yours and elsewhere answer identically, on purpose.
+    if (/prescription not found/i.test(error.message)) return { ok: false, reason: "not-found" };
+    console.error("[prescriptions] review bundle failed", prescriptionId, error.message);
+    return { ok: false, reason: "unavailable" };
+  }
+  if (!data) return { ok: false, reason: "not-found" };
+
+  const parsed = parseReview(data);
+  if (!parsed.ok) {
+    if (parsed.reason === "unsupported-schema") {
+      console.error("[prescriptions] unsupported bundle schema", parsed.found);
+      return { ok: false, reason: "unsupported-schema", found: parsed.found };
+    }
+    console.error("[prescriptions] review bundle did not match the expected shape");
+    return { ok: false, reason: "unavailable" };
+  }
+
+  return { ok: true, review: parsed.review };
+}
+
+/**
+ * The layouts this doctor may choose for this prescription.
+ *
+ * Presentation only. `resolve_prescription_template` re-checks ownership and
+ * location scope on every bundle build and again inside finalisation, so a
+ * template that should not appear here still cannot be used if it does.
+ */
+export async function getSelectableTemplates(activeLocationId: string) {
+  const supabase = await createSupabaseServerClient();
+
+  const { data, error } = await supabase
+    .from("prescription_templates")
+    .select("id, name, practice_location_id, is_default, paper_size")
+    .or(`practice_location_id.is.null,practice_location_id.eq.${activeLocationId}`)
+    .order("name");
+
+  if (error) {
+    console.error("[prescriptions] template list failed", error.message);
+    return [];
+  }
+
+  return (data ?? []).map((t) => ({
+    id: t.id as string,
+    name: t.name as string,
+    scope: (t.practice_location_id === null ? "global" : "location") as "global" | "location",
+    isDefault: Boolean(t.is_default),
+    paperSize: t.paper_size as "A4" | "A5",
+  }));
 }
 
 /**

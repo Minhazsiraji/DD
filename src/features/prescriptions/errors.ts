@@ -8,7 +8,7 @@
 export const GENERIC_RX_ERROR =
   "That could not be saved. Nothing has been lost — try again in a moment.";
 
-export type RxFailureKind = "conflict" | "desync-unconfirmed" | "error";
+export type RxFailureKind = "conflict" | "desync-unconfirmed" | "review-stale" | "error";
 
 export interface TranslatedRxError {
   kind: RxFailureKind;
@@ -30,6 +30,21 @@ export function translateRxError(message: string): TranslatedRxError {
       kind: "conflict",
       message:
         "This prescription changed somewhere else, so your change was NOT saved. Nothing was overwritten and what you typed is still here.",
+      unexpected: false,
+    };
+  }
+
+  /**
+   * The reviewed content moved between review and approval, so finalisation
+   * refused and wrote NOTHING. Never merged with a draft version conflict: the
+   * doctor has lost no typing, but they have lost the thing they were about to
+   * sign, and the only safe fix is to look at it again.
+   */
+  if (m.includes("REVIEW_STALE")) {
+    return {
+      kind: "review-stale",
+      message:
+        "This prescription changed since you reviewed it, so nothing was approved. Read the updated prescription before approving it.",
       unexpected: false,
     };
   }

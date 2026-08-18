@@ -24,6 +24,8 @@ export type RxOutcomeKind =
   | "conflict-unloadable"
   | "write-confirmed-advanced"
   | "unconfirmed"
+  /** The reviewed content moved before approval. Nothing was finalised. */
+  | "review-stale"
   | "error";
 
 export interface RecoveryPolicy {
@@ -37,6 +39,15 @@ export interface RecoveryPolicy {
   blocks: boolean;
   /** Fresh rows came with the outcome and may be shown. */
   adoptsState: boolean;
+  /**
+   * Reloading is not enough — the doctor must LOOK at the content again.
+   *
+   * Only `review-stale` sets this. Every other outcome is settled by fetching
+   * current state; this one means what they already read has changed, and a
+   * silent refresh under an approval button would let them approve content
+   * they never saw.
+   */
+  requiresFreshReview: boolean;
 }
 
 /**
@@ -56,6 +67,7 @@ export function recoveryPolicy(kind: RxOutcomeKind): RecoveryPolicy {
         clearsPendingRemoval: true,
         blocks: false,
         adoptsState: true,
+        requiresFreshReview: false,
       };
 
     /** Refused, and we can show what the record now holds. */
@@ -66,6 +78,7 @@ export function recoveryPolicy(kind: RxOutcomeKind): RecoveryPolicy {
         clearsPendingRemoval: false,
         blocks: true,
         adoptsState: true,
+        requiresFreshReview: false,
       };
 
     /**
@@ -79,6 +92,7 @@ export function recoveryPolicy(kind: RxOutcomeKind): RecoveryPolicy {
         clearsPendingRemoval: false,
         blocks: true,
         adoptsState: false,
+        requiresFreshReview: false,
       };
 
     /**
@@ -93,6 +107,24 @@ export function recoveryPolicy(kind: RxOutcomeKind): RecoveryPolicy {
         clearsPendingRemoval: true,
         blocks: true,
         adoptsState: true,
+        requiresFreshReview: false,
+      };
+
+    /**
+     * The prescription was NOT finalised, and we know it — `finalize_prescription`
+     * rebuilt the bundle, found a different digest and aborted before writing
+     * anything. Distinct from a draft CAS conflict: nothing the doctor typed is
+     * at stake, but what they READ is now out of date, so the fix is not "try
+     * again" but "look at it again". Blocks until a fresh bundle is reviewed.
+     */
+    case "review-stale":
+      return {
+        committed: "no",
+        closesEditor: false,
+        clearsPendingRemoval: false,
+        blocks: true,
+        adoptsState: false,
+        requiresFreshReview: true,
       };
 
     /** It may be on the record. Treated like "yes" for everything that matters. */
@@ -103,6 +135,7 @@ export function recoveryPolicy(kind: RxOutcomeKind): RecoveryPolicy {
         clearsPendingRemoval: true,
         blocks: true,
         adoptsState: false,
+        requiresFreshReview: false,
       };
 
     /** An ordinary refusal the doctor can act on. Nothing to recover from. */
@@ -113,6 +146,7 @@ export function recoveryPolicy(kind: RxOutcomeKind): RecoveryPolicy {
         clearsPendingRemoval: false,
         blocks: false,
         adoptsState: false,
+        requiresFreshReview: false,
       };
   }
 }

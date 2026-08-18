@@ -5,7 +5,7 @@ import { z } from "zod";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { requireLocationContext } from "@/lib/auth/session";
 import { acceptVersion } from "@/features/encounters/version-contract";
-import { getMedicineSuggestions, getPrescription } from "./queries";
+import { getMedicineSuggestions, getPrescription, getReviewBundle } from "./queries";
 import {
   RX_ADVANCED_MESSAGE,
   RX_CONFLICT_UNLOADABLE_MESSAGE,
@@ -304,6 +304,53 @@ export async function refreshPrescriptionAction(
   const current = await reread(prescriptionId, ctx.locationId);
   if (!current) return { ok: false };
   return { ok: true, version: current.version, items: current.items };
+}
+
+/**
+ * Rebuild the canonical review bundle, usually because the layout changed.
+ *
+ * Returns the SERVER's bundle verbatim. The client never assembles one, never
+ * edits one, and never sends one back — Stage 7A dropped the overload that
+ * accepted browser-supplied snapshot JSON, and nothing in 7C may reintroduce
+ * the shape of that mistake.
+ *
+ * Note what this does NOT do: it cannot finalise. Stage 7C-1 has no path to
+ * `finalize_prescription` from anywhere in the application.
+ */
+export async function refreshReviewAction(input: {
+  prescriptionId: string;
+  templateId: string | null;
+}): Promise<{ ok: true; review: unknown } | { ok: false; message: string }> {
+  const parsed = z
+    .object({ prescriptionId: z.uuid(), templateId: z.uuid().nullable() })
+    .safeParse(input);
+  if (!parsed.success) return { ok: false, message: "That prescription could not be reviewed." };
+
+  const ctx = await requireLocationContext();
+  const outcome = await getReviewBundle(
+    parsed.data.prescriptionId,
+    ctx.locationId,
+    parsed.data.templateId,
+  );
+
+  if (outcome.ok) return { ok: true, review: outcome.review };
+
+  switch (outcome.reason) {
+    case "template-unavailable":
+      return { ok: false, message: "That layout is not available for this prescription." };
+    case "not-found":
+      return {
+        ok: false,
+        message: "This prescription is no longer available at your current location.",
+      };
+    case "unsupported-schema":
+      return {
+        ok: false,
+        message: "This prescription needs a newer version of the app to display safely.",
+      };
+    default:
+      return { ok: false, message: "The prescription could not be loaded. Try again in a moment." };
+  }
 }
 
 export async function medicineSuggestionsAction(query: string): Promise<Suggestion[]> {

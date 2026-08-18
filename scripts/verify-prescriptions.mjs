@@ -721,6 +721,219 @@ try {
       );
     });
 
+    /**
+     * ---- Stage 7C-1: the digest must move when anything PRINTABLE moves ----
+     *
+     * The doctor approves a digest, not a screenshot. So every input that ends
+     * up on the paper has to be inside it — otherwise something could change
+     * between review and approval, the digest would still match, and the
+     * prescription would be finalised carrying content nobody read.
+     *
+     * Each change is made as the table OWNER and then UNDONE, so the checks are
+     * independent and the fixture is left exactly as finalisation expects it.
+     */
+    console.log("\nThe review digest covers every printable input");
+    {
+      const digestNow = async () => {
+        const [r] = await tx`
+          select public.prescription_review_bundle(${rx}, ${hospital.id}, ${globalTpl.id}) as r`;
+        return r.r.digest;
+      };
+
+      let baseline;
+      await as(tx, uidA, async () => {
+        baseline = await digestNow();
+        check(baseline === (await digestNow()), "the same content hashes the same twice");
+      });
+
+      /**
+       * Change one field, re-hash, put back exactly what was there.
+       *
+       * The original is READ rather than assumed. Writing a guessed "original"
+       * back leaves the fixture subtly different, every later comparison then
+       * fails against a baseline that no longer exists, and — because
+       * finalisation a few lines below reuses the digest computed before this
+       * block — the whole run dies with a REVIEW_STALE that has nothing to do
+       * with the code under test. Learned the hard way, just now.
+       */
+      const movesOn = async (label, get, set) => {
+        const [{ v: original }] = await asOwner(tx, () => get(tx));
+        await asOwner(tx, () => set(tx, `QA-CHANGED-${label.length}`));
+
+        let after;
+        await as(tx, uidA, async () => {
+          after = await digestNow();
+        });
+
+        await asOwner(tx, () => set(tx, original));
+        let restored;
+        await as(tx, uidA, async () => {
+          restored = await digestNow();
+        });
+
+        check(after !== baseline, label, after === baseline ? "digest did NOT move" : "");
+        check(restored === baseline, "…and putting it back restores it exactly");
+      };
+
+      /** For changes that are not a single field, e.g. swapping two positions. */
+      const moves = async (label, change, undo) => {
+        await asOwner(tx, () => change(tx));
+        let after;
+        await as(tx, uidA, async () => {
+          after = await digestNow();
+        });
+        await asOwner(tx, () => undo(tx));
+
+        let restored;
+        await as(tx, uidA, async () => {
+          restored = await digestNow();
+        });
+        check(after !== baseline, label, after === baseline ? "digest did NOT move" : "");
+        check(restored === baseline, "…and putting it back restores it exactly");
+      };
+
+      const firstItem = await asOwner(tx, () => tx`
+        select id, position, display_name from public.prescription_items
+        where prescription_id = ${rx} order by position limit 1`);
+
+      await movesOn(
+        "editing a medicine changes the digest",
+        (t) => t`select dose_text as v from public.prescription_items where id = ${firstItem[0].id}`,
+        (t, v) => t`update public.prescription_items set dose_text = ${v}
+                    where id = ${firstItem[0].id}`,
+      );
+
+      /**
+       * Reordering changes NOTHING about the medicines themselves — same names,
+       * same doses, same everything. If `position` were left out of the bundle
+       * the digest would be identical, and a reordered prescription would
+       * finalise under an approval given for a different order. On a
+       * prescription, order is instruction.
+       *
+       * This needs two medicines and the fixture is down to one by now, so a
+       * second is added and removed AS OWNER: a direct insert does not touch
+       * `prescriptions.version`, leaving the row exactly as finalisation below
+       * expects it.
+       */
+      const [temp] = await asOwner(tx, () => tx`
+        insert into public.prescription_items (prescription_id, position, display_name)
+        values (${rx}, 2, 'Cap. Second Medicine')
+        returning id`);
+
+      let twoItemBaseline;
+      await as(tx, uidA, async () => {
+        twoItemBaseline = await digestNow();
+      });
+      check(twoItemBaseline !== baseline, "adding a medicine changes the digest");
+
+      await asOwner(tx, () => tx`
+        update public.prescription_items set position = case id
+          when ${firstItem[0].id} then 2 else 1 end
+        where prescription_id = ${rx}`);
+      let reordered;
+      await as(tx, uidA, async () => {
+        reordered = await digestNow();
+      });
+      check(
+        reordered !== twoItemBaseline,
+        "reordering medicines changes the digest",
+        reordered === twoItemBaseline ? "position is NOT in the bundle" : "",
+      );
+
+      await asOwner(tx, () => tx`delete from public.prescription_items where id = ${temp.id}`);
+      await asOwner(tx, () => tx`
+        update public.prescription_items set position = ${firstItem[0].position}
+        where id = ${firstItem[0].id}`);
+      let afterCleanup;
+      await as(tx, uidA, async () => {
+        afterCleanup = await digestNow();
+      });
+      check(afterCleanup === baseline, "…and removing it restores the original digest");
+
+      await movesOn(
+        "editing the template changes the digest",
+        (t) => t`select footer_text as v from public.prescription_templates
+                 where id = ${globalTpl.id}`,
+        (t, v) => t`update public.prescription_templates set footer_text = ${v}
+                    where id = ${globalTpl.id}`,
+      );
+
+      /**
+       * A5 is a supported layout, not a variant of A4. If paper size were
+       * outside the digest, a doctor could review on A4 and print on A5 —
+       * different line breaks, different pagination, same approval.
+       */
+      await moves(
+        "changing the paper size changes the digest",
+        (t) => t`update public.prescription_templates set paper_size = 'A5'
+                 where id = ${globalTpl.id}`,
+        (t) => t`update public.prescription_templates set paper_size = 'A4'
+                 where id = ${globalTpl.id}`,
+      );
+
+      await movesOn(
+        "editing the doctor's credentials changes the digest",
+        (t) => t`select bmdc_registration_no as v from public.doctor_profiles where id = ${docA.id}`,
+        (t, v) => t`update public.doctor_profiles set bmdc_registration_no = ${v}
+                    where id = ${docA.id}`,
+      );
+
+      await movesOn(
+        "renaming the doctor changes the digest",
+        (t) => t`select full_name as v from public.profiles where id = ${uidA}`,
+        (t, v) => t`update public.profiles set full_name = ${v} where id = ${uidA}`,
+      );
+
+      await movesOn(
+        "editing the patient's printable details changes the digest",
+        (t) => t`select full_name as v from public.patients where id = ${patA.id}`,
+        (t, v) => t`update public.patients set full_name = ${v} where id = ${patA.id}`,
+      );
+
+      await movesOn(
+        "editing the chamber's printable details changes the digest",
+        (t) => t`select address as v from public.practice_locations where id = ${hospital.id}`,
+        (t, v) => t`update public.practice_locations set address = ${v}
+                    where id = ${hospital.id}`,
+      );
+
+      /**
+       * The signature is attested by OBJECT IDENTITY, not by "a file exists at
+       * the path". Swapping the frozen object for a different one must be
+       * visible, or a substituted signature would finalise silently.
+       */
+      await movesOn(
+        "swapping the frozen signature object changes the digest",
+        (t) => t`select metadata ->> 'mimetype' as v from storage.objects where id = ${sigObj.id}`,
+        (t, v) => t`update storage.objects
+                    set metadata = jsonb_set(metadata, '{mimetype}', to_jsonb(${v}::text))
+                    where id = ${sigObj.id}`,
+      );
+
+      // A template the doctor may not use cannot even be reviewed with.
+      await as(tx, uidB, async () => {
+        check(
+          await expectDenied(tx, (t) => t`
+            select public.prescription_review_bundle(${rx}, ${hospital.id}, null)`),
+          "a colleague at the same hospital cannot review this prescription",
+        );
+      });
+      await as(tx, uidR, async () => {
+        check(
+          await expectDenied(tx, (t) => t`
+            select public.prescription_review_bundle(${rx}, ${hospital.id}, null)`),
+          "reception cannot review a draft prescription",
+        );
+      });
+      await as(tx, uidA, async () => {
+        check(
+          await expectDenied(tx, (t) => t`
+            select public.prescription_review_bundle(${rx}, ${chamber.id}, null)`),
+          "the owning doctor cannot review it from the wrong active location",
+        );
+      });
+    }
+
     // ---- 10 & 11. finalisation ---------------------------------------------
     console.log("\nFinalisation");
     await as(tx, uidA, async () => {
