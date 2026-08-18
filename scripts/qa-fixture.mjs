@@ -11,10 +11,14 @@
  * fires. Those need a signed-in browser, and hand-building one every time is
  * where the mistakes creep in.
  *
- * Accounts are created directly in auth.users because no service-role key is
- * configured (by the owner's explicit choice). GoTrue rejects a password login
- * when its token columns are NULL, so they are seeded to '' — that is a real
- * GoTrue requirement, not a workaround.
+ * Accounts are created directly in auth.users rather than through GoTrue.
+ * GoTrue rejects a password login when its token columns are NULL, so they are
+ * seeded to '' — that is a real GoTrue requirement, not a workaround.
+ *
+ * Storage objects are removed through the Storage API when
+ * SUPABASE_SERVICE_ROLE_KEY is available, and skipped with a note when it is
+ * not. They cannot be deleted with SQL: `storage.objects` is metadata, and
+ * dropping the row would leave the file orphaned in the bucket.
  *
  * Every address, name and number here is invented. `@qa.invalid` is reserved by
  * RFC 2606 and can never be a real mailbox.
@@ -39,6 +43,66 @@ const PEOPLE = {
 };
 
 const sql = postgres(url, { max: 1, prepare: false, onnotice: () => {} });
+
+/**
+ * Delete every QA storage object under these user ids, through the Storage API.
+ *
+ * Best-effort and loudly skipped without a service-role key, because the
+ * clinical bucket has no DELETE policy — that is the control, and a fixture
+ * script is not a reason to weaken it.
+ */
+async function removeQaStorage(userIds) {
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  const projectUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  // No early return on an empty user list: the orphan sweep below still has
+  // work to do when a previous destroy ran without a key.
+  if (!serviceKey || !projectUrl) return;
+
+  const { createClient } = await import("@supabase/supabase-js");
+  const storage = createClient(projectUrl, serviceKey, {
+    auth: { persistSession: false },
+  }).storage;
+
+  /**
+   * Also sweep orphans: top-level folders whose owning user no longer exists.
+   * An earlier destroy that ran without a service-role key left its files
+   * behind, and nothing else will ever come looking for them.
+   */
+  const live = await sql`select id::text as id from auth.users`;
+  const liveIds = new Set(live.map((r) => r.id));
+  const targets = new Set(userIds.map(String));
+
+  let removed = 0;
+  for (const bucket of ["doctor-assets", "prescription-assets"]) {
+    const { data: folders } = await storage.from(bucket).list("", { limit: 1000 });
+    for (const folder of folders ?? []) {
+      if (!folder.id && !liveIds.has(folder.name)) targets.add(folder.name);
+    }
+
+    for (const uid of targets) {
+      // Files sit at <uid>/… and, for frozen signatures, <uid>/<rx>/signature.
+      const { data: top } = await storage.from(bucket).list(uid, { limit: 1000 });
+      const paths = [];
+      for (const entry of top ?? []) {
+        if (entry.id) {
+          paths.push(`${uid}/${entry.name}`);
+          continue;
+        }
+        // A folder: one prescription's assets.
+        const { data: inner } = await storage.from(bucket).list(`${uid}/${entry.name}`, {
+          limit: 1000,
+        });
+        for (const file of inner ?? []) paths.push(`${uid}/${entry.name}/${file.name}`);
+      }
+      if (paths.length === 0) continue;
+      const { data } = await storage.from(bucket).remove(paths);
+      // Counted from the returned rows: a blocked delete removes nothing and
+      // raises nothing, so the absence of an error proves nothing.
+      removed += (data ?? []).length;
+    }
+  }
+  if (removed > 0) console.log(`removed ${removed} QA storage object(s)`);
+}
 const mode = process.argv[2] ?? "status";
 
 const [{ nspname: ext }] = await sql`
@@ -155,6 +219,20 @@ if (mode === "destroy") {
     }
   }
 
+  /**
+   * Storage objects, through the Storage API.
+   *
+   * They cannot go with SQL: `storage.objects` is metadata, and deleting the
+   * row would leave the file itself orphaned in the bucket. Removing the QA
+   * users first would also strand these under a uid nobody can look up, so the
+   * files go BEFORE the accounts they belong to.
+   *
+   * This is the one place allowed to delete from `prescription-assets`, and
+   * only ever for fixtures: the bucket has no DELETE policy precisely so that
+   * a finalised prescription's signature can never be removed by the app.
+   */
+  await removeQaStorage(rows.map((r) => r.id));
+
   for (const r of rows) {
     await sql`delete from public.practice_locations where created_by = ${r.id}`;
     await sql`delete from auth.users where id = ${r.id}`;
@@ -169,7 +247,7 @@ if (mode === "destroy") {
       (select count(*)::int from storage.objects where bucket_id = 'doctor-assets') as signatures`;
   console.log("remaining:", left);
   if (left.signatures > 0) {
-    console.log("NOTE: storage objects cannot be deleted with SQL — use the Storage API.");
+    console.log("NOTE: set SUPABASE_SERVICE_ROLE_KEY to clear leftover storage objects.");
   }
   await sql.end();
   process.exit(0);
