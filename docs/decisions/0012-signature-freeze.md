@@ -112,20 +112,46 @@ overwrite the first.
 
 **"The path exists, therefore the signature is trustworthy" is not good enough.**
 A partially-written or unexpected object must not become the immutable signature
-merely because the name matches. On finding an object already at the
-destination, trusted code must verify it is *the expected object* before
-treating the freeze as done:
+merely because the name matches.
 
-- the source object is read and its identity recorded (`storage.objects.id`,
-  `metadata.size`, `metadata.mimetype`, and `metadata.eTag` where Supabase
-  populates it — the eTag is the strongest content-derived value the existing
-  storage model exposes);
-- the destination is compared against those values;
-- a match means the freeze already succeeded — proceed;
-- **a mismatch is a hard refusal, never an overwrite.** It cannot be repaired
-  automatically, because the bucket is deliberately append-only. It is an
-  operational alert, and the doctor is told the prescription cannot be finalised
-  right now.
+### The integrity contract, as implemented
+
+Metadata is **not** the control. `metadata.eTag` is not a documented stable
+application contract in Supabase's storage schema, and for a medical signature
+the cost of not relying on it is negligible — these are a few kilobytes.
+Verification is over the **actual bytes**:
+
+```
+read source bytes (ONCE)      →  expected = sha256(bytes)
+upload to destination, upsert:false
+read destination bytes         →  found    = sha256(bytes)
+found === expected             →  frozen
+found !== expected             →  hard refusal + alert
+```
+
+- The source is read **once** and held for the whole attempt. That is what
+  closes the race below: the bytes hashed are the bytes written.
+- The read-back happens on **both** paths — after our own write, because "the
+  API returned success" is not "the right bytes are stored"; and after
+  `already exists`, because a path collision is precisely the case where
+  trusting the name would be worst.
+- **A mismatch is a hard refusal, never an overwrite.** It cannot be repaired,
+  because the bucket is append-only by design. It is an operational alert and
+  the doctor is told plainly.
+- A write that storage accepts but cannot read back is reported as
+  **unverifiable**, never as a failure — the same Stage 7B rule that keeps an
+  uncertain outcome from being retried into a duplicate.
+
+The computed hash may additionally be attached as custom object metadata for
+diagnostics. It must never *replace* the byte comparison.
+
+### File operations go through the Storage API
+
+Never `INSERT INTO storage.objects`. Supabase treats that schema as read-only
+metadata; a direct row insert produces an entry with no object behind it, which
+reads as success and prints as a broken image on a prescription. Verification
+scripts may *read* `storage.objects` — that is how RLS is asserted — and may
+write it to build a fixture, but application code never does.
 
 The review bundle already attests object identity (`objectId`, `path`, `size`,
 `mimetype`) rather than mere existence, and the digest covers it — the Stage

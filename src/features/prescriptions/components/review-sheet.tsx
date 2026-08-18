@@ -21,7 +21,16 @@ import type { ReviewView } from "../review-view";
  * This component reads no database row and holds no state — it is what Stage
  * 7C-3 will print, so it must stay a pure function of the reviewed content.
  */
-export function ReviewSheet({ view, className }: { view: ReviewView; className?: string }) {
+export function ReviewSheet({
+  view,
+  signatureUrl,
+  className,
+}: {
+  view: ReviewView;
+  /** Short-lived, never stored. Absent until the signature is frozen. */
+  signatureUrl?: string | null;
+  className?: string;
+}) {
   const paper = PAPER_MM[view.paperSize];
   const widthPt = (paper.w / 25.4) * 72;
 
@@ -172,11 +181,25 @@ export function ReviewSheet({ view, className }: { view: ReviewView; className?:
           <section className="flex justify-end" style={{ marginTop: mm(10) }}>
             <div className="text-center">
               {/*
-                7C-1 shows the signature BLOCK, never a signature image. The
-                frozen object does not exist until Stage 7C-2A freezes it, and
-                rendering the doctor's live profile signature here would show
-                them something the bundle does not attest.
+                The FROZEN image, or nothing.
+
+                `signatureUrl` is a short-lived URL for the object the bundle
+                attests — never the doctor's live profile signature, which the
+                digest says nothing about and which can change tomorrow. Before
+                the freeze there is deliberately no image: an empty rule is
+                honest about a prescription that is not signed yet.
               */}
+              {view.signature.kind === "frozen" && signatureUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={signatureUrl}
+                  alt="The signature fixed to this prescription"
+                  style={{ height: mm(16), marginBottom: mm(1) }}
+                  className="object-contain"
+                />
+              ) : (
+                <div style={{ height: mm(16) }} aria-hidden="true" />
+              )}
               <div
                 className="border-t border-ink/40"
                 style={{ width: mm(45), marginBottom: mm(1) }}

@@ -3,10 +3,12 @@
 import * as React from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, CircleAlert, FileWarning, Loader2, PenLine, RefreshCw } from "lucide-react";
+import {
+  ArrowLeft, CircleAlert, FileWarning, Loader2, PenLine, RefreshCw, ShieldCheck,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
 import { SectionCard, SectionHeader } from "@/components/common/section-card";
-import { refreshReviewAction } from "../actions";
+import { frozenSignatureUrlAction, prepareForReviewAction, refreshReviewAction } from "../actions";
 import { parseReview, type ReviewEnvelope } from "../review-bundle";
 import { toReviewView } from "../review-view";
 import { ReviewSheet } from "./review-sheet";
@@ -49,9 +51,74 @@ export function ReviewScreen({
   const [review, setReview] = React.useState(initialReview);
   const [templateId, setTemplateId] = React.useState(initialTemplateId);
   const [busy, setBusy] = React.useState(false);
+  const [preparing, setPreparing] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
+  const [signatureUrl, setSignatureUrl] = React.useState<string | null>(null);
 
   const view = React.useMemo(() => toReviewView(review.bundle), [review]);
+  const frozen = view.signature.kind === "frozen";
+
+  /**
+   * Ready means "nothing is outstanding before approval could be offered".
+   *
+   * Two ways to get there, and they are not the same statement: the signature
+   * is frozen, or the layout prints none and there was never anything to
+   * freeze. A layout that WANTS a signature the doctor does not have is neither
+   * — it is unresolved, and saying "ready" there would be the lie that matters.
+   */
+  const ready = frozen || view.signature.kind === "hidden";
+
+  /**
+   * The frozen image, fetched fresh and never stored.
+   *
+   * A signed URL expires; a prescription does not. `signature_asset_path`
+   * holds the path in the record, and this is regenerated on every view — so
+   * an expired URL costs a reload and nothing else.
+   */
+  React.useEffect(() => {
+    if (!frozen) return;
+    let cancelled = false;
+    void frozenSignatureUrlAction(prescriptionId).then((r) => {
+      if (!cancelled) setSignatureUrl(r.ok ? r.url : null);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [frozen, prescriptionId, review.digest]);
+
+  /**
+   * Gated at render rather than cleared in the effect: a URL fetched for a
+   * frozen bundle must stop being used the moment the bundle is not frozen,
+   * without waiting on a round trip.
+   */
+  const visibleSignatureUrl = frozen ? signatureUrl : null;
+
+  /**
+   * Freeze the signature, then reload the bundle it changed.
+   *
+   * This is NOT approval and cannot finalise. It exists so that the document
+   * the doctor eventually approves already contains its signature — freezing
+   * afterwards would change the digest out from under them (ADR 0012).
+   */
+  async function prepare() {
+    if (preparing || busy) return;
+    setPreparing(true);
+    setError(null);
+
+    const result = await prepareForReviewAction({ prescriptionId, templateId });
+    setPreparing(false);
+
+    if (!result.ok) {
+      setError(result.message);
+      return;
+    }
+    const parsed = parseReview(result.review);
+    if (!parsed.ok) {
+      setError("The prepared prescription could not be read. Reload and try again.");
+      return;
+    }
+    setReview(parsed.review);
+  }
 
   /**
    * A different layout is a different printable prescription, so it is a new
@@ -168,22 +235,63 @@ export function ReviewScreen({
         </div>
       </SectionCard>
 
-      <div className={cn("transition-opacity", busy && "opacity-60")}>
-        <ReviewSheet view={view} />
+      <div className={cn("transition-opacity", (busy || preparing) && "opacity-60")}>
+        <ReviewSheet view={view} signatureUrl={visibleSignatureUrl} />
       </div>
 
       {/*
-        The signature is frozen BEFORE the review that gets approved, not
-        during approval — freezing changes the bundle, and therefore the digest
-        (ADR 0012). So this screen shows an empty block and says so, rather than
-        drawing the doctor's live profile signature, which the bundle does not
-        attest and which could change afterwards.
+        The signature is frozen BEFORE the review that gets approved, not during
+        approval — freezing changes the bundle, and therefore the digest
+        (ADR 0012). Until it is frozen the block is empty, rather than showing
+        the doctor's live profile signature, which the bundle does not attest
+        and which could change afterwards.
       */}
       {view.signature.kind === "not-frozen" ? (
-        <p className="text-[12px] text-ink-muted">
-          The signature block is empty because nothing has been fixed to this prescription yet.
-          Preparing it for final review copies the signature in, and you will read and approve the
-          prescription with the signature already on it.
+        <SectionCard>
+          <div className="space-y-3 p-4 sm:p-5">
+            <p className="text-[13px] text-ink-secondary">
+              The signature block is empty because nothing has been fixed to this prescription yet.
+              Preparing it copies your signature onto <em>this</em> prescription, where it can never
+              change — then you read the finished prescription with the signature already on it.
+            </p>
+            <button
+              type="button"
+              onClick={() => void prepare()}
+              disabled={preparing || busy}
+              className="inline-flex h-11 items-center justify-center gap-1.5 rounded-xl bg-brand px-4 text-[13px] font-semibold text-white shadow-soft transition-colors hover:bg-brand-hover disabled:cursor-not-allowed disabled:opacity-55 focus-visible:focus-ring"
+            >
+              {preparing ? (
+                <Loader2 className="size-4 animate-spin" aria-hidden="true" />
+              ) : (
+                <ShieldCheck className="size-4" aria-hidden="true" />
+              )}
+              {preparing ? "Preparing…" : "Prepare prescription for final review"}
+            </button>
+            <p className="text-[12px] text-ink-muted">
+              This does not approve anything and nothing becomes permanent.
+            </p>
+          </div>
+        </SectionCard>
+      ) : null}
+
+      {/*
+        Ready — and deliberately with no approval control. Stage 7C-2B adds
+        that, once the signature the doctor is looking at is provably the one
+        the immutable record will carry.
+      */}
+      {ready ? (
+        <p
+          role="status"
+          className="clinical-surface flex items-start gap-2 rounded-glass border-l-4 border-l-success px-4 py-3 text-[13px] text-ink-secondary"
+        >
+          <ShieldCheck className="mt-px size-4 shrink-0 text-success" aria-hidden="true" />
+          <span>
+            <strong className="font-semibold text-ink">Ready for final approval.</strong>{" "}
+            {frozen
+              ? "The signature above is fixed to this prescription and cannot change."
+              : "This layout does not print a signature, so there is nothing to fix to it."}{" "}
+            Approving it comes in the next release — nothing here is part of the record yet.
+          </span>
         </p>
       ) : null}
 

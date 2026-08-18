@@ -136,6 +136,21 @@ development with FAKE data only — never real patients, never commercial use.
 callback URLs to Supabase → Authentication → URL Configuration. Sign-in and
 password reset silently redirect to the wrong origin without it.
 
+**`SUPABASE_SERVICE_ROLE_KEY` is now required to prepare a prescription.**
+`prescription-assets` deliberately has no INSERT policy, so only service-role
+code can freeze a signature. Set it in `.env.local` and on the host — never
+prefixed `NEXT_PUBLIC_`, never in a client component. Without it, preparing a
+prescription refuses with a configuration message rather than failing oddly.
+Only `src/lib/supabase/service.ts` reads it, it exposes `.storage` and nothing
+else, and `service-key-containment.test.ts` asserts the name and value appear
+in no client bundle.
+
+**Never write `storage.objects` rows from application code.** Supabase treats
+that schema as read-only metadata; file operations go through the Storage API.
+A direct INSERT creates a metadata row with no object behind it — which reads
+as success and prints as a broken image on a prescription. Verification scripts
+may read it, and may write it to build a fixture.
+
 **Before the first real patient:** finalise `docs/data-policy.md` (currently a
 draft with open items on retention, account closure and patient correction).
 

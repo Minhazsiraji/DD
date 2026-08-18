@@ -3,9 +3,17 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { requireLocationContext } from "@/lib/auth/session";
+import { canFreezeSignatures } from "@/lib/supabase/service";
+import { requireLocationContext, requireUser } from "@/lib/auth/session";
 import { acceptVersion } from "@/features/encounters/version-contract";
-import { getMedicineSuggestions, getPrescription, getReviewBundle } from "./queries";
+import { freezeSignature, signatureNeed, type FreezeOutcome } from "./freeze";
+import { supabaseSignatureStore } from "./freeze-store";
+import {
+  getMedicineSuggestions,
+  getPrescription,
+  getReviewBundle,
+  type ReviewOutcome,
+} from "./queries";
 import {
   RX_ADVANCED_MESSAGE,
   RX_CONFLICT_UNLOADABLE_MESSAGE,
@@ -353,6 +361,239 @@ export async function refreshReviewAction(input: {
     default:
       return { ok: false, message: "The prescription could not be loaded. Try again in a moment." };
   }
+}
+
+/**
+ * Prepare a prescription for its final review.
+ *
+ * Stage 7C-2A. This FREEZES the signature and returns a fresh canonical
+ * bundle; it does not approve anything and it cannot finalise — there is no
+ * call to `finalize_prescription` anywhere in this build.
+ *
+ * The order is the point (ADR 0012). The frozen object's identity is inside
+ * the bundle and the digest covers it, so freezing CHANGES the digest. Freeze
+ * first, then rebuild, then let the doctor read the result. A flow that
+ * approved a `signature: null` bundle and froze afterwards would have the
+ * doctor approving one document while a different one became permanent.
+ *
+ * Every input is derived server-side. The browser sends a prescription id and
+ * at most a template id; it never names a location, a doctor, a source or a
+ * destination path.
+ */
+export async function prepareForReviewAction(input: {
+  prescriptionId: string;
+  templateId: string | null;
+}): Promise<PrepareResult> {
+  const parsed = z
+    .object({ prescriptionId: z.uuid(), templateId: z.uuid().nullable() })
+    .safeParse(input);
+  if (!parsed.success) return { ok: false, kind: "error", message: "That could not be prepared." };
+
+  const { prescriptionId, templateId } = parsed.data;
+  const ctx = await requireLocationContext();
+
+  /**
+   * The bundle IS the authorisation check. `prescription_review_bundle` refuses
+   * unless the caller is the owning doctor, at this active location, and the
+   * template is one they may use — identically for missing, not-yours and
+   * elsewhere. Nothing below re-derives that from caller input.
+   */
+  const before = await getReviewBundle(prescriptionId, ctx.locationId, templateId);
+  if (!before.ok) return failedReview(before);
+
+  // Still a draft? A finalised prescription's signature is already fixed.
+  const detail = await getPrescription(prescriptionId, ctx.locationId);
+  if (!detail.ok) {
+    return { ok: false, kind: "error", message: "This prescription could not be read." };
+  }
+  if (detail.prescription.status !== "DRAFT") {
+    return { ok: false, kind: "error", message: translateRxError("PRESCRIPTION_NOT_DRAFT").message };
+  }
+
+  const need = signatureNeed({
+    showSignature: before.review.bundle.template.showSignature,
+    sourcePath: await currentSignaturePath(),
+  });
+
+  if (need.kind === "unavailable") {
+    /**
+     * The layout says a signature prints and the doctor has none on file. We do
+     * not invent a blank one: a prescription that looks signed and is not is
+     * worse than one that plainly says it cannot be prepared yet.
+     */
+    return {
+      ok: false,
+      kind: "signature-unavailable",
+      message:
+        "This layout prints a signature, but you have not added one yet. Add your signature in Settings → Your profile, or use a layout without a signature.",
+    };
+  }
+
+  if (need.kind === "required") {
+    if (!canFreezeSignatures()) {
+      // Configuration, not a clinical problem — and it must not read like one.
+      console.error("[prescriptions] SUPABASE_SERVICE_ROLE_KEY is not configured");
+      return {
+        ok: false,
+        kind: "error",
+        message:
+          "Prescriptions cannot be prepared on this deployment yet because signature storage is not configured.",
+      };
+    }
+
+    const frozen = await freezeSignature(supabaseSignatureStore(), {
+      sourcePath: need.sourcePath,
+      // Derived by the database from the OWNING doctor and this prescription.
+      // The browser never supplies it and never sees it before this point.
+      destinationPath: before.review.expectedSignaturePath,
+    });
+
+    if (!frozen.ok) return failedFreeze(frozen);
+  }
+
+  /**
+   * A FRESH bundle, because the one we validated against no longer describes
+   * the prescription — it was built before the signature existed. This is the
+   * bundle the doctor reads and, in 7C-2B, approves.
+   */
+  const after = await getReviewBundle(prescriptionId, ctx.locationId, templateId);
+  if (!after.ok) {
+    /**
+     * The freeze succeeded and the re-read did not. Nothing is lost and nothing
+     * is wrong — the object is idempotent and the next attempt will verify it —
+     * but we must not claim the prescription is ready when we cannot show it.
+     */
+    return {
+      ok: false,
+      kind: "unverified",
+      message:
+        "The signature was added, but the prescription could not be reloaded. Try preparing it again — nothing will be duplicated.",
+    };
+  }
+
+  return { ok: true, review: after.review, signatureRequired: need.kind === "required" };
+}
+
+export type PrepareResult =
+  | { ok: true; review: unknown; signatureRequired: boolean }
+  /** The layout wants a signature the doctor does not have. */
+  | { ok: false; kind: "signature-unavailable"; message: string }
+  /** Something else is already at the frozen path. Never overwritten. */
+  | { ok: false; kind: "mismatch"; message: string }
+  /** It may be frozen; we could not confirm. Retrying is safe. */
+  | { ok: false; kind: "unverified"; message: string }
+  | { ok: false; kind: "error"; message: string };
+
+/** The doctor's own current profile signature, read under their own RLS. */
+async function currentSignaturePath(): Promise<string | null> {
+  const user = await requireUser();
+  const supabase = await createSupabaseServerClient();
+  const { data } = await supabase
+    .from("doctor_profiles")
+    .select("signature_url")
+    .eq("user_id", user.id)
+    .maybeSingle();
+  return (data?.signature_url as string | null) ?? null;
+}
+
+function failedReview(outcome: Extract<ReviewOutcome, { ok: false }>): PrepareResult {
+  switch (outcome.reason) {
+    case "logo-unsupported":
+      return {
+        ok: false,
+        kind: "error",
+        message: translateRxError("TEMPLATE_LOGO_UNSUPPORTED").message,
+      };
+    case "template-unavailable":
+      return { ok: false, kind: "error", message: "That layout is not available here." };
+    case "unsupported-schema":
+      return {
+        ok: false,
+        kind: "error",
+        message: "This prescription needs a newer version of the app to prepare safely.",
+      };
+    case "not-found":
+      return {
+        ok: false,
+        kind: "error",
+        message: "This prescription is no longer available at your current location.",
+      };
+    default:
+      return { ok: false, kind: "error", message: "The prescription could not be loaded." };
+  }
+}
+
+function failedFreeze(outcome: Extract<FreezeOutcome, { ok: false }>): PrepareResult {
+  switch (outcome.kind) {
+    case "source-missing":
+      return {
+        ok: false,
+        kind: "signature-unavailable",
+        message:
+          "Your signature image could not be found. Re-upload it in Settings → Your profile, then prepare this prescription again.",
+      };
+
+    case "mismatch":
+      /**
+       * A different object is already at this prescription's signature path.
+       * It CANNOT be repaired — the bucket is append-only by design — so this
+       * is a refusal and an alert, never an overwrite.
+       */
+      console.error(
+        "[prescriptions] FROZEN SIGNATURE MISMATCH — manual review required",
+        outcome.path,
+        `expected ${outcome.expected}`,
+        `found ${outcome.found}`,
+      );
+      return {
+        ok: false,
+        kind: "mismatch",
+        message:
+          "This prescription already has a different signature fixed to it, and a signed prescription's signature can never be replaced. Write a new prescription for this patient instead.",
+      };
+
+    case "unverifiable":
+      return {
+        ok: false,
+        kind: "unverified",
+        message:
+          "The signature may have been added, but we could not read it back to check it. Try preparing this prescription again — nothing will be duplicated.",
+      };
+
+    default:
+      console.error("[prescriptions] freeze failed", outcome.message);
+      return {
+        ok: false,
+        kind: "error",
+        message: "The signature could not be added just now. Try again in a moment.",
+      };
+  }
+}
+
+/**
+ * A short-lived URL for the frozen signature image.
+ *
+ * Generated per request under the DOCTOR's own client, so `may_read_prescription_asset`
+ * decides. NEVER stored: `signature_asset_path` holds the path, and a URL that
+ * expires would turn a permanent record into a temporary one.
+ */
+export async function frozenSignatureUrlAction(
+  prescriptionId: string,
+): Promise<{ ok: true; url: string } | { ok: false }> {
+  const parsed = z.uuid().safeParse(prescriptionId);
+  if (!parsed.success) return { ok: false };
+
+  const ctx = await requireLocationContext();
+  const detail = await getReviewBundle(prescriptionId, ctx.locationId, null);
+  if (!detail.ok || !detail.review.bundle.signature) return { ok: false };
+
+  const supabase = await createSupabaseServerClient();
+  const { data, error } = await supabase.storage
+    .from("prescription-assets")
+    .createSignedUrl(detail.review.bundle.signature.path, 120);
+
+  if (error || !data?.signedUrl) return { ok: false };
+  return { ok: true, url: data.signedUrl };
 }
 
 export async function medicineSuggestionsAction(query: string): Promise<Suggestion[]> {

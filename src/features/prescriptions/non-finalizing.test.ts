@@ -58,25 +58,47 @@ describe("Stage 7C-1 is non-finalizing", () => {
     expect(CALLS_FINALIZE.test("has no path to `finalize_prescription`")).toBe(false);
   });
 
-  it("no application file writes to the frozen clinical bucket", async () => {
+  it("writes storage through exactly one adapter", async () => {
     /**
-     * `prescription-assets` is server-only as of the storage correction: the
-     * bucket has no INSERT policy at all. A browser-side upload here would fail
-     * anyway — this asserts we are not even trying, so the freeze arrives as
-     * deliberate service-role orchestration rather than as a patch to a
-     * client-side upload that stopped working.
+     * `prescription-assets` has no INSERT policy, so only service-role code can
+     * write it — and only one module should hold that ability. Stage 7C-1
+     * asserted that NOTHING wrote the bucket; 7C-2A legitimately does, so the
+     * assertion moves rather than disappearing: writes are allowed, but from
+     * one place, through the Storage API.
+     *
+     * Note this scans for the mutating verbs. `createSignedUrl` and `download`
+     * are reads and may live anywhere the user's own client is in use.
      */
     const files = await walk(APP);
     const writers: string[] = [];
 
     for (const file of files) {
-      if (file.endsWith("non-finalizing.test.ts")) continue;
+      if (/\.test\.tsx?$/.test(file)) continue;
       const source = await readFile(file, "utf8");
-      if (!source.includes("prescription-assets")) continue;
-      if (/\.(upload|copy|move|remove)\s*\(/.test(source)) writers.push(path.relative(APP, file));
+      if (/\.storage[\s\S]{0,200}?\.(upload|copy|move|remove)\s*\(/.test(source)) {
+        writers.push(path.relative(APP, file));
+      }
+      if (/\bstorage\s*\n?\s*\.from\([^)]*\)\s*\.\s*(upload|copy|move|remove)\s*\(/.test(source)) {
+        writers.push(path.relative(APP, file));
+      }
     }
 
-    expect(writers).toEqual([]);
+    const found = [...new Set(writers)];
+    const allowed = [
+      path.join("features", "prescriptions", "freeze-store.ts"),
+      // The doctor's own profile signature: their bucket, their upload, and a
+      // different trust class entirely (ADR 0012).
+      path.join("features", "doctor", "actions.ts"),
+    ];
+
+    /**
+     * The old version of this test passed because its matcher found nothing at
+     * all — the literal bucket name and the `.upload(` call live in different
+     * files. A scanner that matches nothing is not a control, so assert that it
+     * still sees the writers we know about.
+     */
+    expect(found).toEqual(expect.arrayContaining(allowed));
+    expect(found.filter((w) => !allowed.includes(w))).toEqual([]);
   });
 
   it("the review screen offers no approval control", async () => {
