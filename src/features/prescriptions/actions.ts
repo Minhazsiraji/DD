@@ -15,11 +15,23 @@ import {
   type ReviewOutcome,
 } from "./queries";
 import {
+  GENERIC_RX_ERROR,
   RX_ADVANCED_MESSAGE,
   RX_CONFLICT_UNLOADABLE_MESSAGE,
+  RX_FINALIZE_ALREADY_MESSAGE,
+  RX_FINALIZE_REJECTED_MESSAGE,
+  RX_FINALIZE_STALE_MESSAGE,
+  RX_FINALIZE_UNCONFIRMED_MESSAGE,
   RX_UNCONFIRMED_MESSAGE,
   translateRxError,
 } from "./errors";
+import {
+  classifyFinalize,
+  resolveAfterRecovery,
+  type AuthoritativeStatus,
+  type FinalizeKind,
+  type FinalizeRefusal,
+} from "./finalize-outcome";
 import { classifyWrite } from "./recovery";
 import { medicineInputSchema, type MedicineRow, type Suggestion } from "./schema";
 
@@ -601,6 +613,154 @@ function failedFreeze(outcome: Extract<FreezeOutcome, { ok: false }>): PrepareRe
         kind: "error",
         message: "The signature could not be added just now. Try again in a moment.",
       };
+  }
+}
+
+export type FinalizeResult = { kind: FinalizeKind; message: string; version?: number };
+
+/**
+ * Approve a prescription. The irreversible write.
+ *
+ * The browser sends four things and nothing else: which prescription, which
+ * layout, the version it believes, and the digest it read. Never a snapshot,
+ * never a signature path, never a location — `finalize_prescription` rebuilds
+ * the whole document from authoritative rows and refuses if the digest moved,
+ * so a modified client cannot approve content the doctor never saw.
+ *
+ * Every branch below answers one question before anything else: DID IT COMMIT?
+ * The classification is pure and tabulated in `finalize-outcome.ts` precisely
+ * so it cannot drift into conditionals nobody can see all of at once — which is
+ * how the same defect reached review twice already.
+ */
+export async function finalizePrescriptionAction(input: {
+  prescriptionId: string;
+  templateId: string | null;
+  expectedVersion: number;
+  reviewedDigest: string;
+}): Promise<FinalizeResult> {
+  const parsed = z
+    .object({
+      prescriptionId: z.uuid(),
+      templateId: z.uuid().nullable(),
+      expectedVersion: z.number().int().positive(),
+      reviewedDigest: z.string().regex(/^[0-9a-f]{64}$/),
+    })
+    .safeParse(input);
+
+  if (!parsed.success) {
+    return { kind: "error", message: "That approval could not be read. Reload and try again." };
+  }
+
+  const { prescriptionId, templateId, expectedVersion, reviewedDigest } = parsed.data;
+  const ctx = await requireLocationContext();
+  const supabase = await createSupabaseServerClient();
+
+  const { data, error } = await supabase.rpc("finalize_prescription", {
+    p_prescription_id: prescriptionId,
+    p_practice_location_id: ctx.locationId,
+    p_expected_version: expectedVersion,
+    p_template_id: templateId,
+    p_review_digest: reviewedDigest,
+  });
+
+  const refusal = classifyRefusal(error?.message ?? null);
+
+  /**
+   * An ordinary refusal wrote nothing and needs no status read — and reading
+   * would only add a way to fail. Everything else does, because what the record
+   * says now is the difference between "approved" and "approve again".
+   */
+  if (refusal === "error") {
+    const t = safe("finalize_prescription", error!.message);
+    return { kind: "error", message: t.message };
+  }
+
+  const status = await readStatus(prescriptionId, ctx.locationId);
+  const kind = classifyFinalize({
+    refusal,
+    // The version a finalisation may claim is expectedVersion + 1, exactly.
+    earnedVersion: refusal === "none" ? acceptVersion(data, expectedVersion) : null,
+    status,
+  });
+
+  if (refusal === "none" && kind === "finalization-unconfirmed") {
+    console.error(
+      "[prescriptions] finalisation may have committed but could not be confirmed",
+      prescriptionId,
+      `status=${status ?? "unreadable"}`,
+    );
+  }
+
+  if (kind === "finalized" || kind === "already-finalized") {
+    revalidatePath(`/prescription/${prescriptionId}`);
+  }
+
+  return { kind, message: finalizeMessage(kind), version: acceptVersion(data, expectedVersion) ?? undefined };
+}
+
+/**
+ * Recover from an uncertain or refused approval WITHOUT writing anything.
+ *
+ * Recovery never re-submits. It reads the authoritative status, and the read
+ * decides — because the only safe way out of "it may have committed" is to
+ * find out, not to try again.
+ */
+export async function finalizeRecoveryAction(input: {
+  prescriptionId: string;
+  wasCertainlyRejected: boolean;
+}): Promise<FinalizeResult> {
+  const parsed = z
+    .object({ prescriptionId: z.uuid(), wasCertainlyRejected: z.boolean() })
+    .safeParse(input);
+  if (!parsed.success) {
+    return { kind: "finalization-unconfirmed", message: RX_FINALIZE_UNCONFIRMED_MESSAGE };
+  }
+
+  const ctx = await requireLocationContext();
+  const status = await readStatus(parsed.data.prescriptionId, ctx.locationId);
+  const kind = resolveAfterRecovery({
+    wasCertainlyRejected: parsed.data.wasCertainlyRejected,
+    status,
+  });
+
+  if (kind === "already-finalized") revalidatePath(`/prescription/${parsed.data.prescriptionId}`);
+  return { kind, message: finalizeMessage(kind) };
+}
+
+/** The prescription's authoritative status, or null when it cannot be read. */
+async function readStatus(
+  prescriptionId: string,
+  locationId: string,
+): Promise<AuthoritativeStatus> {
+  const outcome = await getPrescription(prescriptionId, locationId);
+  if (!outcome.ok) return null;
+  return outcome.prescription.status as AuthoritativeStatus;
+}
+
+/** What the database refused with, before we decide what it means. */
+function classifyRefusal(message: string | null): FinalizeRefusal {
+  if (!message) return "none";
+  const m = message.toUpperCase();
+  if (m.includes("REVIEW_STALE")) return "review-stale";
+  if (m.includes("PRESCRIPTION_VERSION_CONFLICT")) return "conflict";
+  if (m.includes("PRESCRIPTION_NOT_DRAFT")) return "not-draft";
+  return "error";
+}
+
+function finalizeMessage(kind: FinalizeKind): string {
+  switch (kind) {
+    case "finalized":
+      return "This prescription is approved and is now part of the patient's record.";
+    case "already-finalized":
+      return RX_FINALIZE_ALREADY_MESSAGE;
+    case "review-stale":
+      return RX_FINALIZE_STALE_MESSAGE;
+    case "conflict-rejected":
+      return RX_FINALIZE_REJECTED_MESSAGE;
+    case "finalization-unconfirmed":
+      return RX_FINALIZE_UNCONFIRMED_MESSAGE;
+    default:
+      return GENERIC_RX_ERROR;
   }
 }
 

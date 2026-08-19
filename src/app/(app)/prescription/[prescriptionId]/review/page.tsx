@@ -4,27 +4,83 @@ import { notFound } from "next/navigation";
 import { ArrowLeft, CloudOff, FileWarning, ImageOff, Lock } from "lucide-react";
 import { requireLocationContext } from "@/lib/auth/session";
 import { translateRxError } from "@/features/prescriptions/errors";
-import { getPrescription, getReviewBundle, getSelectableTemplates } from "@/features/prescriptions/queries";
+import {
+  getFinalizedPrescription,
+  getPrescription,
+  getReviewBundle,
+  getSelectableTemplates,
+} from "@/features/prescriptions/queries";
+import { FinalizedPrescription } from "@/features/prescriptions/components/finalized-prescription";
 import { ReviewScreen } from "@/features/prescriptions/components/review-screen";
 
 export const metadata: Metadata = { title: "Review prescription" };
 
 /**
- * The review screen.
+ * The review screen, or the approved record.
  *
- * Reads the canonical bundle server-side and hands it to the client whole. The
- * client is given the bundle, its digest and the prescription's version — never
- * the raw rows they were built from, because the doctor must review exactly
- * what the digest describes.
+ * Which one depends on STATUS, and status is checked first — a finalised
+ * prescription must never be rendered from a freshly built bundle. Building one
+ * reads live rows, and a live row that has since changed could refuse (a logo
+ * switched on, a template deleted) or simply differ. A permanent record cannot
+ * become unviewable because a setting moved afterwards.
  *
- * Stage 7C-1 cannot finalise. Nothing on this route reaches
- * `finalize_prescription`.
+ * For a draft, the canonical bundle is read server-side and handed to the
+ * client whole: the bundle, its digest and the version — never the rows they
+ * were built from, because the doctor must approve exactly what the digest
+ * describes.
  */
 export default async function ReviewPage({
   params,
 }: PageProps<"/prescription/[prescriptionId]/review">) {
   const { prescriptionId } = await params;
   const ctx = await requireLocationContext();
+
+  const detail = await getPrescription(prescriptionId, ctx.locationId);
+  if (!detail.ok && detail.reason === "unavailable") {
+    return (
+      <Refusal
+        icon={<CloudOff className="mx-auto size-8 text-ink-muted" aria-hidden="true" />}
+        title="This prescription could not be loaded"
+        body="It exists — we simply could not reach it just now. Do not start another one for this patient; try again in a moment."
+      />
+    );
+  }
+  if (!detail.ok) notFound();
+
+  /**
+   * Approved: render the RECORD, not a review of it.
+   *
+   * Served from `finalized_prescription_detail`, which returns the immutable
+   * snapshot. Nothing on this branch reads a live doctor, patient, location or
+   * template row. Printing arrives in Stage 7C-3.
+   */
+  if (detail.prescription.status !== "DRAFT") {
+    const finalized = await getFinalizedPrescription(prescriptionId, ctx.locationId);
+
+    if (!finalized.ok) {
+      return (
+        <Refusal
+          icon={<FileWarning className="mx-auto size-8 text-ink-muted" aria-hidden="true" />}
+          title="This prescription could not be shown"
+          body={
+            finalized.reason === "unsupported-schema"
+              ? "It was approved by a newer version of Doctor's Diary. Update the app before viewing it."
+              : "It is approved and safely stored — we simply could not read it just now. Try again in a moment."
+          }
+        />
+      );
+    }
+
+    return (
+      <FinalizedPrescription
+        prescriptionId={prescriptionId}
+        encounterId={detail.prescription.encounterId}
+        finalizedAt={finalized.finalized.finalizedAt}
+        digest={finalized.finalized.digest}
+        bundle={finalized.finalized.bundle}
+      />
+    );
+  }
 
   const outcome = await getReviewBundle(prescriptionId, ctx.locationId, null);
 
@@ -71,26 +127,6 @@ export default async function ReviewPage({
   }
 
   if (!outcome.ok) notFound();
-
-  /**
-   * The encounter id for the way back. Read separately and deliberately: the
-   * bundle carries it, but a link is navigation, not clinical content, and
-   * nothing on this page should start treating the bundle as a general-purpose
-   * data source.
-   */
-  const detail = await getPrescription(prescriptionId, ctx.locationId);
-  if (!detail.ok) notFound();
-
-  if (detail.prescription.status !== "DRAFT") {
-    // Finalised prescriptions get their own read-only route in Stage 7C-3.
-    return (
-      <Refusal
-        icon={<FileWarning className="mx-auto size-8 text-ink-muted" aria-hidden="true" />}
-        title="This prescription has already been approved"
-        body="Approved prescriptions are read-only. Viewing and printing them arrives in a later release."
-      />
-    );
-  }
 
   const templates = await getSelectableTemplates(ctx.locationId);
 

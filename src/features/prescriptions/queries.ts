@@ -1,7 +1,7 @@
 import "server-only";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getPatient, type PatientDetail } from "@/features/patients/queries";
-import { parseReview, type ReviewEnvelope } from "./review-bundle";
+import { parseReview, type ReviewBundle, type ReviewEnvelope } from "./review-bundle";
 import { emptyMedicine, type MedicineRow, type Suggestion } from "./schema";
 
 /**
@@ -142,6 +142,71 @@ export async function getReviewBundle(
   }
 
   return { ok: true, review: parsed.review };
+}
+
+/**
+ * A finalised prescription, read only from what was approved.
+ *
+ * Goes through `finalized_prescription_detail`, which serves the immutable
+ * `review_bundle_snapshot` and refuses anything still DRAFT. Nothing here can
+ * reach today's doctor, patient, location or template rows — that is the whole
+ * reason it is a separate function from `prescription_detail`.
+ */
+export type FinalizedOutcome =
+  | { ok: true; finalized: { finalizedAt: string | null; digest: string; bundle: ReviewBundle } }
+  | { ok: false; reason: "not-finalized" }
+  | { ok: false; reason: "unsupported-schema"; found: number }
+  | { ok: false; reason: "unavailable" };
+
+export async function getFinalizedPrescription(
+  prescriptionId: string,
+  activeLocationId: string,
+): Promise<FinalizedOutcome> {
+  const supabase = await createSupabaseServerClient();
+
+  const { data, error } = await supabase.rpc("finalized_prescription_detail", {
+    p_prescription_id: prescriptionId,
+    p_practice_location_id: activeLocationId,
+  });
+
+  if (error) {
+    // Missing, not-yours, elsewhere and still-DRAFT answer identically.
+    if (/not found/i.test(error.message)) return { ok: false, reason: "not-finalized" };
+    console.error("[prescriptions] finalized read failed", prescriptionId, error.message);
+    return { ok: false, reason: "unavailable" };
+  }
+  if (!data) return { ok: false, reason: "not-finalized" };
+
+  const row = data as Record<string, unknown>;
+
+  /**
+   * The stored bundle is parsed with the same rules as a live one. A snapshot
+   * written by a newer build must fail closed here too — rendering it with
+   * older rules would drop whatever that version added, on a permanent record.
+   */
+  const parsed = parseReview({
+    bundle: row.bundle,
+    digest: (row.reviewDigest as string) ?? "",
+    expectedSignaturePath: (row.signatureAssetPath as string) ?? "",
+    version: 1,
+  });
+
+  if (!parsed.ok) {
+    if (parsed.reason === "unsupported-schema") {
+      return { ok: false, reason: "unsupported-schema", found: parsed.found };
+    }
+    console.error("[prescriptions] finalized snapshot did not match the expected shape");
+    return { ok: false, reason: "unavailable" };
+  }
+
+  return {
+    ok: true,
+    finalized: {
+      finalizedAt: (row.finalizedAt as string | null) ?? null,
+      digest: parsed.review.digest,
+      bundle: parsed.review.bundle,
+    },
+  };
 }
 
 /**

@@ -3,8 +3,9 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowLeft, CloudOff } from "lucide-react";
 import { requireLocationContext } from "@/lib/auth/session";
-import { getPrescription } from "@/features/prescriptions/queries";
+import { getFinalizedPrescription, getPrescription } from "@/features/prescriptions/queries";
 import { PrescriptionComposer } from "@/features/prescriptions/components/prescription-composer";
+import { FinalizedPrescription } from "@/features/prescriptions/components/finalized-prescription";
 
 export const metadata: Metadata = { title: "Prescription" };
 
@@ -54,6 +55,37 @@ export default async function PrescriptionPage({
 
   if (!outcome.ok) notFound();
 
+  /**
+   * An approved prescription is a different document, not a locked composer.
+   *
+   * It is served by `finalized_prescription_detail`, which reads ONLY the
+   * immutable snapshot — so the permanent record has no route to today's
+   * doctor, patient, location or template rows, and cannot drift when they
+   * change. The composer is never rendered for it, so there is no editing
+   * control to disable and no approval control to hide.
+   */
+  if (outcome.prescription.status === "FINALIZED") {
+    const finalized = await getFinalizedPrescription(prescriptionId, ctx.locationId);
+    if (!finalized.ok) {
+      return (
+        <Unavailable
+          title="This approved prescription could not be loaded"
+          body="It exists and is part of the patient's record — we simply could not reach it just now. Try again in a moment."
+        />
+      );
+    }
+
+    return (
+      <FinalizedPrescription
+        prescriptionId={prescriptionId}
+        encounterId={outcome.prescription.encounterId}
+        finalizedAt={finalized.finalized.finalizedAt}
+        digest={finalized.finalized.digest}
+        bundle={finalized.finalized.bundle}
+      />
+    );
+  }
+
   return (
     <div className="space-y-4">
       <Link
@@ -68,6 +100,23 @@ export default async function PrescriptionPage({
         prescription={outcome.prescription}
         locationName={ctx.locationName}
       />
+    </div>
+  );
+}
+
+function Unavailable({ title, body }: { title: string; body: string }) {
+  return (
+    <div className="mx-auto max-w-md py-16 text-center">
+      <CloudOff className="mx-auto size-8 text-ink-muted" aria-hidden="true" />
+      <h1 className="mt-3 text-lg font-semibold text-ink">{title}</h1>
+      <p className="mt-2 text-[13px] text-ink-secondary">{body}</p>
+      <Link
+        href="/queue"
+        className="mt-5 inline-flex h-11 items-center justify-center gap-1.5 rounded-xl border border-hairline bg-white px-4 text-[13px] font-semibold text-ink hover:bg-surface-muted focus-visible:focus-ring"
+      >
+        <ArrowLeft className="size-4" aria-hidden="true" />
+        Back to the queue
+      </Link>
     </div>
   );
 }

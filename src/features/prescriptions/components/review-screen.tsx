@@ -8,7 +8,14 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { SectionCard, SectionHeader } from "@/components/common/section-card";
-import { frozenSignatureUrlAction, prepareForReviewAction, refreshReviewAction } from "../actions";
+import {
+  finalizePrescriptionAction,
+  finalizeRecoveryAction,
+  frozenSignatureUrlAction,
+  prepareForReviewAction,
+  refreshReviewAction,
+} from "../actions";
+import { FinalizePanel, type FinalizeState } from "./finalize-panel";
 import { parseReview, type ReviewEnvelope } from "../review-bundle";
 import { toReviewView } from "../review-view";
 import { ReviewSheet } from "./review-sheet";
@@ -22,17 +29,20 @@ export interface TemplateChoice {
 }
 
 /**
- * The review screen — read, not write.
- *
- * Stage 7C-1 is deliberately NON-FINALIZING. There is no approval control here
- * and no code path from this screen to `finalize_prescription`; that arrives in
- * 7C-2B, after the signature freeze has been built and proved. A review screen
- * that can finalise before the freeze exists would be a button that sometimes
- * produces an unsigned permanent record.
+ * The review screen, and the only place a prescription can be approved.
  *
  * Everything rendered comes from the server's canonical bundle. Changing the
  * template re-asks the SERVER for a new bundle rather than re-rendering the old
- * one differently — the digest must always describe what is on the screen.
+ * one differently — the digest must always describe what is on the screen,
+ * because that digest is what gets submitted for approval.
+ *
+ * The order matters and is not negotiable (ADR 0012):
+ *
+ *     draft → prepare (freeze the signature) → fresh bundle → READ → approve
+ *
+ * Approval is offered only on a post-freeze bundle, only through an explicit
+ * confirmation, and never again after an outcome where the write is on the
+ * record or might be. `finalizePolicy` decides that last part, not this file.
  */
 export function ReviewScreen({
   prescriptionId,
@@ -54,6 +64,8 @@ export function ReviewScreen({
   const [preparing, setPreparing] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const [signatureUrl, setSignatureUrl] = React.useState<string | null>(null);
+  const [finalizing, setFinalizing] = React.useState(false);
+  const [finalizeState, setFinalizeState] = React.useState<FinalizeState | null>(null);
 
   const view = React.useMemo(() => toReviewView(review.bundle), [review]);
   const frozen = view.signature.kind === "frozen";
@@ -121,6 +133,66 @@ export function ReviewScreen({
   }
 
   /**
+   * Approve it. The irreversible write.
+   *
+   * Submits four things and nothing else: which prescription, which layout, the
+   * version we believe, and THE DIGEST ON SCREEN. That last one is the whole
+   * contract — `finalize_prescription` rebuilds the document and refuses if it
+   * no longer hashes to this, so the doctor cannot approve content they did not
+   * read, even if something changed a moment ago in another tab.
+   */
+  async function finalize() {
+    if (busy || preparing || finalizing) return;
+    setFinalizing(true);
+    setError(null);
+
+    const result = await finalizePrescriptionAction({
+      prescriptionId,
+      templateId,
+      expectedVersion: review.version,
+      reviewedDigest: review.digest,
+    });
+
+    setFinalizing(false);
+    setFinalizeState({ kind: result.kind, message: result.message });
+
+    if (result.kind === "finalized" || result.kind === "already-finalized") router.refresh();
+  }
+
+  /**
+   * Find out what actually happened — never try again.
+   *
+   * The only safe exit from "it may have committed" is to read the record. A
+   * second submission is precisely the thing that would put two permanent
+   * prescriptions on one patient.
+   */
+  async function recover() {
+    if (finalizing) return;
+    setFinalizing(true);
+
+    const result = await finalizeRecoveryAction({
+      prescriptionId,
+      wasCertainlyRejected: finalizeState?.kind === "conflict-rejected",
+    });
+
+    setFinalizing(false);
+    setFinalizeState({ kind: result.kind, message: result.message });
+    if (result.kind === "already-finalized") router.refresh();
+  }
+
+  /**
+   * Load the bundle as it now stands, and clear the refused approval with it.
+   *
+   * The digest the doctor approved is discarded here on purpose: it described a
+   * document that no longer exists, and keeping it would let a later click
+   * submit an approval for content nobody read.
+   */
+  async function freshReview() {
+    setFinalizeState(null);
+    await chooseTemplate(templateId);
+  }
+
+  /**
    * A different layout is a different printable prescription, so it is a new
    * SERVER bundle with a new digest — never the same bundle re-styled.
    */
@@ -180,8 +252,8 @@ export function ReviewScreen({
         <FileWarning className="mt-px size-4 shrink-0 text-brand" aria-hidden="true" />
         <span>
           <strong className="font-semibold text-ink">This is a draft.</strong> Nothing here is part
-          of the patient&rsquo;s record yet, and this screen cannot approve it. Approval and
-          printing arrive in a later release.
+          of the patient&rsquo;s record until you finalize it below. Read it as it will print —
+          once approved it cannot be edited.
         </span>
       </p>
 
@@ -279,21 +351,19 @@ export function ReviewScreen({
         that, once the signature the doctor is looking at is provably the one
         the immutable record will carry.
       */}
-      {ready ? (
-        <p
-          role="status"
-          className="clinical-surface flex items-start gap-2 rounded-glass border-l-4 border-l-success px-4 py-3 text-[13px] text-ink-secondary"
-        >
-          <ShieldCheck className="mt-px size-4 shrink-0 text-success" aria-hidden="true" />
-          <span>
-            <strong className="font-semibold text-ink">Ready for final approval.</strong>{" "}
-            {frozen
-              ? "The signature above is fixed to this prescription and cannot change."
-              : "This layout does not print a signature, so there is nothing to fix to it."}{" "}
-            Approving it comes in the next release — nothing here is part of the record yet.
-          </span>
-        </p>
-      ) : null}
+      {/*
+        Approval lives here and nowhere else. The preconditions are checked in
+        one place — a post-freeze bundle whose digest is the one on screen — so
+        there is no second route to an irreversible write.
+      */}
+      <FinalizePanel
+        ready={ready && !busy && !preparing}
+        state={finalizeState}
+        busy={finalizing}
+        onFinalize={() => void finalize()}
+        onRecover={() => void recover()}
+        onFreshReview={() => void freshReview()}
+      />
 
       {/*
         The digest, shown deliberately. It is what the doctor will later approve,

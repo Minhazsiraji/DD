@@ -192,5 +192,34 @@ export const RX_UNCONFIRMED_MESSAGE =
  */
 export const RX_TITLE_ADVANCED = "Saved — then changed somewhere else";
 
+/**
+ * Finalisation copy.
+ *
+ * One sentence carries the whole safety design: only the genuinely uncertain
+ * outcome is allowed to say "may". Everything else states plainly whether the
+ * prescription is now part of the record, because a doctor who is unsure will
+ * click again — and a prescription finalised twice cannot be un-finalised.
+ */
+export const RX_FINALIZE_STALE_TITLE = "Not approved — this prescription changed";
+
+export const RX_FINALIZE_STALE_MESSAGE =
+  "This prescription was NOT approved, because something on it changed after you read it. Nothing has been added to the patient's record. Read the updated prescription and approve that instead.";
+
+export const RX_FINALIZE_REJECTED_TITLE = "Not approved — please read it again";
+
+export const RX_FINALIZE_REJECTED_MESSAGE =
+  "This prescription was NOT approved: it changed while you were approving it. Nothing has been added to the patient's record. Read the updated prescription before approving.";
+
+export const RX_FINALIZE_ALREADY_TITLE = "Already approved";
+
+export const RX_FINALIZE_ALREADY_MESSAGE =
+  "This prescription has already been approved and is part of the patient's record. It has not been approved twice.";
+
+/** The ONE sentence permitted to say "may". */
+export const RX_FINALIZE_UNCONFIRMED_TITLE = "This prescription may already be approved";
+
+export const RX_FINALIZE_UNCONFIRMED_MESSAGE =
+  "Your approval may already have gone through, but we could not confirm it. Do not approve it again while we check — approving twice would put two prescriptions on this patient's record.";
+
 export const RX_ADVANCED_MESSAGE =
   "Your change WAS saved. This prescription then changed somewhere else, so what is on screen may already be behind. Do not enter your change again — reload to see the latest.";

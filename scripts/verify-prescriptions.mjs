@@ -1151,6 +1151,67 @@ try {
       check(ev.n === 1 && au.n === 1, "one clinical event and one audit row", `${ev.n}/${au.n}`);
     });
 
+    /**
+     * ---- Stage 7C-2B: who may approve, and what a second attempt does ------
+     *
+     * The write is irreversible, so the interesting cases are all the ones
+     * where it must NOT happen: the wrong person, the wrong place, or a second
+     * time. A duplicate finalisation is not a bug that can be tidied up
+     * afterwards — it is a second permanent prescription for one consultation.
+     */
+    console.log("\nOnly the owning doctor may approve, and only once");
+    {
+      const v = await version(rx);
+
+      for (const [who, uid] of [
+        ["a colleague at the same hospital", uidB],
+        ["reception", uidR],
+        ["the location admin", uidM],
+      ]) {
+        await as(tx, uid, async () => {
+          check(
+            await expectDenied(tx, (t) => t`
+              select public.finalize_prescription(${rx}, ${hospital.id}, ${v},
+                ${globalTpl.id}, ${finalDigest})`),
+            `${who} cannot approve this prescription`,
+          );
+        });
+      }
+
+      await as(tx, uidA, async () => {
+        check(
+          await expectDenied(tx, (t) => t`
+            select public.finalize_prescription(${rx}, ${chamber.id}, ${v},
+              ${globalTpl.id}, ${finalDigest})`),
+          "the owning doctor cannot approve it from the wrong active location",
+        );
+
+        /**
+         * Already approved. The refusal is what lets the UI say "already
+         * approved" rather than inviting a retry that would create a second
+         * record.
+         */
+        check(
+          await expectDenied(tx, (t) => t`
+            select public.finalize_prescription(${rx}, ${hospital.id}, ${v},
+              ${globalTpl.id}, ${finalDigest})`),
+          "…and cannot approve the same prescription twice",
+        );
+      });
+
+      const [counts] = await asOwner(tx, () => tx`
+        select
+          (select count(*)::int from public.prescription_events
+            where prescription_id = ${rx} and event_type = 'FINALIZED') as ev,
+          (select count(*)::int from public.audit_events
+            where resource_id = ${rx} and action = 'prescription.finalized') as au`);
+      check(
+        counts.ev === 1 && counts.au === 1,
+        "exactly one finalisation event and one audit row survive every refused attempt",
+        `${counts.ev}/${counts.au}`,
+      );
+    }
+
     // ---- 12. finalised content is immutable --------------------------------
     console.log("\nA finalised prescription is immutable");
     await as(tx, uidA, async () => {
