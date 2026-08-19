@@ -451,8 +451,65 @@
 
   [data-print-root] {
     box-shadow: none !important;
-    /* Let the page box own the height so nothing is cut at exactly 297mm. */
+    /* The flow decides the height; `@page` decides where it breaks. */
     height: auto !important;
     overflow: visible !important;
+  }
+
+  /**
+   * Fragmentation.
+   *
+   * A medicine block stays together whenever it physically can: a dose split
+   * across a page break is how a patient reads half an instruction. The header
+   * and the signature travel intact for the same reason.
+   *
+   * `orphans`/`widows` keep a stray first or last line of a long instruction
+   * from being marooned alone on a page.
+   */
+  [data-print-root] li,
+  [data-print-root] header,
+  [data-print-root] footer {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  [data-print-root] p {
+    orphans: 2;
+    widows: 2;
+  }
+
+  /**
+   * ONE medicine taller than a page needs no special rule, and adding one was
+   * a mistake worth recording: `break-inside: avoid` is a PREFERENCE, not a
+   * constraint. When a block cannot fit on any page the browser breaks it
+   * anyway rather than losing content — which is exactly the fallback we want.
+   *
+   * So the overlong instruction continues onto the next page at the approved
+   * font size. It is never clipped, never hidden, and never shrunk.
+   */
+
+  /**
+   * Who a loose second page belongs to. Hidden on page one by the padding the
+   * page box already provides, and carried by `position: fixed`, which
+   * Chromium repeats per page. See the note in print-sheet.tsx: repetition
+   * itself is not something this project can assert automatically.
+   */
+  [data-print-continuation] {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    font-size: 8pt;
+    opacity: 0.75;
+  }
+}
+
+/* Never on screen — it exists only for paper. */
+[data-print-continuation] {
+  display: none;
+}
+@media print {
+  [data-print-continuation] {
+    display: block;
   }
 }

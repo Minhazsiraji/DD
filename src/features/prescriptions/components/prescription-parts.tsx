@@ -279,6 +279,40 @@ export function PrescriptionFooter({ view, u }: { view: ReviewView; u: Units }) 
 }
 
 /**
+ * Who a loose second page belongs to.
+ *
+ * A prescription that runs to three pages can be separated on a desk, and a
+ * page of medicines with no patient on it is a page nobody can safely act on.
+ * So this carries the minimum needed to re-attach it — and ONLY values from the
+ * approved snapshot. No internal id, no digest, no signed URL, and nothing read
+ * from a live row.
+ *
+ * It lives here rather than beside the print sheet because it reads clinical
+ * fields, and every clinical read belongs in this file — otherwise the patient
+ * name on a continuation page could quietly drift from the one on page 1.
+ *
+ * HONEST LIMITATION: repetition on pages 2..n relies on `position: fixed` under
+ * print media, which Chromium does but which this project cannot verify
+ * automatically — there is no page-count API to assert against. It is on the
+ * Friendly Doctor checklist, and nothing clinical depends on it: the medicines
+ * are numbered and the signature sits at the end, so the document still reads
+ * in order if a browser drops it.
+ */
+export function ContinuationIdentity({ view }: { view: ReviewView }) {
+  const parts = [
+    view.patient.fullName,
+    view.patient.patientNumber,
+    formatDate(view.clinicalDate),
+  ].filter(Boolean);
+
+  return (
+    <div data-print-continuation aria-hidden="true">
+      {parts.join(" · ")} · Prescription continued
+    </div>
+  );
+}
+
+/**
  * The whole document, in order.
  *
  * Both sheets render exactly this. They differ only in the box around it and

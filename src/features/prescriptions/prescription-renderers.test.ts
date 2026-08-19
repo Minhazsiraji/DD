@@ -131,10 +131,32 @@ describe("the print sheet is physical", () => {
    */
   it("takes the margin and the type size from the snapshot, never a constant", async () => {
     const text = await code("print-sheet.tsx");
-    expect(text).toMatch(/padding: `\$\{view\.marginMm\}mm`/);
+    /**
+     * The margin belongs to `@page`, not to the element.
+     *
+     * As padding it applied once across the whole flow, so pages 2..n printed
+     * edge-to-edge with no top or bottom margin. On the page box it applies to
+     * EVERY page.
+     */
+    expect(text).toMatch(/@page \{[^`]*margin: \$\{view\.marginMm\}mm/);
     expect(text).toMatch(/fontSize: `\$\{view\.baseFontPt\}pt`/);
     // No hard-coded page geometry anywhere in the renderer.
     expect(text).not.toMatch(/15mm|11pt/);
+  });
+
+  it("sizes the sheet to the page's content width, from the approved margin", async () => {
+    const text = await code("print-sheet.tsx");
+    expect(text).toMatch(/paper\.w - view\.marginMm \* 2/);
+  });
+
+  it("no longer constrains the document to one page", async () => {
+    /**
+     * The whole of 7C-3B: a fixed page height is what forced the old refusal.
+     * Without it the browser fragments the flow instead.
+     */
+    const text = await code("print-sheet.tsx");
+    expect(text).not.toMatch(/height: `\$\{paper\.h\}mm`/);
+    expect(text).not.toMatch(/overflow:\s*["']hidden["']/);
   });
 
   it("the screen sheet takes them from the same place", async () => {

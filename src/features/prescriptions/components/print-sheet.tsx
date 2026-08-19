@@ -4,30 +4,32 @@ import type { ReviewView } from "../review-view";
 import { PHYSICAL_UNITS, PrescriptionDocument } from "./prescription-parts";
 
 /**
- * The prescription, on paper.
+ * The prescription, on paper — across as many pages as it takes.
  *
- * Real millimetres and real points, because paper is actually that size. No
- * container queries: `cqw` resolves against a container's computed width, which
- * on paper is a number we would be inferring rather than stating. No aspect
- * ratio either — that is what makes the screen preview a preview, and it is
- * exactly what content must be able to overflow so we can MEASURE the overflow
- * and refuse rather than clip.
+ * Stage 7C-3A made this physical; 7C-3B makes it FLOW. The change is small and
+ * the reasoning is not: the sheet no longer has a page's height, so content
+ * longer than one page is fragmented by the browser instead of being measured
+ * and refused. Nothing shrinks, nothing is dropped.
  *
- * `@page` is emitted per prescription because the paper size comes from the
- * approved snapshot. A5 stays A5; nothing here silently promotes it to A4.
+ * WHERE THE MARGIN LIVES, AND WHY IT MOVED
+ *
+ * It used to be padding on this element. That is correct for one page and
+ * wrong for several: padding applies once, at the start and end of the whole
+ * flow, so pages 2..n would have printed edge-to-edge with no top or bottom
+ * margin at all. The margin now belongs to `@page`, which applies it to EVERY
+ * page, and this element is sized to exactly the resulting content width.
+ *
+ * The doctor's approved margin is still the only margin. A prescription
+ * approved on A5 at 40 mm paginates into more pages rather than quietly
+ * printing at 20 mm to save one — the output adapts around the approved
+ * document, never the other way round.
  *
  * WHAT WE CONTROL AND WHAT WE DO NOT
  *
- * `@page { size }` sets the page box the browser lays out against, and Chromium
- * honours it in the print preview. It does NOT control the printer's own
- * hardware margins, nor a "fit to page"/scaling option chosen in the print
- * dialog, nor the paper actually loaded in the tray. Those are the driver's,
- * and no CSS reaches them — which is why a physical printer test stays on the
- * pilot checklist.
- *
- * `margin: 0` on the page box on purpose: the template's own margin is applied
- * inside the sheet, so the approved layout owns its whitespace rather than
- * having the browser's default 0.4in added on top of it.
+ * `@page` sets the page box the browser lays out against. It does not control
+ * the printer's hardware margins, a "fit to page" scaling chosen in the print
+ * dialog, or the paper actually in the tray. A physical printer test stays on
+ * the pilot checklist.
  */
 export function PrintSheet({
   view,
@@ -37,24 +39,22 @@ export function PrintSheet({
   signatureUrl?: string | null;
 }) {
   const paper = PAPER_MM[view.paperSize];
+  /** The page's content box, once the approved margin is taken off both sides. */
+  const contentWidthMm = paper.w - view.marginMm * 2;
 
   return (
     <>
-      <style>{`@page { size: ${paper.w}mm ${paper.h}mm; margin: 0; }`}</style>
+      <style>{`@page { size: ${paper.w}mm ${paper.h}mm; margin: ${view.marginMm}mm; }`}</style>
       <div
         data-print-root
         data-paper={view.paperSize}
+        data-margin-mm={view.marginMm}
         className="bg-white text-ink"
         style={{
-          width: `${paper.w}mm`,
-          // The page's height, so overflow past one page is measurable rather
-          // than merely invisible. 7C-3B replaces this with real pagination.
-          height: `${paper.h}mm`,
-          padding: `${view.marginMm}mm`,
+          width: `${contentWidthMm}mm`,
+          // No height and no overflow rule: the flow is the point.
           fontSize: `${view.baseFontPt}pt`,
           lineHeight: 1.45,
-          boxSizing: "border-box",
-          overflow: "hidden",
         }}
       >
         <PrescriptionDocument view={view} u={PHYSICAL_UNITS} signatureUrl={signatureUrl} />
@@ -62,3 +62,4 @@ export function PrintSheet({
     </>
   );
 }
+

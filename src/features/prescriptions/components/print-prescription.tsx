@@ -5,6 +5,8 @@ import { CircleAlert, Loader2, Printer } from "lucide-react";
 import { SectionCard } from "@/components/common/section-card";
 import { frozenSignatureUrlAction } from "../actions";
 import type { ReviewView } from "../review-view";
+import { PAPER_MM } from "@/features/doctor/schema";
+import { ContinuationIdentity } from "./prescription-parts";
 import { PrintSheet } from "./print-sheet";
 
 /**
@@ -19,9 +21,10 @@ import { PrintSheet } from "./print-sheet";
  *      with a blank signature, and nobody looking at it afterwards can tell
  *      that is what happened.
  *
- *   2. The document must fit the page. Stage 7C-3A does not paginate, so
- *      anything longer is REFUSED rather than clipped. A prescription missing
- *      its last two medicines looks exactly like a complete one.
+ *   2. Nothing may be wider than the paper. LENGTH is no longer a problem —
+ *      the document flows and the browser fragments it into pages — but text
+ *      cannot flow sideways, so a too-wide line would genuinely be lost off
+ *      the edge.
  *
  * Neither failure falls back to something plausible. There is no "print without
  * the signature", and no shrinking text until it fits.
@@ -29,12 +32,16 @@ import { PrintSheet } from "./print-sheet";
 
 type Readiness =
   | { kind: "preparing" }
-  /** Fits, and the signature is either not required or fully loaded. */
+  /** The signature is either not required or fully loaded. */
   | { kind: "ready" }
   /** The bundle attests a signature we could not retrieve. */
   | { kind: "signature-unavailable" }
-  /** Longer than one page. 7C-3B will make this printable. */
-  | { kind: "too-long"; overflowMm: number };
+  /**
+   * The document is wider than the page. Vertical length is fine — it
+   * paginates — but nothing can flow sideways, so this would genuinely lose
+   * text off the edge.
+   */
+  | { kind: "too-wide" };
 
 const MM_PER_PX = 25.4 / 96;
 
@@ -49,7 +56,8 @@ export function PrintPrescription({
   const [signatureUrl, setSignatureUrl] = React.useState<string | null>(null);
   const [signatureReady, setSignatureReady] = React.useState(!needsSignature);
   const [signatureFailed, setSignatureFailed] = React.useState(false);
-  const [overflowMm, setOverflowMm] = React.useState<number | null>(null);
+  const [pages, setPages] = React.useState<number | null>(null);
+  const [tooWide, setTooWide] = React.useState(false);
 
   /**
    * The ref goes on a wrapper this component owns, and the page box is found
@@ -157,8 +165,19 @@ export function PrintPrescription({
     if (!el) return;
 
     const measure = () => {
-      const overflowPx = el.scrollHeight - el.clientHeight;
-      setOverflowMm(overflowPx > 1 ? overflowPx * MM_PER_PX : 0);
+      /**
+       * HEIGHT is no longer a failure. The sheet flows and `@page` fragments
+       * it, so a long prescription becomes more pages rather than a refusal.
+       * What is measured now is the page count — useful to a doctor deciding
+       * whether to print — and horizontal overflow, which cannot paginate and
+       * would genuinely run text off the edge of the paper.
+       */
+      const paper = PAPER_MM[view.paperSize];
+      const usableHeightMm = paper.h - view.marginMm * 2;
+      const contentMm = el.getBoundingClientRect().height * MM_PER_PX;
+
+      setPages(Math.max(1, Math.ceil(contentMm / usableHeightMm - 0.02)));
+      setTooWide(el.scrollWidth > el.clientWidth + 1);
     };
 
     measure();
@@ -169,8 +188,8 @@ export function PrintPrescription({
 
   const readiness: Readiness =
     signatureFailed ? { kind: "signature-unavailable" }
-    : overflowMm === null || (needsSignature && !signatureReady) ? { kind: "preparing" }
-    : overflowMm > 0 ? { kind: "too-long", overflowMm }
+    : pages === null || (needsSignature && !signatureReady) ? { kind: "preparing" }
+    : tooWide ? { kind: "too-wide" }
     : { kind: "ready" };
 
   function print() {
@@ -196,14 +215,15 @@ export function PrintPrescription({
             </p>
           ) : null}
 
-          {readiness.kind === "too-long" ? (
+          {readiness.kind === "too-wide" ? (
             <p
               role="alert"
               className="flex items-start gap-2 rounded-xl bg-warning-soft px-3 py-2 text-[13px] font-medium text-ink"
             >
               <CircleAlert className="mt-px size-4 shrink-0 text-warning" aria-hidden="true" />
-              This prescription is longer than one page. Multi-page printing is not available yet,
-              and printing it now would leave part of it off the paper.
+              Something on this prescription is wider than the paper. Length is fine — it would
+              print across more pages — but text cannot flow sideways, so printing now would lose
+              part of a line off the edge.
             </p>
           ) : null}
 
@@ -227,7 +247,14 @@ export function PrintPrescription({
           */}
           <p className="text-[12px] text-ink-muted">
             In the print dialog, choose your printer or &ldquo;Save as PDF&rdquo;. This prints on{" "}
-            {view.paperSize} paper, the size this prescription was approved on.
+            {view.paperSize} paper with a {view.marginMm} mm margin — the layout this prescription
+            was approved on.
+            {pages && pages > 1 ? (
+              <>
+                {" "}
+                It runs to about {pages} pages; the exact break depends on your printer.
+              </>
+            ) : null}
           </p>
         </div>
       </SectionCard>
@@ -239,6 +266,12 @@ export function PrintPrescription({
         media it becomes the only visible thing on the page.
       */}
       <div data-print-only aria-hidden="true" ref={wrapperRef}>
+        {/*
+          Outside the measured sheet on purpose: it is a page-level marker, and
+          including it in the flow would both add its height to the page count
+          and print it once at the top instead of on the pages that need it.
+        */}
+        <ContinuationIdentity view={view} />
         <PrintSheet view={view} signatureUrl={signatureUrl} />
       </div>
     </>
