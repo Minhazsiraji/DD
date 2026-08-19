@@ -13,6 +13,7 @@ import {
   Stethoscope,
   ClipboardPlus,
   Upload,
+  Printer,
 } from "lucide-react";
 import type { OrbAccent } from "@/components/common/icon-orb";
 
@@ -30,6 +31,13 @@ const ICON = "size-[18px]";
 export const PRIMARY_NAV: NavItem[] = [
   { href: "/dashboard", label: "Dashboard", icon: <LayoutDashboard className={ICON} /> },
   { href: "/queue", label: "Live Queue", icon: <ListChecks className={ICON} />, badge: 7 },
+  /*
+    Reception's way to a signed prescription. Listed for everyone because the
+    page shows only what the caller is already authorised to hand over — a
+    doctor sees their own, and nobody sees another location's. Hiding it by
+    role would be authorisation in the menu, which is not authorisation.
+  */
+  { href: "/handover", label: "Hand Over", icon: <Printer className={ICON} /> },
   { href: "/appointments", label: "Appointments", icon: <CalendarDays className={ICON} />, badge: 24 },
   { href: "/patients", label: "Patients", icon: <Users className={ICON} /> },
   { href: "/medicines", label: "Medicines", icon: <Pill className={ICON} /> },

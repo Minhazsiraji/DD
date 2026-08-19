@@ -771,9 +771,22 @@ function finalizeMessage(kind: FinalizeKind): string {
 /**
  * A short-lived URL for the frozen signature image.
  *
- * Generated per request under the DOCTOR's own client, so `may_read_prescription_asset`
- * decides. NEVER stored: `signature_asset_path` holds the path, and a URL that
- * expires would turn a permanent record into a temporary one.
+ * The PATH IS RESOLVED IN THE DATABASE, never accepted here and never rebuilt.
+ * `prescription_frozen_signature_path` takes only the prescription id, checks
+ * the caller may read that prescription, and answers with the column written at
+ * finalisation. So there is no argument a caller can point at another doctor's
+ * signature, at their live profile signature, or at an arbitrary object.
+ *
+ * It used to go through `prescription_review_bundle`, and that was wrong twice
+ * over: the builder is owner-only, so reception printed a signed prescription
+ * with an empty signature block; and for the doctor it recomputed a document
+ * that had already been approved and frozen, from today's rows.
+ *
+ * The URL is generated per request under the CALLER's own client, so
+ * `may_read_prescription_asset` still decides whether the object may be read —
+ * two independent checks, not one. It is never stored: `signature_asset_path`
+ * holds the path, and a URL that expires would turn a permanent record into a
+ * temporary one.
  */
 export async function frozenSignatureUrlAction(
   prescriptionId: string,
@@ -781,14 +794,19 @@ export async function frozenSignatureUrlAction(
   const parsed = z.uuid().safeParse(prescriptionId);
   if (!parsed.success) return { ok: false };
 
-  const ctx = await requireLocationContext();
-  const detail = await getReviewBundle(prescriptionId, ctx.locationId, null);
-  if (!detail.ok || !detail.review.bundle.signature) return { ok: false };
-
+  await requireLocationContext();
   const supabase = await createSupabaseServerClient();
+
+  const { data: path, error: pathError } = await supabase.rpc(
+    "prescription_frozen_signature_path",
+    { p_prescription_id: prescriptionId },
+  );
+  // Not readable, or deliberately unsigned. Both mean "no image", never a guess.
+  if (pathError || typeof path !== "string" || path === "") return { ok: false };
+
   const { data, error } = await supabase.storage
     .from("prescription-assets")
-    .createSignedUrl(detail.review.bundle.signature.path, 120);
+    .createSignedUrl(path, 120);
 
   if (error || !data?.signedUrl) return { ok: false };
   return { ok: true, url: data.signedUrl };

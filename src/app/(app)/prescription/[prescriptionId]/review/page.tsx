@@ -1,16 +1,14 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { notFound } from "next/navigation";
-import { ArrowLeft, CloudOff, FileWarning, ImageOff, Lock } from "lucide-react";
+import { notFound, redirect } from "next/navigation";
+import { ArrowLeft, CloudOff, ImageOff, Lock } from "lucide-react";
 import { requireLocationContext } from "@/lib/auth/session";
 import { translateRxError } from "@/features/prescriptions/errors";
 import {
-  getFinalizedPrescription,
   getPrescription,
   getReviewBundle,
   getSelectableTemplates,
 } from "@/features/prescriptions/queries";
-import { FinalizedPrescription } from "@/features/prescriptions/components/finalized-prescription";
 import { ReviewScreen } from "@/features/prescriptions/components/review-screen";
 
 export const metadata: Metadata = { title: "Review prescription" };
@@ -48,38 +46,17 @@ export default async function ReviewPage({
   if (!detail.ok) notFound();
 
   /**
-   * Approved: render the RECORD, not a review of it.
+   * Approved: there is nothing left to review, so this is not the page.
    *
-   * Served from `finalized_prescription_detail`, which returns the immutable
-   * snapshot. Nothing on this branch reads a live doctor, patient, location or
-   * template row. Printing arrives in Stage 7C-3.
+   * It used to render the finalised record here as well, which meant the
+   * permanent record had two homes and REVIEW — a doctor-only approval surface
+   * — was one of them. Reception can read a finalised prescription, so a stale
+   * link landed the front desk on the approval route showing a record. Sending
+   * everyone to the one canonical page keeps "review" meaning a draft awaiting
+   * a decision, and gives staff a route that was built for them.
    */
   if (detail.prescription.status !== "DRAFT") {
-    const finalized = await getFinalizedPrescription(prescriptionId, ctx.locationId);
-
-    if (!finalized.ok) {
-      return (
-        <Refusal
-          icon={<FileWarning className="mx-auto size-8 text-ink-muted" aria-hidden="true" />}
-          title="This prescription could not be shown"
-          body={
-            finalized.reason === "unsupported-schema"
-              ? "It was approved by a newer version of Doctor's Diary. Update the app before viewing it."
-              : "It is approved and safely stored — we simply could not read it just now. Try again in a moment."
-          }
-        />
-      );
-    }
-
-    return (
-      <FinalizedPrescription
-        prescriptionId={prescriptionId}
-        encounterId={detail.prescription.encounterId}
-        finalizedAt={finalized.finalized.finalizedAt}
-        digest={finalized.finalized.digest}
-        bundle={finalized.finalized.bundle}
-      />
-    );
+    redirect(`/prescription/${prescriptionId}`);
   }
 
   const outcome = await getReviewBundle(prescriptionId, ctx.locationId, null);

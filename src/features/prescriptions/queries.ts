@@ -152,8 +152,30 @@ export async function getReviewBundle(
  * reach today's doctor, patient, location or template rows — that is the whole
  * reason it is a separate function from `prescription_detail`.
  */
+export interface FinalizedPrescription {
+  finalizedAt: string | null;
+  digest: string;
+  bundle: ReviewBundle;
+  /** For the "back to…" link, so the staff route needs no second read. */
+  encounterId: string;
+  /**
+   * Whether the reader is the owning doctor, as the DATABASE sees it — not as
+   * the session's role cookie claims. The screen uses it to decide which chrome
+   * to show; it is never the reason anything is readable.
+   */
+  viewerIsOwner: boolean;
+  /**
+   * Owner-only, and NULL for staff because the RPC does not send it to them.
+   * See `0022_prescription_handover.sql`: a correction reason is clinical
+   * reasoning, and the front desk is authorised to hand over paperwork rather
+   * than to read why it was rewritten.
+   */
+  replacementReason: string | null;
+  replacesPrescriptionId: string | null;
+}
+
 export type FinalizedOutcome =
-  | { ok: true; finalized: { finalizedAt: string | null; digest: string; bundle: ReviewBundle } }
+  | { ok: true; finalized: FinalizedPrescription }
   | { ok: false; reason: "not-finalized" }
   | { ok: false; reason: "unsupported-schema"; found: number }
   | { ok: false; reason: "unavailable" };
@@ -205,7 +227,94 @@ export async function getFinalizedPrescription(
       finalizedAt: (row.finalizedAt as string | null) ?? null,
       digest: parsed.review.digest,
       bundle: parsed.review.bundle,
+      encounterId: row.encounterId as string,
+      viewerIsOwner: row.viewerIsOwner === true,
+      replacementReason: (row.replacementReason as string | null) ?? null,
+      replacesPrescriptionId: (row.replacesPrescriptionId as string | null) ?? null,
     },
+  };
+}
+
+/**
+ * Finalised prescriptions waiting to be handed over at ONE location.
+ *
+ * This is how the front desk ARRIVES at a prescription. Before Stage 7C-3C
+ * there was no way: `finalized_prescriptions_at` existed in the database and
+ * nothing in the app called it, so reception could only reach a prescription by
+ * being sent a link — or by walking the doctor's own consultation route, which
+ * they cannot open. A handover workflow with no way in is not a workflow.
+ *
+ * The location is the caller's ACTIVE one, never a parameter from the page.
+ * The RPC re-checks membership anyway and answers "location not found" for a
+ * clinic that is not theirs, exactly as it does for one that does not exist.
+ */
+export interface HandoverListItem {
+  prescriptionId: string;
+  patientId: string;
+  patientName: string;
+  patientNumber: string;
+  finalizedAt: string | null;
+  itemCount: number;
+}
+
+export type HandoverListOutcome =
+  | { ok: true; items: HandoverListItem[] }
+  | { ok: false; reason: "unavailable" };
+
+export async function getFinalizedPrescriptionsAt(
+  activeLocationId: string,
+): Promise<HandoverListOutcome> {
+  const supabase = await createSupabaseServerClient();
+
+  const { data, error } = await supabase.rpc("finalized_prescriptions_at", {
+    p_practice_location_id: activeLocationId,
+    p_patient_id: null,
+  });
+
+  if (error) {
+    console.error("[prescriptions] handover list failed", error.message);
+    return { ok: false, reason: "unavailable" };
+  }
+
+  const rows = (data ?? []) as Record<string, unknown>[];
+  if (rows.length === 0) return { ok: true, items: [] };
+
+  /**
+   * Names come from a SECOND, separately-authorised read.
+   *
+   * The RPC returns patient IDS on purpose — it is a prescription list, not a
+   * patient directory. Resolving the names through the ordinary `patients`
+   * policy means a caller who somehow held a prescription id they may see, for
+   * a patient they may not, still gets no name out of it. A missing row is
+   * shown as unnamed rather than dropped: hiding the row would hide a
+   * prescription the patient is standing there waiting for.
+   */
+  const ids = [...new Set(rows.map((r) => r.patient_id as string))];
+  const { data: patients } = await supabase
+    .from("patients")
+    .select("id, full_name, patient_number")
+    .in("id", ids);
+
+  const byId = new Map(
+    (patients ?? []).map((p) => [
+      p.id as string,
+      { name: p.full_name as string, number: p.patient_number as string },
+    ]),
+  );
+
+  return {
+    ok: true,
+    items: rows.map((r) => {
+      const patient = byId.get(r.patient_id as string);
+      return {
+        prescriptionId: r.prescription_id as string,
+        patientId: r.patient_id as string,
+        patientName: patient?.name ?? "—",
+        patientNumber: patient?.number ?? "",
+        finalizedAt: (r.finalized_at as string | null) ?? null,
+        itemCount: Number(r.item_count ?? 0),
+      };
+    }),
   };
 }
 

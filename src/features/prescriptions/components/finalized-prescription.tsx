@@ -24,12 +24,20 @@ import { ReviewSheet } from "./review-sheet";
 export function FinalizedPrescription({
   prescriptionId,
   encounterId,
+  viewerIsOwner,
   finalizedAt,
   digest,
   bundle,
 }: {
   prescriptionId: string;
   encounterId: string;
+  /**
+   * As the DATABASE answered, not as the session's roles claim. It chooses
+   * chrome and nothing else — every clinical field below comes from the same
+   * immutable snapshot either way, which is what makes the doctor's print and
+   * the front desk's print the same document.
+   */
+  viewerIsOwner: boolean;
   finalizedAt: string | null;
   digest: string;
   bundle: ReviewBundle;
@@ -51,12 +59,18 @@ export function FinalizedPrescription({
 
   return (
     <div className="space-y-4 pb-2">
+      {/*
+        Where "back" goes depends on where the reader came from, and reception
+        cannot open a consultation. Offering them the link anyway would be a
+        dead end that reads as a permissions error — and pointing staff at a
+        clinical route is exactly the habit this stage is meant to break.
+      */}
       <Link
-        href={`/consultation/${encounterId}`}
+        href={viewerIsOwner ? `/consultation/${encounterId}` : "/queue"}
         className="inline-flex h-11 items-center gap-1.5 text-[13px] font-semibold text-ink-secondary hover:text-ink focus-visible:focus-ring"
       >
         <ArrowLeft className="size-4" aria-hidden="true" />
-        Back to the consultation
+        {viewerIsOwner ? "Back to the consultation" : "Back to the queue"}
       </Link>
 
       <p
@@ -65,10 +79,26 @@ export function FinalizedPrescription({
       >
         <Lock className="mt-px size-4 shrink-0 text-success" aria-hidden="true" />
         <span>
-          <strong className="font-semibold text-ink">Approved.</strong> This prescription is part of
-          the patient&rsquo;s clinical record
-          {finalizedAt ? ` as of ${formatDate(finalizedAt.slice(0, 10))}` : ""} and cannot be
-          edited. A correction is a new prescription.
+          <strong className="font-semibold text-ink">Approved.</strong>{" "}
+          {viewerIsOwner ? (
+            <>
+              This prescription is part of the patient&rsquo;s clinical record
+              {finalizedAt ? ` as of ${formatDate(finalizedAt.slice(0, 10))}` : ""} and cannot be
+              edited. A correction is a new prescription.
+            </>
+          ) : (
+            /*
+              The front desk needs to know two things: it is safe to hand over,
+              and it is not theirs to change. Not "a correction is a new
+              prescription" — that is an instruction for someone who can write
+              one.
+            */
+            <>
+              Signed by the doctor
+              {finalizedAt ? ` on ${formatDate(finalizedAt.slice(0, 10))}` : ""} and ready to give
+              to the patient. It cannot be edited here.
+            </>
+          )}
         </span>
       </p>
 
@@ -81,10 +111,15 @@ export function FinalizedPrescription({
         record rather than taken on trust. It is the digest the doctor approved
         and the one stored with the prescription — and it is chrome, so it is
         marked as never printing.
+
+        Doctor only: it is a diagnostic for whoever owns the record, and it is
+        nothing the front desk can act on.
       */}
-      <p data-print-hidden className="font-mono text-[11px] break-all text-ink-muted">
-        {digest}
-      </p>
+      {viewerIsOwner ? (
+        <p data-print-hidden className="font-mono text-[11px] break-all text-ink-muted">
+          {digest}
+        </p>
+      ) : null}
     </div>
   );
 }
