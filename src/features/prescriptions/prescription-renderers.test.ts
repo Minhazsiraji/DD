@@ -208,6 +208,31 @@ describe("the printed page carries the prescription and nothing else", () => {
     expect(print).toMatch(/\[data-print-only\][^{]*\{[^}]*visibility:\s*visible/);
   });
 
+  /**
+   * A fixed element reserves no vertical space, so a repeated continuation
+   * header could print on top of the doctor's name or a dose. It was removed;
+   * this stops it coming back without the reserved-space problem being solved.
+   */
+  it("has no fixed overlay inside the printed document", async () => {
+    const css = await readFile(path.resolve("src/app/globals.css"), "utf8");
+    const print = css.slice(css.indexOf("@media print"));
+
+    expect(print).not.toMatch(/\[data-print-continuation\]/);
+    // The print root itself is positioned; nothing INSIDE it may be.
+    expect(print).not.toMatch(/\[data-print-root\][^{]*\*[^{]*\{[^}]*position:\s*fixed/);
+  });
+
+  it("does not estimate a page count from element heights", async () => {
+    /**
+     * `break-inside`, orphans and widows, font metrics and printer scaling all
+     * move the breaks. A number that is usually right is worse than no number,
+     * because it gets believed.
+     */
+    const text = await code("print-prescription.tsx");
+    expect(text).not.toMatch(/Math\.ceil\([^)]*height/i);
+    expect(text).not.toMatch(/about \{?\w*[Pp]ages/);
+  });
+
   it("keeps the digest and the app chrome off the paper", async () => {
     const finalized = await source("finalized-prescription.tsx");
     // The digest line is pilot diagnostics, not part of the document.

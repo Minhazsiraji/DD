@@ -5,8 +5,6 @@ import { CircleAlert, Loader2, Printer } from "lucide-react";
 import { SectionCard } from "@/components/common/section-card";
 import { frozenSignatureUrlAction } from "../actions";
 import type { ReviewView } from "../review-view";
-import { PAPER_MM } from "@/features/doctor/schema";
-import { ContinuationIdentity } from "./prescription-parts";
 import { PrintSheet } from "./print-sheet";
 
 /**
@@ -43,8 +41,6 @@ type Readiness =
    */
   | { kind: "too-wide" };
 
-const MM_PER_PX = 25.4 / 96;
-
 export function PrintPrescription({
   prescriptionId,
   view,
@@ -56,7 +52,7 @@ export function PrintPrescription({
   const [signatureUrl, setSignatureUrl] = React.useState<string | null>(null);
   const [signatureReady, setSignatureReady] = React.useState(!needsSignature);
   const [signatureFailed, setSignatureFailed] = React.useState(false);
-  const [pages, setPages] = React.useState<number | null>(null);
+  const [measured, setMeasured] = React.useState(false);
   const [tooWide, setTooWide] = React.useState(false);
 
   /**
@@ -166,18 +162,20 @@ export function PrintPrescription({
 
     const measure = () => {
       /**
-       * HEIGHT is no longer a failure. The sheet flows and `@page` fragments
-       * it, so a long prescription becomes more pages rather than a refusal.
-       * What is measured now is the page count — useful to a doctor deciding
-       * whether to print — and horizontal overflow, which cannot paginate and
-       * would genuinely run text off the edge of the paper.
+       * WIDTH only.
+       *
+       * Height is not a failure any more — the sheet flows and `@page`
+       * fragments it — and it is deliberately not counted either. Dividing
+       * content height by page height looks like a page count but is not one:
+       * `break-inside`, orphans and widows, font metrics and the printer's own
+       * scaling all move the breaks. A number that is usually right is worse
+       * than no number, because it gets believed.
+       *
+       * Width genuinely cannot flow, so a line wider than the paper really
+       * would be lost off the edge. That is the one thing left to measure.
        */
-      const paper = PAPER_MM[view.paperSize];
-      const usableHeightMm = paper.h - view.marginMm * 2;
-      const contentMm = el.getBoundingClientRect().height * MM_PER_PX;
-
-      setPages(Math.max(1, Math.ceil(contentMm / usableHeightMm - 0.02)));
       setTooWide(el.scrollWidth > el.clientWidth + 1);
+      setMeasured(true);
     };
 
     measure();
@@ -188,7 +186,7 @@ export function PrintPrescription({
 
   const readiness: Readiness =
     signatureFailed ? { kind: "signature-unavailable" }
-    : pages === null || (needsSignature && !signatureReady) ? { kind: "preparing" }
+    : !measured || (needsSignature && !signatureReady) ? { kind: "preparing" }
     : tooWide ? { kind: "too-wide" }
     : { kind: "ready" };
 
@@ -248,13 +246,7 @@ export function PrintPrescription({
           <p className="text-[12px] text-ink-muted">
             In the print dialog, choose your printer or &ldquo;Save as PDF&rdquo;. This prints on{" "}
             {view.paperSize} paper with a {view.marginMm} mm margin — the layout this prescription
-            was approved on.
-            {pages && pages > 1 ? (
-              <>
-                {" "}
-                It runs to about {pages} pages; the exact break depends on your printer.
-              </>
-            ) : null}
+            was approved on, across as many pages as it needs.
           </p>
         </div>
       </SectionCard>
@@ -266,12 +258,6 @@ export function PrintPrescription({
         media it becomes the only visible thing on the page.
       */}
       <div data-print-only aria-hidden="true" ref={wrapperRef}>
-        {/*
-          Outside the measured sheet on purpose: it is a page-level marker, and
-          including it in the flow would both add its height to the page count
-          and print it once at the top instead of on the pages that need it.
-        */}
-        <ContinuationIdentity view={view} />
         <PrintSheet view={view} signatureUrl={signatureUrl} />
       </div>
     </>

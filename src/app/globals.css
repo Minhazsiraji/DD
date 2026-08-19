@@ -489,27 +489,22 @@
    */
 
   /**
-   * Who a loose second page belongs to. Hidden on page one by the padding the
-   * page box already provides, and carried by `position: fixed`, which
-   * Chromium repeats per page. See the note in print-sheet.tsx: repetition
-   * itself is not something this project can assert automatically.
+   * NO REPEATED CONTINUATION HEADER, on purpose.
+   *
+   * There was one: a `position: fixed` line naming the patient, meant for
+   * pages 2 and beyond. It was removed rather than refined, because a fixed
+   * element is outside normal flow and therefore reserves NO vertical space —
+   * so on a real continuation page it could have printed on top of the doctor
+   * header, the patient line, or a medicine instruction. It also appeared on
+   * page one, where it means nothing.
+   *
+   * Reserving space for it reliably needs to know which pages are
+   * continuations, and there is no page-count API to build that on. A label
+   * that is useful when it lands correctly and dangerous when it does not is
+   * not a trade worth making on a clinical document.
+   *
+   * What identifies a loose page instead: the medicines are numbered, the
+   * signature sits at the end, and page one carries the full letterhead. It
+   * goes on the Friendly Doctor checklist, and comes back only with proof.
    */
-  [data-print-continuation] {
-    position: fixed;
-    top: 0;
-    left: 0;
-    right: 0;
-    font-size: 8pt;
-    opacity: 0.75;
-  }
-}
-
-/* Never on screen — it exists only for paper. */
-[data-print-continuation] {
-  display: none;
-}
-@media print {
-  [data-print-continuation] {
-    display: block;
-  }
 }
