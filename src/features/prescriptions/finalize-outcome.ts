@@ -142,8 +142,25 @@ export function finalizePolicy(kind: FinalizeKind): FinalizePolicy {
   }
 }
 
-/** What the RPC told us, before we know what it means. */
-export type FinalizeRefusal = "none" | "review-stale" | "conflict" | "not-draft" | "error";
+/**
+ * What the RPC told us, before we know what it means.
+ *
+ * `refused` and `unknown` are the distinction this stage turns on. "I received
+ * an error" is NOT "the database rejected the write": a request can commit in
+ * Postgres and then lose its response to a dropped connection, a timeout or a
+ * gateway. Treating that as a proven refusal would put the Finalize button back
+ * in front of a doctor whose prescription is already signed.
+ */
+export type FinalizeRefusal =
+  | "none"
+  /** Our own function raised, so the whole transaction aborted. */
+  | "review-stale"
+  | "conflict"
+  | "not-draft"
+  /** Another refusal our function raised — certainly nothing was written. */
+  | "refused"
+  /** We cannot prove anything. The write may be on the record. */
+  | "unknown";
 
 /** The prescription's authoritative status, or null when it could not be read. */
 export type AuthoritativeStatus = "FINALIZED" | "DRAFT" | "VOIDED" | null;
@@ -163,7 +180,29 @@ export function classifyFinalize(input: {
 }): FinalizeKind {
   const { refusal, earnedVersion, status } = input;
 
-  if (refusal === "error") return "error";
+  /**
+   * A refusal we can PROVE came from our own function. Every token it raises
+   * aborts the transaction, so nothing was written and the doctor may fix the
+   * cause and approve the same bundle.
+   */
+  if (refusal === "refused") return "error";
+
+  /**
+   * We could not prove the database refused it — so we must assume it might
+   * have committed, and find out by reading rather than by asking the doctor
+   * to click again.
+   *
+   * This is deliberately the SAME treatment as a success we cannot read back.
+   * The two are indistinguishable from here, and the safe reading of both is
+   * "it may be on the record".
+   */
+  if (refusal === "unknown") {
+    if (status === "FINALIZED") return "finalized";
+    // Still a draft: the write provably did not land, but what was reviewed is
+    // no longer trustworthy, so a fresh review comes before another attempt.
+    if (status === "DRAFT" || status === "VOIDED") return "conflict-rejected";
+    return "finalization-unconfirmed";
+  }
 
   /**
    * REVIEW_STALE is raised BEFORE anything is written — `finalize_prescription`
@@ -203,6 +242,54 @@ export function classifyFinalize(input: {
 
   // Unreadable.
   return "finalization-unconfirmed";
+}
+
+/**
+ * Every token our prescription functions raise.
+ *
+ * Each one aborts the transaction before or instead of the write, so seeing one
+ * is positive evidence that nothing committed. Nothing else in the world
+ * produces these strings — which is exactly why they, and not the mere presence
+ * of an error, are the evidence.
+ */
+const REFUSAL_TOKENS = [
+  "REVIEW_STALE",
+  "PRESCRIPTION_VERSION_CONFLICT",
+  "PRESCRIPTION_NOT_DRAFT",
+  "PRESCRIPTION_EMPTY",
+  "PRESCRIPTION_ITEM_INVALID",
+  "PRESCRIPTION_REPLACEMENT_NEEDS_REASON",
+  "TEMPLATE_NOT_AVAILABLE",
+  "TEMPLATE_LOGO_UNSUPPORTED",
+  "SIGNATURE_NOT_FROZEN",
+  "POSITION_OUT_OF_RANGE",
+  "PRESCRIPTION NOT FOUND",
+  "ENCOUNTER NOT FOUND",
+  "LOCATION NOT FOUND",
+  "ONLY A DOCTOR CAN WRITE A PRESCRIPTION",
+  "NOT A DOCTOR",
+  "NOT AUTHENTICATED",
+] as const;
+
+/**
+ * What the database said, if we can prove the database said anything.
+ *
+ * The default is NOT "error". For an irreversible write, an unrecognised
+ * failure means UNKNOWN COMMIT STATE — a fetch that never returned, a timeout,
+ * a reset connection or a gateway between us and a transaction that may well
+ * have committed. Only a token we raise ourselves downgrades that to certainty.
+ */
+export function classifyRefusal(error: { message?: unknown; code?: unknown } | null): FinalizeRefusal {
+  if (!error) return "none";
+
+  const message = typeof error.message === "string" ? error.message.toUpperCase() : "";
+  if (message === "") return "unknown";
+
+  if (message.includes("REVIEW_STALE")) return "review-stale";
+  if (message.includes("PRESCRIPTION_VERSION_CONFLICT")) return "conflict";
+  if (message.includes("PRESCRIPTION_NOT_DRAFT")) return "not-draft";
+
+  return REFUSAL_TOKENS.some((token) => message.includes(token)) ? "refused" : "unknown";
 }
 
 /**

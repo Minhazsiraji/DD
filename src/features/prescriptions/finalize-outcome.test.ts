@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   classifyFinalize,
+  classifyRefusal,
   finalizePolicy,
   resolveAfterRecovery,
   type FinalizeKind,
@@ -105,10 +106,114 @@ describe("classifyFinalize — did it commit?", () => {
     );
   });
 
-  it("an ordinary refusal is its own outcome", () => {
-    expect(classifyFinalize({ refusal: "error", earnedVersion: null, status: "DRAFT" })).toBe(
+  it("a refusal we can prove our function raised is its own outcome", () => {
+    expect(classifyFinalize({ refusal: "refused", earnedVersion: null, status: "DRAFT" })).toBe(
       "error",
     );
+  });
+});
+
+/**
+ * The blocker found in review: "I received an error" is NOT "the database
+ * rejected the write".
+ *
+ * A request can commit in Postgres and then lose its response to a dropped
+ * connection, a timeout or a gateway. Classifying that as a proven refusal put
+ * the Finalize button back in front of a doctor whose prescription was already
+ * signed — the one thing this whole stage exists to prevent.
+ */
+describe("classifyRefusal — evidence, not a fall-through", () => {
+  it("recognises the tokens our own function raises", () => {
+    expect(classifyRefusal({ message: "REVIEW_STALE", code: "22023" })).toBe("review-stale");
+    expect(classifyRefusal({ message: "PRESCRIPTION_VERSION_CONFLICT", code: "P0001" })).toBe(
+      "conflict",
+    );
+    expect(classifyRefusal({ message: "PRESCRIPTION_NOT_DRAFT", code: "22023" })).toBe("not-draft");
+  });
+
+  it("treats every other token it raises as a proven refusal", () => {
+    for (const token of [
+      "PRESCRIPTION_EMPTY",
+      "TEMPLATE_NOT_AVAILABLE",
+      "TEMPLATE_LOGO_UNSUPPORTED",
+      "SIGNATURE_NOT_FROZEN",
+      "prescription not found",
+      "only a doctor can write a prescription",
+    ]) {
+      expect(classifyRefusal({ message: token }), token).toBe("refused");
+    }
+  });
+
+  it("survives the wrapping PostgREST puts around a raised message", () => {
+    expect(
+      classifyRefusal({ message: "unexpected response: REVIEW_STALE (code 22023)" }),
+    ).toBe("review-stale");
+  });
+
+  it("calls a transport failure UNKNOWN, never a refusal", () => {
+    for (const message of [
+      "TypeError: fetch failed",
+      "network error",
+      "connect ETIMEDOUT",
+      "ECONNRESET",
+      "502 Bad Gateway",
+      "Unexpected token < in JSON at position 0",
+      "",
+    ]) {
+      expect(classifyRefusal({ message }), message || "(empty)").toBe("unknown");
+    }
+  });
+
+  it("calls an unrecognised database error UNKNOWN too", () => {
+    // We cannot prove where it came from, so we do not get to assume.
+    expect(classifyRefusal({ message: "could not serialize access", code: "40001" })).toBe(
+      "unknown",
+    );
+  });
+
+  it("has no error at all when the RPC succeeded", () => {
+    expect(classifyRefusal(null)).toBe("none");
+  });
+});
+
+describe("an unknown failure is resolved by reading, never by retrying", () => {
+  it("becomes unconfirmed when the record cannot be read", () => {
+    const kind = classifyFinalize({ refusal: "unknown", earnedVersion: null, status: null });
+    expect(kind).toBe("finalization-unconfirmed");
+    expect(finalizePolicy(kind).offersFinalize).toBe(false);
+    expect(finalizePolicy(kind).blocks).toBe(true);
+  });
+
+  it("resolves to finalized when the record shows it committed", () => {
+    // The response was lost; the write was not.
+    expect(classifyFinalize({ refusal: "unknown", earnedVersion: null, status: "FINALIZED" })).toBe(
+      "finalized",
+    );
+  });
+
+  it("requires a fresh review when the record is still a draft", () => {
+    const kind = classifyFinalize({ refusal: "unknown", earnedVersion: null, status: "DRAFT" });
+    expect(kind).toBe("conflict-rejected");
+    expect(finalizePolicy(kind).requiresFreshReview).toBe(true);
+    expect(finalizePolicy(kind).offersFinalize).toBe(false);
+  });
+
+  /** The regression itself, stated as a rule. */
+  it("can never map straight to a retryable error", () => {
+    for (const status of ["FINALIZED", "DRAFT", "VOIDED", null] as const) {
+      const kind = classifyFinalize({ refusal: "unknown", earnedVersion: null, status });
+      expect({ status, kind }).not.toEqual({ status, kind: "error" });
+      expect({ status, offers: finalizePolicy(kind).offersFinalize }).toEqual({
+        status,
+        offers: false,
+      });
+    }
+  });
+
+  it("…and neither can a success whose returned version is malformed", () => {
+    const kind = classifyFinalize({ refusal: "none", earnedVersion: null, status: null });
+    expect(kind).toBe("finalization-unconfirmed");
+    expect(finalizePolicy(kind).offersFinalize).toBe(false);
   });
 });
 

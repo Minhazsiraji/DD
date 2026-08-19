@@ -27,10 +27,10 @@ import {
 } from "./errors";
 import {
   classifyFinalize,
+  classifyRefusal,
   resolveAfterRecovery,
   type AuthoritativeStatus,
   type FinalizeKind,
-  type FinalizeRefusal,
 } from "./finalize-outcome";
 import { classifyWrite } from "./recovery";
 import { medicineInputSchema, type MedicineRow, type Suggestion } from "./schema";
@@ -663,16 +663,29 @@ export async function finalizePrescriptionAction(input: {
     p_review_digest: reviewedDigest,
   });
 
-  const refusal = classifyRefusal(error?.message ?? null);
+  const refusal = classifyRefusal(error ?? null);
 
   /**
-   * An ordinary refusal wrote nothing and needs no status read — and reading
-   * would only add a way to fail. Everything else does, because what the record
-   * says now is the difference between "approved" and "approve again".
+   * A refusal we can PROVE our own function raised wrote nothing, so it needs
+   * no status read — and reading would only add a way to fail.
+   *
+   * Everything else DOES get read, including errors we do not recognise. A
+   * request can commit in Postgres and then lose its response; an unrecognised
+   * error is not evidence of anything, and treating it as a proven failure
+   * would put the Finalize button back in front of a doctor whose prescription
+   * is already signed.
    */
-  if (refusal === "error") {
+  if (refusal === "refused") {
     const t = safe("finalize_prescription", error!.message);
     return { kind: "error", message: t.message };
+  }
+
+  if (refusal === "unknown") {
+    console.error(
+      "[prescriptions] finalisation failed in a way we cannot classify — treating the commit state as UNKNOWN",
+      prescriptionId,
+      error?.message ?? "(no message)",
+    );
   }
 
   const status = await readStatus(prescriptionId, ctx.locationId);
@@ -738,15 +751,6 @@ async function readStatus(
 }
 
 /** What the database refused with, before we decide what it means. */
-function classifyRefusal(message: string | null): FinalizeRefusal {
-  if (!message) return "none";
-  const m = message.toUpperCase();
-  if (m.includes("REVIEW_STALE")) return "review-stale";
-  if (m.includes("PRESCRIPTION_VERSION_CONFLICT")) return "conflict";
-  if (m.includes("PRESCRIPTION_NOT_DRAFT")) return "not-draft";
-  return "error";
-}
-
 function finalizeMessage(kind: FinalizeKind): string {
   switch (kind) {
     case "finalized":
