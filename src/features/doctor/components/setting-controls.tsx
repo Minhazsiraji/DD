@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { Minus, Plus } from "lucide-react";
 
 /**
  * Controlled form controls for the template editor.
@@ -171,16 +172,45 @@ export function NumberRow({
           {value} {unit}
         </span>
       </div>
-      <input
-        id={id}
-        name={name}
-        type="range"
-        min={min}
-        max={max}
-        value={value}
-        onChange={(e) => onChange(Number(e.target.value))}
-        className="h-11 w-full accent-brand focus-visible:focus-ring"
-      />
+      {/*
+        A slider AND steppers, because they fail in opposite directions: the
+        slider is quick but imprecise — especially with a thumb on a phone —
+        and "20 mm" versus "21 mm" is the kind of thing a doctor sets once and
+        expects to hold. The steppers make an exact value reachable; the range
+        keeps it inside the validated bounds either way.
+      */}
+      <div className="flex items-center gap-2">
+        <button
+          type="button"
+          aria-label={`Decrease ${label}`}
+          disabled={value <= min}
+          onClick={() => onChange(Math.max(min, value - 1))}
+          className="inline-flex size-11 shrink-0 items-center justify-center rounded-xl border border-hairline bg-white text-ink hover:bg-surface-muted disabled:opacity-40 focus-visible:focus-ring"
+        >
+          <Minus className="size-4" aria-hidden="true" />
+        </button>
+
+        <input
+          id={id}
+          name={name}
+          type="range"
+          min={min}
+          max={max}
+          value={value}
+          onChange={(e) => onChange(Number(e.target.value))}
+          className="h-11 min-w-0 flex-1 accent-brand focus-visible:focus-ring"
+        />
+
+        <button
+          type="button"
+          aria-label={`Increase ${label}`}
+          disabled={value >= max}
+          onClick={() => onChange(Math.min(max, value + 1))}
+          className="inline-flex size-11 shrink-0 items-center justify-center rounded-xl border border-hairline bg-white text-ink hover:bg-surface-muted disabled:opacity-40 focus-visible:focus-ring"
+        >
+          <Plus className="size-4" aria-hidden="true" />
+        </button>
+      </div>
       {hint ? <p className="text-xs text-ink-muted">{hint}</p> : null}
     </div>
   );

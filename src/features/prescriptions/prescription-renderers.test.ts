@@ -122,6 +122,28 @@ describe("the print sheet is physical", () => {
     expect(text).not.toMatch(/size:\s*A4/);
   });
 
+  /**
+   * The margin is the DOCTOR's, and 15 mm is only where the control starts.
+   *
+   * A print renderer that reached for its own default would quietly overrule a
+   * template the doctor set, approved and finalised — and the paper would be
+   * wrong in a way nothing on screen showed.
+   */
+  it("takes the margin and the type size from the snapshot, never a constant", async () => {
+    const text = await code("print-sheet.tsx");
+    expect(text).toMatch(/padding: `\$\{view\.marginMm\}mm`/);
+    expect(text).toMatch(/fontSize: `\$\{view\.baseFontPt\}pt`/);
+    // No hard-coded page geometry anywhere in the renderer.
+    expect(text).not.toMatch(/15mm|11pt/);
+  });
+
+  it("the screen sheet takes them from the same place", async () => {
+    const text = await code("review-sheet.tsx");
+    expect(text).toMatch(/u\.mm\(view\.marginMm\)/);
+    expect(text).toMatch(/u\.pt\(view\.baseFontPt\)/);
+    expect(text).not.toMatch(/15mm|11pt/);
+  });
+
   it("keeps A4 and A5 apart", () => {
     expect(PAPER_MM.A4).toEqual({ w: 210, h: 297 });
     expect(PAPER_MM.A5).toEqual({ w: 148, h: 210 });
