@@ -1,0 +1,1 @@
+ALTER TABLE "prescriptions" ADD CONSTRAINT "prescriptions_replacement_reason_length" CHECK (replacement_reason is null or char_length(btrim(replacement_reason)) between 1 and 500);

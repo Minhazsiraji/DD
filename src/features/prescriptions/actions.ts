@@ -11,6 +11,7 @@ import { supabaseSignatureStore } from "./freeze-store";
 import {
   getMedicineSuggestions,
   getPrescription,
+  getPrescriptionLineage,
   getReviewBundle,
   type ReviewOutcome,
 } from "./queries";
@@ -200,6 +201,132 @@ export async function openPrescriptionAction(input: {
 
   revalidatePath(`/consultation/${parsed.data.encounterId}`);
   return { ok: true, prescriptionId: data as string };
+}
+
+/**
+ * Start — or find — the correction of a finalised prescription.
+ *
+ * A finalised prescription is never edited. This opens a NEW, BLANK draft that
+ * points back at the one it corrects. Blank on purpose: the medicine being
+ * corrected may be the wrong one, and pre-filling it would put the mistake back
+ * in front of the doctor as a default to accept.
+ *
+ * WHY A LOST RESPONSE MUST NOT BECOME A SECOND CORRECTION
+ *
+ * Opening a replacement is a clinical write. If the RPC commits and the answer
+ * never arrives, the naive retry is "try again" — and a second correction of
+ * the same prescription is exactly the state nobody can reason about. Two
+ * things prevent it. The database has the last word: `open_prescription` takes
+ * an advisory lock on the encounter, resumes any existing DRAFT, and a unique
+ * index allows one replacement per prescription. And before reporting any
+ * failure, this re-reads the AUTHORITATIVE lineage: if a replacement now
+ * exists, that IS the answer, whatever the failed call said.
+ *
+ * So there are three outcomes, and they are kept apart. It exists → open it.
+ * It definitely does not → the doctor may try again. We cannot tell → say so
+ * and create nothing, because a duplicate correction is worse than a retry.
+ */
+export type CorrectionResult =
+  | { ok: true; prescriptionId: string; resumed: boolean }
+  /** Already corrected, and that correction is finalised — show it, don't write. */
+  | { ok: true; prescriptionId: string; alreadyFinalized: true }
+  | { ok: false; kind: "refused"; message: string }
+  /** The write may have landed. Never invite a second attempt on this one. */
+  | { ok: false; kind: "unconfirmed"; message: string };
+
+export async function startCorrectionAction(input: {
+  prescriptionId: string;
+  encounterId: string;
+  reason: string;
+}): Promise<CorrectionResult> {
+  const parsed = z
+    .object({
+      prescriptionId: z.uuid(),
+      encounterId: z.uuid(),
+      /**
+       * Trimmed first, so whitespace cannot satisfy "required". 500 matches the
+       * CHECK constraint on the column — the database is the authority, and
+       * this is the same bound stated where the doctor can be told about it.
+       */
+      reason: z
+        .string()
+        .trim()
+        .min(1, "Say why this prescription is being corrected.")
+        .max(500, "Keep the correction note under 500 characters."),
+    })
+    .safeParse(input);
+
+  if (!parsed.success) {
+    return {
+      ok: false,
+      kind: "refused",
+      message: parsed.error.issues[0]?.message ?? "That correction could not be started.",
+    };
+  }
+
+  const ctx = await requireLocationContext();
+  const supabase = await createSupabaseServerClient();
+  const { prescriptionId, encounterId, reason } = parsed.data;
+
+  /**
+   * Look BEFORE writing. If this prescription has already been corrected, the
+   * doctor means "take me to it" — a second click, a stale tab, or the other
+   * side of a race. Writing first and reconciling afterwards would be racing
+   * a unique index for no reason.
+   */
+  const existing = await getPrescriptionLineage(prescriptionId, ctx.locationId);
+  if (existing.ok && existing.lineage.replacedBy?.id) {
+    const link = existing.lineage.replacedBy;
+    return link.status === "FINALIZED" ?
+        { ok: true, prescriptionId: link.id!, alreadyFinalized: true }
+      : { ok: true, prescriptionId: link.id!, resumed: true };
+  }
+
+  const { data, error } = await supabase.rpc("open_prescription", {
+    p_encounter_id: encounterId,
+    p_practice_location_id: ctx.locationId,
+    p_replacement_reason: reason,
+  });
+
+  if (error || !data) {
+    /**
+     * Ask the record, not the error. A committed write whose response was lost
+     * is indistinguishable from a refusal at this layer — but the lineage knows.
+     */
+    const after = await getPrescriptionLineage(prescriptionId, ctx.locationId);
+
+    if (after.ok && after.lineage.replacedBy?.id) {
+      const link = after.lineage.replacedBy;
+      revalidatePath(`/prescription/${prescriptionId}`);
+      return link.status === "FINALIZED" ?
+          { ok: true, prescriptionId: link.id!, alreadyFinalized: true }
+        : { ok: true, prescriptionId: link.id!, resumed: true };
+    }
+
+    if (!after.ok) {
+      // Unreadable. Creating nothing is the only safe answer.
+      return {
+        ok: false,
+        kind: "unconfirmed",
+        message:
+          "We could not confirm whether the corrected prescription was started. Reload this page before trying again — do not start a second correction.",
+      };
+    }
+
+    if (error) {
+      const safeError = safe("open_prescription", error.message);
+      return { ok: false, kind: "refused", message: safeError.message };
+    }
+    return {
+      ok: false,
+      kind: "refused",
+      message: "The corrected prescription could not be started. Try again.",
+    };
+  }
+
+  revalidatePath(`/prescription/${prescriptionId}`);
+  revalidatePath(`/consultation/${encounterId}`);
+  return { ok: true, prescriptionId: data as string, resumed: false };
 }
 
 export async function addMedicineAction(input: unknown): Promise<RxResult> {

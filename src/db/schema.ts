@@ -1314,6 +1314,20 @@ export const prescriptions = pgTable(
       "prescriptions_replacement_has_reason",
       sql`replaces_prescription_id is null or replacement_reason is not null`,
     ),
+
+    /**
+     * A correction reason is a sentence, not a document.
+     *
+     * 500 characters was already the accepted bound in the server action; this
+     * makes it the DATABASE's bound too. A limit that lives only in Zod is a
+     * limit the RPC does not have, and `open_prescription` is granted directly
+     * to `authenticated`. Trimmed length, so whitespace cannot be used to sit
+     * just under it.
+     */
+    check(
+      "prescriptions_replacement_reason_length",
+      sql`replacement_reason is null or char_length(btrim(replacement_reason)) between 1 and 500`,
+    ),
   ],
 );
 

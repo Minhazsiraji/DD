@@ -3,7 +3,11 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowLeft, CloudOff, Lock } from "lucide-react";
 import { requireLocationContext } from "@/lib/auth/session";
-import { getFinalizedPrescription, getPrescription } from "@/features/prescriptions/queries";
+import {
+  getFinalizedPrescription,
+  getPrescription,
+  getPrescriptionLineage,
+} from "@/features/prescriptions/queries";
 import { PrescriptionComposer } from "@/features/prescriptions/components/prescription-composer";
 import { FinalizedPrescription } from "@/features/prescriptions/components/finalized-prescription";
 
@@ -58,6 +62,15 @@ export default async function PrescriptionPage({
   }
 
   if (finalized.ok) {
+    /**
+     * Lineage is a second read on purpose. It answers a different question from
+     * "what does this prescription say" — namely "is this still the one to hand
+     * over" — and it must be able to fail on its own. A failed lineage read
+     * shows a warning; it never blocks an approved document from rendering, and
+     * it never silently reports "no correction".
+     */
+    const lineage = await getPrescriptionLineage(prescriptionId, ctx.locationId);
+
     return (
       <FinalizedPrescription
         prescriptionId={prescriptionId}
@@ -66,6 +79,8 @@ export default async function PrescriptionPage({
         finalizedAt={finalized.finalized.finalizedAt}
         digest={finalized.finalized.digest}
         bundle={finalized.finalized.bundle}
+        lineage={lineage.ok ? lineage.lineage : null}
+        lineageUnavailable={!lineage.ok}
       />
     );
   }

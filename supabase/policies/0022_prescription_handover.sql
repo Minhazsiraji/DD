@@ -101,6 +101,11 @@ grant execute on function public.finalized_prescription_detail(uuid, uuid) to au
 /**
  * What is waiting to be handed over here — and ONLY that.
  *
+ * SUPERSEDED BY `0023_prescription_correction.sql`, which re-creates this
+ * function with two extra columns for correction lineage. The definition is
+ * kept here because it is where the fix below was made and where the reasoning
+ * belongs; 0023 carries the same row filter forward verbatim.
+ *
  * A CROSS-DOCTOR DISCLOSURE, FOUND AND CLOSED IN 7C-3C.
  *
  * The row filter used to be `owner_doctor_id = current_doctor_id() OR

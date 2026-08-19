@@ -5,10 +5,13 @@ import Link from "next/link";
 import { ArrowLeft, Lock } from "lucide-react";
 import { formatDate } from "@/lib/format";
 import { frozenSignatureUrlAction } from "../actions";
+import type { PrescriptionLineage } from "../queries";
 import type { ReviewBundle } from "../review-bundle";
 import { toReviewView } from "../review-view";
+import { CorrectionLineage } from "./correction-banner";
 import { PrintPrescription } from "./print-prescription";
 import { ReviewSheet } from "./review-sheet";
+import { WriteCorrection } from "./write-correction";
 
 /**
  * An approved prescription — the permanent record.
@@ -28,6 +31,8 @@ export function FinalizedPrescription({
   finalizedAt,
   digest,
   bundle,
+  lineage,
+  lineageUnavailable,
 }: {
   prescriptionId: string;
   encounterId: string;
@@ -41,6 +46,13 @@ export function FinalizedPrescription({
   finalizedAt: string | null;
   digest: string;
   bundle: ReviewBundle;
+  /**
+   * Correction history. Null when the read failed — which is shown as "we could
+   * not check", never as "there is no correction". Those are different things
+   * to say to someone about to hand a prescription to a patient.
+   */
+  lineage: PrescriptionLineage | null;
+  lineageUnavailable: boolean;
 }) {
   const view = React.useMemo(() => toReviewView(bundle), [bundle]);
   const [signatureUrl, setSignatureUrl] = React.useState<string | null>(null);
@@ -92,19 +104,45 @@ export function FinalizedPrescription({
               and it is not theirs to change. Not "a correction is a new
               prescription" — that is an instruction for someone who can write
               one.
+
+              And NOT "ready to give to the patient" once a correction exists.
+              Found by reading the screen as reception: this line sat directly
+              above "do not hand this one over", and a person scanning two
+              banners for an instruction should never have to decide which of
+              two contradictions to believe.
             */
             <>
               Signed by the doctor
-              {finalizedAt ? ` on ${formatDate(finalizedAt.slice(0, 10))}` : ""} and ready to give
-              to the patient. It cannot be edited here.
+              {finalizedAt ? ` on ${formatDate(finalizedAt.slice(0, 10))}` : ""}
+              {lineage?.replacedBy ?
+                ". It cannot be edited here — see the note below before giving the patient anything."
+              : " and ready to give to the patient. It cannot be edited here."}
             </>
           )}
         </span>
       </p>
 
+      {/*
+        Correction history sits ABOVE the sheet and outside it. Above, because
+        "do not hand this one over" is useless after someone has read the
+        medicines and pressed Print. Outside, because the paper must reproduce
+        exactly as approved — see `correction-banner.tsx`.
+      */}
+      <CorrectionLineage lineage={lineage} unavailable={lineageUnavailable} />
+
       <ReviewSheet view={view} signatureUrl={frozen ? signatureUrl : null} />
 
       <PrintPrescription prescriptionId={prescriptionId} view={view} />
+
+      {/*
+        Offered only to the owning doctor, and only while this prescription is
+        still the current one. Once it has been corrected the banner above
+        already points at the replacement, and a second "write a correction"
+        control there would be offering to correct a superseded sheet.
+      */}
+      {viewerIsOwner && !lineage?.replacedBy ? (
+        <WriteCorrection prescriptionId={prescriptionId} encounterId={encounterId} />
+      ) : null}
 
       {/*
         Shown during the pilot so a reported problem can be checked against the

@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { CircleAlert, FileText, Printer } from "lucide-react";
+import { CircleAlert, FileText, History, Printer } from "lucide-react";
 import { PageHeader } from "@/components/common/page-header";
 import { SectionCard } from "@/components/common/section-card";
 import { requireLocationContext } from "@/lib/auth/session";
@@ -66,11 +66,41 @@ export default async function HandoverPage() {
             <li key={item.prescriptionId}>
               <Link
                 href={`/prescription/${item.prescriptionId}`}
-                className="clinical-surface flex min-h-16 items-center justify-between gap-4 rounded-glass px-4 py-3 transition-colors hover:bg-surface-muted focus-visible:focus-ring"
+                className={`flex min-h-16 items-center justify-between gap-4 rounded-glass px-4 py-3 transition-colors focus-visible:focus-ring ${
+                  item.isSuperseded
+                    ? /*
+                        Still listed, still openable — history stays complete and
+                        a doctor must be able to find what was issued that day.
+                        But it is visibly not the one to print: no white clinical
+                        surface, no printer icon, dimmed text.
+                      */
+                      "border border-dashed border-hairline bg-surface-muted/40 hover:bg-surface-muted"
+                    : "clinical-surface hover:bg-surface-muted"
+                }`}
               >
                 <span className="min-w-0">
-                  <span className="block truncate text-[15px] font-semibold text-ink">
-                    {item.patientName}
+                  <span className="flex flex-wrap items-center gap-2">
+                    <span
+                      className={`truncate text-[15px] font-semibold ${
+                        item.isSuperseded ? "text-ink-secondary" : "text-ink"
+                      }`}
+                    >
+                      {item.patientName}
+                    </span>
+                    {/*
+                      Never colour alone. The scenario this exists for: V1 is
+                      printed, the doctor corrects it, V2 is signed — and both
+                      are FINALIZED prescriptions for the same patient minutes
+                      apart. Without this the front desk has no way to tell
+                      which one the patient should leave with, and handing over
+                      V1 hands over the dose that was corrected.
+                    */}
+                    {item.isSuperseded ? (
+                      <span className="inline-flex items-center gap-1 rounded-md bg-warning-soft px-1.5 py-0.5 text-[11px] font-semibold text-ink">
+                        <History className="size-3" aria-hidden="true" />
+                        Superseded — do not hand over
+                      </span>
+                    ) : null}
                   </span>
                   <span className="block text-[12px] text-ink-secondary">
                     {item.patientNumber ? (
@@ -81,9 +111,14 @@ export default async function HandoverPage() {
                     {item.finalizedAt
                       ? ` · signed ${formatDate(item.finalizedAt.slice(0, 10))} ${formatInstantTime(item.finalizedAt)}`
                       : ""}
+                    {item.isSuperseded ? " · a corrected prescription replaces this one" : ""}
                   </span>
                 </span>
-                <Printer className="size-5 shrink-0 text-ink-muted" aria-hidden="true" />
+                {item.isSuperseded ? (
+                  <History className="size-5 shrink-0 text-ink-muted" aria-hidden="true" />
+                ) : (
+                  <Printer className="size-5 shrink-0 text-ink-muted" aria-hidden="true" />
+                )}
               </Link>
             </li>
           ))}

@@ -236,6 +236,86 @@ export async function getFinalizedPrescription(
 }
 
 /**
+ * Correction lineage: what supersedes this prescription, and what it corrects.
+ *
+ * The reason is present only for the owning doctor — the RPC does not send it
+ * to anyone else. Staff get the operational fact ("there is a newer sheet") so
+ * they do not hand over a corrected dose, and an id to follow only when they
+ * could actually open it.
+ */
+export interface LineageLink {
+  /** Null when the reader may not open it — they still learn it exists. */
+  id: string | null;
+  status: "DRAFT" | "FINALIZED" | "VOIDED";
+  finalizedAt: string | null;
+}
+
+export interface PrescriptionLineage {
+  viewerIsOwner: boolean;
+  replacedBy: (LineageLink & { reason: string | null }) | null;
+  replaces: LineageLink | null;
+  /** Why THIS prescription was written. Owner only; null for everyone else. */
+  reason: string | null;
+}
+
+export type LineageOutcome =
+  | { ok: true; lineage: PrescriptionLineage }
+  | { ok: false; reason: "unavailable" };
+
+export async function getPrescriptionLineage(
+  prescriptionId: string,
+  activeLocationId: string,
+): Promise<LineageOutcome> {
+  const supabase = await createSupabaseServerClient();
+
+  const { data, error } = await supabase.rpc("prescription_lineage", {
+    p_prescription_id: prescriptionId,
+    p_practice_location_id: activeLocationId,
+  });
+
+  if (error || !data) {
+    /**
+     * Lineage is a banner, never a gate. If it cannot be read, the prescription
+     * still renders and still prints — refusing to show an approved document
+     * because a "replaced by" note failed would be the worse outcome. What must
+     * not happen is silently claiming there is no replacement, so the caller
+     * gets an explicit failure rather than an empty lineage.
+     */
+    if (error) console.error("[prescriptions] lineage read failed", error.message);
+    return { ok: false, reason: "unavailable" };
+  }
+
+  const row = data as Record<string, unknown>;
+  const link = (v: unknown): LineageLink | null => {
+    if (!v || typeof v !== "object") return null;
+    const o = v as Record<string, unknown>;
+    return {
+      id: (o.id as string | null) ?? null,
+      status: o.status as LineageLink["status"],
+      finalizedAt: (o.finalizedAt as string | null) ?? null,
+    };
+  };
+
+  const replacedBy = link(row.replacedBy);
+  return {
+    ok: true,
+    lineage: {
+      viewerIsOwner: row.viewerIsOwner === true,
+      replacedBy:
+        replacedBy ?
+          {
+            ...replacedBy,
+            reason:
+              ((row.replacedBy as Record<string, unknown>).reason as string | null) ?? null,
+          }
+        : null,
+      replaces: link(row.replaces),
+      reason: (row.reason as string | null) ?? null,
+    },
+  };
+}
+
+/**
  * Finalised prescriptions waiting to be handed over at ONE location.
  *
  * This is how the front desk ARRIVES at a prescription. Before Stage 7C-3C
@@ -255,6 +335,16 @@ export interface HandoverListItem {
   patientNumber: string;
   finalizedAt: string | null;
   itemCount: number;
+  /**
+   * A correction exists for this sheet, so it is NOT the current one.
+   *
+   * V1 stays on the list — history must be complete, and the doctor may need
+   * to find what was issued that day. But two rows for the same patient minutes
+   * apart, with nothing to tell them apart, is how a superseded dose gets handed
+   * over. `supersededBy` is an id only when the reader may open it.
+   */
+  isSuperseded: boolean;
+  supersededBy: string | null;
 }
 
 export type HandoverListOutcome =
@@ -313,6 +403,8 @@ export async function getFinalizedPrescriptionsAt(
         patientNumber: patient?.number ?? "",
         finalizedAt: (r.finalized_at as string | null) ?? null,
         itemCount: Number(r.item_count ?? 0),
+        isSuperseded: r.is_superseded === true,
+        supersededBy: (r.superseded_by as string | null) ?? null,
       };
     }),
   };

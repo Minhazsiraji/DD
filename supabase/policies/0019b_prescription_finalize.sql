@@ -438,8 +438,18 @@ grant execute on function public.prescriptions_for_doctor(uuid, uuid) to authent
  * Bound to the ACTIVE location the caller passes — and with direct SELECT
  * revoked there is no way around this function, which is what turns the scoping
  * from a convention into a rule.
+ *
+ * `drop` before `create`, because `create or replace` CANNOT change a function's
+ * return type. Stage 7C-3D added two columns to this one in
+ * `0023_prescription_correction.sql`, and re-running the policy files against a
+ * database that already had them aborted right here with "cannot change return
+ * type of existing function" — which stopped every later file, including the one
+ * carrying the fix. A policy file that only applies to a database in the state
+ * it was written for is not idempotent.
  */
-create or replace function public.finalized_prescriptions_at(
+drop function if exists public.finalized_prescriptions_at(uuid, uuid);
+
+create function public.finalized_prescriptions_at(
   p_practice_location_id uuid,
   p_patient_id           uuid default null
 )
