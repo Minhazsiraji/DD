@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ArrowLeft, CloudOff } from "lucide-react";
+import { ArrowLeft, CloudOff, Lock } from "lucide-react";
 import { requireLocationContext } from "@/lib/auth/session";
 import { getFinalizedPrescription, getPrescription } from "@/features/prescriptions/queries";
 import { PrescriptionComposer } from "@/features/prescriptions/components/prescription-composer";
@@ -66,6 +66,26 @@ export default async function PrescriptionPage({
    */
   if (outcome.prescription.status === "FINALIZED") {
     const finalized = await getFinalizedPrescription(prescriptionId, ctx.locationId);
+
+    /**
+     * A snapshot written by a newer build. Refusing is the point: rendering it
+     * with today's rules would drop whatever that version added — silently, on
+     * a permanent clinical record — and printing it would put the gap on paper.
+     *
+     * Deliberately NOT the "try again in a moment" message below: waiting will
+     * never fix a version problem, and telling a doctor to retry is telling
+     * them the wrong thing.
+     */
+    if (!finalized.ok && finalized.reason === "unsupported-schema") {
+      return (
+        <Unavailable
+          icon={<Lock className="mx-auto size-8 text-ink-muted" aria-hidden="true" />}
+          title="This prescription cannot be shown safely"
+          body="It was created by a newer version of Doctor's Diary. Update the app before viewing or printing it — showing it here could leave something out."
+        />
+      );
+    }
+
     if (!finalized.ok) {
       return (
         <Unavailable
@@ -104,10 +124,18 @@ export default async function PrescriptionPage({
   );
 }
 
-function Unavailable({ title, body }: { title: string; body: string }) {
+function Unavailable({
+  title,
+  body,
+  icon,
+}: {
+  title: string;
+  body: string;
+  icon?: React.ReactNode;
+}) {
   return (
     <div className="mx-auto max-w-md py-16 text-center">
-      <CloudOff className="mx-auto size-8 text-ink-muted" aria-hidden="true" />
+      {icon ?? <CloudOff className="mx-auto size-8 text-ink-muted" aria-hidden="true" />}
       <h1 className="mt-3 text-lg font-semibold text-ink">{title}</h1>
       <p className="mt-2 text-[13px] text-ink-secondary">{body}</p>
       <Link

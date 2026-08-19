@@ -387,6 +387,20 @@
   }
 }
 
+/**
+ * The prescription is off-screen until it is printed.
+ *
+ * Laid out, not `display: none` — it must have real millimetre dimensions so
+ * the overflow measurement means something. Moved out of view rather than
+ * hidden, and never reachable by tab or screen reader.
+ */
+[data-print-only] {
+  position: absolute;
+  left: -10000px;
+  top: 0;
+  pointer-events: none;
+}
+
 @media print {
   body {
     background: #ffffff;
@@ -404,5 +418,41 @@
 
   [data-print-hidden] {
     display: none !important;
+  }
+
+  /**
+   * PRINT PRIVACY, BY DEFAULT.
+   *
+   * Everything is hidden and only the prescription is put back. The previous
+   * approach named each piece of chrome to hide, which meant every new header,
+   * banner or button was one forgotten attribute away from being printed on a
+   * clinical document — and the sidebar already was.
+   *
+   * `visibility` rather than `display`, because the print root is positioned
+   * against the page and hidden ancestors must keep their boxes for that to
+   * resolve.
+   */
+  body * {
+    visibility: hidden !important;
+  }
+
+  [data-print-only],
+  [data-print-only] * {
+    visibility: visible !important;
+  }
+
+  /* The paper, at the page origin, at its real size. */
+  [data-print-only] {
+    position: absolute !important;
+    left: 0 !important;
+    top: 0 !important;
+    margin: 0 !important;
+  }
+
+  [data-print-root] {
+    box-shadow: none !important;
+    /* Let the page box own the height so nothing is cut at exactly 297mm. */
+    height: auto !important;
+    overflow: visible !important;
   }
 }

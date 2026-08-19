@@ -7,6 +7,7 @@ import { formatDate } from "@/lib/format";
 import { frozenSignatureUrlAction } from "../actions";
 import type { ReviewBundle } from "../review-bundle";
 import { toReviewView } from "../review-view";
+import { PrintPrescription } from "./print-prescription";
 import { ReviewSheet } from "./review-sheet";
 
 /**
@@ -73,15 +74,16 @@ export function FinalizedPrescription({
 
       <ReviewSheet view={view} signatureUrl={frozen ? signatureUrl : null} />
 
+      <PrintPrescription prescriptionId={prescriptionId} view={view} />
+
       {/*
         Shown during the pilot so a reported problem can be checked against the
         record rather than taken on trust. It is the digest the doctor approved
-        and the one stored with the prescription.
+        and the one stored with the prescription — and it is chrome, so it is
+        marked as never printing.
       */}
-      <p className="font-mono text-[11px] break-all text-ink-muted">{digest}</p>
-
-      <p className="text-[12px] text-ink-muted">
-        Printing and PDF arrive in a later release.
+      <p data-print-hidden className="font-mono text-[11px] break-all text-ink-muted">
+        {digest}
       </p>
     </div>
   );
