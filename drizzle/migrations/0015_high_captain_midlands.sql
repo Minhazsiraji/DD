@@ -1,0 +1,2 @@
+ALTER TABLE "doctor_profiles" ADD COLUMN "bmdc_normalized" text GENERATED ALWAYS AS (nullif(upper(regexp_replace(coalesce(bmdc_registration_no, ''), '[^A-Za-z0-9]', '', 'g')), '')) STORED;--> statement-breakpoint
+CREATE UNIQUE INDEX "doctor_profiles_bmdc_unique" ON "doctor_profiles" USING btree ("bmdc_normalized") WHERE bmdc_normalized is not null;

@@ -7,6 +7,7 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { requireUser, ACTIVE_LOCATION_COOKIE } from "@/lib/auth/session";
 import { emitAudit } from "@/lib/audit/emit";
 import { onboardingSchema, type ActionState } from "@/features/auth/schema";
+import { BMDC_TAKEN_MESSAGE, isBmdcCollision } from "@/features/doctor/identity";
 
 /**
  * First-run setup: profile → doctor profile → location → membership.
@@ -99,6 +100,18 @@ export async function completeOnboardingAction(
   });
 
   if (error || !locationId) {
+    /**
+     * The registration number belongs to another account.
+     *
+     * Reported against the FIELD, so the doctor sees it beside the box they
+     * need to change rather than as a general failure at the bottom of the
+     * form. Nothing partial survives: `complete_onboarding` writes the profile,
+     * the doctor record and the location in ONE transaction, so a refusal here
+     * leaves no half-built practice behind.
+     */
+    if (isBmdcCollision(error)) {
+      return { ok: false, fieldErrors: { bmdcRegistrationNo: [BMDC_TAKEN_MESSAGE] } };
+    }
     return {
       ok: false,
       message: `Could not finish setting up your practice: ${error?.message ?? "unknown error"}`,

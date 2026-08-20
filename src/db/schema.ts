@@ -107,6 +107,29 @@ export const doctorProfiles = pgTable(
      * prescription; must never be rendered publicly as a verified credential.
      */
     bmdcRegistrationNo: text("bmdc_registration_no"),
+    /**
+     * The same registration, in ONE canonical form — and derived by the
+     * database, never supplied.
+     *
+     * A BMDC number identifies a doctor, and two accounts holding one is two
+     * accounts claiming to be the same clinician. Nothing stopped that: the
+     * column was plain text with no constraint, so the same number could be
+     * registered twice, differing only in case or a hyphen.
+     *
+     * GENERATED, not a trigger and not application code, because a normalised
+     * key that the caller can supply is not a key — an honest number paired
+     * with a dishonest normalisation would walk straight past the unique index.
+     * Same rule as `patients.name_normalized`, one level stricter.
+     *
+     * The DISPLAY value stays exactly as typed: a doctor who writes
+     * "BMDC-030 29E" sees that on their prescription. Only the identity
+     * comparison is folded. Blank folds to NULL, and a unique index ignores
+     * NULLs, so doctors without a number are unaffected — the field is
+     * optional and self-asserted (ADR 0003).
+     */
+    bmdcNormalized: text("bmdc_normalized").generatedAlwaysAs(
+      sql`nullif(upper(regexp_replace(coalesce(bmdc_registration_no, ''), '[^A-Za-z0-9]', '', 'g')), '')`,
+    ),
     /** Storage path in the private `doctor-assets` bucket, not a public URL. */
     signatureUrl: text("signature_url"),
     /** Prefix for this doctor's own patient numbering, e.g. "AR" -> AR-000124. */
@@ -115,7 +138,23 @@ export const doctorProfiles = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [uniqueIndex("doctor_profiles_user_id_key").on(t.userId)],
+  (t) => [
+    uniqueIndex("doctor_profiles_user_id_key").on(t.userId),
+    /**
+     * ONE doctor per registration number.
+     *
+     * Partial, on the normalised value: a doctor who has not entered a BMDC
+     * number yet is not competing for anything, and several of them coexisting
+     * is the normal state during onboarding.
+     *
+     * This is the boundary. Form validation cannot be it — the signup RPC is
+     * granted to `authenticated` and reachable directly, so a check that lives
+     * only in a Zod schema is a suggestion.
+     */
+    uniqueIndex("doctor_profiles_bmdc_unique")
+      .on(t.bmdcNormalized)
+      .where(sql`bmdc_normalized is not null`),
+  ],
 );
 
 export const paperSize = pgEnum("paper_size", ["A4", "A5"]);

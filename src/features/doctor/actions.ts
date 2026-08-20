@@ -13,6 +13,7 @@ import {
   type TemplateActionState,
 } from "./schema";
 import { SIGNATURE_BUCKET } from "./queries";
+import { BMDC_TAKEN_MESSAGE, isBmdcCollision } from "./identity";
 
 /**
  * Doctor identity, chamber details and prescription-template writes.
@@ -79,6 +80,14 @@ export async function updateDoctorProfileAction(
     | null;
 
   if (error || !result?.doctor_id) {
+    /**
+     * A registration number already held by someone else is an ordinary,
+     * correctable mistake — not an outage. Without this the doctor was shown
+     * the raw Postgres text, which names an index and explains nothing.
+     */
+    if (isBmdcCollision(error)) {
+      return { ok: false, fieldErrors: { bmdcRegistrationNo: [BMDC_TAKEN_MESSAGE] } };
+    }
     return {
       ok: false,
       message: `Could not save your details: ${error?.message ?? "unknown error"}`,
