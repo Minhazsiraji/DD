@@ -177,12 +177,20 @@ export function TemplateEditor({
               onChange={(v) => set("showChamberPhone", v)}
               disabled={!settings.showHeader}
             />
+            {/*
+              Offered but not buildable. There is no logo upload, and no way to
+              FREEZE one into an approved prescription the way a signature is —
+              so `prescription_review_bundle` refuses outright when this is on,
+              and the doctor meets "this layout cannot be reviewed yet" only
+              after writing a whole prescription. Disabled and labelled instead.
+            */}
             <ToggleRow
               label="Space for a clinic logo"
+              hint="Coming later — a logo has to be fixed to the prescription the way your signature is."
               name="showClinicLogo"
-              checked={settings.showClinicLogo}
-              onChange={(v) => set("showClinicLogo", v)}
-              disabled={!settings.showHeader}
+              checked={false}
+              onChange={() => {}}
+              disabled
             />
           </div>
 

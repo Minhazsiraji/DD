@@ -77,18 +77,28 @@ export const MEDICINE_FIELDS: readonly FieldSpec[] = [
   },
   { key: "brandName", label: "Brand", placeholder: "Napa", span: 6 },
   { key: "genericName", label: "Generic", placeholder: "Paracetamol", span: 6 },
+  /**
+   * Strength and dose are FREE TEXT and print exactly as typed — nothing
+   * infers, corrects or converts a unit, because silently turning "500g" into
+   * "500 mg" is a change to a dose that nobody could audit.
+   *
+   * That puts the whole weight on the unit being typed. A deployed prescription
+   * printed "Paracetamol 500g" and another read "1 — 1+1+1", both because the
+   * unit was simply left off. So the hints ask for it in the words a doctor
+   * would use, with the examples doing the work.
+   */
   {
     key: "strengthText",
     label: "Strength",
     placeholder: "500 mg",
-    hint: "What the product contains.",
+    hint: "Include the unit — 500 mg, 5 mL, 250 mcg. It prints exactly as typed.",
     span: 4,
   },
   {
     key: "doseText",
     label: "Dose",
     placeholder: "1 tablet",
-    hint: "What the patient takes each time.",
+    hint: "Include the unit — 1 tablet, 5 mL, 2 puffs.",
     span: 4,
   },
   { key: "dosageForm", label: "Form", placeholder: "Tablet", options: DOSAGE_FORMS, span: 4 },

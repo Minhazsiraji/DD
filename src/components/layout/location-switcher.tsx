@@ -65,15 +65,41 @@ export function LocationSwitcher({
 }) {
   const router = useRouter();
   const [pending, startTransition] = React.useTransition();
+  /**
+   * Show the chosen clinic AT ONCE.
+   *
+   * The switch is a server action followed by a full refresh, and the header
+   * used to keep showing the old name for the whole round trip — several
+   * seconds, during which the only feedback was a dimmed button. A doctor
+   * reasonably clicks again.
+   *
+   * This is presentation only. The cookie is still written and re-verified
+   * server-side against ACTIVE memberships, and `requireLocationContext`
+   * re-checks on every request; nothing here grants access to anything.
+   */
+  const [optimisticId, setOptimisticId] = React.useState<string | null>(null);
 
-  const active = locations.find((c) => c.id === activeLocationId) ?? locations[0];
+  /**
+   * Honoured only WHILE the switch is in flight. The moment the transition
+   * ends, the server's answer wins again — so a refused or failed switch
+   * cannot leave the header naming a clinic we are not in.
+   */
+  const activeId = pending && optimisticId ? optimisticId : activeLocationId;
+  const active = locations.find((c) => c.id === activeId) ?? locations[0];
   if (!active) return null;
 
   function select(id: string) {
     if (id === active!.id) return;
+    setOptimisticId(id);
     startTransition(async () => {
-      await switchLocationAction(id);
-      router.refresh();
+      try {
+        await switchLocationAction(id);
+        router.refresh();
+      } catch {
+        // Refused, or the network failed: fall back to what the server says
+        // rather than leaving the header claiming a clinic we did not switch to.
+        setOptimisticId(null);
+      }
     });
   }
 

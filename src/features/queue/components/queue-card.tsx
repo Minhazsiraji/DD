@@ -226,10 +226,17 @@ function Actions({
     <div className="flex w-full shrink-0 flex-col items-stretch gap-2 sm:w-auto sm:flex-row sm:items-center">
       <form action={call}>
         <input type="hidden" name="appointmentId" value={row.appointmentId} />
+        {/*
+          "Call in" — announcing the patient into the room, not telephoning
+          them. The megaphone says it and so should the words: reception read
+          "Call" as "ring this number", which the app does not do.
+        */}
         <ActionButton
           tone="primary"
           icon={<Megaphone className="size-4" aria-hidden="true" />}
-          label={variant === "skipped" ? "Call again" : row.callCount > 0 ? "Call again" : "Call"}
+          label={
+            variant === "skipped" || row.callCount > 0 ? "Call in again" : "Call in"
+          }
         />
       </form>
 

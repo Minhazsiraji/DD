@@ -254,6 +254,15 @@ export function ReviewScreen({
           <strong className="font-semibold text-ink">This is a draft.</strong> Nothing here is part
           of the patient&rsquo;s record until you finalize it below. Read it as it will print —
           once approved it cannot be edited.
+          {/*
+            Named explicitly, because strength and dose print exactly as typed
+            and nothing corrects a unit. A deployed prescription read
+            "Paracetamol 500g" and it was approved without anyone noticing.
+          */}
+          <span className="mt-1 block">
+            Check every <strong className="font-semibold text-ink">strength and dose</strong>,
+            including the unit — they print exactly as written.
+          </span>
         </span>
       </p>
 

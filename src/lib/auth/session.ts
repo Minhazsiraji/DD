@@ -1,4 +1,5 @@
 import "server-only";
+import { cache } from "react";
 import { cookies } from "next/headers";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import {
@@ -37,8 +38,18 @@ export interface LocationContext {
  * Always uses `getUser()`, never `getSession()` — getSession reads the cookie
  * without verifying it against the auth server, so it can be forged. getUser
  * revalidates the JWT.
+ *
+ * MEMOISED PER REQUEST with React's `cache()`. Every check still runs; it runs
+ * ONCE instead of four times. Rendering one page called this from the layout,
+ * from `getMemberships`, and again from each `requireLocationContext` — four
+ * round trips to the auth server for one answer that cannot change mid-request.
+ * Switching location paid it twice over, for the action and then the refresh.
+ *
+ * `cache()` is per-request and per-render; it never spans users or requests, so
+ * nothing here is weakened — a forged cookie is rejected exactly as before, just
+ * not re-rejected three more times.
  */
-export async function requireUser(): Promise<SessionUser> {
+export const requireUser = cache(async function requireUser(): Promise<SessionUser> {
   const supabase = await createSupabaseServerClient();
   const { data, error } = await supabase.auth.getUser();
 
@@ -46,7 +57,7 @@ export async function requireUser(): Promise<SessionUser> {
     throw unauthenticated(error?.message);
   }
   return { id: data.user.id, email: data.user.email ?? null };
-}
+});
 
 /** Null instead of throwing — for layouts that render differently when signed out. */
 export async function getUser(): Promise<SessionUser | null> {
@@ -58,7 +69,7 @@ export async function getUser(): Promise<SessionUser | null> {
 }
 
 /** Every ACTIVE practice-location membership for the current user. */
-export async function getMemberships(): Promise<Membership[]> {
+export const getMemberships = cache(async function getMemberships(): Promise<Membership[]> {
   const supabase = await createSupabaseServerClient();
   const user = await requireUser();
 
@@ -111,7 +122,7 @@ export async function getMemberships(): Promise<Membership[]> {
   }
 
   return [...byLocation.values()];
-}
+});
 
 /**
  * The authorization context every Server Action must start from.
