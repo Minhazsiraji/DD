@@ -69,7 +69,25 @@ export interface QuickAction {
   accent: OrbAccent;
 }
 
-/** The central "+" menu. Ordered by how often a chamber actually uses them. */
+/**
+ * The central "+" menu. Ordered by how often a chamber actually uses them.
+ *
+ * EVERY ENTRY MUST GO SOMEWHERE THAT EXISTS.
+ *
+ * Four of these were Phase-1 placeholders pointing at routes that were never
+ * built — `/appointments/new`, `/consultation/new`, `/prescriptions/new` and
+ * `/documents/upload`. Three answered 404. The fourth was worse: it landed on
+ * the consultation route, which read "new" as an encounter id, failed to load
+ * it, and told the doctor "The record exists — we simply could not reach it
+ * just now. Do not start a new consultation for this patient." That is a
+ * confident, specific, and completely false statement, and it was the first
+ * thing a doctor would hit when trying to start a consultation.
+ *
+ * They now point at the screens that DO the work: appointments has "Book an
+ * appointment", the live queue has "Start consultation", and a prescription is
+ * written from inside a consultation — which is also the only place it can
+ * legitimately begin, since a prescription belongs to an encounter.
+ */
 export const QUICK_ACTIONS: QuickAction[] = [
   {
     href: "/patients/new",
@@ -79,30 +97,30 @@ export const QUICK_ACTIONS: QuickAction[] = [
     accent: "brand",
   },
   {
-    href: "/appointments/new",
-    label: "New Appointment",
-    description: "Book a slot and issue a token",
+    href: "/appointments",
+    label: "Book Appointment",
+    description: "Book a slot for today or another day",
     icon: <CalendarPlus className="size-[18px]" />,
     accent: "violet",
   },
   {
-    href: "/consultation/new",
+    href: "/queue",
     label: "Start Consultation",
-    description: "Open an encounter for the current patient",
+    description: "Send in the next patient who has arrived",
     icon: <Stethoscope className="size-[18px]" />,
     accent: "success",
   },
   {
-    href: "/prescriptions/new",
-    label: "New Prescription",
-    description: "Write a structured prescription",
+    href: "/handover",
+    label: "Hand Over a Prescription",
+    description: "Print a signed prescription for the patient",
     icon: <ClipboardPlus className="size-[18px]" />,
     accent: "warning",
   },
   {
-    href: "/documents/upload",
-    label: "Upload Report",
-    description: "Attach a lab or imaging report to a patient",
+    href: "/documents",
+    label: "Documents",
+    description: "Lab and imaging reports",
     icon: <Upload className="size-[18px]" />,
     accent: "info",
   },

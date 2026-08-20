@@ -148,6 +148,85 @@ try {
     check(policyFiles.includes(f), `${f} is part of the ordered set`);
   }
 
+  /**
+   * APPLY THE WHOLE SET A SECOND TIME.
+   *
+   * This is not belt-and-braces; it caught a real defect. Adding two columns to
+   * `finalized_prescriptions_at` in Stage 7C-3D meant `create or replace
+   * function` in an EARLIER file could no longer replace it — "cannot change
+   * return type of existing function" — and that error aborted the run at that
+   * file, so every LATER file silently never applied. Including the one
+   * carrying a security fix.
+   *
+   * A fresh database hides it completely: file order alone is fine the first
+   * time. The failure only exists for a database that has already been brought
+   * up to date, which is every database anyone actually operates.
+   *
+   * Applied file by file so the failure names the file rather than the run.
+   */
+  for (const f of policyFiles) {
+    try {
+      await probe.unsafe(readFileSync(path.join(POLICIES, f), "utf8"));
+    } catch (e) {
+      throw new Error(`policy ${f} is NOT idempotent — second application failed: ${e.message}`);
+    }
+  }
+  check(true, `all ${policyFiles.length} policy files apply a SECOND time, cleanly`);
+
+  /**
+   * …and the second application must leave the same posture, not merely avoid
+   * throwing. A file that re-creates a function it previously dropped would
+   * pass the check above and reopen a hole.
+   */
+  const dupes = await probe`
+    select p.proname, count(*)::int as n
+    from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+    where n.nspname = 'public'
+      and p.proname in ('open_prescription', 'finalize_prescription',
+                        'finalized_prescriptions_at', 'finalized_prescription_detail',
+                        'prescription_detail', 'start_prescription_correction',
+                        'prescription_frozen_signature_path')
+    group by p.proname having count(*) > 1`;
+  check(dupes.length === 0, "no stale overloads survive the second application",
+    dupes.map((d) => `${d.proname} x${d.n}`).join(", "));
+
+  const openArgs = await probe`
+    select pg_get_function_identity_arguments(p.oid) as args
+    from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+    where n.nspname='public' and p.proname='open_prescription'`;
+  check(
+    openArgs.length === 1 && !openArgs[0].args.includes("text"),
+    "open_prescription still takes no replacement reason after re-application",
+    openArgs.map((a) => a.args).join(" | "),
+  );
+
+  const truncAgain = await probe`
+    select table_name from information_schema.role_table_grants
+    where table_schema='public' and grantee in ('authenticated','anon')
+      and privilege_type='TRUNCATE'`;
+  check(truncAgain.length === 0, "no TRUNCATE grant regression after re-application",
+    truncAgain.map((t) => t.table_name).join(", "));
+
+  const anonAgain = await probe`
+    select table_name, privilege_type from information_schema.role_table_grants
+    where table_schema='public' and grantee='anon'`;
+  check(anonAgain.length === 0, "anon still holds no table grants after re-application",
+    anonAgain.map((t) => `${t.table_name}.${t.privilege_type}`).join(", "));
+
+  const readAgain = await probe`
+    select table_name from information_schema.role_table_grants
+    where table_schema='public' and grantee='authenticated'
+      and privilege_type='SELECT' and table_name = any(${NO_DIRECT_READ})`;
+  check(readAgain.length === 0, "prescriptions/items still have no direct SELECT",
+    readAgain.map((t) => t.table_name).join(", "));
+
+  const definerAgain = await probe`
+    select p.proname from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+    where n.nspname='public' and p.prosecdef
+      and not exists (select 1 from unnest(coalesce(p.proconfig,'{}')) c where c like 'search_path=%')`;
+  check(definerAgain.length === 0, "every SECURITY DEFINER still pins search_path",
+    definerAgain.map((d) => d.proname).join(", "));
+
   // The gate's whole point: these must hold on a database nobody has patched.
   const freshTrunc = await probe`
     select table_name from information_schema.role_table_grants

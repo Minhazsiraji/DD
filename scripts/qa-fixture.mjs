@@ -41,6 +41,15 @@ const PEOPLE = {
   doctor: { email: `qa.doctor${QA_DOMAIN}`, name: "Dr Ayesha Rahman" },
   other: { email: `qa.other.doctor${QA_DOMAIN}`, name: "Dr Kamal Uddin" },
   reception: { email: `qa.reception${QA_DOMAIN}`, name: "Nusrat Jahan" },
+  /**
+   * A LOCATION_ADMIN who is NOT also the doctor.
+   *
+   * The doctor holds LOCATION_ADMIN at both locations, so "admin" was only
+   * ever testable as a hat the owner was already wearing — which proves
+   * nothing about an admin who owns none of the clinical records. Every
+   * handover and correction rule distinguishes the two.
+   */
+  admin: { email: `qa.admin${QA_DOMAIN}`, name: "Farhana Islam" },
 };
 
 const sql = postgres(url, { max: 1, prepare: false, onnotice: () => {} });
@@ -98,11 +107,31 @@ async function forgetQaUsers(userIds) {
  *
  * Skipped without a service-role key. The clinical bucket has no DELETE policy
  * — that is the control, and a fixture script is not a reason to weaken it.
+ *
+ * PROVENANCE MUST OUTLIVE THE RESOURCE IT IDENTIFIES.
+ *
+ * This returns the set of uids whose files are CONFIRMED GONE, and the caller
+ * forgets only those. The earlier version returned nothing and the caller
+ * forgot everything it had just tried to destroy — so a run without a
+ * service-role key silently erased the only record of what the surviving files
+ * were, and every later run then correctly refused to touch them forever. The
+ * cheap failure (files left behind, still identifiable) had been turned into
+ * the expensive one (files left behind, permanently unidentifiable).
+ *
+ * "Confirmed gone" means listing under the uid afterwards finds nothing, not
+ * that `remove()` returned without an error.
  */
 async function removeQaStorage(userIds) {
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
   const projectUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  if (!serviceKey || !projectUrl) return;
+  if (!serviceKey || !projectUrl) {
+    console.log(
+      "STORAGE CLEANUP SKIPPED — no SUPABASE_SERVICE_ROLE_KEY.\n" +
+        "  Any QA files stay in the buckets, and their provenance is KEPT so a\n" +
+        "  later run can still prove they are ours. Nothing is forgotten.",
+    );
+    return { ran: false, cleared: new Set(), unknown: new Set() };
+  }
 
   const { createClient } = await import("@supabase/supabase-js");
   const storage = createClient(projectUrl, serviceKey, {
@@ -113,6 +142,9 @@ async function removeQaStorage(userIds) {
 
   let removed = 0;
   const unknown = new Set();
+  /** uid -> did anything survive in any bucket? */
+  const survived = new Set();
+  const touched = new Set();
 
   for (const bucket of ["doctor-assets", "prescription-assets"]) {
     const { data: folders } = await storage.from(bucket).list("", { limit: 1000 });
@@ -126,29 +158,51 @@ async function removeQaStorage(userIds) {
       }
 
       const uid = folder.name;
+      touched.add(uid);
+
       // Files sit at <uid>/… and, for frozen signatures, <uid>/<rx>/signature.
-      const { data: top } = await storage.from(bucket).list(uid, { limit: 1000 });
-      const paths = [];
-      for (const entry of top ?? []) {
-        if (entry.id) {
-          paths.push(`${uid}/${entry.name}`);
-          continue;
+      const listAll = async () => {
+        const { data: top } = await storage.from(bucket).list(uid, { limit: 1000 });
+        const paths = [];
+        for (const entry of top ?? []) {
+          if (entry.id) {
+            paths.push(`${uid}/${entry.name}`);
+            continue;
+          }
+          const { data: inner } = await storage.from(bucket).list(`${uid}/${entry.name}`, {
+            limit: 1000,
+          });
+          for (const file of inner ?? []) paths.push(`${uid}/${entry.name}/${file.name}`);
         }
-        const { data: inner } = await storage.from(bucket).list(`${uid}/${entry.name}`, {
-          limit: 1000,
-        });
-        for (const file of inner ?? []) paths.push(`${uid}/${entry.name}/${file.name}`);
-      }
+        return paths;
+      };
+
+      const paths = await listAll();
       if (paths.length === 0) continue;
 
       const { data } = await storage.from(bucket).remove(paths);
       // Counted from the returned rows: a blocked delete removes nothing and
       // raises nothing, so the absence of an error proves nothing.
       removed += (data ?? []).length;
+
+      /**
+       * Then LOOK AGAIN. This is what makes "confirmed gone" mean something —
+       * `remove()` reporting success is the claim, and the second listing is
+       * the evidence.
+       */
+      if ((await listAll()).length > 0) survived.add(uid);
     }
   }
 
+  const cleared = new Set([...touched].filter((uid) => !survived.has(uid)));
+
   if (removed > 0) console.log(`removed ${removed} QA storage object(s)`);
+  if (survived.size > 0) {
+    console.log(
+      `CLEANUP INCOMPLETE: ${survived.size} QA folder(s) still hold files.\n` +
+        "  Their provenance is KEPT so a later run can finish the job.",
+    );
+  }
   if (unknown.size > 0) {
     console.log(
       `LEFT ALONE: ${unknown.size} storage folder(s) not provably created by QA.\n` +
@@ -157,6 +211,8 @@ async function removeQaStorage(userIds) {
         "  hand if you know what they are.",
     );
   }
+
+  return { ran: true, cleared, unknown };
 }
 const mode = process.argv[2] ?? "status";
 
@@ -286,7 +342,7 @@ if (mode === "destroy") {
    * only ever for fixtures: the bucket has no DELETE policy precisely so that
    * a finalised prescription's signature can never be removed by the app.
    */
-  await removeQaStorage(rows.map((r) => r.id));
+  const storageResult = await removeQaStorage(rows.map((r) => r.id));
 
   for (const r of rows) {
     await sql`delete from public.practice_locations where created_by = ${r.id}`;
@@ -295,11 +351,57 @@ if (mode === "destroy") {
   console.log(`removed ${rows.length} QA account(s): ${rows.map((r) => r.email).join(", ") || "none"}`);
 
   /**
-   * Forget them only AFTER their files are gone. Dropping the record first
-   * would leave objects behind with no remaining proof of what they were —
-   * and this script would then, correctly, refuse to ever touch them again.
+   * Forget ONLY the identities whose files are confirmed gone.
+   *
+   * PROVENANCE MUST OUTLIVE THE RESOURCE IT IDENTIFIES. Dropping the record
+   * while objects survive leaves them with no remaining proof of what they
+   * were — and this script would then, correctly, refuse to ever touch them
+   * again. That is how the four currently-orphaned prescription assets came
+   * to exist: a run without a service-role key skipped the files and forgot
+   * them anyway.
+   *
+   * A uid whose files survived stays in the manifest, so a later run with the
+   * key can finish the job with proof rather than a guess.
    */
-  await forgetQaUsers(rows.map((r) => r.id));
+  /**
+   * The rule, derived from what is actually TRUE rather than from what this run
+   * happened to touch: a QA identity may be forgotten when its account is gone
+   * AND it holds no files in either bucket.
+   *
+   * Both halves matter. Forgetting one that still holds files is the original
+   * defect. Forgetting one whose account still exists would strand a live
+   * fixture. And it must consider the WHOLE manifest, not just the accounts
+   * destroyed in this run — the second destroy after a key-less first one has
+   * no accounts left to iterate, and that is precisely the run that finally
+   * removes the files.
+   */
+  const stillHeld = new Set(
+    (
+      await sql`
+        select distinct split_part(name, '/', 1) as uid from storage.objects
+        where bucket_id in ('doctor-assets', 'prescription-assets')`
+    ).map((r) => r.uid),
+  );
+  const stillAccounts = new Set(
+    (await sql`select id from auth.users where email like ${"%" + QA_DOMAIN}`).map((r) =>
+      String(r.id),
+    ),
+  );
+
+  const known = await readManifest();
+  const toForget = known.filter((id) => !stillHeld.has(id) && !stillAccounts.has(id));
+  const kept = known.filter((id) => !toForget.includes(id));
+
+  await forgetQaUsers(toForget);
+  if (kept.length > 0) {
+    console.log(
+      `PROVENANCE KEPT for ${kept.length} QA identity(ies) whose files are still present.\n` +
+        "  Re-run destroy with SUPABASE_SERVICE_ROLE_KEY set to finish removing them.",
+    );
+  }
+  if (!storageResult.ran && kept.length === 0) {
+    console.log("  (nothing was left in storage, so nothing needed keeping)");
+  }
 
   const [left] = await sql`
     select
@@ -343,6 +445,7 @@ await sql.begin(async (tx) => {
   const doctorUser = await createUser(tx, PEOPLE.doctor.email, PEOPLE.doctor.name);
   const otherUser = await createUser(tx, PEOPLE.other.email, PEOPLE.other.name);
   const deskUser = await createUser(tx, PEOPLE.reception.email, PEOPLE.reception.name);
+  const adminUser = await createUser(tx, PEOPLE.admin.email, PEOPLE.admin.name);
 
   /**
    * Recorded now, while we still know these ids are ours.
@@ -352,7 +455,7 @@ await sql.begin(async (tx) => {
    * service-role key, so the files outlive them — this is the only remaining
    * evidence of provenance.
    */
-  await rememberQaUsers([doctorUser, otherUser, deskUser]);
+  await rememberQaUsers([doctorUser, otherUser, deskUser, adminUser]);
 
   await tx`insert into public.doctor_profiles (user_id, qualification, specialization,
              designation, bmdc_registration_no, patient_number_prefix)
@@ -379,6 +482,7 @@ await sql.begin(async (tx) => {
              (${hospital.id}, ${doctorUser}, 'DOCTOR', 'ACTIVE'),
              (${hospital.id}, ${doctorUser}, 'LOCATION_ADMIN', 'ACTIVE'),
              (${hospital.id}, ${deskUser},   'RECEPTIONIST', 'ACTIVE'),
+             (${hospital.id}, ${adminUser},  'LOCATION_ADMIN', 'ACTIVE'),
              (${hospital.id}, ${otherUser},  'DOCTOR', 'ACTIVE')`;
 });
 
@@ -388,7 +492,7 @@ for (const [role, p] of Object.entries(PEOPLE)) {
 }
 console.log(`
   Greenview Chamber  doctor only
-  Metro Hospital     doctor + reception + a second doctor
+  Metro Hospital     doctor + reception + a location admin + a second doctor
 `);
 
 await sql.end();

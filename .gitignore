@@ -32,6 +32,13 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+# …except the TEMPLATE, which is documentation and holds only placeholders.
+# It was ignored along with everything else and had therefore never been
+# committed — so a fresh clone came with no record of which variables the app
+# needs, including the service-role key that Stage 7C made mandatory on the
+# server. Verified before un-ignoring: no project ref, no key material, no
+# password. Real values live in .env.local, which stays ignored.
+!.env.example
 
 # vercel
 .vercel
