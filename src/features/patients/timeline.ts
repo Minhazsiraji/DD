@@ -37,6 +37,33 @@ export interface TimelineEvent {
   locationId: string | null;
   locationName: string | null;
   doctorName: string | null;
+  /**
+   * Where this event opens, when there is somewhere safe to go. A `null` here
+   * renders a plain entry rather than a link — an event that exists but has no
+   * detail screen yet is honest; a link that 404s is not.
+   */
+  href: string | null;
+  /**
+   * A short state word shown beside the title. Set for prescriptions, where
+   * "superseded" versus "current" is the difference between the sheet the
+   * patient should be holding and the one they should not.
+   */
+  badge: string | null;
+}
+
+/**
+ * The timeline, plus what could not be read.
+ *
+ * A doctor cannot tell "no prescriptions" from "prescriptions failed to load",
+ * and on a clinical history those mean opposite things — the first is a fact
+ * about the patient, the second is a fact about the network. The old shape was
+ * a bare array, so a failed query logged a line and silently produced a shorter
+ * history that looked complete.
+ */
+export interface PatientHistory {
+  events: TimelineEvent[];
+  /** Human-readable names of the sources that failed. Empty when all loaded. */
+  missing: string[];
 }
 
 export const TIMELINE_LABEL: Record<TimelineEventType, string> = {
@@ -58,11 +85,25 @@ export const TIMELINE_LABEL: Record<TimelineEventType, string> = {
 export const TIMELINE_AVAILABLE: Record<TimelineEventType, boolean> = {
   registration: true,
   appointment: true, // Stage 4
-  consultation: false, // Phase 6
-  prescription: false, // Phase 8
-  investigation: false, // Phase 6
-  document: false, // Phase 10
-  followup: false, // Phase 10
+  consultation: true, // Stage 6 — read through the encounters SELECT policy
+  prescription: true, // Stage 7 — read through patient_prescription_history()
+
+  /**
+   * Still false, and each for its own reason. A flag here is a promise that
+   * the data is queried, the authorisation is proven, and the empty state
+   * means "nothing happened" rather than "nothing was asked for".
+   *
+   * `investigation`  — `encounter_investigations` holds ORDERS, but results are
+   *                    not built and there is no detail route to open. An
+   *                    order alone is a half-answer to "what happened last
+   *                    time", and a half-answer on a clinical screen is worse
+   *                    than an honest "not built yet".
+   * `document`       — no table exists.
+   * `followup`       — no table exists.
+   */
+  investigation: false,
+  document: false,
+  followup: false,
 };
 
 /** What the timeline calls each appointment outcome, in a patient's terms. */
@@ -90,8 +131,9 @@ export interface TimelineFilter {
 export async function getPatientTimeline(
   patientId: string,
   filter: TimelineFilter = {},
-): Promise<TimelineEvent[]> {
+): Promise<PatientHistory> {
   const supabase = await createSupabaseServerClient();
+  const missing: string[] = [];
 
   const { data, error } = await supabase
     .from("patients")
@@ -101,7 +143,10 @@ export async function getPatientTimeline(
     .eq("id", patientId)
     .maybeSingle();
 
-  if (error || !data) return [];
+  if (error || !data) {
+    // Nothing at all could be read — say so rather than render an empty history.
+    return { events: [], missing: ["this patient's record"] };
+  }
 
   const events: TimelineEvent[] = [];
 
@@ -118,6 +163,8 @@ export async function getPatientTimeline(
     locationId: firstLocation?.id ?? null,
     locationName: firstLocation?.name ?? null,
     doctorName: null,
+    href: null,
+    badge: null,
   });
   /* eslint-enable @typescript-eslint/no-explicit-any */
 
@@ -138,9 +185,13 @@ export async function getPatientTimeline(
     .order("scheduled_for", { ascending: false });
 
   if (apptError) {
-    // Logged, not swallowed: a timeline missing half its events looks like a
-    // patient with no history.
+    /**
+     * Logged AND reported. Logging alone was the defect: a timeline missing
+     * half its events looks exactly like a patient with no history, and the
+     * doctor reading it has no way to tell the difference.
+     */
     console.error("[timeline] appointments query failed", apptError.message);
+    missing.push("appointments");
   }
 
   /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -164,6 +215,124 @@ export async function getPatientTimeline(
       locationId: row.practice_location_id ?? null,
       locationName: location?.name ?? null,
       doctorName: doctorUser?.full_name ?? null,
+      href: null,
+      badge: null,
+    });
+  }
+  /* eslint-enable @typescript-eslint/no-explicit-any */
+
+  /**
+   * Consultations (Stage 6).
+   *
+   * Read straight from `encounters`, because its SELECT policy is already
+   * exactly the rule this history needs: `owner_doctor_id = current_doctor_id()`.
+   * A colleague at the same hospital sees nothing and reception sees nothing —
+   * no function required, and nothing here can widen it.
+   */
+  const { data: encs, error: encError } = await supabase
+    .from("encounters")
+    .select(
+      "id, status, started_at, completed_at, chief_complaints, practice_location_id, " +
+        "practice_locations(name), doctor_profiles(profiles(full_name))",
+    )
+    .eq("patient_id", patientId)
+    .order("started_at", { ascending: false });
+
+  if (encError) {
+    console.error("[timeline] encounters query failed", encError.message);
+    missing.push("consultations");
+  }
+
+  /* eslint-disable @typescript-eslint/no-explicit-any */
+  for (const row of (encs ?? []) as any[]) {
+    const location = Array.isArray(row.practice_locations)
+      ? row.practice_locations[0]
+      : row.practice_locations;
+    const docProfile = Array.isArray(row.doctor_profiles)
+      ? row.doctor_profiles[0]
+      : row.doctor_profiles;
+    const docUser = Array.isArray(docProfile?.profiles)
+      ? docProfile.profiles[0]
+      : docProfile?.profiles;
+
+    const open = row.status === "DRAFT";
+    events.push({
+      id: `consultation-${row.id}`,
+      type: "consultation",
+      // When it HAPPENED, not when it was closed or edited.
+      occurredAt: row.started_at,
+      title: open ? "Consultation in progress" : "Consultation",
+      /**
+       * The chief complaint only — the one line a doctor writes to say why the
+       * patient came. Examination, assessment and advice stay out: a timeline
+       * is read at a glance, sometimes with the patient beside the screen, and
+       * it is not the place to spill free-text clinical notes.
+       */
+      summary: row.chief_complaints ?? null,
+      locationId: row.practice_location_id ?? null,
+      locationName: location?.name ?? null,
+      doctorName: docUser?.full_name ?? null,
+      href: `/consultation/${row.id}`,
+      badge: open ? "In progress" : null,
+    });
+  }
+  /* eslint-enable @typescript-eslint/no-explicit-any */
+
+  /**
+   * Prescriptions (Stage 7) — FINALISED ONLY.
+   *
+   * A draft was never issued to anybody, and listing one invites a doctor to
+   * believe the patient is holding paper that was never printed.
+   *
+   * Through an RPC because `prescriptions` has no direct SELECT — that is the
+   * accepted boundary, and history does not get to work around it. The function
+   * refuses a non-doctor outright rather than returning nothing, so reception
+   * is never told "this patient has no prescriptions".
+   */
+  const { data: rxs, error: rxError } = await supabase.rpc("patient_prescription_history", {
+    p_patient_id: patientId,
+    p_practice_location_id: null,
+  });
+
+  if (rxError) {
+    /**
+     * Not a doctor is a REFUSAL, not a failure. Reception opening a patient
+     * page should not be told the history is broken — they simply have no
+     * longitudinal clinical history to see.
+     */
+    if (/not a doctor/i.test(rxError.message)) {
+      // Nothing to add, nothing missing.
+    } else {
+      console.error("[timeline] prescription history failed", rxError.message);
+      missing.push("prescriptions");
+    }
+  }
+
+  /* eslint-disable @typescript-eslint/no-explicit-any */
+  for (const row of (rxs ?? []) as any[]) {
+    const superseded = Boolean(row.superseded_by);
+    const corrects = Boolean(row.replaces_id);
+
+    events.push({
+      id: `prescription-${row.prescription_id}`,
+      type: "prescription",
+      // When it was ISSUED. `created_at` would move an old event the day a
+      // long-open draft was finally approved.
+      occurredAt: row.finalized_at,
+      title: corrects ? "Corrected prescription" : "Prescription",
+      summary:
+        row.item_count === 1 ? "1 medicine" : `${row.item_count ?? 0} medicines`,
+      locationId: row.location_id ?? null,
+      locationName: row.location_name ?? null,
+      doctorName: null,
+      // The canonical immutable record — never a rebuild from live rows.
+      href: `/prescription/${row.prescription_id}`,
+      /**
+       * V1 and V2 must not read as two unrelated current prescriptions. The
+       * REASON is deliberately absent: it is clinical reasoning and lives only
+       * in the prescription's own lineage view, behind an ownership check.
+       */
+      badge: superseded ? "Superseded" : corrects ? "Current" : null,
     });
   }
   /* eslint-enable @typescript-eslint/no-explicit-any */
@@ -185,5 +354,8 @@ export async function getPatientTimeline(
       ? byType
       : byType.filter((e) => e.locationId === filter.locationId);
 
-  return byLocation.sort((a, b) => b.occurredAt.localeCompare(a.occurredAt));
+  return {
+    events: byLocation.sort((a, b) => b.occurredAt.localeCompare(a.occurredAt)),
+    missing,
+  };
 }

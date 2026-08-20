@@ -38,7 +38,7 @@ export default async function PatientProfilePage(props: PageProps<"/patients/[id
     : "all";
   const activeLocationId = typeof params.loc === "string" ? params.loc : "all";
 
-  const events = await getPatientTimeline(id, {
+  const history = await getPatientTimeline(id, {
     type: activeType,
     locationId: activeLocationId,
   });
@@ -134,7 +134,8 @@ export default async function PatientProfilePage(props: PageProps<"/patients/[id
         <div className="space-y-4 sm:space-y-5 xl:col-span-2">
           <PatientTimeline
             patientId={id}
-            events={events}
+            events={history.events}
+            missing={history.missing}
             activeType={activeType}
             activeLocationId={activeLocationId}
             locations={patient.locations}

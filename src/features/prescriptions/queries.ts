@@ -159,6 +159,16 @@ export interface FinalizedPrescription {
   /** For the "back to…" link, so the staff route needs no second read. */
   encounterId: string;
   /**
+   * The location this read actually succeeded at.
+   *
+   * Usually the caller's active one. For an owning doctor opening their own
+   * prescription from another of their locations — which their longitudinal
+   * history links to — it is the prescription's own. Every FURTHER read about
+   * this prescription must use the same value, or lineage silently answers
+   * "cannot check" while the document itself renders perfectly.
+   */
+  locationId: string;
+  /**
    * Whether the reader is the owning doctor, as the DATABASE sees it — not as
    * the session's role cookie claims. The screen uses it to decide which chrome
    * to show; it is never the reason anything is readable.
@@ -186,10 +196,41 @@ export async function getFinalizedPrescription(
 ): Promise<FinalizedOutcome> {
   const supabase = await createSupabaseServerClient();
 
-  const { data, error } = await supabase.rpc("finalized_prescription_detail", {
+  /**
+   * Ask at the ACTIVE location first — that is the boundary staff must stay
+   * inside, and for them it is the only question that gets asked.
+   */
+  let { data, error } = await supabase.rpc("finalized_prescription_detail", {
     p_prescription_id: prescriptionId,
     p_practice_location_id: activeLocationId,
   });
+
+  /**
+   * Not here? Then it may be the OWNING DOCTOR's own prescription from another
+   * of their locations, which their longitudinal history legitimately links to.
+   * `prescription_owner_location` answers only for a prescription the caller
+   * owns, and returns a location id and nothing else; the finalised read then
+   * runs again in full. Nothing is widened — a doctor who owns a prescription
+   * may read it, and the tenancy rule has always said their history spans all
+   * of their own locations.
+   */
+  let readAt = activeLocationId;
+
+  if (error && /not found/i.test(error.message)) {
+    const { data: ownLocation } = await supabase.rpc("prescription_owner_location", {
+      p_prescription_id: prescriptionId,
+    });
+
+    if (typeof ownLocation === "string" && ownLocation !== activeLocationId) {
+      const retry = await supabase.rpc("finalized_prescription_detail", {
+        p_prescription_id: prescriptionId,
+        p_practice_location_id: ownLocation,
+      });
+      data = retry.data;
+      error = retry.error;
+      if (!retry.error) readAt = ownLocation;
+    }
+  }
 
   if (error) {
     // Missing, not-yours, elsewhere and still-DRAFT answer identically.
@@ -228,6 +269,7 @@ export async function getFinalizedPrescription(
       digest: parsed.review.digest,
       bundle: parsed.review.bundle,
       encounterId: row.encounterId as string,
+      locationId: readAt,
       viewerIsOwner: row.viewerIsOwner === true,
       replacementReason: (row.replacementReason as string | null) ?? null,
       replacesPrescriptionId: (row.replacesPrescriptionId as string | null) ?? null,

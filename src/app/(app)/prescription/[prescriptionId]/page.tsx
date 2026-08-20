@@ -69,7 +69,16 @@ export default async function PrescriptionPage({
      * shows a warning; it never blocks an approved document from rendering, and
      * it never silently reports "no correction".
      */
-    const lineage = await getPrescriptionLineage(prescriptionId, ctx.locationId);
+    /**
+     * The SAME location the document was read at — not necessarily the active
+     * one. A doctor opening their own prescription from another of their
+     * locations reads it fine and would otherwise be told the correction
+     * history "could not be checked", which is a warning about nothing.
+     */
+    const lineage = await getPrescriptionLineage(
+      prescriptionId,
+      finalized.finalized.locationId,
+    );
 
     return (
       <FinalizedPrescription

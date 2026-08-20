@@ -302,6 +302,61 @@ try {
   });
   check(refused(colOpen), "…and cannot open one", `${colOpen.status}`);
 
+  // ---- longitudinal patient history, over the API -------------------------
+  console.log("\nHistory — the timeline is doctor-owned");
+  {
+    const own = await rpc(doctor, "patient_prescription_history", {
+      p_patient_id: pat.id,
+      p_practice_location_id: null,
+    });
+    check(
+      own.ok && Array.isArray(own.data) && own.data.length === 1,
+      "the owning doctor reads their patient's prescription history",
+      `${own.status} · ${Array.isArray(own.data) ? own.data.length : "?"}`,
+    );
+    check(
+      own.data?.[0]?.location_id === hospital.id && own.data?.[0]?.finalized_at,
+      "…with the location id and the time it was issued",
+    );
+    check(
+      !Object.keys(own.data?.[0] ?? {}).some((k) => /reason/i.test(k)),
+      "…and no correction reason anywhere in the payload",
+      Object.keys(own.data?.[0] ?? {}).join(", "),
+    );
+
+    /**
+     * Reception is REFUSED, not answered with an empty list. An empty list
+     * would tell the front desk "this patient has no prescriptions", which is
+     * a different and false statement.
+     */
+    const recHx = await rpc(reception, "patient_prescription_history", {
+      p_patient_id: pat.id,
+      p_practice_location_id: null,
+    });
+    check(refused(recHx), "reception cannot obtain longitudinal history", `${recHx.status}`);
+
+    const colHx = await rpc(other, "patient_prescription_history", {
+      p_patient_id: pat.id,
+      p_practice_location_id: null,
+    });
+    check(refused(colHx), "a colleague doctor obtains none of it", `${colHx.status}`);
+
+    // Consultations ride the encounters SELECT policy, so check it directly.
+    for (const [who, label, expectEmpty] of [
+      [doctor, "the owning doctor", false],
+      [other, "a colleague doctor", true],
+      [reception, "reception", true],
+    ]) {
+      const r = await select(who, "encounters", `select=id&patient_id=eq.${pat.id}`);
+      const n = Array.isArray(r.data) ? r.data.length : -1;
+      check(
+        expectEmpty ? n === 0 : n > 0,
+        `${label} ${expectEmpty ? "sees no consultations" : "sees their own consultations"}`,
+        `${r.status} · ${n}`,
+      );
+    }
+  }
+
   // ---- 12. wrong location -------------------------------------------------
   console.log("\n12. The location boundary, over the API");
   const [chamber] =
@@ -383,11 +438,22 @@ try {
 
   // ---- 11. the admin contract --------------------------------------------
   console.log("\n11. The location admin follows the same handover contract");
+  /**
+   * An admin who is NOT a doctor.
+   *
+   * The QA doctor also holds LOCATION_ADMIN at this hospital, so an unordered
+   * `limit 1` picked THEM — and the suite then reported that "the admin" could
+   * read the correction reason and start a correction, which was true and
+   * meaningless: they were the owner. A role test that can select the owner is
+   * not testing the role.
+   */
   const [adminRow] = await sql`
     select u.email from auth.users u
     join public.practice_location_members m on m.user_id = u.id
     where m.practice_location_id = ${hospital.id} and m.role = 'LOCATION_ADMIN'
-      and u.email like '%@qa.invalid' limit 1`;
+      and u.email like '%@qa.invalid'
+      and not exists (select 1 from public.doctor_profiles d where d.user_id = u.id)
+    limit 1`;
   if (!adminRow) {
     check(false, "a QA location admin exists to test with",
       "create one before running this gate");
@@ -491,13 +557,25 @@ try {
         }
       }
     }
-    const rxIds = [created.rxDraft, created.rxFinal].filter(Boolean);
-    if (rxIds.length) {
-      await sql`delete from public.prescription_events where prescription_id = any(${rxIds})`;
-      await sql`delete from public.prescription_items where prescription_id = any(${rxIds})`;
-      await sql`update public.prescriptions set replaces_prescription_id = null
-                 where id = any(${rxIds})`;
-      await sql`delete from public.prescriptions where id = any(${rxIds})`;
+    /**
+     * Everything on the encounters this run created — not just the ids it
+     * remembered. A correction started during a FAILING assertion is a
+     * prescription nobody recorded, and it holds a foreign key to one that is
+     * being deleted, so a narrow cleanup fails on the constraint and leaves
+     * both behind.
+     */
+    if (created.encs.length) {
+      const rows = await sql`
+        select id from public.prescriptions where encounter_id = any(${created.encs})`;
+      const rxIds = rows.map((r) => r.id);
+      if (rxIds.length) {
+        await sql`delete from public.prescription_events where prescription_id = any(${rxIds})`;
+        await sql`delete from public.prescription_items where prescription_id = any(${rxIds})`;
+        // Break the lineage links before removing the rows they point at.
+        await sql`update public.prescriptions set replaces_prescription_id = null
+                   where id = any(${rxIds})`;
+        await sql`delete from public.prescriptions where id = any(${rxIds})`;
+      }
     }
     if (created.encs.length) {
       await sql`delete from public.encounters where id = any(${created.encs})`;

@@ -3,6 +3,7 @@ import Link from "next/link";
 import {
   UserPlus, CalendarDays, Stethoscope, ClipboardPlus,
   FlaskConical, FileText, CalendarClock, MapPin, History,
+  ChevronRight, CircleAlert,
 } from "lucide-react";
 import { SectionCard, SectionHeader } from "@/components/common/section-card";
 import { EmptyState } from "@/components/common/empty-state";
@@ -25,6 +26,12 @@ const ICON: Record<TimelineEventType, React.ReactNode> = {
   followup: <CalendarClock className="size-4" />,
 };
 
+/** "appointments and prescriptions" — named, so the doctor knows what is absent. */
+function listSources(names: string[]): string {
+  if (names.length === 1) return names[0]!;
+  return `${names.slice(0, -1).join(", ")} and ${names.at(-1)}`;
+}
+
 function formatWhen(iso: string): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return iso;
@@ -46,12 +53,20 @@ function formatWhen(iso: string): string {
 export function PatientTimeline({
   patientId,
   events,
+  missing,
   activeType,
   activeLocationId,
   locations,
 }: {
   patientId: string;
   events: TimelineEvent[];
+  /**
+   * History sources that failed to load. A doctor cannot tell "no
+   * prescriptions" from "prescriptions could not be read", and on a clinical
+   * history those mean opposite things — so an incomplete timeline says so
+   * instead of quietly looking complete.
+   */
+  missing: string[];
   activeType: TimelineEventType | "all";
   activeLocationId: string | "all";
   locations: { id: string; name: string }[];
@@ -65,6 +80,23 @@ export function PatientTimeline({
   return (
     <SectionCard id="timeline" className="overflow-hidden">
       <SectionHeader title="Timeline" icon={<History className="size-4" />} />
+
+      {/*
+        Shown ABOVE the events, because a warning underneath a list a doctor has
+        already read and acted on is not a warning.
+      */}
+      {missing.length > 0 ? (
+        <p
+          role="alert"
+          className="flex items-start gap-2 border-b border-hairline bg-danger-soft px-4 py-3 text-[13px] font-medium text-[#a81c1c] sm:px-5"
+        >
+          <CircleAlert className="mt-px size-4 shrink-0" aria-hidden="true" />
+          <span>
+            This history is incomplete — {listSources(missing)} could not be loaded. Do not rely on
+            it until the page has been reloaded successfully.
+          </span>
+        </p>
+      ) : null}
 
       <div className="space-y-3 border-b border-hairline p-4 sm:p-5">
         <div className="-mx-1 flex gap-1.5 overflow-x-auto px-1 pb-1">
@@ -116,34 +148,78 @@ export function PatientTimeline({
         />
       ) : (
         <ol className="divide-y divide-hairline">
-          {events.map((e) => (
-            <li key={e.id} className="flex gap-3 px-4 py-3.5 sm:px-5">
-              <span
-                className="mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-full bg-brand-soft text-brand"
-                aria-hidden="true"
-              >
-                {ICON[e.type]}
-              </span>
-              <div className="min-w-0 flex-1">
-                <p className="text-sm font-semibold text-ink">{e.title}</p>
-                {e.summary ? (
-                  <p className="mt-0.5 text-[13px] text-ink-secondary">{e.summary}</p>
-                ) : null}
-                <p className="mt-1 flex flex-wrap items-center gap-x-2 text-xs text-ink-muted tabular-nums">
-                  <span>{formatWhen(e.occurredAt)}</span>
-                  {e.locationName ? (
-                    <>
-                      <span aria-hidden="true">·</span>
-                      <span className="inline-flex items-center gap-1">
-                        <MapPin className="size-3" aria-hidden="true" />
-                        {e.locationName}
+          {events.map((e) => {
+            const body = (
+              <>
+                <span
+                  className="mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-full bg-brand-soft text-brand"
+                  aria-hidden="true"
+                >
+                  {ICON[e.type]}
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                    <span className="text-sm font-semibold text-ink">{e.title}</span>
+                    {/*
+                      Never colour alone — the badge carries the word itself, so
+                      "Superseded" reads the same to anyone.
+                    */}
+                    {e.badge ? (
+                      <span
+                        className={cn(
+                          "rounded-md px-1.5 py-0.5 text-[11px] font-semibold",
+                          e.badge === "Superseded"
+                            ? "bg-warning-soft text-ink"
+                            : "bg-success-soft text-ink",
+                        )}
+                      >
+                        {e.badge}
                       </span>
-                    </>
+                    ) : null}
+                  </span>
+                  {e.summary ? (
+                    <span className="mt-0.5 block text-[13px] text-ink-secondary">{e.summary}</span>
                   ) : null}
-                </p>
-              </div>
-            </li>
-          ))}
+                  <span className="mt-1 flex flex-wrap items-center gap-x-2 text-xs tabular-nums text-ink-muted">
+                    <span>{formatWhen(e.occurredAt)}</span>
+                    {e.locationName ? (
+                      <>
+                        <span aria-hidden="true">·</span>
+                        <span className="inline-flex items-center gap-1">
+                          <MapPin className="size-3" aria-hidden="true" />
+                          {e.locationName}
+                        </span>
+                      </>
+                    ) : null}
+                  </span>
+                </span>
+                {e.href ? (
+                  <ChevronRight className="mt-2 size-4 shrink-0 text-ink-muted" aria-hidden="true" />
+                ) : null}
+              </>
+            );
+
+            return (
+              <li key={e.id}>
+                {/*
+                  A link only where there is somewhere safe to go. An event with
+                  no detail screen renders as a plain entry rather than a link
+                  that 404s — the timeline is the one place a doctor should be
+                  able to trust that what looks openable opens.
+                */}
+                {e.href ? (
+                  <Link
+                    href={e.href}
+                    className="flex gap-3 px-4 py-3.5 transition-colors hover:bg-surface-muted focus-visible:focus-ring sm:px-5"
+                  >
+                    {body}
+                  </Link>
+                ) : (
+                  <div className="flex gap-3 px-4 py-3.5 sm:px-5">{body}</div>
+                )}
+              </li>
+            );
+          })}
         </ol>
       )}
     </SectionCard>
