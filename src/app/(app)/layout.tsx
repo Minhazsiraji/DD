@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { DesktopSidebar } from "@/components/layout/desktop-sidebar";
+import { getNavCounts } from "@/features/queue/nav-counts";
 import { MobileBottomNav } from "@/components/layout/mobile-bottom-nav";
 import { TopBar } from "@/components/layout/top-bar";
 import type { LocationOption, LocationType } from "@/components/layout/location-switcher";
@@ -70,9 +71,19 @@ export default async function AppLayout({ children }: LayoutProps<"/">) {
   const doctorName =
     profile?.full_name ?? user.email?.split("@")[0] ?? "Doctor";
 
+  /**
+   * The sidebar's counts, for the ACTIVE location and today.
+   *
+   * Resolved here, per request, so switching clinic or signing in as someone
+   * else re-derives them — the numbers used to be the constants 7 and 24 and
+   * followed every doctor everywhere. Both go through the caller's own
+   * authorised reads, so a count can only describe rows they may already see.
+   */
+  const navCounts = await getNavCounts(activeLocationId);
+
   return (
     <div className="flex min-h-dvh">
-      <DesktopSidebar />
+      <DesktopSidebar counts={navCounts} />
 
       <div className="flex min-w-0 flex-1 flex-col">
         <TopBar

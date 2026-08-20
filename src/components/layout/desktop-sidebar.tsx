@@ -14,7 +14,12 @@ import { PRIMARY_NAV, SECONDARY_NAV, type NavItem } from "./nav-config";
  * Glass is correct here: this is chrome, not clinical content. It is one of the
  * two blur layers the view is allowed.
  */
-export function DesktopSidebar() {
+export function DesktopSidebar({
+  counts,
+}: {
+  /** Live per-request counts, keyed by `NavItem.badgeKey`. */
+  counts?: Partial<Record<NonNullable<NavItem["badgeKey"]>, number>>;
+}) {
   const pathname = usePathname();
 
   return (
@@ -39,7 +44,12 @@ export function DesktopSidebar() {
       <nav className="flex-1 overflow-y-auto px-3 pb-3">
         <ul className="space-y-1">
           {PRIMARY_NAV.map((item) => (
-            <SidebarLink key={item.href} item={item} pathname={pathname} />
+            <SidebarLink
+              key={item.href}
+              item={item}
+              pathname={pathname}
+              count={item.badgeKey ? counts?.[item.badgeKey] : undefined}
+            />
           ))}
         </ul>
       </nav>
@@ -71,7 +81,16 @@ export function DesktopSidebar() {
   );
 }
 
-function SidebarLink({ item, pathname }: { item: NavItem; pathname: string }) {
+function SidebarLink({
+  item,
+  pathname,
+  count,
+}: {
+  item: NavItem;
+  pathname: string;
+  /** Undefined when there is nothing to count, or nothing to say. */
+  count?: number;
+}) {
   const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
 
   return (
@@ -92,14 +111,21 @@ function SidebarLink({ item, pathname }: { item: NavItem; pathname: string }) {
           {item.icon}
         </span>
         <span className="hidden flex-1 truncate xl:block">{item.label}</span>
-        {typeof item.badge === "number" ? (
+        {/*
+          Shown only when there is something there. A "0" chip beside every
+          item is visual noise on a quiet morning, and — more importantly — a
+          zero that appeared when the read had actually failed would be a lie
+          about an empty waiting room. `getNavCounts` returns no count rather
+          than a zero in that case.
+        */}
+        {typeof count === "number" && count > 0 ? (
           <span
             className={cn(
               "hidden shrink-0 rounded-full px-1.5 py-0.5 text-[11px] font-semibold tabular-nums xl:inline-block",
               active ? "bg-brand-soft text-brand" : "bg-surface-muted text-ink-muted",
             )}
           >
-            {item.badge}
+            {count}
           </span>
         ) : null}
         <span className="sr-only xl:hidden">{item.label}</span>

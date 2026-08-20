@@ -21,8 +21,18 @@ export interface NavItem {
   href: string;
   label: string;
   icon: React.ReactNode;
-  /** Shown as a count chip in the sidebar. Mock values in Phase 1. */
-  badge?: number;
+  /**
+   * Which live count belongs beside this item, if any.
+   *
+   * A KEY, not a number. The numbers were the literals 7 and 24, written as
+   * Phase-1 placeholders and never replaced — so the sidebar said "Live Queue
+   * 7" above an empty waiting room, and every doctor saw the same 7 and 24. A
+   * number beside "Live Queue" is read as a fact about the room.
+   *
+   * The value is resolved per request, from the caller's own authorised reads,
+   * scoped to their ACTIVE location. Nothing static can be shown here again.
+   */
+  badgeKey?: "waiting" | "appointmentsToday";
 }
 
 const ICON = "size-[18px]";
@@ -30,7 +40,7 @@ const ICON = "size-[18px]";
 /** Desktop sidebar / tablet rail — the full workspace map. */
 export const PRIMARY_NAV: NavItem[] = [
   { href: "/dashboard", label: "Dashboard", icon: <LayoutDashboard className={ICON} /> },
-  { href: "/queue", label: "Live Queue", icon: <ListChecks className={ICON} />, badge: 7 },
+  { href: "/queue", label: "Live Queue", icon: <ListChecks className={ICON} />, badgeKey: "waiting" },
   /*
     Reception's way to a signed prescription. Listed for everyone because the
     page shows only what the caller is already authorised to hand over — a
@@ -38,7 +48,12 @@ export const PRIMARY_NAV: NavItem[] = [
     role would be authorisation in the menu, which is not authorisation.
   */
   { href: "/handover", label: "Hand Over", icon: <Printer className={ICON} /> },
-  { href: "/appointments", label: "Appointments", icon: <CalendarDays className={ICON} />, badge: 24 },
+  {
+    href: "/appointments",
+    label: "Appointments",
+    icon: <CalendarDays className={ICON} />,
+    badgeKey: "appointmentsToday",
+  },
   { href: "/patients", label: "Patients", icon: <Users className={ICON} /> },
   { href: "/medicines", label: "Medicines", icon: <Pill className={ICON} /> },
   { href: "/documents", label: "Documents", icon: <FileText className={ICON} /> },

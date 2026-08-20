@@ -70,16 +70,21 @@ export function TopBar({ doctorName, locations, activeLocationId }: TopBarProps)
 
         <QuickActionMenu variant="button" className="hidden sm:inline-flex" />
 
+        {/*
+          No unread marker until there is something to be unread.
+
+          This said "Notifications, 3 unread" and wore a permanent red dot, both
+          written as Phase-1 decoration. There is no notifications feature yet,
+          so the three were never real — and a screen reader announced them as
+          fact on every screen. Same defect as the sidebar's 7 and 24: a count
+          nobody can act on, that never changes, and that is simply untrue.
+        */}
         <button
           type="button"
-          aria-label="Notifications, 3 unread"
+          aria-label="Notifications"
           className="relative flex size-10 shrink-0 items-center justify-center rounded-xl text-ink-secondary transition-colors hover:bg-white/70 focus-visible:focus-ring"
         >
           <Bell className="size-5" aria-hidden="true" />
-          <span
-            className="absolute top-2 right-2 size-2 rounded-full bg-danger ring-2 ring-white"
-            aria-hidden="true"
-          />
         </button>
 
         <div className="flex shrink-0 items-center gap-2">
