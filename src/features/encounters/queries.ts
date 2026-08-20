@@ -212,6 +212,8 @@ export async function getConsultation(
 
 export interface ServerState {
   version: number;
+  /** Whether the visit is still open — see the note where it is read. */
+  status: "DRAFT" | "COMPLETED" | "CANCELLED";
   values: DraftValues;
   diagnoses: DiagnosisRow[];
   investigations: InvestigationRow[];
@@ -247,6 +249,12 @@ export async function getServerState(
 
   return {
     version: row.version as number,
+    /**
+     * Whether the visit is still open. Needed to tell "the close was refused"
+     * from "it is already closed" — a doctor told the visit would not finish,
+     * when it has, clicks again.
+     */
+    status: row.status as "DRAFT" | "COMPLETED" | "CANCELLED",
     values: rowToValues(row),
     diagnoses: lists.diagnoses,
     investigations: lists.investigations,

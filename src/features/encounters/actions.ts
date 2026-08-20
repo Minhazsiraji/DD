@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { z } from "zod";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { requireLocationContext } from "@/lib/auth/session";
 import { getServerState } from "./queries";
@@ -75,6 +76,76 @@ export async function openConsultationAction(input: {
  * rejected save returns the server's current text so the doctor can decide;
  * nothing is merged for them, and their own text is never touched.
  */
+/**
+ * Finish the visit.
+ *
+ * `close_encounter` has existed since Stage 6 and NOTHING CALLED IT. The
+ * appointment screen's "Finish consultation" completes the APPOINTMENT — a
+ * different record, owned by Stage 4 — so a doctor could write notes, a
+ * diagnosis, a prescription, finalise it and print it, and the encounter stayed
+ * DRAFT for ever. The patient's timeline then said "Consultation in progress"
+ * about a visit that had plainly ended.
+ *
+ * Deliberately NOT triggered by finalising a prescription. A doctor often signs
+ * the prescription and then adds a last line to the notes; closing the visit
+ * underneath them would be the software deciding the consultation is over.
+ *
+ * IDEMPOTENT IN PRACTICE. The version CAS inside `encounter_for_update` refuses
+ * the second of two clicks, so a double click cannot close twice or step the
+ * version twice — and an encounter that is ALREADY completed is reported as
+ * success, because that is what the doctor asked for and what is now true.
+ */
+export type FinishResult =
+  | { ok: true; alreadyClosed: boolean }
+  | { ok: false; kind: "conflict" | "error"; message: string };
+
+export async function finishConsultationAction(input: {
+  encounterId: string;
+  expectedVersion: number;
+}): Promise<FinishResult> {
+  const parsed = z
+    .object({ encounterId: z.uuid(), expectedVersion: z.number().int().positive() })
+    .safeParse(input);
+  if (!parsed.success) {
+    return { ok: false, kind: "error", message: "This consultation could not be finished." };
+  }
+
+  const ctx = await requireLocationContext();
+  const supabase = await createSupabaseServerClient();
+
+  const { error } = await supabase.rpc("close_encounter", {
+    p_encounter_id: parsed.data.encounterId,
+    p_practice_location_id: ctx.locationId,
+    p_expected_version: parsed.data.expectedVersion,
+    p_status: "COMPLETED",
+  });
+
+  if (error) {
+    /**
+     * A version conflict here usually means it is already finished — another
+     * tab, or the second half of a double click. Ask the record before calling
+     * it a failure: telling a doctor the visit would not close, when it has,
+     * invites them to click again.
+     */
+    const current = await getServerState(parsed.data.encounterId, ctx.locationId);
+    if (current && current.status !== "DRAFT") {
+      revalidatePath(`/consultation/${parsed.data.encounterId}`);
+      return { ok: true, alreadyClosed: true };
+    }
+
+    const translated = safeMessage("close_encounter", error.message);
+    return {
+      ok: false,
+      kind: translated.kind === "conflict" ? "conflict" : "error",
+      message: translated.message,
+    };
+  }
+
+  revalidatePath(`/consultation/${parsed.data.encounterId}`);
+  revalidatePath("/queue");
+  return { ok: true, alreadyClosed: false };
+}
+
 export async function saveConsultationAction(input: SaveInput): Promise<SaveResult> {
   const parsed = saveInputSchema.safeParse(input);
   if (!parsed.success) {

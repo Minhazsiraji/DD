@@ -10,6 +10,7 @@ import { SaveBar } from "./save-bar";
 import { UnsavedGuard } from "./unsaved-guard";
 import { FindingList } from "./finding-list";
 import { OpenPrescriptionButton } from "@/features/prescriptions/components/open-prescription-button";
+import { FinishConsultation } from "./finish-consultation";
 import { useConsultation } from "../use-consultation";
 import {
   addDiagnosisAction,
@@ -272,6 +273,19 @@ export function ConsultationWorkspace({
           aggregate, its own version and its own conflicts (ADR 0011 §1).
         */}
         {readOnly ? null : <OpenPrescriptionButton encounterId={consultation.id} />}
+
+        {/*
+          Last, because it is the last thing that happens. Before this the
+          encounter had no way to close from the consultation at all, and the
+          patient's timeline said "Consultation in progress" indefinitely.
+        */}
+        {readOnly ? null : (
+          <FinishConsultation
+            encounterId={consultation.id}
+            version={s.version}
+            unsaved={s.anythingUnsaved}
+          />
+        )}
       </div>
 
       {readOnly ? null : (
