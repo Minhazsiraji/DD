@@ -197,15 +197,43 @@ describe("units", () => {
 describe("the printed page carries the prescription and nothing else", () => {
   it("hides everything by default rather than naming each piece of chrome", async () => {
     /**
-     * The previous rule listed the elements to hide, so every new banner or
-     * button was one forgotten attribute away from being printed on a clinical
-     * document — and the sidebar already was.
+     * Still hidden by default — but by REMOVING the boxes, not just the ink.
+     *
+     * The rule was `visibility: hidden`, which paints nothing and keeps every
+     * box. The app shell is `min-h-dvh` with the whole page inside it, so a
+     * 167mm prescription sat in a 416mm document and Chromium printed a second,
+     * empty sheet. The doctor saw "Total: 2 sheets of paper" for three
+     * medicines.
+     *
+     * `PrintPrescription` now portals the sheet to be a direct child of body,
+     * which is what makes `display: none` on its siblings possible.
      */
     const css = await readFile(path.resolve("src/app/globals.css"), "utf8");
     const print = css.slice(css.indexOf("@media print"));
 
-    expect(print).toMatch(/body \*\s*\{[^}]*visibility:\s*hidden/);
-    expect(print).toMatch(/\[data-print-only\][^{]*\{[^}]*visibility:\s*visible/);
+    expect(print).toMatch(/body > \*:not\(\[data-print-only\]\)\s*\{[^}]*display:\s*none/);
+    /**
+     * The default is still "nothing prints unless it IS the sheet" — and
+     * comments are stripped first, because the rule's own explanation names
+     * `visibility: hidden` in order to say why it is gone.
+     */
+    expect(print.replace(/\/\*[\s\S]*?\*\//g, "")).not.toMatch(/visibility:\s*hidden/);
+  });
+
+  it("the sheet is a direct child of body, or the rule above hides it too", async () => {
+    const src = await readFile(
+      path.resolve("src/features/prescriptions/components/print-prescription.tsx"),
+      "utf8",
+    );
+    expect(src).toMatch(/createPortal\(/);
+    expect(src).toMatch(/document\.body,/);
+  });
+
+  it("nothing else may contribute page height", async () => {
+    const css = await readFile(path.resolve("src/app/globals.css"), "utf8");
+    const print = css.slice(css.indexOf("@media print"));
+    // A viewport minimum on html/body rounds a short prescription onto page 2.
+    expect(print).toMatch(/html,\s*\n?\s*body\s*\{[^}]*min-height:\s*0/);
   });
 
   /**

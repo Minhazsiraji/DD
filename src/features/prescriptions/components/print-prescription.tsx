@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { createPortal } from "react-dom";
 import { CircleAlert, Loader2, Printer } from "lucide-react";
 import { SectionCard } from "@/components/common/section-card";
 import { frozenSignatureUrlAction } from "../actions";
@@ -54,6 +55,24 @@ export function PrintPrescription({
   const [signatureFailed, setSignatureFailed] = React.useState(false);
   const [measured, setMeasured] = React.useState(false);
   const [tooWide, setTooWide] = React.useState(false);
+  /**
+   * `document` does not exist while this renders on the server, and the portal
+   * needs it. Mounting first also keeps the server and client markup identical,
+   * so there is no hydration mismatch.
+   */
+  /**
+   * Are we on the client yet?
+   *
+   * `document` does not exist during SSR and the portal needs it. This is the
+   * canonical way to ask: the server snapshot is `false`, the client snapshot
+   * is `true`, and React reconciles the difference itself — so there is no
+   * hydration mismatch and no setState in an effect.
+   */
+  const mounted = React.useSyncExternalStore(
+    () => () => {},
+    () => true,
+    () => false,
+  );
 
   /**
    * The ref goes on a wrapper this component owns, and the page box is found
@@ -146,7 +165,8 @@ export function PrintPrescription({
       cancelled = true;
       img.removeEventListener("load", settle);
     };
-  }, [needsSignature, signatureUrl]);
+    // `mounted`: the sheet is portalled, so it does not exist on the first pass.
+  }, [needsSignature, signatureUrl, mounted]);
 
   /**
    * Measure the real document against the real page.
@@ -182,7 +202,8 @@ export function PrintPrescription({
     const observer = new ResizeObserver(measure);
     observer.observe(el);
     return () => observer.disconnect();
-  }, [view, signatureUrl]);
+    // `mounted`: the sheet is portalled, so it does not exist on the first pass.
+  }, [view, signatureUrl, mounted]);
 
   const readiness: Readiness =
     signatureFailed ? { kind: "signature-unavailable" }
@@ -252,14 +273,34 @@ export function PrintPrescription({
       </SectionCard>
 
       {/*
-        The paper itself.
-        Off-screen but LAID OUT — it must have real dimensions for the overflow
-        measurement to mean anything, so it cannot be `display: none`. In print
-        media it becomes the only visible thing on the page.
+        The paper itself — rendered as a DIRECT CHILD OF <body>, through a
+        portal.
+
+        WHY IT LEAVES THE REACT TREE
+
+        Print used to hide the app with `visibility: hidden`, which paints
+        nothing but KEEPS EVERY BOX. The shell is `min-h-dvh` and the page's own
+        content sits inside it, so the document stayed 416mm tall for a
+        prescription that was 167mm — and Chromium duly produced a second, empty
+        A4 page. Measured, not guessed: the sheet was 167.1mm and the document
+        415.9mm.
+
+        No amount of `height: auto` fixes that from inside, because the height
+        comes from real content in normal flow. The sheet has to stop being
+        inside it. As a direct child of body, print can simply `display: none`
+        every sibling, and the document becomes exactly as tall as the paper.
+
+        Off-screen but LAID OUT on screen — it needs real dimensions for the
+        width measurement to mean anything, so it is never `display: none` there.
       */}
-      <div data-print-only aria-hidden="true" ref={wrapperRef}>
-        <PrintSheet view={view} signatureUrl={signatureUrl} />
-      </div>
+      {mounted
+        ? createPortal(
+            <div data-print-only aria-hidden="true" ref={wrapperRef}>
+              <PrintSheet view={view} signatureUrl={signatureUrl} />
+            </div>,
+            document.body,
+          )
+        : null}
     </>
   );
 }

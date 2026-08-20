@@ -41,6 +41,16 @@ export function PrintSheet({
   const paper = PAPER_MM[view.paperSize];
   /** The page's content box, once the approved margin is taken off both sides. */
   const contentWidthMm = paper.w - view.marginMm * 2;
+  /**
+   * The height of ONE page's content box.
+   *
+   * Used only to let a short prescription fill the page so the signature can
+   * settle near the bottom, the way a prescription pad looks. A hair under the
+   * true height on purpose: exactly one page's worth, plus any rounding
+   * anywhere in the box model, is what produces a second, empty sheet — and a
+   * blank page is a worse fault than a signature sitting high.
+   */
+  const pageContentHeightMm = paper.h - view.marginMm * 2 - 1;
 
   return (
     <>
@@ -50,12 +60,16 @@ export function PrintSheet({
         data-paper={view.paperSize}
         data-margin-mm={view.marginMm}
         className="bg-white text-ink"
-        style={{
-          width: `${contentWidthMm}mm`,
-          // No height and no overflow rule: the flow is the point.
-          fontSize: `${view.baseFontPt}pt`,
-          lineHeight: 1.45,
-        }}
+        style={
+          {
+            width: `${contentWidthMm}mm`,
+            // No height and no overflow rule: the flow is the point.
+            fontSize: `${view.baseFontPt}pt`,
+            lineHeight: 1.45,
+            // Read by the print stylesheet; ignored entirely on screen.
+            "--page-content-height": `${pageContentHeightMm}mm`,
+          } as React.CSSProperties
+        }
       >
         <PrescriptionDocument view={view} u={PHYSICAL_UNITS} signatureUrl={signatureUrl} />
       </div>

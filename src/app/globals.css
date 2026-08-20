@@ -421,32 +421,44 @@
   }
 
   /**
-   * PRINT PRIVACY, BY DEFAULT.
+   * PRINT PRIVACY, BY DEFAULT — AND NO BLANK PAGES.
    *
-   * Everything is hidden and only the prescription is put back. The previous
-   * approach named each piece of chrome to hide, which meant every new header,
-   * banner or button was one forgotten attribute away from being printed on a
-   * clinical document — and the sidebar already was.
+   * Everything is removed and only the prescription remains. Naming each piece
+   * of chrome to hide meant every new header, banner or button was one
+   * forgotten attribute away from printing on a clinical document, and the
+   * sidebar already was; so the default is still "nothing prints".
    *
-   * `visibility` rather than `display`, because the print root is positioned
-   * against the page and hidden ancestors must keep their boxes for that to
-   * resolve.
+   * `display: none`, NOT `visibility: hidden`. Visibility paints nothing but
+   * keeps every box, and the app shell is `min-h-dvh` with the whole page
+   * inside it — so a 167mm prescription sat in a 416mm document and Chromium
+   * produced a second, empty A4 sheet. The doctor saw "Total: 2 sheets of
+   * paper" for a three-medicine prescription.
+   *
+   * This works because `PrintPrescription` portals the sheet to be a DIRECT
+   * CHILD OF BODY. Nothing else needs to keep its box, so the document becomes
+   * exactly as tall as the paper — one page when it fits, and as many as the
+   * browser needs when it does not.
    */
-  body * {
-    visibility: hidden !important;
+  body > *:not([data-print-only]) {
+    display: none !important;
   }
 
-  [data-print-only],
-  [data-print-only] * {
-    visibility: visible !important;
-  }
-
-  /* The paper, at the page origin, at its real size. */
+  /* The paper: in normal flow, at its real size, owning the whole document. */
   [data-print-only] {
-    position: absolute !important;
-    left: 0 !important;
-    top: 0 !important;
+    display: block !important;
+    position: static !important;
     margin: 0 !important;
+    padding: 0 !important;
+  }
+
+  html,
+  body {
+    /* No shell height, no viewport minimum, nothing to round up into page 2. */
+    height: auto !important;
+    min-height: 0 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    background: #ffffff !important;
   }
 
   [data-print-root] {
@@ -454,6 +466,33 @@
     /* The flow decides the height; `@page` decides where it breaks. */
     height: auto !important;
     overflow: visible !important;
+
+    /**
+     * A short prescription should fill the page, so the signature settles near
+     * the bottom the way a prescription pad looks — rather than floating under
+     * three medicines with a hand's width of blank paper beneath it.
+     *
+     * `min-height`, so it only ever ADDS space to a page that is not full. A
+     * long prescription is already taller and is untouched, and fragmentation
+     * still belongs entirely to the browser.
+     *
+     * The value is one page's content box MINUS 1mm. Exactly one page's worth
+     * is what tips into a second, empty sheet once any rounding is added, and a
+     * blank page is a worse fault than a high signature.
+     */
+    min-height: var(--page-content-height, 0);
+    display: flex;
+    flex-direction: column;
+  }
+
+  /**
+   * The medicines take the slack, pushing signature and footer down. `auto`
+   * margins on the flex child would do it too, but growing the list keeps the
+   * signature attached to the content rather than to the page — so on a
+   * fragmented prescription it still lands after the last medicine.
+   */
+  [data-print-root] > section:has(ol) {
+    flex: 1 1 auto;
   }
 
   /**
