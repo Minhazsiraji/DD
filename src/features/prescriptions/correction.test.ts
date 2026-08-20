@@ -13,6 +13,7 @@ import path from "node:path";
  */
 
 const POLICY = path.resolve("supabase/policies/0023_prescription_correction.sql");
+const BOUNDARY = path.resolve("supabase/policies/0024_correction_trust_boundary.sql");
 const PARTS = path.resolve("src/features/prescriptions/components/prescription-parts.tsx");
 const SHEET = path.resolve("src/features/prescriptions/components/print-sheet.tsx");
 const BANNER = path.resolve("src/features/prescriptions/components/correction-banner.tsx");
@@ -79,7 +80,7 @@ describe("a correction starts blank", () => {
 
     // The action it calls carries only ids and a reason — no medicines.
     const call = control.slice(control.indexOf("startCorrectionAction("));
-    expect(call.slice(0, 200)).toMatch(/\{\s*prescriptionId,\s*encounterId,\s*reason\s*\}/);
+    expect(call.slice(0, 200)).toMatch(/\{\s*prescriptionId,\s*reason\s*\}/);
   });
 
   it("is labelled as a new prescription, never as editing the old one", async () => {
@@ -103,6 +104,61 @@ describe("a correction starts blank", () => {
     expect(control).toMatch(/disabled=\{busy \|\| trimmed === ""\}/);
     // The same 500 the column's CHECK constraint enforces.
     expect(control).toMatch(/MAX_REASON = 500/);
+  });
+});
+
+describe("the prescription being corrected is the only identifier", () => {
+  /**
+   * The trust boundary. Lineage was checked against a browser-supplied
+   * prescription id while the write ran against a browser-supplied ENCOUNTER
+   * id, so the two halves of one clinical relationship could disagree. Nothing
+   * was cross-doctor — both paths re-checked ownership — but "which
+   * prescription is this a correction of" must not be assembled from two things
+   * the browser sent.
+   */
+  it("the component sends no encounter id", async () => {
+    const control = await code(CONTROL);
+    expect(control).not.toMatch(/encounterId/);
+  });
+
+  it("the action accepts no encounter id", async () => {
+    const actions = await code(ACTIONS);
+    const fn = actions.slice(
+      actions.indexOf("export async function startCorrectionAction"),
+      actions.indexOf("export async function addMedicineAction"),
+    );
+    expect(fn).not.toMatch(/encounterId|p_encounter_id/);
+    // One identifier, and the RPC derives the rest from the row.
+    expect(fn).toMatch(/p_prescription_id: prescriptionId/);
+    expect(fn).toMatch(/rpc\("start_prescription_correction"/);
+  });
+
+  it("the other door is shut: opening by encounter takes no reason", async () => {
+    /**
+     * `open_prescription` used to accept a replacement reason, and supplying it
+     * turned an ordinary open into a correction of whatever it inferred was the
+     * newest unreplaced finalised prescription on that encounter. Removed, not
+     * defaulted — an unused default is still a parameter a caller may supply.
+     */
+    const actions = await code(ACTIONS);
+    const fn = actions.slice(
+      actions.indexOf("export async function openPrescriptionAction"),
+      actions.indexOf("export async function startCorrectionAction"),
+    );
+    expect(fn).not.toMatch(/replacementReason|p_replacement_reason/);
+  });
+
+  it("the RPC derives the encounter from the row it was handed", async () => {
+    const sql = await code(BOUNDARY);
+    const fn = sql.slice(sql.indexOf("function public.start_prescription_correction"));
+    const params = fn.slice(fn.indexOf("(") + 1, fn.indexOf(")"));
+    expect(params).not.toMatch(/encounter/i);
+
+    // Every field of the new row is copied from `v_rx`, never from a parameter.
+    expect(fn).toMatch(/values \(\s*v_rx\.encounter_id, v_rx\.owner_doctor_id, v_rx\.patient_id,/);
+    // And it replaces exactly the row it was named, not an inferred "latest".
+    expect(fn).toMatch(/replaces_prescription_id[\s\S]{0,400}p_prescription_id,/);
+    expect(fn).not.toMatch(/order by finalized_at desc/);
   });
 });
 

@@ -30,13 +30,7 @@ const MAX_REASON = 500;
  * non-owner regardless, and a unique index allows one correction per
  * prescription however many tabs are open.
  */
-export function WriteCorrection({
-  prescriptionId,
-  encounterId,
-}: {
-  prescriptionId: string;
-  encounterId: string;
-}) {
+export function WriteCorrection({ prescriptionId }: { prescriptionId: string }) {
   const router = useRouter();
   const [open, setOpen] = React.useState(false);
   const [reason, setReason] = React.useState("");
@@ -55,7 +49,12 @@ export function WriteCorrection({
     setBusy(true);
     setError(null);
 
-    const result = await startCorrectionAction({ prescriptionId, encounterId, reason });
+    /**
+     * ONE identifier. The encounter this correction belongs to is read from the
+     * prescription row inside the database transaction — sending it from here
+     * would let the two halves of one clinical relationship disagree.
+     */
+    const result = await startCorrectionAction({ prescriptionId, reason });
 
     if (result.ok) {
       /**

@@ -141,7 +141,7 @@ export function FinalizedPrescription({
         control there would be offering to correct a superseded sheet.
       */}
       {viewerIsOwner && !lineage?.replacedBy ? (
-        <WriteCorrection prescriptionId={prescriptionId} encounterId={encounterId} />
+        <WriteCorrection prescriptionId={prescriptionId} />
       ) : null}
 
       {/*

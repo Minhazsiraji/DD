@@ -148,7 +148,7 @@ async function seed(tx) {
   let v1;
   await as(tx, uidA, async () => {
     const [{ open_prescription: id }] =
-      await tx`select public.open_prescription(${enc.id}, ${hospital.id}, null)`;
+      await tx`select public.open_prescription(${enc.id}, ${hospital.id})`;
     v1 = id;
     for (const m of [
       { displayName: "Tab. Alpha 250 mg", doseText: "1 tablet", scheduleText: "1+0+1" },
@@ -201,26 +201,91 @@ try {
       select jsonb_agg(to_jsonb(i) order by i.position) as items
       from public.prescription_items i where i.prescription_id = ${v1}`;
 
+    // ---- THE TRUST BOUNDARY ----------------------------------------------
+    /**
+     * The prescription being corrected is the AUTHORITY, and it is the ONLY
+     * identifier a caller supplies.
+     *
+     * The earlier shape took a prescription id AND an encounter id from the
+     * browser: lineage was checked against the first, the write performed
+     * against the second. Two halves of one clinical relationship, controlled
+     * independently. These assert the shape that makes that impossible.
+     */
+    console.log("\nTrust boundary: one identifier, derived from the row");
+    {
+      const [args] = await tx`
+        select pg_get_function_identity_arguments(p.oid) as sig
+        from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+        where n.nspname = 'public' and p.proname = 'start_prescription_correction'`;
+      check(
+        args.sig.trim() ===
+          "p_prescription_id uuid, p_practice_location_id uuid, p_replacement_reason text",
+        "the correction RPC takes the PRESCRIPTION id, never an encounter id",
+        args.sig,
+      );
+      check(!/encounter/i.test(args.sig), "…and no encounter parameter of any kind");
+
+      /**
+       * The other door. `open_prescription` used to take a replacement reason,
+       * and supplying it turned an ordinary open into a correction of whatever
+       * it inferred was the newest unreplaced finalised prescription on that
+       * encounter. Removed, not defaulted: an unused default is still a
+       * parameter a caller may supply.
+       */
+      const opens = await tx`
+        select pg_get_function_identity_arguments(p.oid) as sig
+        from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+        where n.nspname = 'public' and p.proname = 'open_prescription'`;
+      check(opens.length === 1, "open_prescription has exactly ONE definition", `${opens.length}`);
+      check(
+        opens[0]?.sig.trim() === "p_encounter_id uuid, p_practice_location_id uuid",
+        "…and it can no longer be handed a replacement reason",
+        opens[0]?.sig,
+      );
+
+      // 3. The mismatch is not merely refused — it cannot be expressed.
+      check(
+        await refused(tx, (t) =>
+          t`select public.start_prescription_correction(${v1}, ${hospital}, 'x', ${enc})`),
+        "there is no overload that accepts a prescription AND an encounter",
+      );
+    }
+
+    // ---- 4. the encounter is DERIVED, never supplied ----------------------
+    console.log("\n4. The encounter comes from the prescription row");
+    // Proved after the correction is created, below.
+
     // ---- 2, 3, 4, 5. the reason is required, trimmed and bounded ----------
     console.log("\n2–5. A correction needs a reason, and the reason has limits");
     await as(tx, uidA, async () => {
       check(
-        await refused(tx, (t) => t`select public.open_prescription(${enc}, ${hospital}, null)`),
+        await refused(tx, (t) =>
+          t`select public.start_prescription_correction(${v1}, ${hospital}, null)`),
         "a correction with NO reason is refused",
       );
       check(
-        await refused(tx, (t) => t`select public.open_prescription(${enc}, ${hospital}, '   ')`),
+        await refused(tx, (t) =>
+          t`select public.start_prescription_correction(${v1}, ${hospital}, '   ')`),
         "a whitespace-only reason is refused",
       );
       check(
         await refused(tx, (t) =>
-          t`select public.open_prescription(${enc}, ${hospital}, ${"x".repeat(501)})`),
+          t`select public.start_prescription_correction(${v1}, ${hospital}, ${"x".repeat(501)})`),
         "an over-length reason is refused by the database, not just by Zod",
       );
       check(
         await accepted(tx, (t) =>
-          t`select public.open_prescription(${enc}, ${hospital}, ${"x".repeat(500)})`),
+          t`select public.start_prescription_correction(${v1}, ${hospital}, ${"x".repeat(500)})`),
         "…while exactly 500 characters is accepted",
+      );
+
+      /**
+       * Opening by ENCOUNTER can no longer produce a correction at all. It
+       * refuses with its own token so the screen can say where to go.
+       */
+      check(
+        await refused(tx, (t) => t`select public.open_prescription(${enc}, ${hospital})`),
+        "opening by encounter refuses once a prescription is approved",
       );
     });
 
@@ -229,17 +294,34 @@ try {
     const BANGLA = "ভুল মাত্রা লেখা হয়েছিল — রোগীর অ্যালার্জি ধরা পড়ার পরে সংশোধন করা হলো।";
     let v2;
     await as(tx, uidA, async () => {
-      const [{ open_prescription: id }] =
-        await tx`select public.open_prescription(${enc}, ${hospital}, ${BANGLA})`;
+      const [{ start_prescription_correction: id }] =
+        await tx`select public.start_prescription_correction(${v1}, ${hospital}, ${BANGLA})`;
       v2 = id;
     });
 
     const [v2row] = await tx`
-      select status, replaces_prescription_id, replacement_reason, review_bundle_snapshot
+      select status, replaces_prescription_id, replacement_reason, encounter_id,
+             owner_doctor_id, patient_id, practice_location_id
       from public.prescriptions where id = ${v2}`;
     check(v2row.status === "DRAFT", "the correction starts as a DRAFT", v2row.status);
     check(v2row.replaces_prescription_id === v1, "…and points at the prescription it corrects");
     check(v2row.replacement_reason === BANGLA, "…carrying the doctor's Bangla reason verbatim");
+
+    // ---- 4. every field came from the ROW, not from a parameter -----------
+    const [v1row] = await tx`
+      select encounter_id, owner_doctor_id, patient_id, practice_location_id
+      from public.prescriptions where id = ${v1}`;
+    check(
+      v2row.encounter_id === v1row.encounter_id,
+      "the server-derived encounter equals V1's own encounter",
+      `${v2row.encounter_id}`,
+    );
+    check(
+      v2row.owner_doctor_id === v1row.owner_doctor_id &&
+        v2row.patient_id === v1row.patient_id &&
+        v2row.practice_location_id === v1row.practice_location_id,
+      "…as do the doctor, the patient and the location",
+    );
 
     const [v2items] = await tx`
       select count(*)::int as n from public.prescription_items where prescription_id = ${v2}`;
@@ -258,9 +340,15 @@ try {
     // ---- 17, 18, 19. exactly one correction ------------------------------
     console.log("\n17–19. One correction per prescription, and a second attempt finds it");
     await as(tx, uidA, async () => {
-      const [{ open_prescription: again }] =
-        await tx`select public.open_prescription(${enc}, ${hospital}, ${"another reason"})`;
+      const [{ start_prescription_correction: again }] =
+        await tx`select public.start_prescription_correction(${v1}, ${hospital}, ${"another reason"})`;
       check(again === v2, "a second attempt RESUMES the existing draft rather than duplicating");
+
+      // …and a doctor arriving at an existing correction is not asked to
+      // justify one that already exists.
+      const [{ start_prescription_correction: noReason }] =
+        await tx`select public.start_prescription_correction(${v1}, ${hospital}, null)`;
+      check(noReason === v2, "…even with no reason, because it is not creating one");
     });
     check(
       await refused(tx, (t) =>
@@ -280,14 +368,20 @@ try {
     ]) {
       await as(tx, uid, async () => {
         check(
-          await refused(tx, (t) => t`select public.open_prescription(${enc}, ${hospital}, 'x')`),
+          await refused(tx, (t) =>
+            t`select public.start_prescription_correction(${v1}, ${hospital}, 'x')`),
           `${who} cannot start a correction`,
+        );
+        check(
+          await refused(tx, (t) => t`select public.open_prescription(${enc}, ${hospital})`),
+          `${who} cannot open a prescription on this encounter either`,
         );
       });
     }
     await as(tx, uidA, async () => {
       check(
-        await refused(tx, (t) => t`select public.open_prescription(${enc}, ${other}, 'x')`),
+        await refused(tx, (t) =>
+          t`select public.start_prescription_correction(${v1}, ${other}, 'x')`),
         "the owning doctor cannot correct it under the wrong active location",
       );
     });
@@ -435,6 +529,57 @@ try {
       });
     }
 
+    // ---- 9. the chain, and every edge explicit ---------------------------
+    /**
+     * V1 → V2 → V3, all on ONE encounter.
+     *
+     * The old flow inferred "the newest unreplaced finalised prescription on
+     * this encounter", which happens to give the right answer here — and is
+     * still the wrong rule, because it is not the answer the doctor gave. They
+     * clicked a specific sheet. Correcting V2 must produce V3 replacing V2,
+     * and asking to correct V1 again must find V2 rather than create anything.
+     */
+    console.log("\n9. V1 → V2 → V3, with every edge explicit");
+    let v3;
+    await as(tx, uidA, async () => {
+      const [{ start_prescription_correction: found }] =
+        await tx`select public.start_prescription_correction(${v1}, ${hospital}, ${"should not create"})`;
+      check(found === v2, "asking to correct V1 again FINDS V2 and creates nothing");
+
+      [{ start_prescription_correction: v3 }] =
+        await tx`select public.start_prescription_correction(${v2}, ${hospital}, ${"second correction"})`;
+
+      // Lineage through the RPC — the only read `authenticated` is allowed.
+      const [l] = await tx`select public.prescription_lineage(${v1}, ${hospital}) as l`;
+      check(l.l.replacedBy?.id === v2, "V1's replacement is still V2, not V3");
+      const [l2] = await tx`select public.prescription_lineage(${v2}, ${hospital}) as l`;
+      check(l2.l.replaces?.id === v1, "V2 still corrects V1");
+      check(l2.l.replacedBy?.id === v3, "…and is itself now corrected by V3");
+    });
+
+    /**
+     * The stored row, read as the TABLE OWNER. Direct SELECT on `prescriptions`
+     * is revoked for `authenticated` — that is the boundary, so an assertion
+     * about what was stored has to step outside the role under test. The first
+     * draft of this read it as the doctor and was refused, correctly.
+     */
+    const [v3row] = await tx`
+      select replaces_prescription_id, status, encounter_id
+      from public.prescriptions where id = ${v3}`;
+    check(v3row.replaces_prescription_id === v2, "V3 replaces V2");
+    check(
+      v3row.replaces_prescription_id !== v1,
+      "…and is NOT attached back to V1 merely for sharing an encounter",
+    );
+    check(v3row.encounter_id === v1row.encounter_id, "…on the same encounter, derived again");
+    check(v3row.status === "DRAFT", "…and starts as a draft");
+    /**
+     * V3 is left in place. This section runs AFTER the handover assertions on
+     * purpose, so nothing needs cleaning up — and the first draft of it tried
+     * to delete `prescription_events`, which `authenticated` has no DELETE on.
+     * The right fix was to stop deleting, not to escalate the role.
+     */
+
     // ---- 24. two signatures, each immutable on its own -------------------
     console.log("\n24. Both frozen signatures stay independently immutable");
     check(f.sig1 !== sig2.id, "the correction has its OWN frozen signature object");
@@ -518,7 +663,8 @@ console.log("\nJ. Two tabs, one correction");
         await tx`select set_config('request.jwt.claims', ${claims}, true)`;
         await tx`set local role authenticated`;
         const [row] = await tx`
-          select public.open_prescription(${fixture.enc}, ${fixture.hospital}, ${reason}) as id`;
+          select public.start_prescription_correction(
+            ${fixture.v1}, ${fixture.hospital}, ${reason}) as id`;
         await tx`reset role`;
         return row.id;
       });

@@ -82,8 +82,35 @@ export function translateRxError(message: string): TranslatedRxError {
   if (m.includes("PRESCRIPTION_REPLACEMENT_NEEDS_REASON")) {
     return {
       kind: "error",
+      message: "Say why this prescription is being corrected before starting the correction.",
+      unexpected: false,
+    };
+  }
+
+  /**
+   * Opening by ENCOUNTER found an approved prescription and no draft. That can
+   * only mean a correction — and a correction must name the sheet it corrects,
+   * so it does not happen here. Says where to go rather than what went wrong.
+   */
+  if (m.includes("PRESCRIPTION_ALREADY_FINALIZED")) {
+    return {
+      kind: "error",
       message:
-        "This consultation's prescription has already been approved, and it cannot be replaced from this screen.",
+        "This consultation already has an approved prescription. Open it to write a corrected one.",
+      unexpected: false,
+    };
+  }
+
+  /**
+   * A draft is already open on this encounter and it is not this correction.
+   * Finishing or discarding it comes first — one draft per encounter is a
+   * constraint, and a constraint violation is not something a doctor can read.
+   */
+  if (m.includes("PRESCRIPTION_DRAFT_IN_PROGRESS")) {
+    return {
+      kind: "error",
+      message:
+        "There is already an unfinished prescription for this consultation. Finish or discard it before starting a correction.",
       unexpected: false,
     };
   }

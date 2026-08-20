@@ -175,13 +175,23 @@ async function finish(
   }
 }
 
+/**
+ * Open — or resume — this consultation's prescription.
+ *
+ * NO replacement reason, and no way to pass one. It used to take one, and
+ * supplying it turned an ordinary open into a CORRECTION of whatever the
+ * database decided was the newest unreplaced finalised prescription on that
+ * encounter. So "which prescription is this a correction of" was answered by
+ * inference from a browser-supplied encounter id, on a clinical record.
+ *
+ * Corrections now name the prescription they correct, through
+ * `startCorrectionAction`. The parameter is REMOVED rather than defaulted —
+ * an unused default is still a parameter a caller may supply.
+ */
 export async function openPrescriptionAction(input: {
   encounterId: string;
-  replacementReason?: string | null;
 }): Promise<{ ok: true; prescriptionId: string } | { ok: false; message: string }> {
-  const parsed = z
-    .object({ encounterId: z.uuid(), replacementReason: z.string().trim().max(500).nullish() })
-    .safeParse(input);
+  const parsed = z.object({ encounterId: z.uuid() }).safeParse(input);
   if (!parsed.success) return { ok: false, message: "That consultation could not be opened." };
 
   const ctx = await requireLocationContext();
@@ -190,7 +200,6 @@ export async function openPrescriptionAction(input: {
   const { data, error } = await supabase.rpc("open_prescription", {
     p_encounter_id: parsed.data.encounterId,
     p_practice_location_id: ctx.locationId,
-    p_replacement_reason: parsed.data.replacementReason ?? null,
   });
 
   if (error) return { ok: false, message: safe("open_prescription", error.message).message };
@@ -236,13 +245,11 @@ export type CorrectionResult =
 
 export async function startCorrectionAction(input: {
   prescriptionId: string;
-  encounterId: string;
   reason: string;
 }): Promise<CorrectionResult> {
   const parsed = z
     .object({
       prescriptionId: z.uuid(),
-      encounterId: z.uuid(),
       /**
        * Trimmed first, so whitespace cannot satisfy "required". 500 matches the
        * CHECK constraint on the column — the database is the authority, and
@@ -266,13 +273,16 @@ export async function startCorrectionAction(input: {
 
   const ctx = await requireLocationContext();
   const supabase = await createSupabaseServerClient();
-  const { prescriptionId, encounterId, reason } = parsed.data;
+  const { prescriptionId, reason } = parsed.data;
 
   /**
    * Look BEFORE writing. If this prescription has already been corrected, the
    * doctor means "take me to it" — a second click, a stale tab, or the other
    * side of a race. Writing first and reconciling afterwards would be racing
    * a unique index for no reason.
+   *
+   * The RPC is idempotent too, and IT is the authority; this is the fast path,
+   * not the control.
    */
   const existing = await getPrescriptionLineage(prescriptionId, ctx.locationId);
   if (existing.ok && existing.lineage.replacedBy?.id) {
@@ -282,8 +292,13 @@ export async function startCorrectionAction(input: {
       : { ok: true, prescriptionId: link.id!, resumed: true };
   }
 
-  const { data, error } = await supabase.rpc("open_prescription", {
-    p_encounter_id: encounterId,
+  /**
+   * ONE identifier. The encounter, the patient, the owning doctor and the
+   * location are all read from the prescription row inside the transaction, so
+   * there is no second thing the browser could point somewhere else.
+   */
+  const { data, error } = await supabase.rpc("start_prescription_correction", {
+    p_prescription_id: prescriptionId,
     p_practice_location_id: ctx.locationId,
     p_replacement_reason: reason,
   });
@@ -314,7 +329,7 @@ export async function startCorrectionAction(input: {
     }
 
     if (error) {
-      const safeError = safe("open_prescription", error.message);
+      const safeError = safe("start_prescription_correction", error.message);
       return { ok: false, kind: "refused", message: safeError.message };
     }
     return {
@@ -325,7 +340,6 @@ export async function startCorrectionAction(input: {
   }
 
   revalidatePath(`/prescription/${prescriptionId}`);
-  revalidatePath(`/consultation/${encounterId}`);
   return { ok: true, prescriptionId: data as string, resumed: false };
 }
 

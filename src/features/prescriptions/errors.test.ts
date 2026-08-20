@@ -51,11 +51,37 @@ describe("translateRxError", () => {
     expect(t.message).not.toMatch(/another doctor|belongs to|does not exist/i);
   });
 
-  it("does not ask for a replacement reason no screen can collect yet", () => {
+  /**
+   * This used to assert the OPPOSITE — that the copy must not ask for a reason,
+   * because no screen could collect one and an instruction the doctor cannot
+   * follow is worse than a plain refusal.
+   *
+   * Stage 7C-3D built that screen. Asking is now the correct thing to say, and
+   * the test moves with the product rather than pinning it to a limitation that
+   * no longer exists.
+   */
+  it("asks for the correction reason, now that a screen collects one", () => {
     const t = translateRxError("PRESCRIPTION_REPLACEMENT_NEEDS_REASON");
-    expect(t.message).toMatch(/already been approved/i);
-    // An instruction the doctor cannot follow is worse than a plain refusal.
-    expect(t.message).not.toMatch(/say why|give a reason|enter a reason/i);
+    expect(t.message).toMatch(/say why/i);
+    expect(t.unexpected).toBe(false);
+  });
+
+  it("sends an encounter-level open toward the prescription it would correct", () => {
+    /**
+     * Opening by encounter can no longer start a correction — corrections name
+     * the sheet they correct. The copy has to say where to go, not merely that
+     * something is wrong.
+     */
+    const t = translateRxError("PRESCRIPTION_ALREADY_FINALIZED");
+    expect(t.message).toMatch(/already has an approved prescription/i);
+    expect(t.message).toMatch(/open it/i);
+    expect(t.unexpected).toBe(false);
+  });
+
+  it("names the unfinished draft that is actually in the way", () => {
+    // A unique-index violation is not something a doctor can read.
+    const t = translateRxError("PRESCRIPTION_DRAFT_IN_PROGRESS");
+    expect(t.message).toMatch(/unfinished prescription/i);
     expect(t.unexpected).toBe(false);
   });
 

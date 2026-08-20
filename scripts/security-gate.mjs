@@ -385,7 +385,7 @@ try {
     let rxA;
     await as(tx, ids.docA, async () => {
       [{ open_prescription: rxA }] = await tx`
-        select public.open_prescription(${eA.id}, ${a1.id}, null)`;
+        select public.open_prescription(${eA.id}, ${a1.id})`;
       await tx`select public.add_prescription_item(${rxA}, ${a1.id}, ${await version(rxA)},
                  ${{ displayName: "Napa 500", doseText: "1 tablet", scheduleText: "1+0+1" }})`;
     });
@@ -394,7 +394,7 @@ try {
     let rxB;
     await as(tx, ids.docB, async () => {
       [{ open_prescription: rxB }] = await tx`
-        select public.open_prescription(${eB.id}, ${b1.id}, null)`;
+        select public.open_prescription(${eB.id}, ${b1.id})`;
       await tx`select public.add_prescription_item(${rxB}, ${b1.id}, ${await version(rxB)},
                  ${{ displayName: "Secret medicine" }})`;
     });
@@ -405,7 +405,7 @@ try {
       for (const [label, fn] of [
         ["Dr B cannot read Dr A's draft", (t) => t`select public.prescription_detail(${rxA}, ${a1.id})`],
         ["Dr B cannot open a prescription on Dr A's encounter", (t) =>
-          t`select public.open_prescription(${eA.id}, ${a1.id}, null)`],
+          t`select public.open_prescription(${eA.id}, ${a1.id})`],
         ["Dr B cannot add a medicine to Dr A's prescription", async (t) => {
           const v = await version(rxA);
           await t`select public.add_prescription_item(${rxA}, ${a1.id}, ${v}, ${{ displayName: "Injected" }})`;

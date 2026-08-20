@@ -173,7 +173,7 @@ try {
     let rx, draft;
     await as(tx, uidA, async () => {
       const [{ open_prescription: id }] =
-        await tx`select public.open_prescription(${enc.id}, ${hospital.id}, null)`;
+        await tx`select public.open_prescription(${enc.id}, ${hospital.id})`;
       rx = id;
       const [{ v }] =
         await tx`select (public.prescription_detail(${rx}, ${hospital.id}) ->> 'version')::int as v`;
@@ -241,7 +241,7 @@ try {
       values (${docA.id}, ${patB.id}, ${hospital.id}, ${uidA}) returning id`;
     await as(tx, uidA, async () => {
       const [{ open_prescription: id }] =
-        await tx`select public.open_prescription(${enc2.id}, ${hospital.id}, null)`;
+        await tx`select public.open_prescription(${enc2.id}, ${hospital.id})`;
       draft = id;
     });
 
@@ -459,10 +459,17 @@ try {
             t`update public.prescription_items set dose_text = 'tampered' where prescription_id = ${rx}`),
           `${who} cannot mutate a medicine`,
         );
+        /**
+         * Through the CORRECTION function, which is where corrections live
+         * since 7C-3D. This used to call `open_prescription` with a third
+         * argument; once that overload was dropped the call would have been
+         * "refused" because the function did not exist — a green tick for the
+         * wrong reason, which is worse than a red one.
+         */
         check(
           await refused(tx, (t) =>
-            t`select public.open_prescription(${enc.id}, ${hospital.id}, ${rx})`),
-          `${who} cannot open a correction/replacement`,
+            t`select public.start_prescription_correction(${rx}, ${hospital.id}, 'x')`),
+          `${who} cannot start a correction/replacement`,
         );
         check(
           await refused(tx, (t) =>

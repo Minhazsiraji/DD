@@ -316,7 +316,7 @@ try {
     let rx;
     await as(tx, uidA, async () => {
       [{ open_prescription: rx }] = await tx`
-        select public.open_prescription(${encA.id}, ${hospital.id}, null)`;
+        select public.open_prescription(${encA.id}, ${hospital.id})`;
       check(Boolean(rx), "the owning doctor opens a prescription");
 
       const [row] = await asOwner(tx, () => tx`
@@ -332,7 +332,7 @@ try {
       check(row.status === "DRAFT" && row.version === 1, "…and it starts as DRAFT v1");
 
       const [again] = await tx`
-        select public.open_prescription(${encA.id}, ${hospital.id}, null) as id`;
+        select public.open_prescription(${encA.id}, ${hospital.id}) as id`;
       check(again.id === rx, "opening again RESUMES rather than duplicating");
     });
 
@@ -340,12 +340,12 @@ try {
     console.log("\nLineage cannot be forged");
     await as(tx, uidA, async () => {
       const notMine = await expectDenied(tx, async (t) => {
-        await t`select public.open_prescription(${encB.id}, ${hospital.id}, null)`;
+        await t`select public.open_prescription(${encB.id}, ${hospital.id})`;
       });
       check(notMine, "cannot open a prescription on another doctor's encounter");
 
       const wrongLocation = await expectDenied(tx, async (t) => {
-        await t`select public.open_prescription(${encA.id}, ${chamber.id}, null)`;
+        await t`select public.open_prescription(${encA.id}, ${chamber.id})`;
       });
       check(wrongLocation, "…nor from a location the encounter does not belong to");
     });
@@ -438,7 +438,7 @@ try {
 
       const foreign = await expectDenied(tx, async (t) => {
         const v4 = await version(rx);
-        const [other] = await t`select public.open_prescription(${encA.id}, ${hospital.id}, null) as id`;
+        const [other] = await t`select public.open_prescription(${encA.id}, ${hospital.id}) as id`;
         void other;
         await t`select public.update_prescription_item(${rx}, ${hospital.id}, ${v4},
                   ${crypto.randomUUID()}, ${{ doseText: "ghost" }})`;
@@ -1311,7 +1311,7 @@ try {
     let rxChamber;
     await as(tx, uidA, async () => {
       [{ open_prescription: rxChamber }] = await tx`
-        select public.open_prescription(${encC.id}, ${chamber.id}, null)`;
+        select public.open_prescription(${encC.id}, ${chamber.id})`;
       await tx`select public.add_prescription_item(${rxChamber}, ${chamber.id},
                  ${await version(rxChamber)}, ${{ displayName: "Chamber medicine" }})`;
       /**
@@ -1392,12 +1392,26 @@ try {
     let replacement;
     await as(tx, uidA, async () => {
       const needsReason = await expectDenied(tx, async (t) => {
-        await t`select public.open_prescription(${encA.id}, ${hospital.id}, null)`;
+        await t`select public.start_prescription_correction(${rx}, ${hospital.id}, null)`;
       });
       check(needsReason, "a replacement without a reason is refused");
 
-      [{ open_prescription: replacement }] = await tx`
-        select public.open_prescription(${encA.id}, ${hospital.id}, ${"Wrong dose issued"})`;
+      /**
+       * Stage 7C-3D: corrections name the PRESCRIPTION they correct.
+       *
+       * This used to go through `open_prescription(encounter, location, reason)`,
+       * which inferred the row to replace from the encounter. The prescription
+       * id and the encounter id then came from the browser independently, and
+       * "which prescription is this a correction of" is not something to
+       * assemble from two caller-supplied values.
+       */
+      const openRefuses = await expectDenied(tx, async (t) => {
+        await t`select public.open_prescription(${encA.id}, ${hospital.id})`;
+      });
+      check(openRefuses, "…and opening by encounter cannot start one at all");
+
+      [{ start_prescription_correction: replacement }] = await tx`
+        select public.start_prescription_correction(${rx}, ${hospital.id}, ${"Wrong dose issued"})`;
       const [row] = await asOwner(tx, () => tx`
         select replaces_prescription_id, replacement_reason, status, patient_id,
                owner_doctor_id, practice_location_id, encounter_id
@@ -1640,7 +1654,7 @@ try {
     return Promise.all([a, b]);
   };
 
-  await race((t) => t`select public.open_prescription(${cEnc.id}, ${cLoc.id}, null)`);
+  await race((t) => t`select public.open_prescription(${cEnc.id}, ${cLoc.id})`);
   const drafts = await sql`
     select id from public.prescriptions where encounter_id = ${cEnc.id} and status = 'DRAFT'`;
   check(drafts.length === 1, "two simultaneous opens create exactly ONE draft", `${drafts.length}`);
