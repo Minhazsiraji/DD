@@ -190,9 +190,25 @@ export function MedicineLine({
   );
 }
 
+/**
+ * The medicines — and the element that TAKES THE SLACK on a short prescription.
+ *
+ * `flex-1` is what settles the signature and footer near the bottom of the
+ * paper instead of leaving them stranded mid-page above a hand's width of
+ * blank sheet. Growing the LIST rather than pushing the signature down with an
+ * auto margin matters on a long prescription: the signature stays attached to
+ * the content, so when the browser fragments the document it still lands after
+ * the last medicine on the final page rather than being flung to a page bottom
+ * it does not belong to.
+ *
+ * Both sheets are flex columns, so this behaves identically on screen and on
+ * paper — which is the point. The rule used to live in the print stylesheet
+ * alone, and the review preview therefore showed a composition that was not the
+ * one that printed.
+ */
 export function MedicineList({ view, u }: { view: ReviewView; u: Units }) {
   return (
-    <section>
+    <section className="flex-1">
       <p className="font-serif italic" style={{ fontSize: u.pt(view.baseFontPt * 1.6) }}>
         R<span style={{ fontSize: u.pt(view.baseFontPt) }}>x</span>
       </p>
@@ -283,6 +299,11 @@ export function PrescriptionFooter({ view, u }: { view: ReviewView; u: Units }) 
  *
  * Both sheets render exactly this. They differ only in the box around it and
  * the units they hand in — which is the entire point.
+ *
+ * These are the DIRECT CHILDREN of a flex column (both sheets declare it), so
+ * `MedicineList`'s `flex-1` absorbs the leftover height and the signature and
+ * footer settle at the foot of the paper. Do not wrap them in a plain `<div>`
+ * without carrying the column through, or the anchor silently stops working.
  */
 export function PrescriptionDocument({
   view,

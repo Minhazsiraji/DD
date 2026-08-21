@@ -173,6 +173,93 @@ describe("the print sheet is physical", () => {
   });
 });
 
+/**
+ * THE SHORT PRESCRIPTION THE OWNER PHOTOGRAPHED.
+ *
+ * A three-medicine A4 prescription showed its signature and footer around the
+ * MIDDLE of the paper with a large empty area beneath — measured in the live
+ * preview at 449px of dead space below the footer on a 1123px sheet. It looked
+ * unfinished, and worse, the review preview was not the composition that
+ * printed: the anchor existed only in the print stylesheet.
+ *
+ * Two rules hold it, and they must stay together:
+ *
+ *   the sheets are flex COLUMNS          (both of them, not just print)
+ *   the medicine list GROWS              so it absorbs the leftover height
+ *
+ * and one rule keeps the cure from becoming the old disease:
+ *
+ *   min-height is one page MINUS 1mm     so a full page never tips into page 2
+ */
+describe("a short prescription anchors its signature and footer to the foot of the page", () => {
+  it("both sheets are flex columns — not print alone", async () => {
+    /**
+     * The bug was precisely that only print had this. The review preview
+     * stacked from the top, so the doctor approved one composition and printed
+     * another.
+     */
+    expect(await code("print-sheet.tsx")).toMatch(/className="flex flex-col/);
+    expect(await code("review-sheet.tsx")).toMatch(/className="flex flex-col/);
+  });
+
+  it("the medicine list takes the slack", async () => {
+    const parts = await code("prescription-parts.tsx");
+    expect(parts).toMatch(/<section className="flex-1"/);
+  });
+
+  it("growing the LIST, not pushing the signature with an auto margin", async () => {
+    /**
+     * `margin-top: auto` on the signature would also drop it to the bottom —
+     * of whatever box it lands in. On a fragmented prescription that is a page
+     * it does not belong to. Growing the list keeps the signature attached to
+     * the last medicine.
+     */
+    const parts = await code("prescription-parts.tsx");
+    expect(parts).not.toMatch(/marginTop:\s*["']auto["']/);
+  });
+
+  it("the document's children are direct children of that column", async () => {
+    /**
+     * A wrapper `<div>` around them would break the column silently: the
+     * anchor would simply stop working, with nothing to see in a diff.
+     */
+    const parts = await code("prescription-parts.tsx");
+    const doc = parts.slice(parts.indexOf("export function PrescriptionDocument"));
+    expect(doc).toMatch(/<>\s*<PrescriptionHeader/);
+  });
+
+  it("the page-filling minimum is one page LESS 1mm, and lives only in print", async () => {
+    /**
+     * The 1mm is the whole anti-blank-page margin: exactly one page's content
+     * box, plus any rounding in the box model, is what produces a second empty
+     * sheet. Verified in real Chromium — 1 to 7 medicines print on one A4 page,
+     * 8 tips to two, and no line count produces a blank trailing page.
+     */
+    const sheet = await code("print-sheet.tsx");
+    expect(sheet).toMatch(/paper\.h - view\.marginMm \* 2 - 1/);
+
+    const css = await readFile(path.resolve("src/app/globals.css"), "utf8");
+    const print = css.slice(css.indexOf("@media print"));
+    expect(print).toMatch(/min-height:\s*var\(--page-content-height/);
+  });
+
+  it("the signature and the footer are each rendered exactly once", async () => {
+    // Never repeated per page — the one repeated element there ever was
+    // (a continuation header) could print on top of a dose.
+    const parts = await source("prescription-parts.tsx");
+    const doc = parts.slice(parts.indexOf("export function PrescriptionDocument"));
+    expect(doc.match(/<SignatureBlock\b/g)).toHaveLength(1);
+    expect(doc.match(/<PrescriptionFooter\b/g)).toHaveLength(1);
+  });
+
+  it("nothing is shrunk, clipped or absolutely placed to make it fit", async () => {
+    const parts = await code("prescription-parts.tsx");
+    expect(parts).not.toMatch(/overflow:\s*["']hidden["']/);
+    expect(parts).not.toMatch(/position:\s*["'](absolute|fixed)["']/);
+    expect(parts).not.toMatch(/transform:\s*["']?scale/);
+  });
+});
+
 describe("units", () => {
   it("print emits real millimetres and points", () => {
     expect(PHYSICAL_UNITS.mm(15)).toBe("15mm");

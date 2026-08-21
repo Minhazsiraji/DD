@@ -481,19 +481,17 @@
      * blank page is a worse fault than a high signature.
      */
     min-height: var(--page-content-height, 0);
-    display: flex;
-    flex-direction: column;
   }
 
-  /**
-   * The medicines take the slack, pushing signature and footer down. `auto`
-   * margins on the flex child would do it too, but growing the list keeps the
-   * signature attached to the content rather than to the page — so on a
-   * fragmented prescription it still lands after the last medicine.
-   */
-  [data-print-root] > section:has(ol) {
-    flex: 1 1 auto;
-  }
+  /*
+    The flex column that distributes that slack, and the medicine list that
+    absorbs it, are declared on the components themselves — `PrintSheet`,
+    `ReviewSheet` and `MedicineList`. They used to live here, print-only, which
+    is exactly why the on-screen review showed a composition the paper did not:
+    the preview stacked from the top and left the signature mid-page.
+
+    Only `min-height` is genuinely print-specific, because only paper has pages.
+  */
 
   /**
    * Fragmentation.

@@ -41,7 +41,17 @@ export function ReviewSheet({
     <div className={cn("@container w-full", className)}>
       <div
         data-review-sheet
-        className="bg-white text-ink shadow-soft ring-1 ring-hairline"
+        /*
+          A FLEX COLUMN, exactly like the print sheet.
+
+          The aspect ratio already gave this box a real page's height, but the
+          document inside simply stacked from the top — so a three-medicine
+          prescription put the signature and footer around the middle of the
+          paper with a large dead area beneath, and the review preview was
+          therefore NOT the composition that printed. The column lets
+          `MedicineList` take the slack, the same way it does on paper.
+        */
+        className="flex flex-col bg-white text-ink shadow-soft ring-1 ring-hairline"
         style={{
           aspectRatio: `${paper.w} / ${paper.h}`,
           padding: u.mm(view.marginMm),

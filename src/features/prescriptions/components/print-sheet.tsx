@@ -59,7 +59,14 @@ export function PrintSheet({
         data-print-root
         data-paper={view.paperSize}
         data-margin-mm={view.marginMm}
-        className="bg-white text-ink"
+        /*
+          The flex column that lets `MedicineList` absorb a short prescription's
+          leftover height, settling signature and footer at the foot of the
+          page. Declared HERE rather than in the print stylesheet so the review
+          preview composes identically — the rule being print-only is precisely
+          why review and paper disagreed.
+        */
+        className="flex flex-col bg-white text-ink"
         style={
           {
             width: `${contentWidthMm}mm`,
