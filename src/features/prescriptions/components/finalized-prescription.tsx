@@ -70,27 +70,42 @@ export function FinalizedPrescription({
   }, [frozen, prescriptionId]);
 
   return (
-    <div className="space-y-4 pb-2">
-      {/*
-        Where "back" goes depends on where the reader came from, and reception
-        cannot open a consultation. Offering them the link anyway would be a
-        dead end that reads as a permissions error — and pointing staff at a
-        clinical route is exactly the habit this stage is meant to break.
-      */}
-      <Link
-        href={viewerIsOwner ? `/consultation/${encounterId}` : "/queue"}
-        className="inline-flex h-11 items-center gap-1.5 text-[13px] font-semibold text-ink-secondary hover:text-ink focus-visible:focus-ring"
-      >
-        <ArrowLeft className="size-4" aria-hidden="true" />
-        {viewerIsOwner ? "Back to the consultation" : "Back to the queue"}
-      </Link>
+    /*
+      TWO LAYERS, AND ONLY TWO.
 
-      <p
-        role="status"
-        className="clinical-surface flex items-start gap-2 rounded-glass border-l-4 border-l-success px-4 py-3 text-[13px] text-ink-secondary"
-      >
-        <Lock className="mt-px size-4 shrink-0 text-success" aria-hidden="true" />
-        <span>
+      Screen chrome — where you came from, what state this is in, what you can
+      do — all sits ABOVE, in one band. Below it there is the paper and nothing
+      else, centred at its true size. The screen used to interleave them: a
+      status banner, then the sheet, then a titled print panel, then a
+      correction card, then the digest, each about as visually loud as the
+      document itself, so the prescription never read as the subject of the
+      page.
+
+      Nothing here is an editing control. A finalised prescription that offers
+      controls shaped like editing controls invites someone to try.
+    */
+    <div className="pb-2">
+      <div className="mx-auto flex max-w-[820px] flex-col gap-3">
+        {/*
+          Where "back" goes depends on where the reader came from, and reception
+          cannot open a consultation. Offering them the link anyway would be a
+          dead end that reads as a permissions error — and pointing staff at a
+          clinical route is exactly the habit this stage is meant to break.
+        */}
+        <Link
+          href={viewerIsOwner ? `/consultation/${encounterId}` : "/queue"}
+          className="inline-flex h-11 items-center gap-1.5 self-start text-[13px] font-semibold text-ink-secondary hover:text-ink focus-visible:focus-ring"
+        >
+          <ArrowLeft className="size-4" aria-hidden="true" />
+          {viewerIsOwner ? "Back to the consultation" : "Back to the queue"}
+        </Link>
+
+        <p
+          role="status"
+          className="clinical-surface flex items-start gap-2 rounded-glass border-l-4 border-l-success px-4 py-3 text-[13px] text-ink-secondary"
+        >
+          <Lock className="mt-px size-4 shrink-0 text-success" aria-hidden="true" />
+          <span>
           <strong className="font-semibold text-ink">Approved.</strong>{" "}
           {viewerIsOwner ? (
             <>
@@ -119,30 +134,48 @@ export function FinalizedPrescription({
               : " and ready to give to the patient. It cannot be edited here."}
             </>
           )}
-        </span>
-      </p>
+          </span>
+        </p>
+
+        {/*
+          Correction history sits ABOVE the sheet and outside it. Above, because
+          "do not hand this one over" is useless after someone has read the
+          medicines and pressed Print. Outside, because the paper must reproduce
+          exactly as approved — see `correction-banner.tsx`.
+        */}
+        <CorrectionLineage lineage={lineage} unavailable={lineageUnavailable} />
+
+        {/*
+          Every action, in one row, above the paper. Print is the ordinary next
+          step and leads; a correction is deliberate and rare, so it sits beside
+          it rather than under its own heading.
+        */}
+        <div className="flex flex-wrap items-start gap-x-3 gap-y-2 sm:flex-nowrap">
+          <PrintPrescription prescriptionId={prescriptionId} view={view} />
+
+          {/*
+            Offered only to the owning doctor, and only while this prescription
+            is still the current one. Once it has been corrected the banner
+            above already points at the replacement, and a second "write a
+            correction" control there would be offering to correct a superseded
+            sheet.
+          */}
+          {viewerIsOwner && !lineage?.replacedBy ? (
+            <WriteCorrection prescriptionId={prescriptionId} />
+          ) : null}
+        </div>
+      </div>
 
       {/*
-        Correction history sits ABOVE the sheet and outside it. Above, because
-        "do not hand this one over" is useless after someone has read the
-        medicines and pressed Print. Outside, because the paper must reproduce
-        exactly as approved — see `correction-banner.tsx`.
+        THE PAPER, ALONE.
+
+        Set on a tinted ground so the sheet reads as a sheet rather than as
+        another white card among white cards, and given room above so it is
+        clearly the subject rather than the next item in a list.
       */}
-      <CorrectionLineage lineage={lineage} unavailable={lineageUnavailable} />
-
-      <ReviewSheet view={view} signatureUrl={frozen ? signatureUrl : null} />
-
-      <PrintPrescription prescriptionId={prescriptionId} view={view} />
-
-      {/*
-        Offered only to the owning doctor, and only while this prescription is
-        still the current one. Once it has been corrected the banner above
-        already points at the replacement, and a second "write a correction"
-        control there would be offering to correct a superseded sheet.
-      */}
-      {viewerIsOwner && !lineage?.replacedBy ? (
-        <WriteCorrection prescriptionId={prescriptionId} />
-      ) : null}
+      <div className="mt-5 rounded-glass bg-surface-muted px-3 py-6 sm:px-6 sm:py-8">
+        <ReviewSheet view={view} signatureUrl={frozen ? signatureUrl : null} />
+      </div>
 
       {/*
         Shown during the pilot so a reported problem can be checked against the
@@ -154,7 +187,10 @@ export function FinalizedPrescription({
         nothing the front desk can act on.
       */}
       {viewerIsOwner ? (
-        <p data-print-hidden className="font-mono text-[11px] break-all text-ink-muted">
+        <p
+          data-print-hidden
+          className="mx-auto mt-4 max-w-[820px] font-mono text-[11px] break-all text-ink-muted"
+        >
           {digest}
         </p>
       ) : null}

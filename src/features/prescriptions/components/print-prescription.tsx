@@ -3,7 +3,6 @@
 import * as React from "react";
 import { createPortal } from "react-dom";
 import { CircleAlert, Loader2, Printer } from "lucide-react";
-import { SectionCard } from "@/components/common/section-card";
 import { frozenSignatureUrlAction } from "../actions";
 import type { ReviewView } from "../review-view";
 import { PrintSheet } from "./print-sheet";
@@ -218,59 +217,69 @@ export function PrintPrescription({
 
   return (
     <>
-      <SectionCard data-print-hidden>
-        <div className="space-y-3 p-4 sm:p-5">
-          <h2 className="text-[15px] font-semibold text-ink">Print this prescription</h2>
+      {/*
+        AN ACTION, NOT A PANEL.
 
-          {readiness.kind === "signature-unavailable" ? (
-            <p
-              role="alert"
-              className="flex items-start gap-2 rounded-xl bg-danger-soft px-3 py-2 text-[13px] font-medium text-[#a81c1c]"
-            >
-              <CircleAlert className="mt-px size-4 shrink-0" aria-hidden="true" />
-              This prescription is safely stored, but its approved signature could not be loaded.
-              Printing is unavailable until the signature can be retrieved — reload in a moment, and
-              tell support if it keeps happening.
-            </p>
-          ) : null}
+        This was a titled `SectionCard` sitting under the paper — a second
+        document-sized block competing with the document, on a screen whose
+        whole job is to show one prescription. A finalised prescription is
+        read, then printed; the control belongs in the row of actions above the
+        sheet, and the paper below it should be the only large thing on the
+        page.
 
-          {readiness.kind === "too-wide" ? (
-            <p
-              role="alert"
-              className="flex items-start gap-2 rounded-xl bg-warning-soft px-3 py-2 text-[13px] font-medium text-ink"
-            >
-              <CircleAlert className="mt-px size-4 shrink-0 text-warning" aria-hidden="true" />
-              Something on this prescription is wider than the paper. Length is fine — it would
-              print across more pages — but text cannot flow sideways, so printing now would lose
-              part of a line off the edge.
-            </p>
-          ) : null}
-
-          <button
-            type="button"
-            onClick={print}
-            disabled={readiness.kind !== "ready"}
-            className="inline-flex h-11 items-center justify-center gap-1.5 rounded-xl bg-brand px-4 text-[13px] font-semibold text-white shadow-soft transition-colors hover:bg-brand-hover disabled:cursor-not-allowed disabled:opacity-55 focus-visible:focus-ring"
+        The explanatory line stays, because "Print" opening a dialog that can
+        also save a PDF is worth saying once — but as a caption under the
+        button, not as a paragraph in a panel.
+      */}
+      <div data-print-hidden className="flex min-w-0 flex-1 flex-col items-start gap-2">
+        {readiness.kind === "signature-unavailable" ? (
+          <p
+            role="alert"
+            className="flex items-start gap-2 rounded-xl bg-danger-soft px-3 py-2 text-[13px] font-medium text-[#a81c1c]"
           >
-            {readiness.kind === "preparing" ? (
-              <Loader2 className="size-4 animate-spin" aria-hidden="true" />
-            ) : (
-              <Printer className="size-4" aria-hidden="true" />
-            )}
-            {readiness.kind === "preparing" ? "Preparing…" : "Print prescription"}
-          </button>
-
-          {/*
-            Named for what it does. A "Download PDF" button that only opens the
-            print dialog would be claiming the app produced a file it did not.
-          */}
-          <p className="text-[12px] text-ink-muted">
-            In the print dialog, choose your printer or &ldquo;Save as PDF&rdquo;. This prints on{" "}
-            {view.paperSize} paper with a {view.marginMm} mm margin — the layout this prescription
-            was approved on, across as many pages as it needs.
+            <CircleAlert className="mt-px size-4 shrink-0" aria-hidden="true" />
+            This prescription is safely stored, but its approved signature could not be loaded.
+            Printing is unavailable until the signature can be retrieved — reload in a moment, and
+            tell support if it keeps happening.
           </p>
-        </div>
-      </SectionCard>
+        ) : null}
+
+        {readiness.kind === "too-wide" ? (
+          <p
+            role="alert"
+            className="flex items-start gap-2 rounded-xl bg-warning-soft px-3 py-2 text-[13px] font-medium text-ink"
+          >
+            <CircleAlert className="mt-px size-4 shrink-0 text-warning" aria-hidden="true" />
+            Something on this prescription is wider than the paper. Length is fine — it would print
+            across more pages — but text cannot flow sideways, so printing now would lose part of a
+            line off the edge.
+          </p>
+        ) : null}
+
+        <button
+          type="button"
+          onClick={print}
+          disabled={readiness.kind !== "ready"}
+          className="inline-flex h-11 items-center justify-center gap-1.5 rounded-xl bg-brand px-4 text-[13px] font-semibold text-white shadow-soft transition-colors hover:bg-brand-hover disabled:cursor-not-allowed disabled:opacity-55 focus-visible:focus-ring"
+        >
+          {readiness.kind === "preparing" ? (
+            <Loader2 className="size-4 animate-spin" aria-hidden="true" />
+          ) : (
+            <Printer className="size-4" aria-hidden="true" />
+          )}
+          {readiness.kind === "preparing" ? "Preparing…" : "Print prescription"}
+        </button>
+
+        {/*
+          Named for what it does. A "Download PDF" button that only opens the
+          print dialog would be claiming the app produced a file it did not.
+        */}
+        <p className="text-[12px] text-ink-muted">
+          In the print dialog, choose your printer or &ldquo;Save as PDF&rdquo;. Prints on{" "}
+          {view.paperSize} at a {view.marginMm} mm margin — the layout this prescription was
+          approved on.
+        </p>
+      </div>
 
       {/*
         The paper itself — rendered as a DIRECT CHILD OF <body>, through a

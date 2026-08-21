@@ -74,26 +74,29 @@ export function WriteCorrection({ prescriptionId }: { prescriptionId: string }) 
   }
 
   if (!open) {
+    /*
+      Closed, this is ONE BUTTON — not a titled card.
+
+      It used to be a full-width panel headed "Something wrong with this one?"
+      explaining that a correction is a new prescription. The sentence is
+      already in the approval line directly above it, so the card spent a
+      document-sized block of a document-viewing screen repeating it, and the
+      finalised prescription competed with two panels for attention.
+
+      The explanation belongs where the decision is actually made — the form
+      below says it again when the doctor opens it, which is the moment it
+      matters.
+    */
     return (
-      <SectionCard data-print-hidden>
-        <div className="flex flex-wrap items-center justify-between gap-3 p-4 sm:p-5">
-          <div className="min-w-0">
-            <h2 className="text-[15px] font-semibold text-ink">Something wrong with this one?</h2>
-            <p className="mt-0.5 text-[13px] text-ink-secondary">
-              This prescription cannot be edited. A correction is a new prescription, and this one
-              stays in the record exactly as it is.
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={() => setOpen(true)}
-            className="inline-flex h-11 shrink-0 items-center justify-center gap-1.5 rounded-xl border border-hairline bg-white px-4 text-[13px] font-semibold text-ink transition-colors hover:bg-surface-muted focus-visible:focus-ring"
-          >
-            <FilePlus2 className="size-4" aria-hidden="true" />
-            Write corrected prescription
-          </button>
-        </div>
-      </SectionCard>
+      <button
+        data-print-hidden
+        type="button"
+        onClick={() => setOpen(true)}
+        className="inline-flex h-11 shrink-0 items-center justify-center gap-1.5 rounded-xl border border-hairline bg-white px-4 text-[13px] font-semibold text-ink transition-colors hover:bg-surface-muted focus-visible:focus-ring"
+      >
+        <FilePlus2 className="size-4" aria-hidden="true" />
+        Write corrected prescription
+      </button>
     );
   }
 
@@ -104,9 +107,19 @@ export function WriteCorrection({ prescriptionId }: { prescriptionId: string }) 
           <h2 className="text-[15px] font-semibold text-ink">
             Why is this prescription being corrected?
           </h2>
+          {/*
+            It has to say what it DOES, at the moment the doctor commits to it.
+
+            This sentence used to live on the closed trigger card. Collapsing
+            that card to a button dropped it, and `correction.test.ts` caught
+            it — rightly: "correct" can be read as "edit this one", and the
+            whole immutability contract is that it never is. The status line
+            above the paper says it too, but a control must not depend on
+            another component's wording to be honest.
+          */}
           <p className="mt-1 text-[13px] text-ink-secondary">
-            This note is part of the clinical correction history. The original prescription will
-            remain unchanged, and this note is never printed on paper.
+            A correction is a new prescription. The original stays in the record exactly as it is,
+            and this note is part of the clinical correction history — it is never printed on paper.
           </p>
         </div>
 

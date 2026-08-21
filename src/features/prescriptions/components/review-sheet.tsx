@@ -37,8 +37,26 @@ export function ReviewSheet({
   const paper = PAPER_MM[view.paperSize];
   const u = proportionalUnits(paper.w);
 
+  /**
+   * The paper at its TRUE SIZE, centred.
+   *
+   * It used to take whatever width the column gave it — 1217px for A4 inside
+   * the workspace, half again as large as the real sheet. A prescription blown
+   * up to 1.5× is not a prescription you can judge: the doctor scrolls a
+   * document that will never look like that on paper, and the proportions they
+   * are approving are the one thing this preview exists to show.
+   *
+   * 96dpi is the CSS reference pixel, so this is A4 as A4. `w-full` keeps it
+   * responsive below that — narrower is fine and still exact, because every
+   * length inside is a share of this width.
+   */
+  const truePaperWidthPx = (paper.w / 25.4) * 96;
+
   return (
-    <div className={cn("@container w-full", className)}>
+    <div
+      className={cn("@container mx-auto w-full", className)}
+      style={{ maxWidth: `${truePaperWidthPx}px` }}
+    >
       <div
         data-review-sheet
         /*
