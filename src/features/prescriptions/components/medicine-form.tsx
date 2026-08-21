@@ -3,7 +3,6 @@
 import * as React from "react";
 import { Check, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { medicineSuggestionsAction } from "../actions";
 import { MEDICINE_FIELDS, type MedicineDraft, type Suggestion } from "../schema";
 
 /**
@@ -49,15 +48,41 @@ export function MedicineForm({
    * leaves the doctor typing exactly as before — the list is a shortcut, not a
    * step.
    */
+  /**
+   * Fetched over HTTP, NOT through a server action.
+   *
+   * Next.js serialises server actions from one client, so as an action this
+   * lookup queued in front of the doctor's save — measured at 1.8s of a save
+   * that had already been clicked, and longer when several were pending. See
+   * `src/app/api/medicine-suggestions/route.ts`. A convenience read must never
+   * be able to delay a clinical write.
+   *
+   * Aborted on every change, so a stale lookup cannot answer over a newer one
+   * and nothing is left in flight when the form closes.
+   */
   React.useEffect(() => {
     const q = query.trim();
-    let cancelled = false;
+    // Nothing to clear: `visibleSuggestions` below already gates on the same
+    // rule at RENDER, so a short query shows nothing without a state write.
+    if (q.length < 2) return;
+
+    const controller = new AbortController();
     const t = setTimeout(async () => {
-      const found = q.length < 2 ? [] : await medicineSuggestionsAction(q);
-      if (!cancelled) setSuggestions(found);
+      try {
+        const res = await fetch(`/api/medicine-suggestions?q=${encodeURIComponent(q)}`, {
+          signal: controller.signal,
+        });
+        if (!res.ok) return;
+        const body = (await res.json()) as { suggestions?: Suggestion[] };
+        setSuggestions(body.suggestions ?? []);
+      } catch {
+        // A failed or aborted lookup leaves the doctor typing exactly as
+        // before. The list is a shortcut, never a step.
+      }
     }, 200);
+
     return () => {
-      cancelled = true;
+      controller.abort();
       clearTimeout(t);
     };
   }, [query]);

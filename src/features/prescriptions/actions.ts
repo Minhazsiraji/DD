@@ -9,7 +9,6 @@ import { acceptVersion } from "@/features/encounters/version-contract";
 import { freezeSignature, signatureNeed, type FreezeOutcome } from "./freeze";
 import { supabaseSignatureStore } from "./freeze-store";
 import {
-  getMedicineSuggestions,
   getPrescription,
   getPrescriptionLineage,
   getReviewBundle,
@@ -34,7 +33,7 @@ import {
   type FinalizeKind,
 } from "./finalize-outcome";
 import { classifyWrite } from "./recovery";
-import { medicineInputSchema, type MedicineRow, type Suggestion } from "./schema";
+import { medicineInputSchema, type MedicineRow } from "./schema";
 
 /**
  * Prescription writes.
@@ -953,7 +952,12 @@ export async function frozenSignatureUrlAction(
   return { ok: true, url: data.signedUrl };
 }
 
-export async function medicineSuggestionsAction(query: string): Promise<Suggestion[]> {
-  await requireLocationContext();
-  return getMedicineSuggestions(query);
-}
+/*
+  `medicineSuggestionsAction` was here.
+
+  It is now `GET /api/medicine-suggestions`, and the move is the fix for a
+  reported save that never finished: Next.js serialises server actions from one
+  client, so this autocomplete queued in front of the doctor's save. Deleted
+  rather than left in place — a server action is a live POST endpoint, and one
+  nothing calls is surface without a purpose.
+*/

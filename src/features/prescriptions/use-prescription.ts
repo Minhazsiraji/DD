@@ -10,6 +10,7 @@ import {
   updateMedicineAction,
   type RxResult,
 } from "./actions";
+import { withWriteDeadline } from "./deadline";
 import { RX_UNCONFIRMED_MESSAGE } from "./errors";
 import { applyOutcome, reconcileHeld, type HeldState } from "./recovery";
 import {
@@ -136,7 +137,12 @@ export function usePrescription(
       setBusy(true);
       setState({ kind: "saving" });
 
-      const result = await gate.run(() => fn(liveVersion.current));
+      /**
+       * Bounded. A clinical write that never answers is not allowed to leave
+       * the screen on "Saving…" — see `deadline.ts`. The deadline gives up on
+       * WAITING, never on the write, and never retries.
+       */
+      const result = await gate.run(() => withWriteDeadline(fn(liveVersion.current)));
       setBusy(false);
       if (!result) return null;
 
