@@ -40,6 +40,20 @@ export interface ReviewLine {
   instructions: string | null;
 }
 
+/**
+ * One test the doctor asked for, as it prints.
+ *
+ * There is deliberately no status and no value. Doctor's Diary has no
+ * investigation-results module, and a printed line that looked like a result
+ * would be the most dangerous thing this document could say.
+ */
+export interface ReviewInvestigation {
+  position: number;
+  name: string;
+  /** Why it was asked for. Clinical reasoning, never a finding. */
+  note: string | null;
+}
+
 export interface ReviewHeader {
   clinicName: string | null;
   addressLine: string | null;
@@ -75,6 +89,10 @@ export interface ReviewView {
   header: ReviewHeader | null;
   patient: ReviewPatient;
   lines: ReviewLine[];
+  /** Tests ORDERED in this consultation. Requests, never results. */
+  investigations: ReviewInvestigation[];
+  /** Today's advice, exactly as typed. Empty on a snapshot that had none. */
+  advice: string | null;
   footerText: string | null;
   showFooter: boolean;
   signature: SignatureState;
@@ -200,6 +218,16 @@ export function toReviewView(bundle: ReviewBundle): ReviewView {
       ageSex: formatAgeSex(age.years, bundle.patient.sex ?? "", bundle.patient.dobPrecision ?? "DAY"),
     },
     lines,
+    /**
+     * Ordered by the doctor's own arrangement, same rule as the medicines.
+     * Absent on a v2 snapshot, which simply had no such section — never
+     * back-filled from the encounter's CURRENT rows, because a finalised
+     * prescription must reproduce what was approved, not what is true today.
+     */
+    investigations: [...(bundle.investigations ?? [])]
+      .sort((a, b) => a.position - b.position)
+      .map((x) => ({ position: x.position, name: x.name.trim(), note: clean(x.note) })),
+    advice: clean(bundle.advice ?? null),
     footerText: clean(t.footerText),
     showFooter: t.showFooter,
     signature,

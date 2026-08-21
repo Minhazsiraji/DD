@@ -22,8 +22,19 @@ import { z } from "zod";
  * doctor would approve a digest covering content their screen never showed.
  * Fail closed, always.
  */
-export const SUPPORTED_BUNDLE_SCHEMA_VERSIONS = [2] as const;
-export const CURRENT_BUNDLE_SCHEMA_VERSION = 2;
+export const SUPPORTED_BUNDLE_SCHEMA_VERSIONS = [2, 3] as const;
+export const CURRENT_BUNDLE_SCHEMA_VERSION = 3;
+
+/**
+ * From this version on, a bundle carries the investigations ordered in the
+ * consultation and the advice given — so the paper the patient carries holds
+ * all three things the doctor wrote.
+ *
+ * BOTH VERSIONS RENDER, AND NEITHER IS REWRITTEN. A prescription finalised
+ * before this stays at 2 and prints exactly as it always did; re-taking that
+ * snapshot to add sections would alter a document a doctor signed.
+ */
+export const BUNDLE_SCHEMA_WITH_ORDERS_AND_ADVICE = 3;
 
 /** Kept lenient about NULLs, strict about presence: the DB emits explicit nulls. */
 const nullableText = z.string().nullable();
@@ -110,6 +121,20 @@ export const bundleItemSchema = z.object({
   substitution_allowed: z.boolean(),
 });
 
+/**
+ * One investigation the doctor ORDERED in this consultation.
+ *
+ * A request, never a result. There is no status, no value and no
+ * interpretation, because there is no results module — and a printed line that
+ * implied a test had come back would be the most dangerous kind of wrong.
+ */
+export const bundleInvestigationSchema = z.object({
+  position: z.number().int(),
+  name: z.string(),
+  /** Why it was asked for. Clinical reasoning, never a finding. */
+  note: nullableText,
+});
+
 export const reviewBundleSchema = z.object({
   schemaVersion: z.number().int(),
   prescriptionId: z.uuid(),
@@ -129,10 +154,42 @@ export const reviewBundleSchema = z.object({
   template: bundleTemplateSchema,
   signature: bundleSignatureSchema,
   items: z.array(bundleItemSchema),
+  /**
+   * Optional in SHAPE because a v2 snapshot predates them, REQUIRED at v3 by
+   * the refinement below — a v3 bundle that silently parsed without them would
+   * drop approved, printable content and print a shorter prescription than the
+   * one that was signed.
+   */
+  investigations: z.array(bundleInvestigationSchema).optional(),
+  advice: nullableText.optional(),
+}).superRefine((bundle, ctx) => {
+  if (bundle.schemaVersion < BUNDLE_SCHEMA_WITH_ORDERS_AND_ADVICE) return;
+
+  /**
+   * FAIL CLOSED, the same rule the schema version itself exists for: a bundle
+   * we cannot render faithfully is one we refuse, never one we render partly.
+   * `advice` may be null — that means "none given" — but the KEY must be
+   * present, because absent and null are different claims.
+   */
+  if (bundle.investigations === undefined) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["investigations"],
+      message: `schema ${bundle.schemaVersion} must carry investigations`,
+    });
+  }
+  if (bundle.advice === undefined) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["advice"],
+      message: `schema ${bundle.schemaVersion} must carry advice`,
+    });
+  }
 });
 
 export type ReviewBundle = z.infer<typeof reviewBundleSchema>;
 export type BundleItem = z.infer<typeof bundleItemSchema>;
+export type BundleInvestigation = z.infer<typeof bundleInvestigationSchema>;
 export type BundleTemplate = z.infer<typeof bundleTemplateSchema>;
 
 /**

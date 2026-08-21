@@ -190,25 +190,10 @@ export function MedicineLine({
   );
 }
 
-/**
- * The medicines — and the element that TAKES THE SLACK on a short prescription.
- *
- * `flex-1` is what settles the signature and footer near the bottom of the
- * paper instead of leaving them stranded mid-page above a hand's width of
- * blank sheet. Growing the LIST rather than pushing the signature down with an
- * auto margin matters on a long prescription: the signature stays attached to
- * the content, so when the browser fragments the document it still lands after
- * the last medicine on the final page rather than being flung to a page bottom
- * it does not belong to.
- *
- * Both sheets are flex columns, so this behaves identically on screen and on
- * paper — which is the point. The rule used to live in the print stylesheet
- * alone, and the review preview therefore showed a composition that was not the
- * one that printed.
- */
+/** The medicines. The clinical body below is what absorbs a short page's slack. */
 export function MedicineList({ view, u }: { view: ReviewView; u: Units }) {
   return (
-    <section className="flex-1">
+    <section>
       <p className="font-serif italic" style={{ fontSize: u.pt(view.baseFontPt * 1.6) }}>
         R<span style={{ fontSize: u.pt(view.baseFontPt) }}>x</span>
       </p>
@@ -224,6 +209,82 @@ export function MedicineList({ view, u }: { view: ReviewView; u: Units }) {
           No medicines on this prescription yet.
         </p>
       ) : null}
+    </section>
+  );
+}
+
+/**
+ * Investigations ORDERED TODAY.
+ *
+ * Requests, not results. Doctor's Diary has no results module and this section
+ * must never read like one — so there is no status column, no value, no date
+ * and no tick. The heading says "Investigations / Tests" and the lines say
+ * what was asked for, which is exactly what the patient carries to the lab.
+ *
+ * Omitted ENTIRELY when there are none: an empty heading on a prescription
+ * invites the reader to wonder what is missing.
+ */
+export function InvestigationList({ view, u }: { view: ReviewView; u: Units }) {
+  if (view.investigations.length === 0) return null;
+
+  return (
+    <section style={{ marginTop: u.mm(5), breakInside: "avoid", pageBreakInside: "avoid" }}>
+      <p className="font-semibold" style={{ fontSize: u.pt(view.baseFontPt * 0.95) }}>
+        Investigations / Tests
+      </p>
+      <ul style={{ marginTop: u.mm(1.5) }}>
+        {view.investigations.map((x) => (
+          <li
+            key={x.position}
+            className="flex"
+            style={{ gap: u.mm(2), marginTop: u.mm(1), breakInside: "avoid" }}
+          >
+            <span aria-hidden="true">•</span>
+            <span className="min-w-0 flex-1 break-words">
+              {x.name}
+              {/* The reason it was ordered — never a finding. */}
+              {x.note ? <span className="italic"> — {x.note}</span> : null}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+/**
+ * Today's advice, exactly as the doctor typed it.
+ *
+ * One line per line they wrote: doctors type advice as a list and a paragraph
+ * that runs it together is harder for a patient to follow. Bangla and every
+ * other script pass through untouched — `break-words` and `whitespace-pre-wrap`
+ * wrap them, and nothing is ever clipped or shrunk to fit.
+ */
+export function AdviceBlock({ view, u }: { view: ReviewView; u: Units }) {
+  if (!view.advice) return null;
+
+  const lines = view.advice
+    .split("\n")
+    .map((l) => l.trim())
+    .filter((l) => l !== "");
+
+  return (
+    <section style={{ marginTop: u.mm(5), breakInside: "avoid", pageBreakInside: "avoid" }}>
+      <p className="font-semibold" style={{ fontSize: u.pt(view.baseFontPt * 0.95) }}>
+        Advice
+      </p>
+      <ul style={{ marginTop: u.mm(1.5) }}>
+        {lines.map((line, i) => (
+          <li
+            key={i}
+            className="flex"
+            style={{ gap: u.mm(2), marginTop: u.mm(1), breakInside: "avoid" }}
+          >
+            <span aria-hidden="true">•</span>
+            <span className="min-w-0 flex-1 break-words whitespace-pre-wrap">{line}</span>
+          </li>
+        ))}
+      </ul>
     </section>
   );
 }
@@ -318,7 +379,28 @@ export function PrescriptionDocument({
     <>
       <PrescriptionHeader view={view} u={u} />
       <PatientIdentity view={view} u={u} />
-      <MedicineList view={view} u={u} />
+
+      {/*
+        THE CLINICAL BODY — and the element that TAKES THE SLACK.
+
+        `flex-1` here is what settles the signature and footer at the foot of a
+        short page instead of leaving them stranded mid-sheet. It sits on the
+        BODY rather than on the medicines because the advice is now the last
+        thing printed, and the empty space belongs after everything the doctor
+        wrote — not between the medicines and the tests.
+
+        Growing the body rather than pushing the signature down with an auto
+        margin matters on a long prescription: the signature stays attached to
+        the content, so when the browser fragments the document it lands after
+        the last thing written on the final page, not at a page bottom it does
+        not belong to.
+      */}
+      <div className="flex flex-1 flex-col">
+        <MedicineList view={view} u={u} />
+        <InvestigationList view={view} u={u} />
+        <AdviceBlock view={view} u={u} />
+      </div>
+
       <SignatureBlock view={view} u={u} signatureUrl={signatureUrl} />
       <PrescriptionFooter view={view} u={u} />
     </>

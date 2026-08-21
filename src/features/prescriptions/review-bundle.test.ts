@@ -124,12 +124,19 @@ describe("parseReview", () => {
     expect(parsed.ok).toBe(true);
   });
 
+  /**
+   * 4, because 3 is now a version this build writes — it adds the printed
+   * investigations and advice. The guarantee is unchanged and is about the
+   * NEXT unknown version: a bundle from a newer server may carry a printable
+   * field this build knows nothing about, and rendering it would show the
+   * doctor less than the digest they are approving covers.
+   */
   it("fails closed on a schema version from a newer build", () => {
-    const parsed = parseReview(envelope({ bundle: { schemaVersion: 3 } }));
+    const parsed = parseReview(envelope({ bundle: { schemaVersion: 4 } }));
     expect(parsed.ok).toBe(false);
     if (!parsed.ok) {
       expect(parsed.reason).toBe("unsupported-schema");
-      if (parsed.reason === "unsupported-schema") expect(parsed.found).toBe(3);
+      if (parsed.reason === "unsupported-schema") expect(parsed.found).toBe(4);
     }
   });
 

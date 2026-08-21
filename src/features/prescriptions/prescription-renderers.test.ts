@@ -202,9 +202,14 @@ describe("a short prescription anchors its signature and footer to the foot of t
     expect(await code("review-sheet.tsx")).toMatch(/className="flex flex-col/);
   });
 
-  it("the medicine list takes the slack", async () => {
+  it("the clinical body takes the slack", async () => {
+    /**
+     * On the BODY, not on the medicines: the advice is the last thing printed,
+     * so the empty space belongs after everything the doctor wrote rather than
+     * between the medicines and the tests.
+     */
     const parts = await code("prescription-parts.tsx");
-    expect(parts).toMatch(/<section className="flex-1"/);
+    expect(parts).toMatch(/<div className="flex flex-1 flex-col">[\s\S]*?<MedicineList/);
   });
 
   it("growing the LIST, not pushing the signature with an auto margin", async () => {
@@ -218,14 +223,17 @@ describe("a short prescription anchors its signature and footer to the foot of t
     expect(parts).not.toMatch(/marginTop:\s*["']auto["']/);
   });
 
-  it("the document's children are direct children of that column", async () => {
+  it("the growing body and the signature are siblings in that column", async () => {
     /**
-     * A wrapper `<div>` around them would break the column silently: the
-     * anchor would simply stop working, with nothing to see in a diff.
+     * The body must be a DIRECT child of the sheet's flex column, and the
+     * signature must follow it rather than sit inside it — otherwise the
+     * signature grows with the body instead of being pushed down by it, and
+     * the anchor stops working with nothing to see in a diff.
      */
     const parts = await code("prescription-parts.tsx");
     const doc = parts.slice(parts.indexOf("export function PrescriptionDocument"));
     expect(doc).toMatch(/<>\s*<PrescriptionHeader/);
+    expect(doc).toMatch(/<\/div>\s*<SignatureBlock/);
   });
 
   it("the page-filling minimum is one page LESS 1mm, and lives only in print", async () => {
@@ -257,6 +265,211 @@ describe("a short prescription anchors its signature and footer to the foot of t
     expect(parts).not.toMatch(/overflow:\s*["']hidden["']/);
     expect(parts).not.toMatch(/position:\s*["'](absolute|fixed)["']/);
     expect(parts).not.toMatch(/transform:\s*["']?scale/);
+  });
+});
+
+/**
+ * THE PAPER CARRIES ALL THREE THINGS THE DOCTOR WROTE.
+ *
+ * A consultation produces medicines, tests and advice, and the patient carries
+ * one sheet. Printing only the medicines meant the tests were written out again
+ * by hand and the advice — the part a patient actually follows — was not on the
+ * paper at all.
+ */
+describe("investigations and advice print, without pretending to be more", () => {
+  it("both sections come from the same shared parts as everything else", async () => {
+    const parts = await source("prescription-parts.tsx");
+    const doc = parts.slice(parts.indexOf("export function PrescriptionDocument"));
+    expect(doc).toMatch(/<InvestigationList\b/);
+    expect(doc).toMatch(/<AdviceBlock\b/);
+  });
+
+  it("in the approved order: medicines, then tests, then advice", async () => {
+    const parts = await code("prescription-parts.tsx");
+    const doc = parts.slice(parts.indexOf("export function PrescriptionDocument"));
+    const order = ["<MedicineList", "<InvestigationList", "<AdviceBlock", "<SignatureBlock"].map(
+      (t) => doc.indexOf(t),
+    );
+    expect(order.every((i) => i >= 0)).toBe(true);
+    expect([...order].sort((a, b) => a - b)).toEqual(order);
+  });
+
+  it("an ORDER never reads as a RESULT", async () => {
+    /**
+     * There is no investigation-results module. A printed line that carried a
+     * status, a value or a date would say a test had come back — the most
+     * dangerous thing this document could claim.
+     */
+    const parts = await code("prescription-parts.tsx");
+    const section = parts.slice(
+      parts.indexOf("export function InvestigationList"),
+      parts.indexOf("export function AdviceBlock"),
+    );
+    expect(section).not.toMatch(/result|status|value|normal|abnormal|completed|pending|\bdone\b/i);
+    // Only the two fields an order actually has.
+    expect(section).toMatch(/x\.name/);
+    expect(section).toMatch(/x\.note/);
+  });
+
+  it("an empty section is omitted entirely, never left as a bare heading", async () => {
+    const parts = await code("prescription-parts.tsx");
+    expect(parts).toMatch(/if \(view\.investigations\.length === 0\) return null/);
+    expect(parts).toMatch(/if \(!view\.advice\) return null/);
+  });
+
+  it("advice is never clipped, shrunk or collapsed — Bangla included", async () => {
+    const parts = await code("prescription-parts.tsx");
+    const section = parts.slice(parts.indexOf("export function AdviceBlock"));
+    expect(section).toMatch(/whitespace-pre-wrap/);
+    expect(section).toMatch(/break-words/);
+    expect(section).not.toMatch(/truncate|line-clamp|overflow:\s*["']hidden["']/);
+  });
+
+  it("the view model carries them, and never back-fills a snapshot that lacks them", async () => {
+    /**
+     * A v2 prescription was approved without these sections. Reading today's
+     * encounter rows to fill them in would print content the doctor never
+     * approved onto a document they signed.
+     */
+    const view = await readFile(path.resolve("src/features/prescriptions/review-view.ts"), "utf8");
+    expect(view).toMatch(/bundle\.investigations \?\? \[\]/);
+    expect(view).toMatch(/clean\(bundle\.advice \?\? null\)/);
+    // Sorted by the doctor's own arrangement, same rule as the medicines.
+    expect(view).toMatch(/\.sort\(\(a, b\) => a\.position - b\.position\)/);
+  });
+});
+
+describe("the bundle keeps its promise across schema versions", () => {
+  it("supports the old version and the new one, and writes the new one", async () => {
+    const { SUPPORTED_BUNDLE_SCHEMA_VERSIONS, CURRENT_BUNDLE_SCHEMA_VERSION } = await import(
+      "./review-bundle"
+    );
+    expect([...SUPPORTED_BUNDLE_SCHEMA_VERSIONS]).toEqual([2, 3]);
+    expect(CURRENT_BUNDLE_SCHEMA_VERSION).toBe(3);
+  });
+
+  it("a v3 bundle missing the new sections is REFUSED, not silently shortened", async () => {
+    const { reviewBundleSchema } = await import("./review-bundle");
+    const base = {
+      schemaVersion: 3,
+      prescriptionId: "11111111-2222-4333-8444-555555555555",
+      encounterId: "66666666-7777-4888-8999-aaaaaaaaaaaa",
+      clinicalDate: "2026-08-21",
+      doctor: {
+        fullName: "Dr A",
+        qualification: null,
+        specialization: null,
+        designation: null,
+        bmdcRegistrationNo: null,
+      },
+      location: { name: null, address: null, district: null, phone: null },
+      patient: {
+        fullName: "P",
+        patientNumber: null,
+        sex: null,
+        dob: null,
+        dobPrecision: null,
+        approxAgeYears: null,
+        ageRecordedOn: null,
+      },
+      template: {
+        source: "system",
+        templateId: null,
+        name: null,
+        paperSize: "A4",
+        marginMm: 15,
+        baseFontPt: 11,
+        showHeader: true,
+        showClinicLogo: false,
+        clinicNameOverride: null,
+        headerNote: null,
+        showQualification: true,
+        showSpecialization: true,
+        showDesignation: true,
+        showBmdc: true,
+        showChamberAddress: true,
+        showChamberPhone: true,
+        showFooter: true,
+        footerText: null,
+        showSignature: true,
+      },
+      signature: null,
+      items: [],
+    };
+
+    // Fails closed: printing a v3 prescription without its approved sections
+    // would print a shorter document than the one that was signed.
+    expect(reviewBundleSchema.safeParse(base).success).toBe(false);
+    expect(
+      reviewBundleSchema.safeParse({ ...base, investigations: [], advice: null }).success,
+    ).toBe(true);
+  });
+
+  it("a v2 snapshot still parses untouched — it predates the sections", async () => {
+    const { reviewBundleSchema } = await import("./review-bundle");
+    const v2 = {
+      schemaVersion: 2,
+      prescriptionId: "11111111-2222-4333-8444-555555555555",
+      encounterId: "66666666-7777-4888-8999-aaaaaaaaaaaa",
+      clinicalDate: "2026-08-01",
+      doctor: {
+        fullName: "Dr A",
+        qualification: null,
+        specialization: null,
+        designation: null,
+        bmdcRegistrationNo: null,
+      },
+      location: { name: null, address: null, district: null, phone: null },
+      patient: {
+        fullName: "P",
+        patientNumber: null,
+        sex: null,
+        dob: null,
+        dobPrecision: null,
+        approxAgeYears: null,
+        ageRecordedOn: null,
+      },
+      template: {
+        source: "system",
+        templateId: null,
+        name: null,
+        paperSize: "A4",
+        marginMm: 15,
+        baseFontPt: 11,
+        showHeader: true,
+        showClinicLogo: false,
+        clinicNameOverride: null,
+        headerNote: null,
+        showQualification: true,
+        showSpecialization: true,
+        showDesignation: true,
+        showBmdc: true,
+        showChamberAddress: true,
+        showChamberPhone: true,
+        showFooter: true,
+        footerText: null,
+        showSignature: true,
+      },
+      signature: null,
+      items: [],
+    };
+    expect(reviewBundleSchema.safeParse(v2).success).toBe(true);
+  });
+
+  it("the SQL snapshots only THIS encounter's orders, and today's advice", async () => {
+    const sql = (
+      await readFile(
+        path.resolve("supabase/policies/0026_prescription_orders_and_advice.sql"),
+        "utf8",
+      )
+    ).replace(/\/\*[\s\S]*?\*\//g, "").replace(/--[^\n]*/g, "");
+
+    // Bound to the prescription's own encounter — never a previous visit's.
+    expect(sql).toMatch(/from public\.encounter_investigations\s*\n?\s*where encounter_id = v_rx\.encounter_id/);
+    // Name and reason only: no status, no value, nothing that reads as a result.
+    expect(sql).toMatch(/select position, name, note/);
+    expect(sql).toMatch(/'advice', to_jsonb\(nullif\(btrim\(coalesce\(v_enc\.advice/);
+    expect(sql).toMatch(/'schemaVersion', 3/);
   });
 });
 
