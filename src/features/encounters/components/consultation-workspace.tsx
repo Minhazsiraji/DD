@@ -9,6 +9,7 @@ import { FindingConflictPanel } from "./finding-conflict-panel";
 import { SaveBar } from "./save-bar";
 import { UnsavedGuard } from "./unsaved-guard";
 import { FindingList } from "./finding-list";
+import { PreviousVisitCard } from "./previous-visit-card";
 import { OpenPrescriptionButton } from "@/features/prescriptions/components/open-prescription-button";
 import { FinishConsultation } from "./finish-consultation";
 import { useConsultation } from "../use-consultation";
@@ -24,6 +25,7 @@ import { noteInstruction } from "../list-schema";
 import { DESYNC_TITLE } from "../version-contract";
 import type { FindingRow, ListKind } from "../finding-types";
 import type { Consultation } from "../queries";
+import type { PreviousVisit } from "../previous-visit";
 
 /**
  * The consultation screen.
@@ -40,12 +42,37 @@ import type { Consultation } from "../queries";
 export function ConsultationWorkspace({
   consultation,
   locationName,
+  previousVisit,
+  expandPreviousVisit,
 }: {
   consultation: Consultation;
   locationName: string;
+  /** The immediately preceding COMPLETED visit, or null for a first visit. */
+  previousVisit: PreviousVisit | null;
+  /** Open on arrival for a report review or a follow-up — visits about it. */
+  expandPreviousVisit: boolean;
 }) {
   const s = useConsultation(consultation);
   const readOnly = consultation.status !== "DRAFT";
+
+  /**
+   * The three values from last time that a doctor may reasonably reuse.
+   *
+   * Derived here rather than passed as its own prop so there is exactly one
+   * place that decides what is carryable — and so it is obvious that everything
+   * else on `previousVisit` is display-only.
+   */
+  const carryForward = React.useMemo(
+    () =>
+      previousVisit
+        ? {
+            heightCm: previousVisit.vitals.heightCm,
+            weightKg: previousVisit.vitals.weightKg,
+            pastHistory: previousVisit.pastHistory,
+          }
+        : undefined,
+    [previousVisit],
+  );
   const notesConflict = s.conflict?.notes ?? null;
 
   function submitEditor(list: ListKind) {
@@ -208,18 +235,40 @@ export function ConsultationWorkspace({
       ) : null}
 
       <div className="space-y-4">
+        {/*
+          What happened last time, ABOVE today's fields and read-only.
+
+          A returning patient used to arrive at a blank consultation, and the
+          doctor had to leave the screen and search the timeline to remember
+          their own last visit. It sits first because that is when it is
+          useful — after the notes are written it is just history.
+
+          It never writes into anything below it. See `previous-visit-card`.
+        */}
+        {previousVisit ? (
+          <PreviousVisitCard visit={previousVisit} expandedByDefault={expandPreviousVisit} />
+        ) : null}
+
+        {/*
+          Offered, never applied. `carryForward` puts last visit's height,
+          weight and past history under the matching empty field with a "Use
+          previous" press — and nothing else is offered, because everything else
+          is an observation of a visit rather than a standing fact.
+        */}
         <VitalFields
           values={s.values}
           dirtyKeys={s.dirtyKeys}
           errors={s.vitalErrors}
           disabled={readOnly}
           onChange={s.setField}
+          carryForward={carryForward}
         />
         <SectionFields
           values={s.values}
           dirtyKeys={s.dirtyKeys}
           disabled={readOnly}
           onChange={s.setField}
+          carryForward={carryForward}
         />
 
         <FindingList

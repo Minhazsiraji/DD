@@ -20,11 +20,13 @@ export function SectionFields({
   dirtyKeys,
   disabled,
   onChange,
+  carryForward,
 }: {
   values: DraftValues;
   dirtyKeys: DraftKey[];
   disabled: boolean;
   onChange: (key: DraftKey, value: string) => void;
+  carryForward?: CarryForward;
 }) {
   return (
     <div className="space-y-4">
@@ -57,6 +59,27 @@ export function SectionFields({
                 spellCheck={false}
                 className="w-full resize-y rounded-xl border border-hairline bg-white px-3 py-2.5 text-[15px] leading-relaxed text-ink placeholder:text-ink-muted focus-visible:focus-ring disabled:bg-surface-muted disabled:text-ink-secondary"
               />
+
+              {/*
+                PAST HISTORY ONLY, and only into an empty field.
+
+                It is the one section that is stable history rather than a fresh
+                finding — "hypertension for 3 years" is as true today as it was
+                last month. Chief complaint, present illness, examination,
+                assessment and advice are all observations OF A VISIT and are
+                never offered: today's are today's, and last time's belong to the
+                read-only card above.
+              */}
+              {section.key === "pastHistory" &&
+              carryForward?.pastHistory &&
+              values[section.key] === "" ? (
+                <CarriedValue
+                  label="From the previous visit:"
+                  value={truncate(carryForward.pastHistory)}
+                  disabled={disabled}
+                  onUse={() => onChange(section.key, carryForward.pastHistory!)}
+                />
+              ) : null}
             </div>
           </SectionCard>
         );
@@ -76,18 +99,99 @@ export function SectionFields({
  * distinguishes absent from null: a mistyped blood pressure has to be
  * removable.
  */
+/**
+ * A measurement from the LAST visit, offered but never taken.
+ *
+ * NOTHING HERE PREFILLS. The doctor presses "Use previous" or the field stays
+ * empty, and that is the whole safety argument: a value that appears by itself
+ * is indistinguishable, once saved, from one somebody measured today. Weight
+ * changes between visits and height changes for a child, so a silent copy is a
+ * fabricated observation attributed to this consultation.
+ *
+ * Height for an adult is stable enough that the batch permitted prefilling it.
+ * It is offered the same way as weight instead, because deciding "adult"
+ * requires an age this screen may not have — an approximate age, or none at
+ * all, is common — and the batch's own fallback for exactly that case is to
+ * show the value rather than fill it in. One press is a small price for a
+ * measurement nobody has to audit later.
+ */
+function CarriedValue({
+  label,
+  value,
+  unit,
+  disabled,
+  onUse,
+}: {
+  label: string;
+  value: string;
+  unit?: string;
+  disabled: boolean;
+  onUse: () => void;
+}) {
+  return (
+    <p className="mt-1 flex flex-wrap items-baseline gap-x-1.5 text-[11px] text-ink-muted">
+      <span>
+        {label}{" "}
+        <span className="font-semibold tabular-nums text-ink-secondary">
+          {value}
+          {unit ? ` ${unit}` : ""}
+        </span>
+      </span>
+      <button
+        type="button"
+        onClick={onUse}
+        disabled={disabled}
+        className="font-semibold text-brand hover:underline disabled:opacity-50 focus-visible:focus-ring"
+      >
+        Use previous
+      </button>
+    </p>
+  );
+}
+
+/** Last visit's values, offered for carry-forward. Never written by this file. */
+export interface CarryForward {
+  heightCm: string | null;
+  weightKg: string | null;
+  pastHistory: string | null;
+}
+
+/**
+ * ONLY height and weight are ever offered.
+ *
+ * Temperature, pulse, blood pressure, respiratory rate and SpO2 are readings of
+ * a moment. Carrying one forward — even by an explicit press — would record a
+ * measurement from another day against today's consultation, and a fever that
+ * had resolved would go on being documented. They are not in this map, and a
+ * new vital added later is not offered unless somebody deliberately adds it.
+ */
+/** Enough to recognise it; the field itself receives the whole text. */
+function truncate(value: string): string {
+  const oneLine = value.replace(/\s+/g, " ").trim();
+  return oneLine.length > 60 ? `${oneLine.slice(0, 60)}…` : oneLine;
+}
+
+function previousFor(key: VitalKey, carry?: CarryForward): string | null {
+  if (!carry) return null;
+  if (key === "vitalHeightCm") return carry.heightCm;
+  if (key === "vitalWeightKg") return carry.weightKg;
+  return null;
+}
+
 export function VitalFields({
   values,
   dirtyKeys,
   errors,
   disabled,
   onChange,
+  carryForward,
 }: {
   values: DraftValues;
   dirtyKeys: DraftKey[];
   errors: Partial<Record<VitalKey, string>>;
   disabled: boolean;
   onChange: (key: DraftKey, value: string) => void;
+  carryForward?: CarryForward;
 }) {
   return (
     <SectionCard>
@@ -136,6 +240,21 @@ export function VitalFields({
                 <p id={describedBy} role="status" className="mt-1 text-[11px] font-medium text-danger">
                   {error}
                 </p>
+              ) : null}
+
+              {/*
+                Offered only while TODAY's field is still empty. Once the doctor
+                has measured, last visit's number is noise beside it — and worse,
+                a one-press way to overwrite what they just wrote.
+              */}
+              {previousFor(vital.key, carryForward) && values[vital.key] === "" ? (
+                <CarriedValue
+                  label="Previous:"
+                  value={previousFor(vital.key, carryForward)!}
+                  unit={vital.unit}
+                  disabled={disabled}
+                  onUse={() => onChange(vital.key, previousFor(vital.key, carryForward)!)}
+                />
               ) : null}
             </div>
           );

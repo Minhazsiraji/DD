@@ -953,7 +953,39 @@ try {
         "the bundle carries the prescription's own clinical date",
         String(bundleNow.clinicalDate),
       );
-      check(bundleNow.schemaVersion === 2, "…under schema version 2", String(bundleNow.schemaVersion));
+      check(bundleNow.schemaVersion === 3, "…under schema version 3", String(bundleNow.schemaVersion));
+
+      /**
+       * v3 carries what else the doctor wrote that day: the tests they ordered
+       * and the advice they gave. Both are inside the digest, so they are
+       * approved with the medicines and become permanent with them — a
+       * printable value outside the bundle is one nobody approved.
+       *
+       * The KEYS must be present even when empty. Absent and empty are
+       * different claims, and the client refuses a v3 bundle that omits them
+       * rather than printing a shorter prescription than the one signed.
+       */
+      check(
+        Array.isArray(bundleNow.investigations),
+        "the bundle carries this encounter's investigation ORDERS",
+        JSON.stringify(bundleNow.investigations),
+      );
+      check(
+        "advice" in bundleNow,
+        "…and today's advice, present even when there is none",
+        JSON.stringify(bundleNow.advice),
+      );
+
+      /**
+       * An ORDER, never a RESULT. There is no results module, and a bundle
+       * field that looked like a finding would print one on paper.
+       */
+      const orderKeys = new Set(bundleNow.investigations.flatMap((i) => Object.keys(i)));
+      check(
+        [...orderKeys].every((k) => ["position", "name", "note"].includes(k)),
+        "…and an order carries only position, name and reason",
+        [...orderKeys].join(",") || "(none)",
+      );
 
       const [encDay] = await asOwner(tx, () => tx`
         select public.session_date_for(${hospital.id}, e.started_at)::text as d

@@ -4,6 +4,8 @@ import { notFound } from "next/navigation";
 import { ArrowLeft, CloudOff, MapPinOff } from "lucide-react";
 import { requireLocationContext } from "@/lib/auth/session";
 import { getConsultation } from "@/features/encounters/queries";
+import { getPreviousVisit, getVisitType } from "@/features/encounters/previous-visit";
+import { opensPreviousVisit } from "@/features/encounters/visit-type";
 import { ConsultationWorkspace } from "@/features/encounters/components/consultation-workspace";
 
 export const metadata: Metadata = { title: "Consultation" };
@@ -96,10 +98,27 @@ export default async function ConsultationPage({
 
   if (!outcome.ok) notFound();
 
+  /**
+   * The previous visit, and whether to open it on arrival.
+   *
+   * Read here rather than in the client so it goes through RLS — which already
+   * scopes encounters to `owner_doctor_id = current_doctor_id()`, and therefore
+   * to this doctor's own records across their own locations and nobody else's.
+   *
+   * Neither read can block the consultation: `getPreviousVisit` returns null on
+   * failure, because today's notes matter more than last month's context.
+   */
+  const [previousVisit, visitType] = await Promise.all([
+    getPreviousVisit(outcome.consultation.patient.id, encounterId),
+    getVisitType(outcome.consultation.appointmentId),
+  ]);
+
   return (
     <ConsultationWorkspace
       consultation={outcome.consultation}
       locationName={ctx.locationName}
+      previousVisit={previousVisit}
+      expandPreviousVisit={opensPreviousVisit(visitType)}
     />
   );
 }
