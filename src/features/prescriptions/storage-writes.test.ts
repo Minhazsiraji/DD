@@ -54,6 +54,18 @@ describe("storage writes", () => {
       // The doctor's own profile signature: their bucket, their upload, and a
       // different trust class entirely (ADR 0012).
       path.join("features", "doctor", "actions.ts"),
+      /**
+       * The professional PHOTOGRAPH — `doctor-profile-photos`, and a third
+       * trust class again.
+       *
+       * It writes with `upsert: true` and it may be DELETED, which is exactly
+       * what `prescription-assets` must never allow: a frozen signature is
+       * attested inside a review digest and has to outlive the account. A
+       * portrait is the doctor's to change at will. Same verbs, opposite
+       * rules — which is why they are different buckets and why this entry is
+       * a deliberate addition rather than a widened allowance.
+       */
+      path.join("features", "doctor", "profile-actions.ts"),
     ];
 
     /**

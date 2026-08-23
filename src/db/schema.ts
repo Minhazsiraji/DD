@@ -85,6 +85,14 @@ export const profiles = pgTable("profiles", {
 });
 
 /**
+ * Who may see the doctor's professional profile.
+ *
+ * PRIVATE is the default and the only value any existing doctor gets. Going
+ * public is a decision a doctor makes, never a migration's side effect.
+ */
+export const profileVisibility = pgEnum("profile_visibility", ["PRIVATE", "PUBLIC"]);
+
+/**
  * The doctor identity. This is what owns patients (Phase 3), which is why it is
  * separate from clinic membership — a doctor keeps their patient list when they
  * change clinics.
@@ -132,6 +140,52 @@ export const doctorProfiles = pgTable(
     ),
     /** Storage path in the private `doctor-assets` bucket, not a public URL. */
     signatureUrl: text("signature_url"),
+
+    /**
+     * The doctor's PROFESSIONAL PHOTOGRAPH — a different thing entirely from
+     * the signature above, and deliberately a different bucket.
+     *
+     * The signature is a frozen clinical artefact: `prescription-assets` has no
+     * DELETE policy precisely so a signed prescription's signature can never be
+     * removed, and each frozen copy is attested inside a review bundle's digest.
+     * A profile photo is the opposite — the doctor may change or remove it at
+     * will, and it may one day be shown to patients. Storing one where the
+     * other lives would either make a portrait undeletable or make a signature
+     * replaceable, and the second is a forgery risk.
+     *
+     * So: `doctor-profile-photos`, private, path `<auth.uid()>/photo.<ext>`.
+     * Never a public URL, never a caller-supplied path.
+     */
+    professionalPhotoPath: text("professional_photo_path"),
+
+    /**
+     * BMDC is SELF-ASSERTED and unverified (ADR 0003). It is safe on the
+     * doctor's own prescription, where the reader knows who wrote it; showing
+     * it on a patient-facing page reads as a verified credential, which it is
+     * not. So it is off unless the doctor turns it on.
+     */
+    showBmdcOnProfile: boolean("show_bmdc_on_profile").notNull().default(false),
+
+    /**
+     * PRIVATE unless the doctor says otherwise, and no migration may change
+     * that for an existing doctor.
+     *
+     * The pilot only ever renders the preview to the owning doctor. The column
+     * exists so the future public route has a boundary to read rather than one
+     * to invent — but nothing today serves a profile to an unauthenticated
+     * reader, whatever this says.
+     */
+    profileVisibility: profileVisibility("profile_visibility").notNull().default("PRIVATE"),
+
+    /**
+     * A stable handle for a future `/dr/<slug>` route.
+     *
+     * NOT AN AUTHORISATION BOUNDARY, and nothing may ever treat it as one:
+     * knowing a slug must never be what grants a read. Visibility decides that.
+     * Changing it does not change who the doctor is — every clinical row keys
+     * off `doctor_profiles.id`, which is untouched.
+     */
+    profileSlug: text("profile_slug"),
     /** Prefix for this doctor's own patient numbering, e.g. "AR" -> AR-000124. */
     patientNumberPrefix: text("patient_number_prefix").notNull().default("PT"),
     patientNumberSeq: integer("patient_number_seq").notNull().default(0),
@@ -154,6 +208,103 @@ export const doctorProfiles = pgTable(
     uniqueIndex("doctor_profiles_bmdc_unique")
       .on(t.bmdcNormalized)
       .where(sql`bmdc_normalized is not null`),
+    /**
+     * One slug, one doctor — and reserved words are refused in the RPC that
+     * sets it, not here, because a CHECK cannot hold a growing word list.
+     */
+    uniqueIndex("doctor_profiles_slug_unique")
+      .on(t.profileSlug)
+      .where(sql`profile_slug is not null`),
+    check(
+      "doctor_profiles_slug_shape",
+      sql`profile_slug is null or profile_slug ~ '^[a-z0-9]([a-z0-9-]{1,38}[a-z0-9])$'`,
+    ),
+  ],
+);
+
+/**
+ * A CHAMBER, as it appears on the doctor's professional profile.
+ *
+ * THE PRODUCT DECISION THIS TABLE ENCODES: the profile belongs to the DOCTOR,
+ * but visiting hours belong to the DOCTOR-AT-A-LOCATION relationship. One
+ * doctor working at three hospitals keeps three different schedules, and two
+ * doctors at the same hospital share nothing — which is exactly what the
+ * composite key says, and what stops a colleague inheriting hours they never
+ * set.
+ *
+ * Separate from `practice_location_members`: that table is THE authorisation
+ * join every RLS policy resolves through, and presentation data has no business
+ * inside it. Membership answers "may they work here"; this answers "what do
+ * they tell patients about being here".
+ */
+export const doctorChambers = pgTable(
+  "doctor_chambers",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    doctorProfileId: uuid("doctor_profile_id")
+      .notNull()
+      .references(() => doctorProfiles.id, { onDelete: "cascade" }),
+    practiceLocationId: uuid("practice_location_id")
+      .notNull()
+      .references(() => practiceLocations.id, { onDelete: "cascade" }),
+    /**
+     * Patient-facing, e.g. "By appointment" or "Closed Friday".
+     *
+     * Free text on purpose — a chamber's real rule rarely fits a checkbox — and
+     * it is PUBLIC-FACING, so nothing clinical may be written here. Length is
+     * bounded so a profile cannot become an essay.
+     */
+    publicNote: text("public_note"),
+    /** The doctor's own order, for a profile that lists several chambers. */
+    position: integer("position").notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("doctor_chambers_doctor_location_key").on(t.doctorProfileId, t.practiceLocationId),
+    index("doctor_chambers_doctor_idx").on(t.doctorProfileId, t.position),
+    check("doctor_chambers_note_length", sql`public_note is null or length(public_note) <= 120`),
+  ],
+);
+
+/**
+ * One visiting SESSION: a weekday and a time range at one chamber.
+ *
+ * A row per session rather than a range per day, so "Sunday 10–1 and 6–9" is
+ * two honest rows instead of one sentence nobody can reason about. The Alpha UI
+ * only offers one session per day; the model does not need changing when it
+ * offers two.
+ *
+ * THIS IS NOT APPOINTMENT AVAILABILITY. It is what the doctor tells patients
+ * about when they sit. Slots, capacity and booking rules are a different
+ * concept and deliberately not modelled here.
+ *
+ * Times are LOCAL to the chamber — `practice_locations.timezone`, Asia/Dhaka by
+ * default — which is why they are `time` and not `timestamptz`: "6 PM" is 6 PM
+ * at that chamber in every season and from every reader's device.
+ */
+export const doctorChamberHours = pgTable(
+  "doctor_chamber_hours",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    chamberId: uuid("chamber_id")
+      .notNull()
+      .references(() => doctorChambers.id, { onDelete: "cascade" }),
+    /** 0 = Sunday, matching Postgres `dow` and the Bangladeshi week's start. */
+    weekday: integer("weekday").notNull(),
+    startsAt: text("starts_at").notNull(),
+    endsAt: text("ends_at").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("doctor_chamber_hours_chamber_idx").on(t.chamberId, t.weekday),
+    check("doctor_chamber_hours_weekday", sql`weekday between 0 and 6`),
+    /**
+     * A session that ends before it starts is not a session. Checked here
+     * rather than in a form, because the form is not the boundary.
+     */
+    check("doctor_chamber_hours_order", sql`starts_at::time < ends_at::time`),
+    check("doctor_chamber_hours_shape", sql`starts_at ~ '^\\d{2}:\\d{2}$' and ends_at ~ '^\\d{2}:\\d{2}$'`),
   ],
 );
 

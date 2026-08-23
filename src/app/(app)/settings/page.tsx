@@ -8,6 +8,7 @@ import {
   ShieldCheck,
   ChevronRight,
   Stethoscope,
+  IdCard,
 } from "lucide-react";
 import { cookies } from "next/headers";
 import { PageHeader } from "@/components/common/page-header";
@@ -140,7 +141,29 @@ export default async function SettingsPage() {
             Qualifications, signature &amp; prescription layout
             <ChevronRight className="size-4 text-ink-muted" aria-hidden="true" />
           </Link>
+          {/*
+            A SECOND destination, not a rename of the first.
+
+            The page above is about what PRINTS: the letterhead, the signature,
+            the paper. This one is about what a PATIENT would read. They share
+            the same underlying identity — qualification, designation, BMDC come
+            from one place and are edited in one place — but they answer
+            different questions and merging them would make both harder to find.
+          */}
+          <Link
+            href="/settings/professional"
+            className="mt-3 inline-flex h-10 items-center gap-2 rounded-xl border border-hairline bg-white px-4 text-sm font-semibold text-ink transition-colors hover:bg-surface-muted focus-visible:focus-ring"
+          >
+            <IdCard className="size-4 text-brand" aria-hidden="true" />
+            Professional profile &amp; chamber hours
+            <ChevronRight className="size-4 text-ink-muted" aria-hidden="true" />
+          </Link>
           <p className="mt-2 text-xs text-ink-muted">
+            Your photo, credentials and visiting hours — with a preview of how a
+            patient would see them. Private to you.
+          </p>
+
+          <p className="mt-4 text-xs text-ink-muted">
             What prints at the top of your prescription — your name, BMDC
             number, chamber address and the paper itself.
           </p>
