@@ -137,8 +137,14 @@ export function PatientTimeline({
       {moduleMissing ? (
         <EmptyState
           icon={ICON[activeType]}
-          title={`${TIMELINE_LABEL[activeType]} isn't built yet`}
-          description="This filter will fill in when the module ships. Nothing is hidden — there is simply no data of this kind yet."
+          /*
+            Neutral pilot wording. "Isn't built yet" invites the reader to
+            wonder whether something broke; "not included in this pilot"
+            states a scope decision. The capability flag itself is unchanged
+            and still false — the honesty is in the flag, not the sentence.
+          */
+          title={`${TIMELINE_LABEL[activeType]} is not included in this pilot yet`}
+          description="Nothing is missing or hidden — this part of the record is not part of the pilot, so there is no data of this kind to show."
         />
       ) : events.length === 0 ? (
         <EmptyState

@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { WhenFields } from "./when-fields";
 import { useActionState } from "react";
 import { useRouter } from "next/navigation";
 import { Search, UserPlus, Plus, X, Check } from "lucide-react";
@@ -475,22 +476,10 @@ function BookingDetails({
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2">
-        <div className="space-y-1.5">
-          <label htmlFor="book-when" className="block text-[13px] font-medium text-ink">
-            Date and time
-          </label>
-          <input
-            id="book-when"
-            name="scheduledFor"
-            type="datetime-local"
-            required
-            defaultValue={state.values?.scheduledFor ?? `${defaultDate}T10:00`}
-            className="h-11 w-full rounded-xl border border-hairline bg-white px-3 text-sm text-ink focus-visible:focus-ring"
-          />
-          {state.fieldErrors?.scheduledFor ? (
-            <p className="text-xs font-medium text-danger">{state.fieldErrors.scheduledFor[0]}</p>
-          ) : null}
-        </div>
+        <WhenFields
+          initial={state.values?.scheduledFor ?? `${defaultDate}T10:00`}
+          error={state.fieldErrors?.scheduledFor?.[0]}
+        />
 
         <div className="space-y-1.5">
           <label htmlFor="book-duration" className="block text-[13px] font-medium text-ink">

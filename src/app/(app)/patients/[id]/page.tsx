@@ -176,10 +176,22 @@ export default async function PatientProfilePage(props: PageProps<"/patients/[id
             placeholder="e.g. Type 2 Diabetes"
           />
 
+          {/*
+            "Current medicines" read as "what is on the latest prescription",
+            which it is not. This is the patient-level list a doctor keeps for
+            safety: what the person is on long-term, whoever prescribed it,
+            including drugs they only reported. Two different concepts, and the
+            old label let them be confused.
+
+            Deliberately NOT populated from prescriptions. Doing that
+            automatically needs a product decision about what counts as
+            stopped, and getting it wrong leaves a discontinued drug sitting on
+            a safety list.
+          */}
           <SafetyList
             patientId={id}
             kind="medication"
-            title="Current medicines"
+            title="Long-term medicines"
             icon={<Pill className="size-4" />}
             items={patient.medications.map((m) => ({
               id: m.id,

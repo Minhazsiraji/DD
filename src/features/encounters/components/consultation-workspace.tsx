@@ -246,7 +246,29 @@ export function ConsultationWorkspace({
           It never writes into anything below it. See `previous-visit-card`.
         */}
         {previousVisit ? (
-          <PreviousVisitCard visit={previousVisit} expandedByDefault={expandPreviousVisit} />
+          <>
+            <PreviousVisitCard visit={previousVisit} expandedByDefault={expandPreviousVisit} />
+
+            {/*
+              THE LINE BETWEEN THEN AND NOW.
+
+              With the previous visit expanded, the screen shows two sets of
+              vitals and two assessments, and the second set is the editable
+              one. A doctor scrolling past a filled-in card into empty fields
+              needs to know without thinking which is which — so the boundary
+              is stated rather than implied by spacing.
+
+              Only rendered when there IS a previous visit; on a first visit
+              there is nothing to divide.
+            */}
+            <div className="flex items-center gap-3 pt-1" aria-hidden="true">
+              <span className="h-px flex-1 bg-hairline" />
+              <span className="text-[11px] font-semibold tracking-[0.14em] text-ink-muted uppercase">
+                Today&rsquo;s visit
+              </span>
+              <span className="h-px flex-1 bg-hairline" />
+            </div>
+          </>
         ) : null}
 
         {/*

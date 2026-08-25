@@ -112,7 +112,16 @@ const APPOINTMENT_TITLE: Record<string, string> = {
   CONFIRMED: "Appointment confirmed",
   ARRIVED: "Arrived for appointment",
   IN_CONSULTATION: "With the doctor",
-  COMPLETED: "Seen by the doctor",
+  /**
+   * "Appointment completed", NOT "Seen by the doctor".
+   *
+   * This is the APPOINTMENT's outcome, and a separate Consultation entry sits
+   * beside it for the same visit. Two rows both saying the doctor saw the
+   * patient read as two visits. The distinction is real — an appointment can
+   * complete without notes, and notes exist for walk-ins with no appointment —
+   * so the labels are made truthful rather than the records merged.
+   */
+  COMPLETED: "Appointment completed",
   CANCELLED: "Appointment cancelled",
   NO_SHOW: "Did not attend",
 };
