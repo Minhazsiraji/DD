@@ -3,18 +3,17 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { readLinkResult, safeNextPath } from "@/features/auth/link-result";
 
 /**
- * The server-verifiable half of an emailed auth link.
+ * LEGACY. Kept only for links already sitting in inboxes.
  *
- * Kept for `?code=` and `?token_hash=`, which a server CAN see and which are
- * the stronger shapes: the session is written straight to httpOnly cookies
- * without the token ever reaching client JavaScript.
+ * New emails point at `/auth/confirm`. This route survives so that a reset
+ * requested before the change still works, and it now does exactly two things:
+ * finish a PKCE exchange, which only a server can, and forward everything else
+ * to the page that can read it.
  *
- * What it must no longer do is claim a link is expired when it simply could not
- * see it. Supabase's implicit flow returns everything — tokens AND errors — in
- * a URL FRAGMENT, which browsers never transmit. This route received a bare
- * `?next=/reset-password`, found no code, and reported failure on a link that
- * was perfectly valid. Anything it cannot see is now handed to `/auth/confirm`,
- * which runs in the browser where the fragment exists.
+ * It used to claim a link was expired when it simply could not see it —
+ * Supabase's implicit flow returns tokens AND errors in a URL FRAGMENT, which
+ * browsers never transmit, so this route received a bare `?next=…`, found no
+ * code, and reported failure on a perfectly good link.
  */
 export async function GET(request: NextRequest) {
   const { search, origin } = request.nextUrl;
@@ -29,23 +28,29 @@ export async function GET(request: NextRequest) {
   }
 
   /**
-   * Nothing this side can verify. NOT an error: it is very probably an implicit
-   * link whose tokens are sitting in a fragment one hop away. Forward with the
-   * query intact and let the browser present what only it can read.
+   * ANYTHING THIS ROUTE WOULD SPEND ON A GET IS FORWARDED INSTEAD.
+   *
+   * A one-time token must not be consumed by a request the doctor did not
+   * make. Mail scanners, link previewers and corporate security gateways all
+   * fetch URLs out of inboxes before a human ever clicks, and a server that
+   * verifies on GET hands them the token — after which the doctor's own click
+   * is correctly told the link was already used. That is the reported bug.
+   *
+   * `token_hash` is therefore NOT verified here, even though it could be. It
+   * goes to `/auth/confirm`, where the token is spent by JavaScript the
+   * scanner never runs.
    */
-  if (result.kind === "none" || result.kind === "implicit") {
+  if (result.kind !== "code") {
     return NextResponse.redirect(`${origin}/auth/confirm${search}`);
   }
 
+  /**
+   * PKCE is the one shape only a server can finish, because the verifier lives
+   * in an httpOnly cookie. A scanner has no such cookie, so its attempt fails
+   * without the doctor's browser losing anything it could have used.
+   */
   const supabase = await createSupabaseServerClient();
-
-  const { error } =
-    result.kind === "code"
-      ? await supabase.auth.exchangeCodeForSession(result.code)
-      : await supabase.auth.verifyOtp({
-          type: result.type,
-          token_hash: result.tokenHash,
-        });
+  const { error } = await supabase.auth.exchangeCodeForSession(result.code);
 
   if (error) {
     /**

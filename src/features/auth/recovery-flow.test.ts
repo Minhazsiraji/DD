@@ -28,8 +28,34 @@ describe("the emailed link lands somewhere a browser can help", () => {
 
   it("the callback forwards anything it cannot see instead of failing it", async () => {
     const src = await read("src/app/auth/callback/route.ts");
-    expect(src).toMatch(/result\.kind === "none" \|\| result\.kind === "implicit"/);
+    expect(src).toMatch(/result\.kind !== "code"/);
     expect(src).toMatch(/\/auth\/confirm\$\{search\}/);
+  });
+
+  it("NO ONE-TIME TOKEN IS SPENT BY A SERVER GET", async () => {
+    /**
+     * The reported failure, at its root: mail scanners, link previewers and
+     * corporate security gateways fetch URLs out of inboxes before a human
+     * clicks. A server that calls `verifyOtp` on GET hands them the token, and
+     * the doctor's own click is then correctly told the link was already used.
+     *
+     * So `token_hash` is forwarded, never verified here — even though it
+     * could be. Only PKCE is finished server-side, and only because a scanner
+     * has no verifier cookie and therefore takes nothing the doctor could have
+     * used.
+     */
+    const src = await read("src/app/auth/callback/route.ts");
+    expect(src).not.toMatch(/verifyOtp/);
+    expect(src).toMatch(/exchangeCodeForSession\(/);
+  });
+
+  it("…and the page that does spend it runs in the browser", async () => {
+    // A scanner fetches HTML; it does not execute this.
+    const page = await read("src/app/auth/confirm/page.tsx");
+    const client = await read("src/features/auth/components/confirm-link.tsx");
+    expect(page).not.toMatch(/verifyOtp|exchangeCodeForSession|setSession/);
+    expect(client).toMatch(/^"use client"/m);
+    expect(client).toMatch(/verifyOtp\(/);
   });
 
   it("both halves parse the link with the SAME function", async () => {
@@ -85,11 +111,34 @@ describe("verification is never skipped", () => {
     expect(readsNext).toBeLessThan(strips);
   });
 
-  it("the token is cleared from the address bar once used", async () => {
-    // Otherwise it survives in history, in a screenshot, and in anything the
-    // doctor pastes when describing a problem.
+  it("the token is cleared from the address bar BEFORE it is used", async () => {
+    /**
+     * `token_hash` travels in the QUERY, so it has already reached the server
+     * and any proxy between — that cannot be undone here. What can be stopped
+     * is the rest of its life: browser history, a screenshot, and the
+     * `Referer` on every request the page makes next.
+     *
+     * Stripped up front rather than on success, so a token that FAILED
+     * verification is not left on screen either.
+     */
     const src = await read("src/features/auth/components/confirm-link.tsx");
-    expect(src).toMatch(/history\.replaceState/);
+    const strips = src.indexOf("history.replaceState");
+    const verifies = src.indexOf("await verify(");
+    expect(strips).toBeGreaterThan(-1);
+    expect(verifies).toBeGreaterThan(-1);
+    expect(strips).toBeLessThan(verifies);
+  });
+
+  it("never logs a token", async () => {
+    for (const file of [
+      "src/features/auth/components/confirm-link.tsx",
+      "src/app/auth/callback/route.ts",
+      "src/features/auth/link-result.ts",
+    ]) {
+      const src = await read(file);
+      // No logging at all on these paths, so nothing can carry a credential.
+      expect(src, file).not.toMatch(/console\.(log|error|warn|info|debug)/);
+    }
   });
 });
 

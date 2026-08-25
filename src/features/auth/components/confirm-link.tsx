@@ -45,6 +45,21 @@ export function ConfirmLink() {
       const result = readLinkResult(window.location.search, window.location.hash);
 
       /**
+       * SCRUB THE ADDRESS BAR BEFORE DOING ANYTHING WITH THE TOKEN.
+       *
+       * `token_hash` sits in the QUERY, so unlike a fragment it has already
+       * reached the server and any proxy in between — that much cannot be
+       * undone here. What can be prevented is the rest of its life: sitting in
+       * browser history, in the tab title, in a screenshot the doctor sends
+       * when something goes wrong, and in the `Referer` of every request the
+       * page makes afterwards.
+       *
+       * Done up front rather than on success, so a token that FAILED
+       * verification is not left on screen either.
+       */
+      window.history.replaceState(null, "", window.location.pathname);
+
+      /**
        * Supabase said no. Its own message is not shown: "otp_expired" is the
        * same answer for a link that was used, one that timed out, and one a
        * mail scanner opened first, and guessing between them for the user is
@@ -69,12 +84,6 @@ export function ConfirmLink() {
         return;
       }
 
-      /**
-       * The fragment carried tokens. Strip it before navigating: leaving an
-       * access token in the address bar means it survives in history, in a
-       * screenshot, and in anything the doctor pastes to describe a problem.
-       */
-      window.history.replaceState(null, "", window.location.pathname);
       router.replace(next);
       router.refresh();
     })();
