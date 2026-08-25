@@ -75,13 +75,28 @@ export async function proxy(request: NextRequest) {
     return NextResponse.redirect(url);
   }
 
-  // Signed-in users get bounced off the sign-in screens — but never off API
-  // routes, which must answer identically regardless of session.
+  /**
+   * Signed-in users get bounced off the sign-in screens — but never off API
+   * routes, which must answer identically regardless of session, and NEVER off
+   * `/reset-password`.
+   *
+   * A recovery link's whole purpose is to create a session and then let the
+   * person choose a new password. `/reset-password` is a public path, so this
+   * bounce fired the moment the link worked and sent them to the dashboard —
+   * the one screen where they cannot do the thing they came to do. Second half
+   * of the same blocker: even a link that verified correctly never reached the
+   * form.
+   *
+   * Not an authorisation change. `resetPasswordAction` still requires a real
+   * session from `getUser()`, and Supabase still refuses `updateUser` without
+   * one. This only stops the app steering them away from it.
+   */
   if (
     user &&
     isPublic(pathname) &&
     !pathname.startsWith("/auth/") &&
-    !pathname.startsWith("/api/")
+    !pathname.startsWith("/api/") &&
+    pathname !== "/reset-password"
   ) {
     const url = request.nextUrl.clone();
     url.pathname = "/dashboard";

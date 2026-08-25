@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { useFormStatus } from "react-dom";
-import { CircleAlert, CircleCheck, Loader } from "lucide-react";
+import { CircleAlert, CircleCheck, Eye, EyeOff, Loader } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { ActionState } from "../schema";
 
@@ -38,29 +38,72 @@ export function Field({
   const hintId = `${id}-hint`;
   const hasError = Boolean(errors?.length);
 
+  /**
+   * Show/hide, on every password box.
+   *
+   * A doctor signing in on a phone at a chamber desk types a password they
+   * cannot see, gets it wrong, and cannot tell whether the problem is the
+   * password or the account — which is exactly the moment someone starts
+   * requesting reset links. The control is plain, off by default, and reverts
+   * to hidden on every render of a fresh form.
+   *
+   * `type` is swapped rather than a second input rendered, so there is only
+   * ever ONE field with this name: a hidden duplicate is how a browser autofill
+   * ends up submitting the wrong value.
+   */
+  const isPassword = type === "password";
+  const [revealed, setRevealed] = React.useState(false);
+  const shown = isPassword && revealed;
+
   return (
     <div className="space-y-1.5">
       <label htmlFor={id} className="block text-[13px] font-medium text-ink">
         {label}
       </label>
-      <input
-        id={id}
-        name={name}
-        type={type}
-        required={required}
-        autoComplete={autoComplete}
-        defaultValue={defaultValue}
-        aria-invalid={hasError || undefined}
-        aria-describedby={
-          [hasError ? errorId : null, hint ? hintId : null]
-            .filter(Boolean)
-            .join(" ") || undefined
-        }
-        className={cn(
-          "h-11 w-full rounded-xl border bg-white px-3 text-sm text-ink placeholder:text-ink-muted focus-visible:focus-ring",
-          hasError ? "border-danger" : "border-hairline",
-        )}
-      />
+      <div className="relative">
+        <input
+          id={id}
+          name={name}
+          type={shown ? "text" : type}
+          required={required}
+          autoComplete={autoComplete}
+          defaultValue={defaultValue}
+          aria-invalid={hasError || undefined}
+          aria-describedby={
+            [hasError ? errorId : null, hint ? hintId : null]
+              .filter(Boolean)
+              .join(" ") || undefined
+          }
+          className={cn(
+            "h-11 w-full rounded-xl border bg-white px-3 text-sm text-ink placeholder:text-ink-muted focus-visible:focus-ring",
+            // Room for the toggle, so a long password never runs under it.
+            isPassword && "pr-11",
+            hasError ? "border-danger" : "border-hairline",
+          )}
+        />
+        {isPassword ? (
+          <button
+            type="button"
+            onClick={() => setRevealed((v) => !v)}
+            aria-pressed={revealed}
+            aria-controls={id}
+            aria-label={revealed ? "Hide password" : "Show password"}
+            /*
+              `tabIndex={-1}`: keyboard users tab from the password straight to
+              the submit button, which is the whole point of the form. The
+              control stays reachable by pointer and by screen reader.
+            */
+            tabIndex={-1}
+            className="absolute top-1/2 right-1 flex size-9 -translate-y-1/2 items-center justify-center rounded-lg text-ink-muted transition-colors hover:text-ink focus-visible:focus-ring"
+          >
+            {revealed ? (
+              <EyeOff className="size-4" aria-hidden="true" />
+            ) : (
+              <Eye className="size-4" aria-hidden="true" />
+            )}
+          </button>
+        ) : null}
+      </div>
       {hint ? (
         <p id={hintId} className="text-xs text-ink-muted">
           {hint}
