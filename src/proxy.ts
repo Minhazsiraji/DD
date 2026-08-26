@@ -17,6 +17,14 @@ import { publicEnv } from "@/lib/env";
  */
 
 const PUBLIC_PATHS = [
+  "/",
+  "/features",
+  "/how-it-works",
+  "/pricing",
+  "/security",
+  "/faq",
+  "/contact",
+  "/dr",
   "/login",
   "/signup",
   "/forgot-password",
@@ -29,7 +37,7 @@ const AUTH_ONLY_PATHS = ["/onboarding"];
 
 function isPublic(pathname: string): boolean {
   return (
-    PUBLIC_PATHS.some((p) => pathname === p || pathname.startsWith(`${p}/`)) ||
+    PUBLIC_PATHS.some((p) => pathname === p || (p !== "/" && pathname.startsWith(`${p}/`))) ||
     pathname.startsWith("/auth/")
   );
 }
@@ -80,6 +88,14 @@ export async function proxy(request: NextRequest) {
   if (
     user &&
     isPublic(pathname) &&
+    pathname !== "/" &&
+    !pathname.startsWith("/features") &&
+    !pathname.startsWith("/how-it-works") &&
+    !pathname.startsWith("/pricing") &&
+    !pathname.startsWith("/security") &&
+    !pathname.startsWith("/faq") &&
+    !pathname.startsWith("/contact") &&
+    !pathname.startsWith("/dr/") &&
     !pathname.startsWith("/auth/") &&
     !pathname.startsWith("/api/")
   ) {

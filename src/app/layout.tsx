@@ -27,7 +27,7 @@ export const metadata: Metadata = {
     template: "%s · Doctor's Diary",
   },
   description:
-    "An AI-enabled clinical and chamber workspace for doctors — patients, appointments, queue, consultations and prescriptions in one place.",
+    "Doctor's Diary is a doctor productivity workspace for patient history, consultations, prescriptions, chambers and follow-up — built for less typing, less searching and more patient time.",
   applicationName: "Doctor's Diary",
   appleWebApp: {
     capable: true,
@@ -35,8 +35,10 @@ export const metadata: Metadata = {
     statusBarStyle: "default",
   },
   formatDetection: { telephone: false },
-  // Development build with mock data — keep it out of search indexes.
-  robots: { index: false, follow: false },
+  robots:
+    process.env.VERCEL_ENV === "production"
+      ? { index: true, follow: true }
+      : { index: false, follow: false },
 };
 
 export const viewport: Viewport = {
