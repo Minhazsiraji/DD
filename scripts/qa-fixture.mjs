@@ -424,7 +424,18 @@ if (mode === "destroy") {
       (select count(*)::int from storage.objects where bucket_id = 'doctor-assets') as signatures`;
   console.log("remaining:", left);
   if (left.signatures > 0) {
-    console.log("NOTE: set SUPABASE_SERVICE_ROLE_KEY to clear leftover storage objects.");
+    /**
+     * Says what is true. This previously read "set SUPABASE_SERVICE_ROLE_KEY to
+     * clear leftover storage objects", which is printed whenever ANY object
+     * remains — including the ones deliberately kept — so it accused the
+     * operator of a missing key that was in fact configured, and cost real time
+     * chasing it.
+     */
+    console.log(
+      `NOTE: ${left.signatures} object(s) remain in doctor-assets.\n` +
+        "  Objects not provably created by this fixture are LEFT ALONE on purpose —\n" +
+        "  a closed account does not make frozen prescription signatures disposable.",
+    );
   }
   await sql.end();
   process.exit(0);

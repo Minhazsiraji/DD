@@ -953,38 +953,42 @@ try {
         "the bundle carries the prescription's own clinical date",
         String(bundleNow.clinicalDate),
       );
-      check(bundleNow.schemaVersion === 3, "…under schema version 3", String(bundleNow.schemaVersion));
+      check(bundleNow.schemaVersion === 4, "…under schema version 4", String(bundleNow.schemaVersion));
 
       /**
-       * v3 carries what else the doctor wrote that day: the tests they ordered
-       * and the advice they gave. Both are inside the digest, so they are
-       * approved with the medicines and become permanent with them — a
-       * printable value outside the bundle is one nobody approved.
+       * v4 replaced v3's fixed `investigations` and `advice` keys with
+       * `sections`: the doctor's PRINTABLE modules, in their order, each with
+       * its frozen label and content. The keys moved because what appears is
+       * now the doctor's decision rather than a fixed list.
        *
-       * The KEYS must be present even when empty. Absent and empty are
-       * different claims, and the client refuses a v3 bundle that omits them
-       * rather than printing a shorter prescription than the one signed.
+       * These assertions were updated with that change rather than relaxed —
+       * they still say the bundle must carry the printable clinical content,
+       * just in the shape v4 carries it. v3 snapshots keep their own shape and
+       * are covered by `db:verify:rx-immutable`.
        */
       check(
-        Array.isArray(bundleNow.investigations),
-        "the bundle carries this encounter's investigation ORDERS",
-        JSON.stringify(bundleNow.investigations),
+        Array.isArray(bundleNow.sections),
+        "the bundle carries the doctor's printable sections",
+        JSON.stringify(bundleNow.sections?.map((s) => s.module)),
       );
       check(
-        "advice" in bundleNow,
-        "…and today's advice, present even when there is none",
-        JSON.stringify(bundleNow.advice),
+        bundleNow.layout === "two-column",
+        "…and declares the layout they were resolved for",
+        String(bundleNow.layout),
       );
 
       /**
-       * An ORDER, never a RESULT. There is no results module, and a bundle
-       * field that looked like a finding would print one on paper.
+       * A section says what it is, what it is called, and what it holds — and
+       * nothing that could read as a RESULT. There is no results module, and a
+       * bundle field that looked like a finding would print one on paper.
        */
-      const orderKeys = new Set(bundleNow.investigations.flatMap((i) => Object.keys(i)));
+      const sectionKeys = new Set(bundleNow.sections.flatMap((s) => Object.keys(s)));
       check(
-        [...orderKeys].every((k) => ["position", "name", "note"].includes(k)),
-        "…and an order carries only position, name and reason",
-        [...orderKeys].join(",") || "(none)",
+        [...sectionKeys].every((k) =>
+          ["module", "label", "kind", "text", "items", "pairs"].includes(k),
+        ),
+        "…and a section carries only module, label and its content",
+        [...sectionKeys].join(",") || "(none)",
       );
 
       const [encDay] = await asOwner(tx, () => tx`
