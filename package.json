@@ -30,6 +30,7 @@
     "db:verify:history": "node --env-file=.env.local scripts/verify-history.mjs",
     "db:verify:qa-provenance": "node --env-file=.env.local scripts/verify-qa-provenance.mjs",
     "db:verify:qa-cleanup": "node --env-file=.env.local scripts/verify-qa-cleanup.mjs",
+    "db:verify:rx-v4": "node --env-file=.env.local scripts/verify-rx-v4.mjs",
     "db:verify:profile": "node --env-file=.env.local scripts/verify-professional-profile.mjs",
     "db:verify:migrations": "node --env-file=.env.local scripts/verify-migrations.mjs",
     "db:gate": "node --env-file=.env.local scripts/security-gate.mjs",
