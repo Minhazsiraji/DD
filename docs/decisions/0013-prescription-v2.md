@@ -100,6 +100,68 @@ bumped only when the doctor APPLIES one. Typing creates nothing. Applying one
 inserts text into a field the doctor is already editing — it never writes a
 clinical row by itself, so a quick selection costs no round trip.
 
+### 8. The renderer is chosen from `schemaVersion`, by exact match
+
+`renderer-version.ts` holds one table: `2 → v3-linear`, `3 → v3-linear`,
+`4 → v4-modular`. Not a comparison, not field presence, not a feature flag, not
+the template.
+
+`version >= 4 ? v4 : v3` reads like the same rule and is not: it says "and
+everything after 4 as well", so a v5 bundle carrying something v4 never had
+would reach a renderer that cannot see it and print a SHORTER prescription than
+the one approved, silently. An unknown version is therefore refused outright and
+the reader is told the build is old — `UnsupportedSnapshot`, never a blank sheet
+and never a fallback.
+
+`SUPPORTED_BUNDLE_SCHEMA_VERSIONS` is derived from that same table. "We accept
+this bundle" and "we can print this bundle" must be one statement; as two lists
+they drift, and the drift has exactly one shape — a bundle that parses cleanly
+and then reaches a switch with no case for it.
+
+The two shapes are also mutually exclusive at the schema: a v4 bundle carrying
+top-level `investigations`/`advice` is refused, and so is a v3 bundle carrying
+`sections`. Either would be content that was approved and then silently absent
+from the paper.
+
+### 9. `layout` is a frozen arrangement, named — not a hint
+
+`two-column` does not mean "two columns, somehow". It names one arrangement and
+always the same one: every configured module down the left, the Rx alone on the
+right. Which side a module lands on is part of what the doctor approved, so a
+build that shuffled it would reprint signed prescriptions differently.
+
+A different arrangement is therefore a NEW TOKEN, and old snapshots keep
+rendering under the old one — the same discipline as `schemaVersion`, one level
+down. `placeSections()` is the whole contract and a test pins it. Per-section
+left/right placement is not doctor-configurable in this stage; when it becomes
+so, the placement moves INTO the section rows and the token names that.
+
+An unrecognised layout token is refused, because placement is precisely what
+would be guessed.
+
+### 10. An unfamiliar module still prints
+
+`section.module` is a plain string, not an enum of the twelve this build knows.
+A section carries its own label and its own shape, so a module added by a newer
+server is fully printable; printing it under its own heading is strictly safer
+than dropping it, and safer than refusing the whole prescription. Nothing
+chooses content from the module name — it is used for placement and as a
+harness hook only.
+
+### 11. The two-column band is a table row
+
+`column-count` reflows one column into the other, which would run medicines into
+the clinical column. A flex row fragments unevenly across engines. A two-cell
+table row is the construct browsers have paginated reliably since printing
+existed: each cell continues on the next page in its own column, and nothing is
+duplicated. `vertical-align: top` is load-bearing — a table cell centres its
+content, which would float a short complaint into the middle of a long medicine
+list.
+
+Every module off means no column at all: the medicines take the full width,
+rather than an empty 61 mm strip with a rule down it asking the reader what is
+missing.
+
 ## Consequences
 
 - A doctor who changes their template does not change any prescription already

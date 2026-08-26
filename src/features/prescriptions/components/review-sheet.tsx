@@ -1,8 +1,9 @@
 import * as React from "react";
 import { cn } from "@/lib/utils";
 import { PAPER_MM } from "@/features/doctor/schema";
-import type { ReviewView } from "../review-view";
-import { PrescriptionDocument, proportionalUnits } from "./prescription-parts";
+import type { PrescriptionView } from "../prescription-view";
+import { PrescriptionDocument } from "./prescription-document";
+import { proportionalUnits } from "./prescription-parts";
 
 /**
  * The prescription, on screen.
@@ -29,7 +30,7 @@ export function ReviewSheet({
   signatureUrl,
   className,
 }: {
-  view: ReviewView;
+  view: PrescriptionView;
   /** Short-lived, never stored. Absent until the signature is frozen. */
   signatureUrl?: string | null;
   className?: string;

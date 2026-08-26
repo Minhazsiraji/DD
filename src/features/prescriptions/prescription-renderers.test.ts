@@ -202,14 +202,18 @@ describe("a short prescription anchors its signature and footer to the foot of t
     expect(await code("review-sheet.tsx")).toMatch(/className="flex flex-col/);
   });
 
-  it("the clinical body takes the slack", async () => {
-    /**
-     * On the BODY, not on the medicines: the advice is the last thing printed,
-     * so the empty space belongs after everything the doctor wrote rather than
-     * between the medicines and the tests.
-     */
-    const parts = await code("prescription-parts.tsx");
-    expect(parts).toMatch(/<div className="flex flex-1 flex-col">[\s\S]*?<MedicineList/);
+  /**
+   * BOTH documents, not one. The anchor is a property of the composition, and
+   * there are two compositions now — a v4 document that stacked from the top
+   * would strand its signature mid-sheet exactly as the v3 one used to.
+   */
+  it("the clinical body takes the slack, in every document", async () => {
+    for (const doc of ["document-v3.tsx", "document-v4.tsx"]) {
+      const text = await code(doc);
+      expect(text, `${doc} must let the body absorb the leftover height`).toMatch(
+        /<div className="flex flex-1 flex-col">/,
+      );
+    }
   });
 
   it("growing the LIST, not pushing the signature with an auto margin", async () => {
@@ -219,8 +223,11 @@ describe("a short prescription anchors its signature and footer to the foot of t
      * it does not belong to. Growing the list keeps the signature attached to
      * the last medicine.
      */
-    const parts = await code("prescription-parts.tsx");
-    expect(parts).not.toMatch(/marginTop:\s*["']auto["']/);
+    for (const file of ["prescription-parts.tsx", "document-v3.tsx", "document-v4.tsx"]) {
+      expect(await code(file), `${file} must not push the signature with a margin`).not.toMatch(
+        /marginTop:\s*["']auto["']/,
+      );
+    }
   });
 
   it("the growing body and the signature are siblings in that column", async () => {
@@ -230,10 +237,11 @@ describe("a short prescription anchors its signature and footer to the foot of t
      * signature grows with the body instead of being pushed down by it, and
      * the anchor stops working with nothing to see in a diff.
      */
-    const parts = await code("prescription-parts.tsx");
-    const doc = parts.slice(parts.indexOf("export function PrescriptionDocument"));
-    expect(doc).toMatch(/<>\s*<PrescriptionHeader/);
-    expect(doc).toMatch(/<\/div>\s*<SignatureBlock/);
+    for (const file of ["document-v3.tsx", "document-v4.tsx"]) {
+      const doc = await code(file);
+      expect(doc, file).toMatch(/<>\s*<PrescriptionHeader/);
+      expect(doc, file).toMatch(/<\/div>\s*<SignatureBlock/);
+    }
   });
 
   it("the page-filling minimum is one page LESS 1mm, and lives only in print", async () => {
@@ -254,10 +262,11 @@ describe("a short prescription anchors its signature and footer to the foot of t
   it("the signature and the footer are each rendered exactly once", async () => {
     // Never repeated per page — the one repeated element there ever was
     // (a continuation header) could print on top of a dose.
-    const parts = await source("prescription-parts.tsx");
-    const doc = parts.slice(parts.indexOf("export function PrescriptionDocument"));
-    expect(doc.match(/<SignatureBlock\b/g)).toHaveLength(1);
-    expect(doc.match(/<PrescriptionFooter\b/g)).toHaveLength(1);
+    for (const file of ["document-v3.tsx", "document-v4.tsx"]) {
+      const doc = await code(file);
+      expect(doc.match(/<SignatureBlock\b/g), file).toHaveLength(1);
+      expect(doc.match(/<PrescriptionFooter\b/g), file).toHaveLength(1);
+    }
   });
 
   it("nothing is shrunk, clipped or absolutely placed to make it fit", async () => {
@@ -278,15 +287,13 @@ describe("a short prescription anchors its signature and footer to the foot of t
  */
 describe("investigations and advice print, without pretending to be more", () => {
   it("both sections come from the same shared parts as everything else", async () => {
-    const parts = await source("prescription-parts.tsx");
-    const doc = parts.slice(parts.indexOf("export function PrescriptionDocument"));
+    const doc = await source("document-v3.tsx");
     expect(doc).toMatch(/<InvestigationList\b/);
     expect(doc).toMatch(/<AdviceBlock\b/);
   });
 
   it("in the approved order: medicines, then tests, then advice", async () => {
-    const parts = await code("prescription-parts.tsx");
-    const doc = parts.slice(parts.indexOf("export function PrescriptionDocument"));
+    const doc = await code("document-v3.tsx");
     const order = ["<MedicineList", "<InvestigationList", "<AdviceBlock", "<SignatureBlock"].map(
       (t) => doc.indexOf(t),
     );
@@ -344,8 +351,8 @@ describe("the bundle keeps its promise across schema versions", () => {
     const { SUPPORTED_BUNDLE_SCHEMA_VERSIONS, CURRENT_BUNDLE_SCHEMA_VERSION } = await import(
       "./review-bundle"
     );
-    expect([...SUPPORTED_BUNDLE_SCHEMA_VERSIONS]).toEqual([2, 3]);
-    expect(CURRENT_BUNDLE_SCHEMA_VERSION).toBe(3);
+    expect([...SUPPORTED_BUNDLE_SCHEMA_VERSIONS]).toEqual([2, 3, 4]);
+    expect(CURRENT_BUNDLE_SCHEMA_VERSION).toBe(4);
   });
 
   it("a v3 bundle missing the new sections is REFUSED, not silently shortened", async () => {
@@ -470,6 +477,187 @@ describe("the bundle keeps its promise across schema versions", () => {
     expect(sql).toMatch(/select position, name, note/);
     expect(sql).toMatch(/'advice', to_jsonb\(nullif\(btrim\(coalesce\(v_enc\.advice/);
     expect(sql).toMatch(/'schemaVersion', 3/);
+  });
+});
+
+/**
+ * THE V3 DOCUMENT IS FROZEN, AND THE V4 ONE IS NEW.
+ *
+ * Every prescription already signed prints through `document-v3.tsx`. The
+ * failure these tests guard is the tempting one: improving the old document to
+ * match the new one, and thereby reprinting signed paper differently.
+ */
+describe("the renderer boundary lives in the component tree too", () => {
+  it("the switch is on the explicit discriminant, never on what fields are present", async () => {
+    const text = await code("prescription-document.tsx");
+    expect(text).toMatch(/switch \(view\.renderer\)/);
+    expect(text).toMatch(/case "v3-linear"/);
+    expect(text).toMatch(/case "v4-modular"/);
+    // Any of these would be a second, weaker version rule.
+    expect(text).not.toMatch(/view\.sections|view\.layout|schemaVersion|\?\?|>=\s*4/);
+  });
+
+  it("both sheets still render one document, so screen and paper cannot differ", async () => {
+    for (const sheet of ["review-sheet.tsx", "print-sheet.tsx"]) {
+      expect(await source(sheet), sheet).toMatch(/<PrescriptionDocument\b/);
+      // Neither sheet may pick a renderer for itself.
+      expect(await code(sheet), sheet).not.toMatch(/LinearDocument|ModularDocument/);
+    }
+  });
+
+  it("the v3 document has no two-column markup — it must never acquire the new layout", async () => {
+    const v3 = await code("document-v3.tsx");
+    expect(v3).not.toMatch(/data-rx-column|table-cell|SectionBlock|view\.left|view\.right/);
+  });
+
+  it("the v4 document does not render the v3 fixed sections", async () => {
+    // At v4 those are modules like any other, and rendering them twice — once
+    // as a module, once as a fixed section — would duplicate clinical content.
+    const v4 = await code("document-v4.tsx");
+    expect(v4).not.toMatch(/<InvestigationList|<AdviceBlock/);
+  });
+});
+
+describe("the two-column band is built to survive a page break", () => {
+  it("is a table row, not column-count and not a flex row", async () => {
+    /**
+     * `column-count` reflows one column into the other, which would run
+     * medicines into the clinical column. A flex row fragments unevenly. A
+     * two-cell table row is the construct browsers have paginated reliably
+     * since printing existed — each cell continues on the next page in its own
+     * column, and nothing is duplicated.
+     */
+    const v4 = await code("document-v4.tsx");
+    expect(v4).toMatch(/display: "table"/);
+    expect(v4).toMatch(/display: "table-row"/);
+    expect(v4.match(/display: "table-cell"/g)).toHaveLength(2);
+    expect(v4).not.toMatch(/columnCount|column-count|columns:/);
+  });
+
+  it("the clinical column aligns to the TOP of its cell", async () => {
+    // A table cell centres by default, which would float a short complaint into
+    // the middle of a long medicine list.
+    const v4 = await code("document-v4.tsx");
+    expect(v4.match(/verticalAlign: "top"/g)).toHaveLength(2);
+  });
+
+  it("the Rx is on the right and the configured modules on the left", async () => {
+    const v4 = await code("document-v4.tsx");
+    const left = v4.indexOf('data-rx-column="left"');
+    const right = v4.indexOf('data-rx-column="right"');
+    expect(left).toBeGreaterThan(-1);
+    expect(right).toBeGreaterThan(left);
+    // The medicines belong to the right cell.
+    expect(v4.slice(right)).toMatch(/<MedicineList/);
+  });
+
+  it("every module off means NO empty column, not an empty strip with a rule", async () => {
+    const v4 = await code("document-v4.tsx");
+    expect(v4).toMatch(/const hasColumns =/);
+    expect(v4).toMatch(/hasColumns \?/);
+  });
+
+  it("nothing is shrunk, clipped or absolutely placed to make two columns fit", async () => {
+    for (const file of ["document-v4.tsx", "section-parts.tsx"]) {
+      const text = await code(file);
+      expect(text, file).not.toMatch(/overflow:\s*["']hidden["']/);
+      expect(text, file).not.toMatch(/position:\s*["'](absolute|fixed)["']/);
+      expect(text, file).not.toMatch(/transform:\s*["']?scale/);
+      expect(text, file).not.toMatch(/truncate|line-clamp/);
+    }
+  });
+});
+
+describe("a frozen section prints what was frozen", () => {
+  it("the heading is the doctor's own label, never re-resolved today", async () => {
+    /**
+     * The specific failure: a doctor renames a module and every prescription
+     * they have ever signed reprints with the new wording.
+     */
+    const parts = await code("section-parts.tsx");
+    expect(parts).toMatch(/\{section\.label\}/);
+    for (const builtIn of [
+      "Chief Complaint",
+      "Investigations / Tests",
+      "Advice",
+      "Next Visit",
+      "Vitals",
+    ]) {
+      expect(parts.includes(builtIn), `section-parts.tsx must not hardcode "${builtIn}"`).toBe(
+        false,
+      );
+    }
+  });
+
+  it("nothing chooses what to print from the module NAME", async () => {
+    // `section.module` is placement and a harness hook. A renderer that keyed
+    // content off it would make an unfamiliar module unprintable.
+    const parts = await code("section-parts.tsx");
+    expect(parts).not.toMatch(/section\.module ===|switch \(section\.module\)/);
+  });
+
+  it("a value is printed verbatim — nothing rounds, rescales or re-units it", async () => {
+    const parts = await code("section-parts.tsx");
+    expect(parts).toMatch(/\{pair\.value\}/);
+    expect(parts).not.toMatch(/toFixed|parseFloat|Number\(|Math\.round|replace\(/);
+  });
+
+  it("long text wraps and is never clipped — Bangla included", async () => {
+    const parts = await code("section-parts.tsx");
+    expect(parts).toMatch(/whitespace-pre-wrap/);
+    expect(parts).toMatch(/break-words/);
+  });
+});
+
+describe("the print harness is development-only and touches nothing", () => {
+  it("the route does not exist in a production build — executed, not read", async () => {
+    /**
+     * Run rather than grepped: the guard is the only thing standing between a
+     * production deployment and a page of fabricated prescriptions, and a
+     * source scan would pass on a guard that had been commented out or
+     * inverted.
+     */
+    const { default: Page } = await import("@/app/(app)/dev/print-harness/page");
+    const original = process.env.NODE_ENV;
+    try {
+      // @ts-expect-error NODE_ENV is readonly in the types, writable at runtime.
+      process.env.NODE_ENV = "production";
+      expect(() => Page()).toThrow(/NEXT_HTTP_ERROR_FALLBACK;404|NEXT_NOT_FOUND/);
+    } finally {
+      // @ts-expect-error restore
+      process.env.NODE_ENV = original;
+    }
+    // And it still renders in development, or the harness would be useless.
+    expect(() => Page()).not.toThrow();
+  });
+
+  it("it stays behind the ordinary auth shell — no new public path", async () => {
+    // A harness is not worth widening the auth surface for.
+    const proxy = await readFile(path.resolve("src/proxy.ts"), "utf8");
+    expect(proxy).not.toMatch(/dev|harness/i);
+  });
+
+  it("no fixture attests a frozen signature, so it can never create a storage object", async () => {
+    /**
+     * `prescription-assets` deliberately has no DELETE policy. A harness that
+     * froze a signature would leave a permanent artefact in the project that
+     * also holds real clinical work.
+     */
+    const fixtures = await readFile(
+      path.resolve("src/features/prescriptions/print-fixtures.ts"),
+      "utf8",
+    );
+    const body = fixtures.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/[^\n]*/g, "");
+    expect(body).not.toMatch(/objectId|signature:\s*\{/);
+  });
+
+  it("it reads no database, no server action and no storage", async () => {
+    const harness = await code("print-harness.tsx");
+    for (const forbidden of ["supabase", "Action(", "fetch(", "createClient", "queries"]) {
+      expect(harness.includes(forbidden), `print-harness.tsx must not use ${forbidden}`).toBe(
+        false,
+      );
+    }
   });
 });
 

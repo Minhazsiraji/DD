@@ -125,18 +125,21 @@ describe("parseReview", () => {
   });
 
   /**
-   * 4, because 3 is now a version this build writes — it adds the printed
-   * investigations and advice. The guarantee is unchanged and is about the
-   * NEXT unknown version: a bundle from a newer server may carry a printable
-   * field this build knows nothing about, and rendering it would show the
-   * doctor less than the digest they are approving covers.
+   * 5, because 4 is now a version this build writes — it replaced the two fixed
+   * sections with the doctor's own modules. The guarantee is unchanged and is
+   * about the NEXT unknown version: a bundle from a newer server may carry a
+   * printable field this build knows nothing about, and rendering it would show
+   * the doctor less than the digest they are approving covers.
+   *
+   * 5 in particular is the one that must NOT be waved through as "close enough
+   * to 4" — see `renderer-version.ts`.
    */
   it("fails closed on a schema version from a newer build", () => {
-    const parsed = parseReview(envelope({ bundle: { schemaVersion: 4 } }));
+    const parsed = parseReview(envelope({ bundle: { schemaVersion: 5 } }));
     expect(parsed.ok).toBe(false);
     if (!parsed.ok) {
       expect(parsed.reason).toBe("unsupported-schema");
-      if (parsed.reason === "unsupported-schema") expect(parsed.found).toBe(4);
+      if (parsed.reason === "unsupported-schema") expect(parsed.found).toBe(5);
     }
   });
 

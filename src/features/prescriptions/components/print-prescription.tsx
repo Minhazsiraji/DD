@@ -4,7 +4,7 @@ import * as React from "react";
 import { createPortal } from "react-dom";
 import { CircleAlert, Loader2, Printer } from "lucide-react";
 import { frozenSignatureUrlAction } from "../actions";
-import type { ReviewView } from "../review-view";
+import type { PrescriptionView } from "../prescription-view";
 import { PrintSheet } from "./print-sheet";
 
 /**
@@ -46,7 +46,7 @@ export function PrintPrescription({
   view,
 }: {
   prescriptionId: string;
-  view: ReviewView;
+  view: PrescriptionView;
 }) {
   const needsSignature = view.signature.kind === "frozen";
   const [signatureUrl, setSignatureUrl] = React.useState<string | null>(null);

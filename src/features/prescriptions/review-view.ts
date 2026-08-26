@@ -80,7 +80,16 @@ export type SignatureState =
   /** Shown, and nothing has been frozen yet — expected during 7C-1. */
   | { kind: "not-frozen" };
 
-export interface ReviewView {
+/**
+ * Everything both documents share: the paper, who it is from, who it is for,
+ * how it is signed and what runs along the foot.
+ *
+ * Extracted so the v3 and v4 documents cannot drift on any of it. A build where
+ * the two renderers computed the printed age, or the credential list, or the
+ * signature state differently would produce two versions of the same
+ * prescription — and the difference would only ever be visible on paper.
+ */
+export interface DocumentChrome {
   /** The clinic day this prescription was written. Printed, and inside the digest. */
   clinicalDate: string;
   paperSize: "A4" | "A5";
@@ -88,11 +97,8 @@ export interface ReviewView {
   baseFontPt: number;
   header: ReviewHeader | null;
   patient: ReviewPatient;
+  /** The medicines. Both documents print them; they differ only in where. */
   lines: ReviewLine[];
-  /** Tests ORDERED in this consultation. Requests, never results. */
-  investigations: ReviewInvestigation[];
-  /** Today's advice, exactly as typed. Empty on a snapshot that had none. */
-  advice: string | null;
   footerText: string | null;
   showFooter: boolean;
   signature: SignatureState;
@@ -100,7 +106,19 @@ export interface ReviewView {
   templateSource: "location" | "global" | "system";
 }
 
-function clean(value: string | null | undefined): string | null {
+export interface ReviewView extends DocumentChrome {
+  /**
+   * The explicit discriminant. Set from `schemaVersion` through
+   * `selectRenderer`, never from what fields this object happens to carry.
+   */
+  renderer: "v3-linear";
+  /** Tests ORDERED in this consultation. Requests, never results. */
+  investigations: ReviewInvestigation[];
+  /** Today's advice, exactly as typed. Empty on a snapshot that had none. */
+  advice: string | null;
+}
+
+export function clean(value: string | null | undefined): string | null {
   const trimmed = (value ?? "").trim();
   return trimmed === "" ? null : trimmed;
 }
@@ -157,7 +175,7 @@ export function toLine(item: BundleItem): ReviewLine {
  * a printable value ever needs "now" again, the answer is to put the right
  * date in the bundle, never to pass a clock in here.
  */
-export function toReviewView(bundle: ReviewBundle): ReviewView {
+export function toDocumentChrome(bundle: ReviewBundle): DocumentChrome {
   const t = bundle.template;
 
   const age = computeAge(
@@ -218,6 +236,25 @@ export function toReviewView(bundle: ReviewBundle): ReviewView {
       ageSex: formatAgeSex(age.years, bundle.patient.sex ?? "", bundle.patient.dobPrecision ?? "DAY"),
     },
     lines,
+    footerText: clean(t.footerText),
+    showFooter: t.showFooter,
+    signature,
+    templateName: clean(t.name),
+    templateSource: t.source,
+  };
+}
+
+/**
+ * The v3 document — one column, fixed sections.
+ *
+ * Reached only for a snapshot whose `schemaVersion` maps to `v3-linear`. It
+ * renders v2 as well, because v2 IS this document minus two sections that did
+ * not exist yet; nothing is back-filled to make up the difference.
+ */
+export function toReviewView(bundle: ReviewBundle): ReviewView {
+  return {
+    ...toDocumentChrome(bundle),
+    renderer: "v3-linear",
     /**
      * Ordered by the doctor's own arrangement, same rule as the medicines.
      * Absent on a v2 snapshot, which simply had no such section — never
@@ -228,10 +265,5 @@ export function toReviewView(bundle: ReviewBundle): ReviewView {
       .sort((a, b) => a.position - b.position)
       .map((x) => ({ position: x.position, name: x.name.trim(), note: clean(x.note) })),
     advice: clean(bundle.advice ?? null),
-    footerText: clean(t.footerText),
-    showFooter: t.showFooter,
-    signature,
-    templateName: clean(t.name),
-    templateSource: t.source,
   };
 }

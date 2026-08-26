@@ -7,10 +7,11 @@ import { formatDate } from "@/lib/format";
 import { frozenSignatureUrlAction } from "../actions";
 import type { PrescriptionLineage } from "../queries";
 import type { ReviewBundle } from "../review-bundle";
-import { toReviewView } from "../review-view";
+import { toPrescriptionView } from "../prescription-view";
 import { CorrectionLineage } from "./correction-banner";
 import { PrintPrescription } from "./print-prescription";
 import { ReviewSheet } from "./review-sheet";
+import { UnsupportedSnapshot } from "./unsupported-snapshot";
 import { WriteCorrection } from "./write-correction";
 
 /**
@@ -54,9 +55,16 @@ export function FinalizedPrescription({
   lineage: PrescriptionLineage | null;
   lineageUnavailable: boolean;
 }) {
-  const view = React.useMemo(() => toReviewView(bundle), [bundle]);
+  /**
+   * WHICH RENDERER, decided from the snapshot's own schema version and nothing
+   * else. A v3 prescription prints through the v3 document forever; a v4 one
+   * through the v4 document. Neither is chosen from what fields the bundle
+   * happens to carry, and neither is feature-flagged.
+   */
+  const render = React.useMemo(() => toPrescriptionView(bundle), [bundle]);
+  const view = render.ok ? render.view : null;
   const [signatureUrl, setSignatureUrl] = React.useState<string | null>(null);
-  const frozen = view.signature.kind === "frozen";
+  const frozen = view?.signature.kind === "frozen";
 
   React.useEffect(() => {
     if (!frozen) return;
@@ -68,6 +76,19 @@ export function FinalizedPrescription({
       cancelled = true;
     };
   }, [frozen, prescriptionId]);
+
+  /**
+   * Fails SAFE, never quietly into the older renderer — after the hooks, so
+   * the hook order is identical on both paths.
+   */
+  if (!render.ok) {
+    return (
+      <div className="pb-2">
+        <UnsupportedSnapshot found={render.found} />
+      </div>
+    );
+  }
+  const doc = render.view;
 
   return (
     /*
@@ -151,7 +172,7 @@ export function FinalizedPrescription({
           it rather than under its own heading.
         */}
         <div className="flex flex-wrap items-start gap-x-3 gap-y-2 sm:flex-nowrap">
-          <PrintPrescription prescriptionId={prescriptionId} view={view} />
+          <PrintPrescription prescriptionId={prescriptionId} view={doc} />
 
           {/*
             Offered only to the owning doctor, and only while this prescription
@@ -174,7 +195,7 @@ export function FinalizedPrescription({
         clearly the subject rather than the next item in a list.
       */}
       <div className="mt-5 rounded-glass bg-surface-muted px-3 py-6 sm:px-6 sm:py-8">
-        <ReviewSheet view={view} signatureUrl={frozen ? signatureUrl : null} />
+        <ReviewSheet view={doc} signatureUrl={frozen ? signatureUrl : null} />
       </div>
 
       {/*

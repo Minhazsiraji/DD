@@ -1,7 +1,8 @@
 import * as React from "react";
 import { PAPER_MM } from "@/features/doctor/schema";
-import type { ReviewView } from "../review-view";
-import { PHYSICAL_UNITS, PrescriptionDocument } from "./prescription-parts";
+import type { PrescriptionView } from "../prescription-view";
+import { PrescriptionDocument } from "./prescription-document";
+import { PHYSICAL_UNITS } from "./prescription-parts";
 
 /**
  * The prescription, on paper — across as many pages as it takes.
@@ -35,7 +36,7 @@ export function PrintSheet({
   view,
   signatureUrl,
 }: {
-  view: ReviewView;
+  view: PrescriptionView;
   signatureUrl?: string | null;
 }) {
   const paper = PAPER_MM[view.paperSize];

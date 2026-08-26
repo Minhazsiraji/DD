@@ -1,6 +1,6 @@
 import * as React from "react";
 import { formatDate } from "@/lib/format";
-import type { ReviewLine, ReviewView } from "../review-view";
+import type { DocumentChrome, ReviewLine, ReviewView } from "../review-view";
 
 /**
  * The prescription document, once — rendered in two unit systems.
@@ -58,7 +58,7 @@ export function proportionalUnits(paperWidthMm: number): Units {
   };
 }
 
-export function PrescriptionHeader({ view, u }: { view: ReviewView; u: Units }) {
+export function PrescriptionHeader({ view, u }: { view: DocumentChrome; u: Units }) {
   if (!view.header) return null;
   const h = view.header;
 
@@ -111,7 +111,7 @@ export function PrescriptionHeader({ view, u }: { view: ReviewView; u: Units }) 
  * Never abbreviated and never truncated: a prescription on the wrong patient is
  * the worst thing this document can be.
  */
-export function PatientIdentity({ view, u }: { view: ReviewView; u: Units }) {
+export function PatientIdentity({ view, u }: { view: DocumentChrome; u: Units }) {
   return (
     <section
       className="flex flex-wrap items-baseline border-b border-ink/15"
@@ -146,7 +146,7 @@ export function MedicineLine({
   u,
 }: {
   line: ReviewLine;
-  view: ReviewView;
+  view: DocumentChrome;
   u: Units;
 }) {
   const dosing = [line.dose, line.schedule, line.duration, line.foodRelation].filter(Boolean);
@@ -191,7 +191,7 @@ export function MedicineLine({
 }
 
 /** The medicines. The clinical body below is what absorbs a short page's slack. */
-export function MedicineList({ view, u }: { view: ReviewView; u: Units }) {
+export function MedicineList({ view, u }: { view: DocumentChrome; u: Units }) {
   return (
     <section>
       <p className="font-serif italic" style={{ fontSize: u.pt(view.baseFontPt * 1.6) }}>
@@ -305,7 +305,7 @@ export function SignatureBlock({
   u,
   signatureUrl,
 }: {
-  view: ReviewView;
+  view: DocumentChrome;
   u: Units;
   signatureUrl?: string | null;
 }) {
@@ -337,7 +337,7 @@ export function SignatureBlock({
   );
 }
 
-export function PrescriptionFooter({ view, u }: { view: ReviewView; u: Units }) {
+export function PrescriptionFooter({ view, u }: { view: DocumentChrome; u: Units }) {
   if (!view.showFooter || !view.footerText) return null;
 
   return (
@@ -356,53 +356,8 @@ export function PrescriptionFooter({ view, u }: { view: ReviewView; u: Units }) 
 }
 
 /**
- * The whole document, in order.
- *
- * Both sheets render exactly this. They differ only in the box around it and
- * the units they hand in — which is the entire point.
- *
- * These are the DIRECT CHILDREN of a flex column (both sheets declare it), so
- * `MedicineList`'s `flex-1` absorbs the leftover height and the signature and
- * footer settle at the foot of the paper. Do not wrap them in a plain `<div>`
- * without carrying the column through, or the anchor silently stops working.
+ * The document COMPOSITIONS live in `document-v3.tsx` and `document-v4.tsx`,
+ * and `prescription-document.tsx` chooses between them from the snapshot's
+ * schema version. The parts above are shared by both, which is what stops the
+ * two renderers from ever disagreeing about what a medicine says.
  */
-export function PrescriptionDocument({
-  view,
-  u,
-  signatureUrl,
-}: {
-  view: ReviewView;
-  u: Units;
-  signatureUrl?: string | null;
-}) {
-  return (
-    <>
-      <PrescriptionHeader view={view} u={u} />
-      <PatientIdentity view={view} u={u} />
-
-      {/*
-        THE CLINICAL BODY — and the element that TAKES THE SLACK.
-
-        `flex-1` here is what settles the signature and footer at the foot of a
-        short page instead of leaving them stranded mid-sheet. It sits on the
-        BODY rather than on the medicines because the advice is now the last
-        thing printed, and the empty space belongs after everything the doctor
-        wrote — not between the medicines and the tests.
-
-        Growing the body rather than pushing the signature down with an auto
-        margin matters on a long prescription: the signature stays attached to
-        the content, so when the browser fragments the document it lands after
-        the last thing written on the final page, not at a page bottom it does
-        not belong to.
-      */}
-      <div className="flex flex-1 flex-col">
-        <MedicineList view={view} u={u} />
-        <InvestigationList view={view} u={u} />
-        <AdviceBlock view={view} u={u} />
-      </div>
-
-      <SignatureBlock view={view} u={u} signatureUrl={signatureUrl} />
-      <PrescriptionFooter view={view} u={u} />
-    </>
-  );
-}

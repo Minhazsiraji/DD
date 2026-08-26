@@ -17,8 +17,9 @@ import {
 } from "../actions";
 import { FinalizePanel, type FinalizeState } from "./finalize-panel";
 import { parseReview, type ReviewEnvelope } from "../review-bundle";
-import { toReviewView } from "../review-view";
+import { toPrescriptionView } from "../prescription-view";
 import { ReviewSheet } from "./review-sheet";
+import { UnsupportedSnapshot } from "./unsupported-snapshot";
 
 export interface TemplateChoice {
   id: string;
@@ -67,8 +68,15 @@ export function ReviewScreen({
   const [finalizing, setFinalizing] = React.useState(false);
   const [finalizeState, setFinalizeState] = React.useState<FinalizeState | null>(null);
 
-  const view = React.useMemo(() => toReviewView(review.bundle), [review]);
-  const frozen = view.signature.kind === "frozen";
+  /**
+   * The renderer is chosen from `schemaVersion` alone, exactly as it is for the
+   * finalised record — so the doctor approves the document the same code will
+   * print. `parseReview` already refused any version without a renderer, from
+   * the same list, which is why this cannot be unresolved here.
+   */
+  const render = React.useMemo(() => toPrescriptionView(review.bundle), [review]);
+  const view = render.ok ? render.view : null;
+  const frozen = view?.signature.kind === "frozen";
 
   /**
    * Ready means "nothing is outstanding before approval could be offered".
@@ -78,7 +86,7 @@ export function ReviewScreen({
    * freeze. A layout that WANTS a signature the doctor does not have is neither
    * — it is unresolved, and saying "ready" there would be the lie that matters.
    */
-  const ready = frozen || view.signature.kind === "hidden";
+  const ready = frozen || view?.signature.kind === "hidden";
 
   /**
    * The frozen image, fetched fresh and never stored.
@@ -221,6 +229,23 @@ export function ReviewScreen({
     setReview(parsed.review);
   }
 
+  /**
+   * A BUNDLE THIS BUILD CANNOT PRINT IS NEVER OFFERED FOR APPROVAL.
+   *
+   * Approval means "I have seen everything that will print". A renderer that
+   * cannot read the bundle cannot show the doctor what they would be signing,
+   * so the screen refuses rather than presenting a partial document with a
+   * working Approve button beneath it.
+   */
+  if (!render.ok) {
+    return (
+      <div className="space-y-4 pb-2">
+        <UnsupportedSnapshot found={render.found} />
+      </div>
+    );
+  }
+  const doc = render.view;
+
   return (
     <div className="space-y-4 pb-2">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -283,7 +308,7 @@ export function ReviewScreen({
             <TemplateChip
               label="Default for this location"
               detail={
-                view.templateSource === "system" ? "built-in" : `${view.templateSource} default`
+                doc.templateSource === "system" ? "built-in" : `${doc.templateSource} default`
               }
               active={templateId === null}
               busy={busy}
@@ -308,8 +333,8 @@ export function ReviewScreen({
               </span>
             ) : (
               <>
-                Printing on {view.paperSize} paper
-                {view.templateName ? ` · ${view.templateName}` : ""}.
+                Printing on {doc.paperSize} paper
+                {doc.templateName ? ` · ${doc.templateName}` : ""}.
               </>
             )}
           </p>
@@ -317,7 +342,7 @@ export function ReviewScreen({
       </SectionCard>
 
       <div className={cn("transition-opacity", (busy || preparing) && "opacity-60")}>
-        <ReviewSheet view={view} signatureUrl={visibleSignatureUrl} />
+        <ReviewSheet view={doc} signatureUrl={visibleSignatureUrl} />
       </div>
 
       {/*
@@ -327,7 +352,7 @@ export function ReviewScreen({
         the doctor's live profile signature, which the bundle does not attest
         and which could change afterwards.
       */}
-      {view.signature.kind === "not-frozen" ? (
+      {doc.signature.kind === "not-frozen" ? (
         <SectionCard>
           <div className="space-y-3 p-4 sm:p-5">
             <p className="text-[13px] text-ink-secondary">
