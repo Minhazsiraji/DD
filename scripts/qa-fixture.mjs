@@ -37,6 +37,19 @@ if (!url) {
 const QA_DOMAIN = "@qa.invalid";
 const PASSWORD = "QaFixture12345";
 
+/**
+ * A 3×1 transparent PNG, written out byte by byte rather than fetched.
+ *
+ * It only has to be a VALID image that storage will accept and the renderer
+ * will draw — nobody's actual signature belongs in a fixture, and a checked-in
+ * binary would be one more thing to explain.
+ */
+const QA_SIGNATURE_PNG = Buffer.from(
+  "iVBORw0KGgoAAAANSUhEUgAAAAMAAAABCAYAAAAxWXB3AAAAFElEQVR4nGP8//8/AzGAiYFIMKoQ" +
+    "AJ0nAwPl6TnBAAAAAElFTkSuQmCC",
+  "base64",
+);
+
 const PEOPLE = {
   doctor: { email: `qa.doctor${QA_DOMAIN}`, name: "Dr Ayesha Rahman" },
   other: { email: `qa.other.doctor${QA_DOMAIN}`, name: "Dr Kamal Uddin" },
@@ -485,6 +498,75 @@ await sql.begin(async (tx) => {
              (${hospital.id}, ${adminUser},  'LOCATION_ADMIN', 'ACTIVE'),
              (${hospital.id}, ${otherUser},  'DOCTOR', 'ACTIVE')`;
 });
+
+/**
+ * Give the QA doctor a real signature, through the Storage API.
+ *
+ * WITHOUT THIS, FINALISATION CANNOT BE TESTED AT ALL. A layout that prints a
+ * signature refuses to finalise while the doctor has none — correctly, since a
+ * prescription is a signed document — so every immutability test that depends
+ * on a finalised snapshot was unrunnable against this fixture.
+ *
+ * NOT a `storage.objects` INSERT. Supabase treats that schema as read-only
+ * metadata: a direct row creates an entry with no object behind it, which reads
+ * as success and prints as a broken image on a prescription. The bytes go
+ * through the Storage API like any other upload, and `signature_url` is set to
+ * the path afterwards — the same two steps the app itself performs.
+ *
+ * The image is a tiny generated PNG, not a real person's signature.
+ */
+async function signQaDoctor() {
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  const projectUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+
+  if (!serviceKey || !projectUrl) {
+    console.log(
+      "\nSIGNATURE SKIPPED — no SUPABASE_SERVICE_ROLE_KEY.\n" +
+        "  Finalisation tests need a signed doctor; set the key and re-run.",
+    );
+    return;
+  }
+
+  const [row] = await sql`
+    select d.id, d.user_id from public.doctor_profiles d
+    join auth.users u on u.id = d.user_id
+    where u.email = ${PEOPLE.doctor.email}`;
+  if (!row) return;
+
+  const { createClient } = await import("@supabase/supabase-js");
+  const storage = createClient(projectUrl, serviceKey, {
+    auth: { persistSession: false },
+  }).storage;
+
+  const path = `${row.user_id}/signature-qa.png`;
+  const { error: uploadError } = await storage
+    .from("doctor-assets")
+    .upload(path, QA_SIGNATURE_PNG, { contentType: "image/png", upsert: true });
+
+  if (uploadError) {
+    console.log(`\nSIGNATURE UPLOAD FAILED — ${uploadError.message}`);
+    return;
+  }
+
+  /**
+   * Confirmed from the object itself, not from the absence of an error. A
+   * signature the database points at but storage does not hold prints as a
+   * broken image on a clinical document.
+   */
+  const { data: info, error: infoError } = await storage.from("doctor-assets").info(path);
+  if (infoError || !info) {
+    console.log("\nSIGNATURE NOT CONFIRMED IN STORAGE — leaving the profile unsigned.");
+    return;
+  }
+
+  await sql`update public.doctor_profiles
+               set signature_url = ${path}, updated_at = now()
+             where id = ${row.id}`;
+
+  console.log(`\n  signature   ${PEOPLE.doctor.email} is signed and can finalise`);
+}
+
+await signQaDoctor();
 
 console.log(`created (password for all: ${PASSWORD})\n`);
 for (const [role, p] of Object.entries(PEOPLE)) {
