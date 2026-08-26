@@ -373,6 +373,150 @@ export const prescriptionTemplates = pgTable(
   ],
 );
 
+/**
+ * The clinical sections a prescription may carry.
+ *
+ * A CLOSED SET, deliberately. The doctor chooses which of these they use and
+ * in what order; they do not invent new clinical fields. Free-form sections
+ * would put arbitrary text on a clinical document with no column behind it, no
+ * structure to reason about later, and nothing for a safety check to read.
+ */
+export const rxModule = pgEnum("rx_module", [
+  "CHIEF_COMPLAINT",
+  "SYMPTOMS",
+  "HISTORY",
+  "VITALS",
+  "EXAMINATION",
+  "ASSESSMENT",
+  "DIAGNOSIS",
+  "INVESTIGATIONS",
+  "ADVICE",
+  "NEXT_VISIT",
+  "ALLERGY",
+  "LONG_TERM_MEDICINES",
+]);
+
+/**
+ * How ONE doctor uses ONE clinical section — everywhere they practise.
+ *
+ * NO `practice_location_id`, and that absence is the design. Paper identity
+ * varies by chamber and lives on `prescription_templates`, which is
+ * location-scopable for exactly that reason. A doctor's clinical STYLE does
+ * not vary by chamber, so the table that holds it has no column that could
+ * make it appear to. See ADR 0013 §1.
+ *
+ * The two booleans are independent on purpose. A doctor records HPI and
+ * examination for the record and prints neither; the alternative — deleting
+ * the field to keep it off the paper — loses the history.
+ */
+export const doctorPrescriptionModules = pgTable(
+  "doctor_prescription_modules",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    doctorProfileId: uuid("doctor_profile_id")
+      .notNull()
+      .references(() => doctorProfiles.id, { onDelete: "cascade" }),
+    module: rxModule("module").notNull(),
+
+    /** Offered while writing the consultation. OFF hides it from the workflow. */
+    useDuringConsultation: boolean("use_during_consultation").notNull().default(true),
+    /** Printed on the prescription. Independent of the above. */
+    showOnPrint: boolean("show_on_print").notNull().default(false),
+    /** The doctor's own order, low to high. */
+    position: integer("position").notNull().default(0),
+    /**
+     * What the printed heading says — "Tests" instead of "Investigations".
+     * PLAIN TEXT, length-bounded, no markup: this string is rendered onto a
+     * clinical document, and a heading is not a place to accept markup from
+     * anywhere.
+     */
+    printLabel: text("print_label"),
+
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("doctor_rx_modules_doctor_module_key").on(t.doctorProfileId, t.module),
+    index("doctor_rx_modules_doctor_idx").on(t.doctorProfileId, t.position),
+    check(
+      "doctor_rx_modules_label_length",
+      sql`print_label is null or (btrim(print_label) <> '' and length(print_label) <= 40)`,
+    ),
+  ],
+);
+
+/** Which field a saved phrase belongs to. Mirrors the module set it serves. */
+export const rxPhraseKind = pgEnum("rx_phrase_kind", [
+  "CHIEF_COMPLAINT",
+  "SYMPTOMS",
+  "HISTORY",
+  "EXAMINATION",
+  "DIAGNOSIS",
+  "INVESTIGATION",
+  "ADVICE",
+]);
+
+/**
+ * A doctor's own reusable wording.
+ *
+ * WRITTEN ONLY WHEN THE DOCTOR SAVES OR APPLIES ONE — never as a side effect
+ * of typing. Recording every keystroke's worth of text would fill this table
+ * with half-written phrases and turn a shortcut list into noise, and it would
+ * also mean a clinical write on every keypress.
+ *
+ * `usageCount` ranks the list. It is bumped when a phrase is APPLIED, which is
+ * a deliberate act, so "most used" means what it says.
+ */
+export const doctorPhrases = pgTable(
+  "doctor_phrases",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    doctorProfileId: uuid("doctor_profile_id")
+      .notNull()
+      .references(() => doctorProfiles.id, { onDelete: "cascade" }),
+    kind: rxPhraseKind("kind").notNull(),
+    /** Exactly what will be inserted. Never rewritten, never normalised. */
+    text: text("text").notNull(),
+    /**
+     * The same wording folded for COMPARISON only, and derived by the database
+     * rather than supplied.
+     *
+     * A caller-supplied key is not a key: an honest phrase paired with a
+     * dishonest normalisation walks straight past the unique index and the
+     * doctor sees the same advice twice. Same rule as `patients.name_normalized`
+     * and `doctor_profiles.bmdc_normalized`.
+     *
+     * The DISPLAY text is untouched — "Follow up after 3 days" prints exactly
+     * as typed.
+     */
+    /*
+      `\\s`, not `\s`. A single backslash is consumed by the template literal
+      before Postgres ever sees it, and the constraint then silently collapses
+      runs of the letter "s" instead of whitespace — "Bed rest" keys as
+      "bed ret", and two phrases that differ only in spacing stop colliding.
+      Caught by reading the emitted SQL rather than the TypeScript.
+    */
+    textNormalized: text("text_normalized").generatedAlwaysAs(
+      sql`lower(btrim(regexp_replace(text, '\\s+', ' ', 'g')))`,
+    ),
+    usageCount: integer("usage_count").notNull().default(0),
+    lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
+    isActive: boolean("is_active").notNull().default(true),
+    position: integer("position").notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    /**
+     * One row per doctor per kind per wording. The normalised key is DERIVED
+     * in the database, so a caller cannot present an honest phrase with a
+     * dishonest key and create a duplicate that the list then shows twice.
+     */
+    uniqueIndex("doctor_phrases_unique").on(t.doctorProfileId, t.kind, t.textNormalized),
+    index("doctor_phrases_lookup_idx").on(t.doctorProfileId, t.kind, t.usageCount),
+    check("doctor_phrases_text_length", sql`btrim(text) <> '' and length(text) <= 200`),
+  ],
+);
+
 export const practiceLocations = pgTable(
   "practice_locations",
   {
@@ -1172,11 +1316,35 @@ export const encounters = pgTable(
     // Nullable and unordered by design: doctors work differently, and forcing
     // structure produces either empty fields or lies (ADR 0010).
     chiefComplaints: text("chief_complaints"),
+    /**
+     * Separate from `chief_complaints` because doctors use them differently:
+     * some write one presenting complaint, some list symptoms, some do both.
+     * Overloading one field to mean either would make the record lie about
+     * which the doctor actually wrote — and a doctor may enable either, both
+     * or neither module (ADR 0013 §6).
+     */
+    symptoms: text("symptoms"),
     presentIllness: text("present_illness"),
     pastHistory: text("past_history"),
     examination: text("examination"),
     assessment: text("assessment"),
     advice: text("advice"),
+
+    /**
+     * When to come back, in the doctor's own words — "after 3 days", "with
+     * reports". Free text because that is how it is said, and because a date
+     * alone cannot carry the condition attached to it.
+     */
+    nextVisitNote: text("next_visit_note"),
+    /**
+     * An optional definite date, when the doctor has one in mind.
+     *
+     * A DATE, not a timestamp: "come back on the 28th" is a clinic day, and
+     * `timestamptz` would drag it across midnight in the reader's timezone —
+     * the same defect `session_date` exists to prevent. NOT follow-up
+     * automation: nothing schedules, reminds or books from this.
+     */
+    nextVisitOn: date("next_visit_on"),
 
     // ---- vitals, structured because they are numbers ---------------------
     vitalHeightCm: numeric("vital_height_cm", { precision: 5, scale: 1 }),
