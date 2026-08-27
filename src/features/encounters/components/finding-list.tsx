@@ -82,6 +82,12 @@ export function FindingList({
           readOnly || formOpen ? null : (
             <button
               type="button"
+              /*
+                Fast Entry's focus target for this list. Landing here writes
+                nothing — it only offers the form — which is why a shortcut is
+                allowed to reach it at all.
+              */
+              id={`add-${kind}`}
               onClick={onOpenAdd}
               disabled={disabled}
               className="inline-flex h-11 items-center gap-1.5 rounded-xl border border-hairline bg-white px-3 text-[13px] font-semibold text-ink transition-colors hover:bg-surface-muted disabled:cursor-not-allowed disabled:opacity-55 focus-visible:focus-ring"

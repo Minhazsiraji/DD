@@ -4,6 +4,7 @@ import * as React from "react";
 import { CloudAlert, Info, Lock, RefreshCw, Stethoscope, TestTube } from "lucide-react";
 import { ConsultationIdentity } from "./consultation-identity";
 import { SectionFields, VitalFields } from "./draft-fields";
+import { FastEntry } from "./fast-entry";
 import { NextVisitFields } from "./next-visit-fields";
 import { resolveVisibility } from "../module-visibility";
 import type { RxModuleSetting } from "@/features/doctor/rx-modules";
@@ -172,6 +173,20 @@ export function ConsultationWorkspace({
 
       <div className="sticky top-0 z-30 -mx-4 bg-background/80 px-4 pt-1 pb-3 backdrop-blur-sm sm:-mx-6 sm:px-6">
         <ConsultationIdentity patient={consultation.patient} locationName={locationName} />
+
+        {/*
+          FAST ENTRY — focus only.
+
+          Given the SAME `visibility` the sections below render from, so the
+          palette cannot offer a section that is not on screen. Inert while the
+          coordinator is blocked, and absent entirely on a finished consultation
+          where there is nothing to type into.
+        */}
+        {readOnly ? null : (
+          <div className="mt-2 flex justify-end">
+            <FastEntry visibility={visibility} blocked={s.blocked} />
+          </div>
+        )}
       </div>
 
       {readOnly ? (
