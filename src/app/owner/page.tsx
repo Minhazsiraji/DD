@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { requirePlatformOwner } from "@/features/owner/authority";
 
 export const metadata: Metadata = { title: "Platform" };
@@ -33,14 +34,22 @@ export default async function OwnerPage() {
       </p>
 
       <section className="clinical-surface mt-6 rounded-glass-lg p-5">
-        <h2 className="text-sm font-semibold text-ink">What this unlocks next</h2>
-        <ul className="mt-3 grid gap-2 text-sm text-ink-secondary">
-          <li>Doctor profile claim approval</li>
-          <li>Manual subscription payment confirmation</li>
+        <h2 className="text-sm font-semibold text-ink">Decisions waiting for you</h2>
+        <ul className="mt-3 grid gap-2 text-sm">
+          <li>
+            <Link href="/owner/claims" className="font-medium text-brand">
+              Doctor professional verification
+            </Link>
+          </li>
+          <li>
+            <Link href="/owner/payments" className="font-medium text-brand">
+              Manual subscription payments
+            </Link>
+          </li>
         </ul>
         <p className="mt-4 text-xs text-ink-muted">
-          Neither is built yet. This release adds the authority to do them, so
-          that when they are built there is somebody who may say yes.
+          Both decide platform state only. Neither reaches a patient, a
+          consultation or a prescription.
         </p>
       </section>
 
