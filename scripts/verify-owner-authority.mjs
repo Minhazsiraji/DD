@@ -12,11 +12,16 @@
  * and absence is exactly the kind of control that erodes silently. So this
  * script seats a real owner and makes them try to read real clinical rows.
  *
- * SELF-CONTAINED AND HERMETIC. It applies 0033 inside one transaction (whose
- * `create table if not exists` builds `platform_owners` if the migration has
- * not run yet), proves everything, and rolls the whole thing back. Nothing is
- * installed, no migration is required first, and no row survives. It writes no
- * storage object and never runs db:policies.
+ * SELF-CONTAINED AND HERMETIC. Inside ONE transaction it applies migration 0019
+ * and then policy 0033 — the real deployment order — proves everything, and
+ * rolls the whole thing back. Nothing is installed and no row survives. It
+ * writes no storage object and never runs db:policies.
+ *
+ * Applying the migration here is not a convenience. 0033 deliberately does NOT
+ * create `platform_owners`: the migration is the sole authority for its shape,
+ * so a policy file that conjured the table would hide a skipped `db:migrate`.
+ * This script therefore has to build the table the same way production does,
+ * which means it also proves the two files compose in that order.
  */
 import postgres from "postgres";
 import crypto from "node:crypto";
@@ -30,6 +35,7 @@ if (!url) {
 }
 
 const POLICY = "supabase/policies/0033_platform_owner_authority.sql";
+const MIGRATION = "drizzle/migrations/0019_open_whizzer.sql";
 const sql = postgres(url, { max: 1, prepare: false, onnotice: () => {} });
 
 let failures = 0;
@@ -68,12 +74,43 @@ async function refused(tx, label, expected, fn) {
 }
 
 const policySql = await readFile(path.resolve(POLICY), "utf8");
+const migrationSql = await readFile(path.resolve(MIGRATION), "utf8");
 
 await sql
   .begin(async (tx) => {
-    console.log(`\n1. Applying ${POLICY} inside a transaction`);
+    console.log("\n1. Applying migration, then policy — the deployment order");
+
+    /*
+     * If `platform_owners` already exists (the migration has been applied for
+     * real), skip creating it — this script must work both before and after
+     * that has happened.
+     */
+    const [{ exists: alreadyMigrated }] = await tx`
+      select exists (
+        select 1 from information_schema.tables
+        where table_schema = 'public' and table_name = 'platform_owners'
+      ) as exists`;
+
+    if (!alreadyMigrated) {
+      // drizzle-kit separates statements with a breakpoint marker.
+      for (const stmt of migrationSql.split("--> statement-breakpoint")) {
+        if (stmt.trim()) await tx.unsafe(stmt);
+      }
+    }
+    check(true, `migration 0019 ${alreadyMigrated ? "already applied" : "applied"}`);
+
     await tx.unsafe(policySql);
-    check(true, "policy applied");
+    check(true, "policy 0033 applied on top of it");
+
+    /*
+     * The policy must NOT be able to stand up the table by itself. If this ever
+     * passes against an unmigrated database, 0033 has grown a create statement
+     * and the deployment-order guard is gone.
+     */
+    const [{ n: cols }] = await tx`
+      select count(*)::int as n from information_schema.columns
+      where table_schema = 'public' and table_name = 'platform_owners'`;
+    check(cols === 6, "the table has the migration's full shape", `${cols} columns`);
 
     const [{ setting }] = await tx`select current_setting('check_function_bodies') as setting`;
     check(setting === "on", "check_function_bodies is on — the body was parsed", setting);

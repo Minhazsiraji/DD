@@ -85,6 +85,24 @@ describe("the helper cannot be told who to answer about", () => {
     expect(grant![1]).toBe("authenticated");
   });
 
+  it("does not create the table it protects", () => {
+    /*
+     * Migration 0019 is the sole authority for the table's shape. A
+     * `create table if not exists` here would, on an unmigrated database,
+     * quietly conjure a table with none of the migration's constraints — and
+     * the skipped `db:migrate` would never surface.
+     */
+    expect(policyCode, "0033 must not create platform_owners").not.toMatch(
+      /create table[^;]*platform_owners/i,
+    );
+    expect(policyCode, "0033 must not create its index either").not.toMatch(
+      /create index[^;]*platform_owners/i,
+    );
+    expect(policyCode, "it assumes the migration has run").toMatch(
+      /alter table public\.platform_owners enable row level security/i,
+    );
+  });
+
   it("leaves the owner table unreachable from the app", () => {
     expect(policy).toContain("revoke all on public.platform_owners from anon, authenticated;");
     // No self-service INSERT policy: the governed must not edit the governors.

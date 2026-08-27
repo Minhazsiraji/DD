@@ -28,23 +28,16 @@
 -- ---------------------------------------------------------------------------
 -- The allowlist
 -- ---------------------------------------------------------------------------
-
-create table if not exists public.platform_owners (
-  user_id uuid primary key references public.profiles(id) on delete cascade,
-  is_active boolean not null default true,
-  granted_by uuid references public.profiles(id) on delete set null,
-  note text,
-  created_at timestamptz not null default now(),
-  revoked_at timestamptz,
-  check (note is null or length(note) <= 200),
-  check (
-    (is_active = true and revoked_at is null)
-    or (is_active = false and revoked_at is not null)
-  )
-);
-
-create index if not exists platform_owners_active_idx
-  on public.platform_owners(is_active);
+--
+-- `platform_owners` IS NOT CREATED HERE. Migration 0019_open_whizzer owns its
+-- shape — table, constraints, foreign keys and index — and this file assumes it
+-- has run.
+--
+-- A `create table if not exists` here would be worse than redundant: applied to
+-- an unmigrated database it would quietly conjure a table with none of the
+-- migration's constraints, and the deployment-order mistake that caused it
+-- would never surface. This file fails loudly instead, which is the correct
+-- outcome when `db:migrate` has been skipped.
 
 alter table public.platform_owners enable row level security;
 
