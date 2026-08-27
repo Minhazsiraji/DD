@@ -61,6 +61,23 @@ function check(ok, label, detail = "") {
 
 const content = await readFile(path.resolve(POLICY), "utf8");
 
+/**
+ * How many of these functions exist BEFORE we start.
+ *
+ * The rollback check cannot assert absolute absence: once 0030 has been
+ * installed for real, every one of these legitimately exists outside the
+ * transaction, and a gate that reads that as a leak fails on a healthy
+ * database. The property that actually matters is that this run added
+ * nothing — so compare the count before against the count after.
+ */
+const [{ n: functionsBefore }] = await sql`
+  select count(*)::int as n from pg_proc p
+  join pg_namespace n on n.oid = p.pronamespace
+  where n.nspname = 'public' and p.proname = any(${EXPECTED.map(([name]) => name)})`;
+console.log(
+  `\n0. Baseline: ${functionsBefore} of ${EXPECTED.length} commercial functions already installed`,
+);
+
 await sql
   .begin(async (tx) => {
     console.log(`\n1. Applying ${POLICY} inside a transaction`);
@@ -167,12 +184,16 @@ await sql
     }
   });
 
-// Prove the rollback: the functions must NOT exist outside the transaction.
-const leaked = await sql`
+// Prove the rollback: this run must have installed nothing NEW.
+const [{ n: functionsAfter }] = await sql`
   select count(*)::int as n from pg_proc p
   join pg_namespace n on n.oid = p.pronamespace
-  where n.nspname = 'public' and p.proname = 'create_public_booking'`;
-check(leaked[0].n === 0, "nothing survived the transaction", `${leaked[0].n} function(s) left behind`);
+  where n.nspname = 'public' and p.proname = any(${EXPECTED.map(([name]) => name)})`;
+check(
+  functionsAfter === functionsBefore,
+  "the transaction installed nothing",
+  `${functionsBefore} before → ${functionsAfter} after`,
+);
 
 console.log(
   failures === 0
