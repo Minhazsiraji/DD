@@ -529,8 +529,31 @@ try {
     await as(tx, uidA, async () => {
       await tx`select public.set_appointment_status(${apptHospital},
         'IN_CONSULTATION'::public.appointment_status, null, null)`;
-      await tx`select public.set_appointment_status(${apptHospital},
-        'COMPLETED'::public.appointment_status, null, null)`;
+
+      /**
+       * C-006. This USED to complete the appointment, and that was the bypass:
+       * the patient left the queue while their encounter stayed DRAFT. The
+       * desk's API now refuses it for every role, and finishing a visit goes
+       * through `finish_consultation`, which closes the notes too —
+       * `verify-finish-consultation.mjs` owns that path end to end.
+       */
+      const bypass = await expectDenied(tx, async (t) => {
+        await t`select public.set_appointment_status(${apptHospital},
+          'COMPLETED'::public.appointment_status, null, null)`;
+      });
+      check(bypass, "the desk's API cannot finish a consultation");
+    });
+
+    /**
+     * Completed here as the script's own role, through the internal writer that
+     * `authenticated` cannot reach — standing in for the orchestrator, so the
+     * terminal-state checks below still have a COMPLETED appointment to work
+     * on. The transition itself is unchanged; only who may ask for it is.
+     */
+    await tx`select public.apply_appointment_status(${apptHospital},
+      'COMPLETED'::public.appointment_status, null, null, true)`;
+
+    await as(tx, uidA, async () => {
       const [a] = await tx`select status, completed_at from public.appointments
                            where id = ${apptHospital}`;
       check(a.status === "COMPLETED" && Boolean(a.completed_at), "consultation completes");

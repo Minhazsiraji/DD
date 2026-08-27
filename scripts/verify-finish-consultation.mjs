@@ -28,6 +28,20 @@ function check(ok, label, detail = "") {
   if (!ok) failures.push(label);
 }
 
+/**
+ * Runs `fn` in a savepoint and returns the refusal message, or null if it was
+ * allowed. A savepoint so a deliberate refusal does not abort the surrounding
+ * transaction along with it.
+ */
+async function refused(tx, fn) {
+  try {
+    await tx.savepoint(fn);
+    return null;
+  } catch (e) {
+    return e.message ?? "refused";
+  }
+}
+
 async function as(tx, uid, fn) {
   await tx`select set_config('request.jwt.claims', ${JSON.stringify({
     sub: uid,
@@ -42,12 +56,21 @@ async function as(tx, uid, fn) {
 }
 
 const uidA = crypto.randomUUID();
+/** Everyone else who may manage appointments at this location (C-006). */
+const uidR = crypto.randomUUID();
+const uidM = crypto.randomUUID();
 const SESSION = "2026-09-10";
 
 try {
   await sql.begin(async (tx) => {
-    await tx`insert into auth.users (id, email) values (${uidA}, ${`${uidA}@qa.invalid`})`;
-    await tx`insert into public.profiles (id, full_name) values (${uidA}, 'Dr Finish')`;
+    for (const [uid, name] of [
+      [uidA, "Dr Finish"],
+      [uidR, "Reception R"],
+      [uidM, "Admin M"],
+    ]) {
+      await tx`insert into auth.users (id, email) values (${uid}, ${`${uid}@qa.invalid`})`;
+      await tx`insert into public.profiles (id, full_name) values (${uid}, ${name})`;
+    }
 
     const [doc] = await tx`
       insert into public.doctor_profiles (user_id, patient_number_prefix, bmdc_registration_no)
@@ -58,7 +81,9 @@ try {
       values ('QA Finish Chamber', 'PERSONAL_CHAMBER', ${uidA}) returning id`;
     await tx`insert into public.practice_location_members
                (practice_location_id, user_id, role, status)
-             values (${loc.id}, ${uidA}, 'DOCTOR', 'ACTIVE')`;
+             values (${loc.id}, ${uidA}, 'DOCTOR', 'ACTIVE'),
+                    (${loc.id}, ${uidR}, 'RECEPTIONIST', 'ACTIVE'),
+                    (${loc.id}, ${uidM}, 'LOCATION_ADMIN', 'ACTIVE')`;
 
     /** Two patients, so "the next one can start" is a real question. */
     const pats = [];
@@ -179,10 +204,20 @@ try {
       select pg_get_functiondef(p.oid) as src, pg_get_function_identity_arguments(p.oid) as args
       from pg_proc p join pg_namespace n on n.oid = p.pronamespace
       where n.nspname = 'public' and p.proname = 'finish_consultation'`;
+    /**
+     * Still delegating to both owners — but to the INTERNAL appointment writer
+     * since C-006. The desk's `set_appointment_status` now refuses to finish a
+     * consultation, so the orchestrator cannot go through it; it reaches the
+     * shared body directly, as its definer, and that grant is the control.
+     */
     check(
       /public\.close_encounter\(/.test(finishSrc.src) &&
-        /public\.set_appointment_status\(/.test(finishSrc.src),
+        /public\.apply_appointment_status\(/.test(finishSrc.src),
       "finish_consultation delegates to both owners rather than writing its own",
+    );
+    check(
+      !/public\.set_appointment_status\(/.test(finishSrc.src),
+      "…and no longer through the door the desk uses",
     );
     check(
       !/appointment/i.test(finishSrc.args),
@@ -254,6 +289,175 @@ try {
       );
     });
 
+    // -----------------------------------------------------------------------
+    console.log("\nC-006: the desk's API cannot finish a visit");
+    // -----------------------------------------------------------------------
+    /**
+     * The bypass this closes: complete the APPOINTMENT through the ordinary
+     * status API and the patient leaves the queue while the encounter stays
+     * DRAFT — a visit that plainly happened, recorded as still in progress,
+     * with nothing on any screen looking wrong.
+     */
+    const [pat4] = await tx`
+      insert into public.patients (owner_doctor_id, patient_number, full_name,
+                                   name_normalized, sex, created_by)
+      values (${doc.id}, 'FN-000004', 'Bypass Patient', 'bypass patient', 'FEMALE', ${uidA})
+      returning id`;
+    await tx`insert into public.patient_location_links (patient_id, practice_location_id)
+             values (${pat4.id}, ${loc.id})`;
+    const [appt4] = await tx`
+      insert into public.appointments (owner_doctor_id, practice_location_id, patient_id,
+                                       scheduled_for, session_date, status, created_by)
+      values (${doc.id}, ${loc.id}, ${pat4.id},
+              ${`${SESSION}T16:00:00+06:00`}::timestamptz, ${SESSION}, 'SCHEDULED', ${uidA})
+      returning id`;
+
+    let enc4;
+    await as(tx, uidA, async () => {
+      await tx`select public.set_appointment_status(${appt4.id}, 'ARRIVED')`;
+      await tx`select public.set_appointment_status(${appt4.id}, 'IN_CONSULTATION')`;
+      const [row] = await tx`
+        select public.open_encounter(${pat4.id}, ${loc.id}, ${appt4.id}) as id`;
+      enc4 = row.id;
+    });
+
+    // Every role that may manage appointments here — the doctor included. The
+    // difference between them is not the point: finishing a visit closes an
+    // encounter, and this door does not close encounters.
+    for (const [uid, who] of [
+      [uidA, "the doctor"],
+      [uidR, "reception"],
+      [uidM, "the location admin"],
+    ]) {
+      let msg;
+      await as(tx, uid, async () => {
+        msg = await refused(tx, (t) =>
+          t`select public.set_appointment_status(${appt4.id}, 'COMPLETED')`,
+        );
+      });
+      check(
+        msg !== null && /FINISH_VIA_CONSULTATION/.test(msg),
+        `${who} cannot finish the visit through the appointment API`,
+        msg ? "refused" : "ACCEPTED",
+      );
+    }
+
+    const [stillDraft] = await tx`select status from public.encounters where id = ${enc4}`;
+    const [stillOpen] = await tx`select status from public.appointments where id = ${appt4.id}`;
+    check(stillDraft.status === "DRAFT", "the encounter is untouched by the refusals");
+    check(stillOpen.status === "IN_CONSULTATION", "…and so is the appointment");
+
+    const stillQueued = await as(tx, uidA, () =>
+      tx`select * from public.get_queue(${loc.id}, ${SESSION})`);
+    check(
+      stillQueued.some((r) => r.patient_id === pat4.id),
+      "…and the patient has NOT vanished from the queue",
+    );
+
+    await as(tx, uidA, async () => {
+      const [r] = await tx`
+        select public.finish_consultation(${enc4}, ${loc.id},
+          (select version from public.encounters where id = ${enc4})) as out`;
+      check(r.out.encounterStatus === "COMPLETED", "the proper Finish still closes the encounter");
+      check(r.out.appointmentStatus === "COMPLETED", "…and the appointment with it");
+    });
+
+    const [noDraft] = await tx`
+      select count(*)::int as n from public.encounters where id = ${enc4} and status = 'DRAFT'`;
+    check(noDraft.n === 0, "no DRAFT encounter is left behind");
+
+    const gone = await as(tx, uidA, () =>
+      tx`select * from public.get_queue(${loc.id}, ${SESSION})`);
+    check(
+      !gone.some((r) => r.patient_id === pat4.id),
+      "…and only now does the patient leave the queue",
+    );
+
+    const [visits] = await tx`
+      select count(*)::int as n from public.encounters
+      where patient_id = ${pat4.id} and status = 'COMPLETED'`;
+    check(visits.n === 1, "history shows exactly one completed visit", `${visits.n}`);
+
+    // -----------------------------------------------------------------------
+    console.log("\nThe internal door is granted to nobody");
+    // -----------------------------------------------------------------------
+    const [internalGrants] = await tx`
+      select count(*)::int as n from information_schema.role_routine_grants
+      where routine_schema = 'public' and routine_name = 'apply_appointment_status'
+        and grantee in ('anon', 'authenticated', 'PUBLIC')`;
+    check(internalGrants.n === 0, "apply_appointment_status is executable by no ordinary role");
+
+    let directMsg;
+    await as(tx, uidA, async () => {
+      directMsg = await refused(tx, (t) =>
+        t`select public.apply_appointment_status(${appt4.id}, 'COMPLETED', null, null, true)`,
+      );
+    });
+    check(directMsg !== null, "…and calling it directly is refused", directMsg ? "refused" : "RAN");
+
+    const [publicArgs] = await tx`
+      select pg_get_function_identity_arguments(p.oid) as args
+      from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+      where n.nspname = 'public' and p.proname = 'set_appointment_status'`;
+    check(
+      !/boolean/.test(publicArgs.args),
+      "the desk's entry point has no flag a caller could pass",
+      publicArgs.args,
+    );
+
+    // -----------------------------------------------------------------------
+    console.log("\nOrdinary desk work is untouched");
+    // -----------------------------------------------------------------------
+    const [appt5] = await tx`
+      insert into public.appointments (owner_doctor_id, practice_location_id, patient_id,
+                                       scheduled_for, session_date, status, created_by)
+      values (${doc.id}, ${loc.id}, ${pat4.id},
+              ${`${SESSION}T17:00:00+06:00`}::timestamptz, ${SESSION}, 'SCHEDULED', ${uidA})
+      returning id`;
+
+    let arrival;
+    await as(tx, uidR, async () => {
+      arrival = await refused(tx, (t) =>
+        t`select public.set_appointment_status(${appt5.id}, 'ARRIVED')`,
+      );
+    });
+    check(arrival === null, "reception can still mark a patient arrived");
+
+    const [token] = await tx`select token_number from public.appointments where id = ${appt5.id}`;
+    check(token.token_number !== null, "…and arrival still allocates a queue token");
+
+    let cancel;
+    await as(tx, uidR, async () => {
+      cancel = await refused(tx, (t) =>
+        t`select public.set_appointment_status(${appt5.id}, 'CANCELLED', 'PATIENT_REQUEST')`,
+      );
+    });
+    check(cancel === null, "…and can still cancel with a reason");
+
+    /**
+     * BOOKING SERIAL AND QUEUE TOKEN ARE UNCHANGED, asserted where this change
+     * could actually have touched them: in its own SQL.
+     *
+     * They are two different numbers — one is the patient's place in the day as
+     * booked, the other their place in the room — and neither is this change's
+     * business. Querying the serial column here would only prove which
+     * migrations this database happens to have; reading the function body
+     * proves the code cannot move either number.
+     */
+    const [applySrc] = await tx`
+      select pg_get_functiondef(p.oid) as src from pg_proc p
+      join pg_namespace n on n.oid = p.pronamespace
+      where n.nspname = 'public' and p.proname = 'apply_appointment_status'`;
+    check(
+      !/booking_serial/i.test(applySrc.src),
+      "nothing in the appointment writer touches a booking serial",
+    );
+    check(
+      (applySrc.src.match(/allocate_token/g) ?? []).length === 1 &&
+        /p_to_status = 'ARRIVED' and v_appt\.token_number is null/.test(applySrc.src),
+      "…and the queue token is still allocated once, only on arrival, only if unset",
+    );
+
     throw new Error("ROLLBACK");
   });
 } catch (e) {
@@ -263,7 +467,8 @@ try {
   }
 }
 
-const [left] = await sql`select count(*)::int as n from auth.users where id = ${uidA}`;
+const [left] = await sql`
+  select count(*)::int as n from auth.users where id in (${uidA}, ${uidR}, ${uidM})`;
 check(left.n === 0, "every row rolled back — nothing left behind");
 
 await sql.end();
