@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { ArrowLeft, CircleAlert } from "lucide-react";
+import { ArrowLeft, ArrowRight, CircleAlert } from "lucide-react";
 import { PageHeader } from "@/components/common/page-header";
 import { requireUser } from "@/lib/auth/session";
 import {
@@ -47,6 +47,25 @@ export default async function PrescriptionSettingsPage() {
         title="Your prescription paper"
         subtitle="Set the header, footer and paper size once. Use a different layout at each chamber if you need to."
       />
+
+      {/*
+        The stationery and the clinical sections are different questions. This
+        page is the paper — a chamber's letterhead, which can differ per
+        location. The sections are the doctor's own way of working and are the
+        same wherever they practise.
+      */}
+      <Link
+        href="/settings/prescription/sections"
+        className="flex min-h-11 items-center justify-between gap-3 rounded-glass glass-flat px-4 py-3 text-[13px] transition-colors hover:bg-surface-muted focus-visible:focus-ring"
+      >
+        <span className="min-w-0">
+          <span className="block font-semibold text-ink">What your prescription contains</span>
+          <span className="block text-ink-muted">
+            Which clinical sections you write and print, their order and their headings
+          </span>
+        </span>
+        <ArrowRight className="size-4 shrink-0 text-ink-secondary" aria-hidden="true" />
+      </Link>
 
       {!identity.doctorId ? (
         <p className="flex items-start gap-2 rounded-glass bg-warning-soft px-4 py-3 text-[13px] font-medium text-ink">
