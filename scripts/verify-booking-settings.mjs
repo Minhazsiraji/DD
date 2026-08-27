@@ -325,6 +325,212 @@ await sql
     }
   });
 
+/**
+ * THE AUDIT RACE — two real connections, because a transaction cannot race
+ * itself.
+ *
+ * Everything above runs inside one rolled-back transaction, which cannot prove
+ * anything about concurrency: a second session cannot see uncommitted seed. So
+ * this phase COMMITS a fixture, fires two saves at once, inspects the audit
+ * rows they wrote, and removes the fixture.
+ *
+ * What it is looking for: two concurrent saves must not both classify their
+ * transition from the same stale `booking_enabled`. Before the fix, a
+ * simultaneous enable and disable from `disabled` could log
+ * PUBLIC_BOOKING_ENABLED and BOOKING_SETTINGS_UPDATED — a history in which the
+ * door never closed.
+ *
+ * Because it commits, it is built around cleanup: one run id on every row,
+ * removal in `finally` and on SIGINT, and `--cleanup <runId>` for a run that
+ * was interrupted between COMMIT and tidy-up.
+ */
+const RACE = `bset-race-${crypto.randomUUID().slice(0, 8)}`;
+
+async function cleanupRace(runId) {
+  const docs = await sql`select id, user_id from public.doctor_profiles
+                         where patient_number_prefix = ${runId.slice(0, 10)}`;
+  const locs = await sql`select id from public.practice_locations where name = ${`Race ${runId}`}`;
+  const docIds = docs.map((d) => d.id);
+  const locIds = locs.map((l) => l.id);
+
+  if (locIds.length) {
+    await sql`delete from public.audit_events where practice_location_id in ${sql(locIds)}`;
+  }
+  if (docIds.length) {
+    await sql`delete from public.doctor_booking_settings where doctor_profile_id in ${sql(docIds)}`;
+    await sql`delete from public.doctor_chamber_hours where chamber_id in (
+                select id from public.doctor_chambers where doctor_profile_id in ${sql(docIds)})`;
+    await sql`delete from public.doctor_chambers where doctor_profile_id in ${sql(docIds)}`;
+  }
+  if (locIds.length) {
+    await sql`delete from public.practice_location_members where practice_location_id in ${sql(locIds)}`;
+    await sql`delete from public.practice_locations where id in ${sql(locIds)}`;
+  }
+  if (docIds.length) {
+    await sql`delete from public.doctor_profiles where id in ${sql(docIds)}`;
+    await sql`delete from public.profiles where id in ${sql(docs.map((d) => d.user_id))}`;
+    await sql`delete from auth.users where id in ${sql(docs.map((d) => d.user_id))}`;
+  }
+}
+
+const cleanupFlag = process.argv.indexOf("--cleanup");
+if (cleanupFlag !== -1) {
+  const runId = process.argv[cleanupFlag + 1];
+  console.log(`\nCleaning up ${runId}`);
+  await cleanupRace(runId);
+  check(true, "cleanup complete");
+  await sql.end();
+  process.exit(failures === 0 ? 0 : 1);
+}
+
+console.log(`\n9. The audit race — two live connections (run ${RACE})`);
+console.log(`   If interrupted: npm run db:verify:booking-settings -- --cleanup ${RACE}`);
+
+let twinName = null;
+let interrupted = false;
+for (const signal of ["SIGINT", "SIGTERM"]) {
+  process.on(signal, async () => {
+    if (interrupted) return;
+    interrupted = true;
+    try {
+      await cleanupRace(RACE);
+    } finally {
+      await sql.end();
+      process.exit(130);
+    }
+  });
+}
+
+try {
+  const raceUser = crypto.randomUUID();
+  await sql`insert into auth.users (id, email, encrypted_password, email_confirmed_at,
+                                    confirmation_token, recovery_token,
+                                    email_change_token_new, email_change)
+            values (${raceUser}, ${`${RACE}@qa.invalid`}, '', now(), '', '', '', '')`;
+  await sql`insert into public.profiles (id, full_name) values (${raceUser}, 'Dr Race')`;
+  const [rDoc] = await sql`insert into public.doctor_profiles (user_id, patient_number_prefix, profile_visibility)
+                           values (${raceUser}, ${RACE.slice(0, 10)}, 'PRIVATE') returning id`;
+  const [rLoc] = await sql`insert into public.practice_locations (name, type, district, timezone, created_by)
+                           values (${`Race ${RACE}`}, 'CLINIC', 'Dhaka', 'Asia/Dhaka', ${raceUser}) returning id`;
+  await sql`insert into public.practice_location_members (practice_location_id, user_id, role, status)
+            values (${rLoc.id}, ${raceUser}, 'DOCTOR', 'ACTIVE')`;
+  const [rCh] = await sql`insert into public.doctor_chambers (doctor_profile_id, practice_location_id, position)
+                          values (${rDoc.id}, ${rLoc.id}, 0) returning id`;
+  for (let w = 0; w <= 6; w += 1) {
+    await sql`insert into public.doctor_chamber_hours (chamber_id, weekday, starts_at, ends_at)
+              values (${rCh.id}, ${w}, '10:00', '13:00')`;
+  }
+  // Start from DISABLED, which is the state the race misclassified.
+  await sql`insert into public.doctor_booking_settings
+              (doctor_profile_id, doctor_chamber_id, booking_enabled, booking_mode,
+               slot_minutes, max_patients, booking_window_days, min_lead_minutes)
+            values (${rDoc.id}, ${rCh.id}, false, 'TIME_SLOT', 15, 20, 30, 0)`;
+  check(true, "fixture committed, booking disabled");
+
+  /*
+   * A TWIN, NOT THE REAL FUNCTION.
+   *
+   * 0036 is not applied to this database and must not be — db:policies is not
+   * ours to run. But a race needs the function under test to actually exist,
+   * and the first version of this phase silently exercised 0030's function
+   * instead, which has no audit at all: it reported "0 audit events" and looked
+   * like a failure of the fix rather than of the test.
+   *
+   * So install a uniquely-named copy, race that, and drop it in `finally`.
+   * Creating and dropping one throwaway function is additive and reversible;
+   * `create or replace` over the live one would leave the shared project
+   * altered if this script died mid-run.
+   */
+  twinName = `save_doctor_booking_settings_${RACE.replace(/-/g, "_")}`;
+  const twinSql = (await readFile(path.resolve(HARDENING), "utf8"))
+    .replace(/public\.save_doctor_booking_settings\(/g, `public.${twinName}(`);
+  await sql.unsafe(twinSql);
+  check(true, "raced against a twin of the hardened function", twinName);
+
+  /** Two saves in flight at once — enable and disable, from `disabled`. */
+  const fire = (enabled) => {
+    const c = postgres(url, { max: 1, prepare: false, onnotice: () => {} });
+    return c
+      .begin(async (tx) => {
+        await tx`select set_config('request.jwt.claims', ${JSON.stringify({ sub: raceUser, role: "authenticated" })}, true)`;
+        await tx`select set_config('role', 'authenticated', true)`;
+        return await tx.unsafe(
+          `select public.${twinName}($1, $2, 'TIME_SLOT', 15, 20, 30, 0, null, 'BDT')`,
+          [rCh.id, enabled],
+        );
+      })
+      .finally(() => c.end());
+  };
+
+  /*
+   * TWO CONCURRENT ENABLES, from disabled.
+   *
+   * The obvious scenario — a simultaneous enable and disable — cannot tell the
+   * bug from correct behaviour. Disabling something already disabled is a
+   * genuine no-op, so `false→false` followed by `false→true` is a truthful,
+   * correctly-serialised chain, and a stale read produces the same pair. An
+   * earlier version of this check used it and reported correct code as broken.
+   *
+   * Two enables discriminate cleanly. Serialised, the door opens exactly ONCE:
+   * one PUBLIC_BOOKING_ENABLED, then one BOOKING_SETTINGS_UPDATED that saw
+   * `true`. With the stale read both transactions see `false` and both log
+   * PUBLIC_BOOKING_ENABLED — a history in which the door opened twice without
+   * ever closing.
+   */
+  const results = await Promise.allSettled([fire(true), fire(true)]);
+  check(
+    results.filter((r) => r.status === "fulfilled").length === 2,
+    "both saves committed",
+    results.map((r) => r.status).join(", "),
+  );
+
+  const raceEvents = await sql`
+    select action, (meta->>'wasEnabled') as was, (meta->>'nowEnabled') as now
+    from public.audit_events where practice_location_id = ${rLoc.id}`;
+
+  const [{ booking_enabled: finalState }] =
+    await sql`select booking_enabled from public.doctor_booking_settings where doctor_chamber_id = ${rCh.id}`;
+
+  check(raceEvents.length === 2, "two audit events were written", `${raceEvents.length}`);
+
+  const opened = raceEvents.filter((e) => e.action === "PUBLIC_BOOKING_ENABLED");
+  const tuned = raceEvents.filter((e) => e.action === "BOOKING_SETTINGS_UPDATED");
+  check(
+    opened.length === 1,
+    "THE RACE: the door is recorded as opening exactly ONCE",
+    raceEvents.map((e) => `${e.was}->${e.now}`).join(" | "),
+  );
+  check(tuned.length === 1, "...and the second save is recorded as a tuning");
+
+  const wasValues = raceEvents.map((e) => e.was).sort();
+  check(
+    new Set(wasValues).size === 2,
+    "each transaction saw the state its predecessor committed - no stale read",
+    `wasEnabled: [${wasValues.join(", ")}]`,
+  );
+  check(String(finalState) === "true", "the setting itself ends enabled", `final=${finalState}`);
+
+} catch (e) {
+  failures += 1;
+  console.error(`  ✗ RACE PHASE ABORTED — ${e.message.split("\n")[0]}`);
+} finally {
+  if (!interrupted) {
+    try {
+      if (twinName) {
+        await sql.unsafe(`drop function if exists public.${twinName}(uuid, boolean, text, integer, integer, integer, integer, numeric, text)`);
+      }
+      await cleanupRace(RACE);
+      const [{ n: left }] = await sql`
+        select count(*)::int as n from auth.users where email like ${`%${RACE}%`}`;
+      check(left === 0, "race fixture removed", `${left} left`);
+    } catch (e) {
+      failures += 1;
+      console.error(`  ✗ CLEANUP FAILED — run: npm run db:verify:booking-settings -- --cleanup ${RACE}`);
+      console.error(`    ${e.message.split("\n")[0]}`);
+    }
+  }
+}
+
 const [{ n: strays }] = await sql`
   select count(*)::int as n from auth.users where email like 'bset.%@qa.invalid'`;
 check(strays === 0, "no fixture identity survived", `${strays}`);

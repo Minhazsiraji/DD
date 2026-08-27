@@ -125,9 +125,40 @@ begin
     end if;
   end if;
 
+  /*
+   * READ THE PREVIOUS STATE UNDER A LOCK, or the audit will lie.
+   *
+   * The upsert below is safe on its own — the unique index on
+   * doctor_chamber_id serialises the row. The AUDIT is what races: two
+   * concurrent saves could both read the same `booking_enabled` before either
+   * wrote, and then both describe a transition from that stale value. Starting
+   * from disabled, a simultaneous enable and disable could produce
+   * PUBLIC_BOOKING_ENABLED and BOOKING_SETTINGS_UPDATED — a log that never
+   * mentions the door closing. The final row would be right and the history
+   * wrong, which is the worse failure for a control that exists to answer
+   * "who opened this?".
+   *
+   * TWO LOCKS, because they cover different cases:
+   *
+   *   • The advisory lock serialises saves for this chamber even when NO row
+   *     exists yet — FOR UPDATE cannot lock a row that is not there, so two
+   *     first-time saves would otherwise both read null.
+   *   • FOR UPDATE holds the existing row, so a second caller unblocks and
+   *     re-reads the value its predecessor actually committed. Under READ
+   *     COMMITTED that re-read is the point: it sees the new state, not the
+   *     snapshot it started with.
+   *
+   * The same advisory-lock construction guards the public booking race in
+   * 0030.
+   */
+  perform pg_advisory_xact_lock(
+    hashtextextended('doctor_booking_settings:' || p_chamber_id::text, 0)
+  );
+
   select bs.booking_enabled into v_was_enabled
   from public.doctor_booking_settings bs
-  where bs.doctor_chamber_id = p_chamber_id;
+  where bs.doctor_chamber_id = p_chamber_id
+  for update;
 
   insert into public.doctor_booking_settings (
     doctor_profile_id, doctor_chamber_id, booking_enabled, booking_mode,
