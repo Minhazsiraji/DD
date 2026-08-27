@@ -61,19 +61,30 @@ async function anon(tx, fn) {
   }
 }
 
-/** Attempt something and report whether the database refused it. */
-async function refused(tx, label, fn) {
+/**
+ * Attempt something and require the database to refuse it FOR THE STATED REASON.
+ *
+ * `expected` is not optional decoration. A guard that fires for the wrong reason
+ * looks identical to the right one from outside, so a bare "did it throw?" check
+ * passes while the control under test does nothing — e.g. a lead-time case that
+ * is actually being rejected for falling outside visiting hours.
+ */
+async function refused(tx, label, expected, fn) {
   try {
     await tx.savepoint(async (sp) => {
       await fn(sp);
       throw new Error("__ALLOWED__");
     });
-    check(false, label, "allowed");
+    check(false, label, "ALLOWED");
     return null;
   } catch (e) {
-    const allowed = /__ALLOWED__/.test(e.message);
-    check(!allowed, label, allowed ? "ALLOWED" : e.message.split("\n")[0].slice(0, 60));
-    return allowed ? null : e;
+    if (/__ALLOWED__/.test(e.message)) {
+      check(false, label, "ALLOWED");
+      return null;
+    }
+    const first = e.message.split("\n")[0];
+    check(first.includes(expected), label, first.slice(0, 70));
+    return e;
   }
 }
 
@@ -214,7 +225,7 @@ await sql
 
     for (const table of ["patients", "appointments", "doctor_profiles", "doctor_booking_settings",
                          "doctor_subscriptions", "subscription_payments"]) {
-      await refused(tx, `anon cannot select ${table}`, async (sp) => {
+      await refused(tx, `anon cannot select ${table}`, "permission denied", async (sp) => {
         await sp`select set_config('role', 'anon', true)`;
         await sp.unsafe(`select * from public.${table} limit 1`);
       });
@@ -240,54 +251,64 @@ await sql
         ${args.name}, ${args.phone}, ${args.sex}, ${args.reason}) as r`;
     };
 
-    await refused(tx, "a PRIVATE doctor cannot be booked", async (sp) => {
+    await refused(tx, "a PRIVATE doctor cannot be booked", "BOOKING_NOT_AVAILABLE", async (sp) => {
       await sp`select set_config('role', 'anon', true)`;
       await book(sp, { slug: "dr-private-test", locationId: privLoc.id });
     });
 
     await tx`update public.doctor_booking_settings set booking_enabled = false where doctor_chamber_id = ${pubCh.id}`;
-    await refused(tx, "booking disabled cannot be booked", async (sp) => {
+    await refused(tx, "booking disabled cannot be booked", "BOOKING_NOT_AVAILABLE", async (sp) => {
       await sp`select set_config('role', 'anon', true)`;
       await book(sp);
     });
     await tx`update public.doctor_booking_settings set booking_enabled = true where doctor_chamber_id = ${pubCh.id}`;
 
-    await refused(tx, "a location belonging to another doctor is rejected", async (sp) => {
+    await refused(tx, "a location belonging to another doctor is rejected", "BOOKING_NOT_AVAILABLE", async (sp) => {
       await sp`select set_config('role', 'anon', true)`;
       await book(sp, { locationId: privLoc.id });
     });
 
     await tx`insert into public.doctor_booking_closed_dates (doctor_chamber_id, closed_on, reason)
              values (${pubCh.id}, ${day}, 'Closed')`;
-    await refused(tx, "a closed date is rejected", async (sp) => {
+    await refused(tx, "a closed date is rejected", "DATE_NOT_AVAILABLE", async (sp) => {
       await sp`select set_config('role', 'anon', true)`;
       await book(sp);
     });
     await tx`delete from public.doctor_booking_closed_dates where doctor_chamber_id = ${pubCh.id}`;
 
-    await refused(tx, "beyond the booking window is rejected", async (sp) => {
+    await refused(tx, "beyond the booking window is rejected", "DATE_NOT_AVAILABLE", async (sp) => {
       await sp`select set_config('role', 'anon', true)`;
       const [{ far }] = await sp`select ((now() at time zone 'Asia/Dhaka')::date + 400) as far`;
       await book(sp, { date: far.toISOString().slice(0, 10) });
     });
 
-    await refused(tx, "inside the lead time is rejected", async (sp) => {
+    /**
+     * Time-of-day independent, deliberately. Booking "today at 10:00" only
+     * violates a 60-minute lead after 09:00 chamber-local, so the first version
+     * of this check passed or failed depending on when the suite ran — and it
+     * ran at 08:48 Dhaka, when the booking was legitimately allowed. Widening
+     * the lead to seven days makes tomorrow unambiguously too soon.
+     */
+    await tx`update public.doctor_booking_settings set min_lead_minutes = 10080
+             where doctor_chamber_id = ${pubCh.id}`;
+    await refused(tx, "inside the lead time is rejected", "TOO_SOON", async (sp) => {
       await sp`select set_config('role', 'anon', true)`;
-      const [{ today }] = await sp`select (now() at time zone 'Asia/Dhaka')::date as today`;
-      await book(sp, { date: today.toISOString().slice(0, 10), localTime: "10:00" });
+      await book(sp);
     });
+    await tx`update public.doctor_booking_settings set min_lead_minutes = 60
+             where doctor_chamber_id = ${pubCh.id}`;
 
-    await refused(tx, "a time outside visiting hours is rejected", async (sp) => {
+    await refused(tx, "a time outside visiting hours is rejected", "TIME_NOT_AVAILABLE", async (sp) => {
       await sp`select set_config('role', 'anon', true)`;
       await book(sp, { localTime: "22:00" });
     });
 
-    await refused(tx, "an unparseable time is rejected", async (sp) => {
+    await refused(tx, "an unparseable time is rejected", "INVALID_TIME", async (sp) => {
       await sp`select set_config('role', 'anon', true)`;
       await book(sp, { localTime: "not-a-time" });
     });
 
-    await refused(tx, "an over-long reason is rejected", async (sp) => {
+    await refused(tx, "an over-long reason is rejected", "REASON_TOO_LONG", async (sp) => {
       await sp`select set_config('role', 'anon', true)`;
       await book(sp, { reason: "x".repeat(301) });
     });
@@ -324,7 +345,7 @@ await sql
     // ---------------------------------------------------------------------
     console.log("\n6. The doctor tenancy boundary holds under a shared phone");
 
-    await refused(tx, "the same phone/date/doctor cannot book twice", async (sp) => {
+    await refused(tx, "the same phone/date/doctor cannot book twice", "DUPLICATE_BOOKING", async (sp) => {
       await sp`select set_config('role', 'anon', true)`;
       await book(sp, { localTime: "10:15" });
     });
@@ -343,8 +364,16 @@ await sql
     check(p1.owner_doctor_id === pubDoc.id && p2.owner_doctor_id === privDoc.id,
       "…each owned by its own doctor");
 
+    /**
+     * A DIFFERENT day, necessarily. The duplicate guard is scoped to
+     * (doctor, location, session_date), so rebooking the same phone on the same
+     * date is refused — correctly. Patient reuse can only be observed across
+     * days, which is also the real-world case: the same person returning.
+     */
+    const [{ nextDay }] = await tx`select ((now() at time zone 'Asia/Dhaka')::date + 2) as "nextDay"`;
+    const day2 = nextDay.toISOString().slice(0, 10);
     const [{ r: repeat }] = await anon(tx, () =>
-      book(tx, { date: day, localTime: "10:30", phone: "01711111111", name: "Public Booker" }),
+      book(tx, { date: day2, localTime: "10:30", phone: "01711111111", name: "Public Booker" }),
     );
     const [repeatAppt] = await tx`select * from public.appointments where public_booking_ref = ${repeat.bookingRef}`;
     check(
@@ -355,17 +384,23 @@ await sql
     // ---------------------------------------------------------------------
     console.log("\n7. Capacity and cancellation");
 
+    // Measured on day2, where repeatAppt lives.
     const [{ n: activeBefore }] = await tx`select count(*)::int as n from public.appointments
-      where owner_doctor_id = ${pubDoc.id} and session_date = ${day}
+      where owner_doctor_id = ${pubDoc.id} and session_date = ${day2}
         and status not in ('CANCELLED','NO_SHOW')`;
     await tx`update public.appointments set status = 'CANCELLED' where id = ${repeatAppt.id}`;
     const [{ n: activeAfter }] = await tx`select count(*)::int as n from public.appointments
-      where owner_doctor_id = ${pubDoc.id} and session_date = ${day}
+      where owner_doctor_id = ${pubDoc.id} and session_date = ${day2}
         and status not in ('CANCELLED','NO_SHOW')`;
-    check(activeAfter === activeBefore - 1, "cancelling frees capacity for the session");
+    check(
+      activeAfter === activeBefore - 1,
+      "cancelling frees capacity for the session",
+      `${activeBefore} → ${activeAfter}`,
+    );
 
+    // The exact slot the cancelled appointment held, taken by someone else.
     const [{ r: reclaimed }] = await anon(tx, () =>
-      book(tx, { localTime: "10:30", phone: "01799999999", name: "Second Booker" }),
+      book(tx, { date: day2, localTime: "10:30", phone: "01799999999", name: "Second Booker" }),
     );
     check(!!reclaimed.bookingRef, "…and the freed slot can be booked again");
 
@@ -411,14 +446,14 @@ await sql
     check(afterPay.payments[0].status === "PENDING", "…as PENDING, not confirmed");
     check(afterPay.status === "PILOT", "…and submitting it did not activate the subscription");
 
-    await refused(tx, "a duplicate payer reference is rejected", async (sp) => {
+    await refused(tx, "a duplicate payer reference is rejected", "DUPLICATE_REFERENCE", async (sp) => {
       await sp`select set_config('request.jwt.claims', ${JSON.stringify({ sub: pubUser, role: "authenticated" })}, true)`;
       await sp`select set_config('role', 'authenticated', true)`;
       await sp`select public.submit_manual_subscription_payment(5000, 'bank-ref-001', null)`;
     });
 
     for (const [amount, label] of [[0, "zero"], [-1, "negative"], [99999999999, "absurd"]]) {
-      await refused(tx, `an ${label} amount is rejected`, async (sp) => {
+      await refused(tx, `an ${label} amount is rejected`, "INVALID_AMOUNT", async (sp) => {
         await sp`select set_config('request.jwt.claims', ${JSON.stringify({ sub: pubUser, role: "authenticated" })}, true)`;
         await sp`select set_config('role', 'authenticated', true)`;
         await sp`select public.submit_manual_subscription_payment(${amount}, ${`REF-${amount}`}, null)`;
@@ -473,17 +508,17 @@ await sql
     // ---------------------------------------------------------------------
     console.log("\n10. A doctor cannot approve their own money");
 
-    await refused(tx, "a doctor cannot UPDATE their own payment row", async (sp) => {
+    await refused(tx, "a doctor cannot UPDATE their own payment row", "permission denied", async (sp) => {
       await sp`select set_config('request.jwt.claims', ${JSON.stringify({ sub: pubUser, role: "authenticated" })}, true)`;
       await sp`select set_config('role', 'authenticated', true)`;
       await sp`update public.subscription_payments set status = 'CONFIRMED'`;
     });
-    await refused(tx, "a doctor cannot UPDATE their own subscription row", async (sp) => {
+    await refused(tx, "a doctor cannot UPDATE their own subscription row", "permission denied", async (sp) => {
       await sp`select set_config('request.jwt.claims', ${JSON.stringify({ sub: pubUser, role: "authenticated" })}, true)`;
       await sp`select set_config('role', 'authenticated', true)`;
       await sp`update public.doctor_subscriptions set status = 'ACTIVE'`;
     });
-    await refused(tx, "a doctor cannot change a plan price", async (sp) => {
+    await refused(tx, "a doctor cannot change a plan price", "permission denied", async (sp) => {
       await sp`select set_config('request.jwt.claims', ${JSON.stringify({ sub: pubUser, role: "authenticated" })}, true)`;
       await sp`select set_config('role', 'authenticated', true)`;
       await sp`update public.subscription_plans set monthly_price_bdt = 1`;
