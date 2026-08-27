@@ -33,6 +33,7 @@
     "db:verify:rx-immutable": "node --env-file=.env.local scripts/verify-rx-immutability.mjs",
     "db:verify:rx-v4": "node --env-file=.env.local scripts/verify-rx-v4.mjs",
     "db:verify:profile": "node --env-file=.env.local scripts/verify-professional-profile.mjs",
+    "db:verify:claim": "node --env-file=.env.local scripts/verify-doctor-claim.mjs",
     "db:verify:owner": "node --env-file=.env.local scripts/verify-owner-authority.mjs",
     "db:verify:commercial-sql": "node --env-file=.env.local scripts/verify-commercial-sql.mjs",
     "db:verify:commercial": "node --env-file=.env.local scripts/verify-commercial.mjs",

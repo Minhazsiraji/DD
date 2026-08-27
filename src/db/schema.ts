@@ -2033,6 +2033,141 @@ export const platformOwners = pgTable(
   ],
 );
 
+
+/**
+ * DOCTOR PROFILE CLAIM — professional identity, reviewed by a platform owner.
+ *
+ * WHAT APPROVAL ACTUALLY DOES. `doctor_profiles.user_id` is NOT NULL, so a
+ * profile always has an owning account from the moment it exists; approval does
+ * not move an ownership link, it VERIFIES the professional identity behind one.
+ * "Is this profile verified?" is answered by the existence of an APPROVED claim,
+ * not by a column on `doctor_profiles` — workflow state stays in the claim.
+ *
+ * APPROVED CLAIM IS NOT A PUBLISHED PROFILE. Nothing in this aggregate touches
+ * `profile_visibility`. A doctor whose claim is approved is still PRIVATE until
+ * they publish themselves, deliberately: approval is someone else's decision
+ * about who you are, and publication is your decision about being findable.
+ * Conflating them would let an administrator put a doctor on the public
+ * internet without asking.
+ *
+ * INTERNATIONAL BY CONSTRUCTION. The evidence is (country, regulator,
+ * registration number), not a BMDC column. Bangladesh is the first regulator,
+ * not the schema.
+ *
+ * NOT A CLINICAL EVENT TABLE. There is no `practice_location_id` here, and that
+ * is the documented exception rather than an oversight: a claim is a fact about
+ * a person's professional identity, not about care delivered at a place.
+ */
+export const claimStatus = pgEnum("doctor_profile_claim_status", [
+  "PENDING",
+  "NEEDS_INFORMATION",
+  "APPROVED",
+  "REJECTED",
+  "CANCELLED",
+]);
+
+export const doctorProfileClaims = pgTable(
+  "doctor_profile_claims",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    /** The profile whose professional identity is being claimed. */
+    doctorProfileId: uuid("doctor_profile_id")
+      .notNull()
+      .references(() => doctorProfiles.id, { onDelete: "restrict" }),
+    /**
+     * Who is claiming. Written from auth.uid() inside a trusted function and
+     * never accepted from a caller — a claimant id that crossed the wire would
+     * let anyone file a claim in someone else's name.
+     */
+    claimantUserId: uuid("claimant_user_id")
+      .notNull()
+      .references(() => profiles.id, { onDelete: "restrict" }),
+
+    status: claimStatus("status").notNull().default("PENDING"),
+
+    /** Evidence — professional identity only. Never patient data. */
+    countryCode: text("country_code").notNull(),
+    regulatorName: text("regulator_name").notNull(),
+    registrationNumber: text("registration_number").notNull(),
+    claimedFullName: text("claimed_full_name").notNull(),
+    evidenceNote: text("evidence_note"),
+
+    submittedAt: timestamp("submitted_at", { withTimezone: true }).notNull().defaultNow(),
+    decidedAt: timestamp("decided_at", { withTimezone: true }),
+    /** The platform owner who decided. Resolved server-side, never supplied. */
+    decidedBy: uuid("decided_by").references(() => profiles.id, { onDelete: "set null" }),
+    decisionNote: text("decision_note"),
+
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    /**
+     * One OPEN claim per claimant per profile. Terminal claims are excluded, so
+     * a rejected claimant may try again with better evidence — but cannot stack
+     * five pending claims to pressure a reviewer.
+     */
+    uniqueIndex("doctor_profile_claims_open_key")
+      .on(t.doctorProfileId, t.claimantUserId)
+      .where(sql`status in ('PENDING', 'NEEDS_INFORMATION')`),
+    /**
+     * At most ONE approved claim per profile, ever. This is what makes approval
+     * idempotent and stops a second claimant being approved over the first.
+     */
+    uniqueIndex("doctor_profile_claims_approved_key")
+      .on(t.doctorProfileId)
+      .where(sql`status = 'APPROVED'`),
+    index("doctor_profile_claims_status_idx").on(t.status, t.submittedAt),
+    index("doctor_profile_claims_claimant_idx").on(t.claimantUserId),
+    check("doctor_profile_claims_country", sql`country_code ~ '^[A-Z]{2}$'`),
+    check(
+      "doctor_profile_claims_registration",
+      sql`length(btrim(registration_number)) between 2 and 64`,
+    ),
+    check("doctor_profile_claims_regulator", sql`length(btrim(regulator_name)) between 2 and 120`),
+    check("doctor_profile_claims_name", sql`length(btrim(claimed_full_name)) between 2 and 120`),
+    check("doctor_profile_claims_evidence", sql`evidence_note is null or length(evidence_note) <= 1000`),
+    check("doctor_profile_claims_note", sql`decision_note is null or length(decision_note) <= 1000`),
+    /** A decided claim carries its decision; an open one carries none. */
+    check(
+      "doctor_profile_claims_decision",
+      sql`(status in ('PENDING','NEEDS_INFORMATION') and decided_at is null)
+          or (status in ('APPROVED','REJECTED','CANCELLED') and decided_at is not null)`,
+    ),
+  ],
+);
+
+/**
+ * The decision history. Append-only by construction: there is no update or
+ * delete path anywhere, so a decision can be superseded but never rewritten.
+ *
+ * `clock_timestamp()`, not `now()` — `now()` is transaction start, so two rows
+ * written in one transaction would share a timestamp and any ordering assertion
+ * over them would pass against a wrong implementation as readily as a right
+ * one. `seq` is the tiebreak that makes order real.
+ */
+export const doctorProfileClaimEvents = pgTable(
+  "doctor_profile_claim_events",
+  {
+    seq: bigserial("seq", { mode: "number" }).primaryKey(),
+    claimId: uuid("claim_id")
+      .notNull()
+      .references(() => doctorProfileClaims.id, { onDelete: "cascade" }),
+    fromStatus: claimStatus("from_status"),
+    toStatus: claimStatus("to_status").notNull(),
+    /** Null for a system action; otherwise the claimant or the deciding owner. */
+    actorId: uuid("actor_id").references(() => profiles.id, { onDelete: "set null" }),
+    note: text("note"),
+    at: timestamp("at", { withTimezone: true })
+      .notNull()
+      .default(sql`clock_timestamp()`),
+  },
+  (t) => [
+    index("doctor_profile_claim_events_claim_idx").on(t.claimId, t.seq),
+    check("doctor_profile_claim_events_note", sql`note is null or length(note) <= 1000`),
+  ],
+);
+
 export type Profile = typeof profiles.$inferSelect;
 export type DoctorProfile = typeof doctorProfiles.$inferSelect;
 export type PracticeLocation = typeof practiceLocations.$inferSelect;
@@ -2064,5 +2199,7 @@ export type SubscriptionPlan = typeof subscriptionPlans.$inferSelect;
 export type DoctorSubscription = typeof doctorSubscriptions.$inferSelect;
 export type SubscriptionPayment = typeof subscriptionPayments.$inferSelect;
 export type PlatformOwner = typeof platformOwners.$inferSelect;
+export type DoctorProfileClaim = typeof doctorProfileClaims.$inferSelect;
+export type DoctorProfileClaimEvent = typeof doctorProfileClaimEvents.$inferSelect;
 
 
