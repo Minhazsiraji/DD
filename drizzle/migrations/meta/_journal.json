@@ -134,6 +134,13 @@
       "when": 1787793742192,
       "tag": "0018_omniscient_post",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1787833108614,
+      "tag": "0019_open_whizzer",
+      "breakpoints": true
     }
   ]
 }

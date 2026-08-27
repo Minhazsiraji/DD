@@ -1981,6 +1981,58 @@ export const subscriptionPayments = pgTable(
   ],
 );
 
+
+/**
+ * PLATFORM OWNER — administrative authority, and nothing else.
+ *
+ * This is a DIFFERENT AXIS from clinical authority. `location_role`
+ * (DOCTOR / RECEPTIONIST / LOCATION_ADMIN) answers "what may this person do
+ * with care at this place?"; platform ownership answers "who may approve a
+ * doctor claim, confirm a payment, and run the platform?". The enum is
+ * deliberately NOT extended: doing so would entangle the two, and every
+ * clinical policy that reads `location_role` would silently start considering
+ * a business role.
+ *
+ * OWNING THE PLATFORM IS NOT OWNING THE RECORDS. Nothing here grants any read
+ * over patients, encounters or prescriptions, and `is_platform_owner()` is
+ * never referenced by a clinical policy. That is the data-policy promise made
+ * to every doctor, and it is enforced by absence — see
+ * `scripts/verify-owner-authority.mjs`, which fails if an owner can reach a
+ * single clinical row.
+ *
+ * The anchor is `auth.users.id`, not a profile field: a profile is editable by
+ * its owner, so anchoring authority there would let a user promote themselves.
+ */
+export const platformOwners = pgTable(
+  "platform_owners",
+  {
+    userId: uuid("user_id")
+      .primaryKey()
+      .references(() => profiles.id, { onDelete: "cascade" }),
+    /**
+     * Revocation without deletion. An owner who is stood down must lose
+     * authority while the row remains, because the row is also the record that
+     * they once held it.
+     */
+    isActive: boolean("is_active").notNull().default(true),
+    /** Provenance: who granted this, for the audit question "who let them in?". */
+    grantedBy: uuid("granted_by").references(() => profiles.id, {
+      onDelete: "set null",
+    }),
+    note: text("note"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+  },
+  (t) => [
+    index("platform_owners_active_idx").on(t.isActive),
+    check("platform_owners_note", sql`note is null or length(note) <= 200`),
+    check(
+      "platform_owners_revocation",
+      sql`(is_active = true and revoked_at is null) or (is_active = false and revoked_at is not null)`,
+    ),
+  ],
+);
+
 export type Profile = typeof profiles.$inferSelect;
 export type DoctorProfile = typeof doctorProfiles.$inferSelect;
 export type PracticeLocation = typeof practiceLocations.$inferSelect;
@@ -2011,5 +2063,6 @@ export type DoctorBookingClosedDate = typeof doctorBookingClosedDates.$inferSele
 export type SubscriptionPlan = typeof subscriptionPlans.$inferSelect;
 export type DoctorSubscription = typeof doctorSubscriptions.$inferSelect;
 export type SubscriptionPayment = typeof subscriptionPayments.$inferSelect;
+export type PlatformOwner = typeof platformOwners.$inferSelect;
 
 
