@@ -1021,6 +1021,22 @@ export const appointments = pgTable(
     /** Set on the NEW appointment, pointing at the one it replaced. */
     rescheduledFromId: uuid("rescheduled_from_id"),
 
+    /**
+     * How this appointment entered the system. Provenance, not clinical data.
+     *
+     * PUBLIC means an anonymous visitor self-booked it through /dr/<slug>.
+     * Such a booking has no staff actor behind it, so `created_by` is null and
+     * the only trail is the appointment_events row.
+     */
+    bookingSource: text("booking_source").notNull().default("INTERNAL"),
+
+    /**
+     * Opaque handle handed back to a public booker, so they can be told the
+     * booking exists without ever learning `patient_id` or `id`. Random, not
+     * derived — a derived reference would leak the row it points at.
+     */
+    publicBookingRef: uuid("public_booking_ref"),
+
     /** Who booked it — a receptionist is common and must stay distinguishable. */
     createdBy: uuid("created_by").references(() => profiles.id, {
       onDelete: "set null",
@@ -1033,6 +1049,13 @@ export const appointments = pgTable(
     index("appointments_location_session_idx").on(t.practiceLocationId, t.sessionDate),
     index("appointments_patient_idx").on(t.patientId),
     index("appointments_status_idx").on(t.status),
+    uniqueIndex("appointments_public_booking_ref_key")
+      .on(t.publicBookingRef)
+      .where(sql`public_booking_ref is not null`),
+    check(
+      "appointments_booking_source_check",
+      sql`booking_source in ('INTERNAL', 'DOCTOR', 'RECEPTIONIST', 'ASSISTANT', 'WALK_IN', 'PUBLIC')`,
+    ),
   ],
 );
 
@@ -1759,6 +1782,205 @@ export const prescriptionEvents = pgTable(
   (t) => [index("prescription_events_prescription_idx").on(t.prescriptionId, t.seq)],
 );
 
+/**
+ * Area K + O — the commercial boundary.
+ *
+ * These tables are COMMERCIAL, not clinical. They carry no patient data and no
+ * `practice_location_id`, because a subscription is a fact about a doctor's
+ * account rather than an event that happened at a place. That is the documented
+ * exception to the "every event table carries practice_location_id" rule, and
+ * it is deliberate.
+ *
+ * The invariant that matters most: subscription state must never delete,
+ * rewrite or hide clinical history. Every foreign key below points AT a doctor
+ * or a plan; none cascades towards patients, encounters or prescriptions, and
+ * `doctor_subscriptions.doctor_profile_id` is RESTRICT so a billing row can
+ * never be the reason a doctor's record disappears.
+ *
+ * Row-level policies, the SECURITY DEFINER readers and the public booking
+ * function live in supabase/policies/0030_paid_doctor_commercial.sql.
+ */
+export const doctorBookingSettings = pgTable(
+  "doctor_booking_settings",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    doctorProfileId: uuid("doctor_profile_id")
+      .notNull()
+      .references(() => doctorProfiles.id, { onDelete: "cascade" }),
+    doctorChamberId: uuid("doctor_chamber_id")
+      .notNull()
+      .references(() => doctorChambers.id, { onDelete: "cascade" }),
+    /** Off by default. Publishing a profile must never silently open bookings. */
+    bookingEnabled: boolean("booking_enabled").notNull().default(false),
+    /**
+     * TOKEN: the patient joins a session and receives a number on ARRIVAL.
+     * TIME_SLOT: the patient holds one exact slot of `slot_minutes`.
+     */
+    bookingMode: text("booking_mode").notNull().default("TOKEN"),
+    slotMinutes: integer("slot_minutes").notNull().default(15),
+    maxPatients: integer("max_patients").notNull().default(30),
+    bookingWindowDays: integer("booking_window_days").notNull().default(30),
+    minLeadMinutes: integer("min_lead_minutes").notNull().default(60),
+    consultationFee: numeric("consultation_fee", { precision: 12, scale: 2 }),
+    currency: text("currency").notNull().default("BDT"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("doctor_booking_settings_chamber_key").on(t.doctorChamberId),
+    index("doctor_booking_settings_doctor_idx").on(t.doctorProfileId),
+    check("doctor_booking_settings_mode", sql`booking_mode in ('TOKEN', 'TIME_SLOT')`),
+    check("doctor_booking_settings_slot", sql`slot_minutes between 5 and 180`),
+    check("doctor_booking_settings_max", sql`max_patients between 1 and 500`),
+    check("doctor_booking_settings_window", sql`booking_window_days between 1 and 180`),
+    check("doctor_booking_settings_lead", sql`min_lead_minutes between 0 and 10080`),
+    check("doctor_booking_settings_currency", sql`currency ~ '^[A-Z]{3}$'`),
+    check(
+      "doctor_booking_settings_fee",
+      sql`consultation_fee is null or consultation_fee >= 0`,
+    ),
+  ],
+);
+
+/** A specific date a chamber is shut. Re-checked server-side on every booking. */
+export const doctorBookingClosedDates = pgTable(
+  "doctor_booking_closed_dates",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    doctorChamberId: uuid("doctor_chamber_id")
+      .notNull()
+      .references(() => doctorChambers.id, { onDelete: "cascade" }),
+    closedOn: date("closed_on").notNull(),
+    /** Operational only — "Eid holiday", never a clinical reason. */
+    reason: text("reason"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("doctor_booking_closed_dates_key").on(t.doctorChamberId, t.closedOn),
+    check(
+      "doctor_booking_closed_dates_reason",
+      sql`reason is null or length(reason) <= 120`,
+    ),
+  ],
+);
+
+/**
+ * Commercial plan metadata. Prices stay CONFIGURABLE — the founding-doctor
+ * price is seeded at 0 rather than hard-coding an unapproved number into the
+ * product.
+ */
+export const subscriptionPlans = pgTable(
+  "subscription_plans",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    code: text("code").notNull(),
+    name: text("name").notNull(),
+    monthlyPriceBdt: numeric("monthly_price_bdt", { precision: 12, scale: 2 })
+      .notNull()
+      .default("0"),
+    annualPriceBdt: numeric("annual_price_bdt", { precision: 12, scale: 2 }),
+    isActive: boolean("is_active").notNull().default(true),
+    isFounderPlan: boolean("is_founder_plan").notNull().default(false),
+    features: jsonb("features").notNull().default(sql`'{}'::jsonb`),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("subscription_plans_code_key").on(t.code),
+    check("subscription_plans_code_shape", sql`code ~ '^[A-Z0-9_]{2,40}$'`),
+    check("subscription_plans_monthly", sql`monthly_price_bdt >= 0`),
+    check(
+      "subscription_plans_annual",
+      sql`annual_price_bdt is null or annual_price_bdt >= 0`,
+    ),
+  ],
+);
+
+/**
+ * One subscription per doctor.
+ *
+ * RESTRICT on both foreign keys, and no cascade anywhere towards clinical
+ * tables: ending a subscription changes commercial state and nothing else.
+ */
+export const doctorSubscriptions = pgTable(
+  "doctor_subscriptions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    doctorProfileId: uuid("doctor_profile_id")
+      .notNull()
+      .references(() => doctorProfiles.id, { onDelete: "restrict" }),
+    planId: uuid("plan_id")
+      .notNull()
+      .references(() => subscriptionPlans.id, { onDelete: "restrict" }),
+    status: text("status").notNull().default("PILOT"),
+    startsAt: timestamp("starts_at", { withTimezone: true }).notNull().defaultNow(),
+    currentPeriodStart: timestamp("current_period_start", { withTimezone: true }),
+    currentPeriodEnd: timestamp("current_period_end", { withTimezone: true }),
+    graceUntil: timestamp("grace_until", { withTimezone: true }),
+    /** The doctor may set this. Only a later process may act on it. */
+    cancelAtPeriodEnd: boolean("cancel_at_period_end").notNull().default(false),
+    cancelledAt: timestamp("cancelled_at", { withTimezone: true }),
+    founderDiscountPercent: numeric("founder_discount_percent", { precision: 5, scale: 2 }),
+    founderPriceLockedUntil: timestamp("founder_price_locked_until", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("doctor_subscriptions_doctor_key").on(t.doctorProfileId),
+    check(
+      "doctor_subscriptions_status",
+      sql`status in ('PILOT','TRIAL','ACTIVE','GRACE_PERIOD','PAST_DUE','CANCELLED','EXPIRED')`,
+    ),
+    check(
+      "doctor_subscriptions_discount",
+      sql`founder_discount_percent is null or founder_discount_percent between 0 and 100`,
+    ),
+  ],
+);
+
+/**
+ * A payment the doctor SUBMITS. It starts PENDING and the doctor cannot move
+ * it — there is deliberately no self-service confirmation path. Approval
+ * belongs to platform-owner authority, which does not exist on main yet.
+ */
+export const subscriptionPayments = pgTable(
+  "subscription_payments",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    subscriptionId: uuid("subscription_id")
+      .notNull()
+      .references(() => doctorSubscriptions.id, { onDelete: "restrict" }),
+    amount: numeric("amount", { precision: 12, scale: 2 }).notNull(),
+    currency: text("currency").notNull().default("BDT"),
+    method: text("method").notNull().default("MANUAL_BANK"),
+    status: text("status").notNull().default("PENDING"),
+    payerReference: text("payer_reference"),
+    note: text("note"),
+    submittedAt: timestamp("submitted_at", { withTimezone: true }).notNull().defaultNow(),
+    confirmedAt: timestamp("confirmed_at", { withTimezone: true }),
+    recordedBy: uuid("recorded_by").references(() => profiles.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("subscription_payments_subscription_idx").on(t.subscriptionId, t.createdAt),
+    check("subscription_payments_amount", sql`amount > 0`),
+    check("subscription_payments_currency", sql`currency ~ '^[A-Z]{3}$'`),
+    check(
+      "subscription_payments_method",
+      sql`method in ('MANUAL_BANK','SSLCOMMERZ','CARD','OTHER')`,
+    ),
+    check(
+      "subscription_payments_status",
+      sql`status in ('PENDING','CONFIRMED','REJECTED','REFUNDED')`,
+    ),
+    check(
+      "subscription_payments_reference",
+      sql`payer_reference is null or length(payer_reference) <= 120`,
+    ),
+    check("subscription_payments_note", sql`note is null or length(note) <= 500`),
+  ],
+);
+
 export type Profile = typeof profiles.$inferSelect;
 export type DoctorProfile = typeof doctorProfiles.$inferSelect;
 export type PracticeLocation = typeof practiceLocations.$inferSelect;
@@ -1784,5 +2006,10 @@ export type EncounterEvent = typeof encounterEvents.$inferSelect;
 export type Prescription = typeof prescriptions.$inferSelect;
 export type PrescriptionItem = typeof prescriptionItems.$inferSelect;
 export type PrescriptionEvent = typeof prescriptionEvents.$inferSelect;
+export type DoctorBookingSettings = typeof doctorBookingSettings.$inferSelect;
+export type DoctorBookingClosedDate = typeof doctorBookingClosedDates.$inferSelect;
+export type SubscriptionPlan = typeof subscriptionPlans.$inferSelect;
+export type DoctorSubscription = typeof doctorSubscriptions.$inferSelect;
+export type SubscriptionPayment = typeof subscriptionPayments.$inferSelect;
 
 
