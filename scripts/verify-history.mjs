@@ -120,9 +120,9 @@ try {
 
     const [docA] = await tx`
       insert into public.doctor_profiles (user_id, bmdc_registration_no, qualification)
-      values (${uidA}, 'QA-A-1', 'MBBS') returning id`;
+      values (${uidA}, ${"QA" + crypto.randomBytes(3).toString("hex")}, 'MBBS') returning id`;
     await tx`insert into public.doctor_profiles (user_id, bmdc_registration_no, qualification)
-             values (${uidB}, 'QA-B-1', 'MBBS')`;
+             values (${uidB}, ${"QB" + crypto.randomBytes(3).toString("hex")}, 'MBBS')`;
 
     const [pat] = await tx`
       insert into public.patients (owner_doctor_id, patient_number, full_name, name_normalized,

@@ -11,11 +11,13 @@ import { z } from "zod";
 
 export type SectionKey =
   | "chiefComplaints"
+  | "symptoms"
   | "presentIllness"
   | "pastHistory"
   | "examination"
   | "assessment"
-  | "advice";
+  | "advice"
+  | "nextVisitNote";
 
 export interface SectionField {
   key: SectionKey;
@@ -30,6 +32,20 @@ export const SECTIONS: readonly SectionField[] = [
     key: "chiefComplaints",
     label: "Chief complaints",
     placeholder: "What brought them in, in their words",
+    rows: 3,
+  },
+  /**
+   * Separate from the chief complaint on purpose.
+   *
+   * Some doctors write one presenting complaint, some list the symptoms, and
+   * some do both — so this is its own field rather than more room in the box
+   * above. It is OFF by default, which is what keeps the change invisible to a
+   * doctor who does not want it.
+   */
+  {
+    key: "symptoms",
+    label: "Symptoms",
+    placeholder: "Fever, cough, pain — as the patient reports them",
     rows: 3,
   },
   {
@@ -99,7 +115,42 @@ export type VitalKey =
   | "vitalRespRate"
   | "vitalSpo2";
 
-export type DraftKey = SectionKey | VitalKey;
+/**
+ * THE FOLLOW-UP DATE, AND WHY IT IS ITS OWN KIND OF KEY.
+ *
+ * `next_visit_on` is a `date` column — a day on a wall calendar, not an
+ * instant. It travels as the literal `YYYY-MM-DD` an `<input type="date">`
+ * already holds, and nothing on this path may put it through a `Date` object:
+ * `new Date("2026-09-02").toISOString()` is 2026-09-01 for every doctor west
+ * of UTC, and in Dhaka the reverse trick loses a day just as easily. There is
+ * also no "in N days" arithmetic anywhere — the date the doctor chose is the
+ * date that is stored.
+ */
+export type DateKey = "nextVisitOn";
+
+export const NEXT_VISIT_DATE: DateKey = "nextVisitOn";
+export const NEXT_VISIT_NOTE: SectionKey = "nextVisitNote";
+
+/** Exactly what the SQL's `patch_date` accepts. Anything else is refused, not coerced. */
+export const CALENDAR_DATE = /^\d{4}-\d{2}-\d{2}$/;
+
+/**
+ * Every text key, INCLUDING the follow-up note — which is not in `SECTIONS`
+ * because it is not a standalone textarea: it belongs beside the date, as two
+ * halves of one statement.
+ */
+export const TEXT_KEYS: readonly SectionKey[] = [
+  "chiefComplaints",
+  "symptoms",
+  "presentIllness",
+  "pastHistory",
+  "examination",
+  "assessment",
+  "advice",
+  "nextVisitNote",
+];
+
+export type DraftKey = SectionKey | VitalKey | DateKey;
 
 /**
  * Editor state is ALL STRINGS, including the vitals.
@@ -114,10 +165,13 @@ export type DraftValues = Record<DraftKey, string>;
 /** What the RPC accepts: absent = untouched, value = set, null = clear. */
 export type DraftPatch = Partial<Record<DraftKey, string | number | null>>;
 
-const SECTION_KEYS = SECTIONS.map((s) => s.key) as SectionKey[];
 const VITAL_BY_KEY = new Map(VITALS.map((v) => [v.key, v]));
 
-export const DRAFT_KEYS: DraftKey[] = [...SECTION_KEYS, ...VITALS.map((v) => v.key)];
+export const DRAFT_KEYS: DraftKey[] = [
+  ...TEXT_KEYS,
+  ...VITALS.map((v) => v.key),
+  NEXT_VISIT_DATE,
+];
 
 /**
  * Server-side patch validation.
@@ -141,6 +195,23 @@ export const draftPatchSchema = z
       }
       const value = patch[key];
       if (value === null) continue;
+
+      /**
+       * The follow-up date, held to the same shape the SQL accepts.
+       *
+       * `""` is the doctor clearing it. Anything that is not a bare calendar
+       * date is refused rather than parsed: a timestamp reaching here means
+       * something has already converted a date it should not have touched, and
+       * coercing it is how the 2nd becomes the 1st.
+       */
+      if (key === NEXT_VISIT_DATE) {
+        if (typeof value !== "string") {
+          ctx.addIssue({ code: "custom", message: "The follow-up date must be a date." });
+        } else if (value !== "" && !CALENDAR_DATE.test(value)) {
+          ctx.addIssue({ code: "custom", message: "Choose a follow-up date from the calendar." });
+        }
+        continue;
+      }
 
       const vital = VITAL_BY_KEY.get(key as VitalKey);
       if (!vital) {

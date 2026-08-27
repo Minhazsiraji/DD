@@ -4,6 +4,9 @@ import * as React from "react";
 import { CloudAlert, Info, Lock, RefreshCw, Stethoscope, TestTube } from "lucide-react";
 import { ConsultationIdentity } from "./consultation-identity";
 import { SectionFields, VitalFields } from "./draft-fields";
+import { NextVisitFields } from "./next-visit-fields";
+import { resolveVisibility } from "../module-visibility";
+import type { RxModuleSetting } from "@/features/doctor/rx-modules";
 import { ConflictPanel } from "./conflict-panel";
 import { FindingConflictPanel } from "./finding-conflict-panel";
 import { SaveBar } from "./save-bar";
@@ -44,6 +47,7 @@ export function ConsultationWorkspace({
   locationName,
   previousVisit,
   expandPreviousVisit,
+  moduleConfig,
 }: {
   consultation: Consultation;
   locationName: string;
@@ -51,9 +55,35 @@ export function ConsultationWorkspace({
   previousVisit: PreviousVisit | null;
   /** Open on arrival for a report review or a follow-up — visits about it. */
   expandPreviousVisit: boolean;
+  /**
+   * The doctor's section configuration, or null when it could not be read —
+   * which shows everything rather than hiding a field over a failed query.
+   */
+  moduleConfig: RxModuleSetting[] | null;
 }) {
   const s = useConsultation(consultation);
   const readOnly = consultation.status !== "DRAFT";
+
+  /**
+   * WHAT THE DOCTOR SEES — settled from the SAVED encounter, once.
+   *
+   * `consultation.values` and the loaded findings, deliberately, not `s.values`
+   * and `s.diagnoses`. Deciding from what is being typed would make a section
+   * vanish the moment its last character was deleted and reappear on the next
+   * keystroke — layout jumping the doctor would then have to type around.
+   *
+   * A section that is empty and turned off is hidden; one that already holds
+   * something is ALWAYS shown, whatever the setting says. Configuration
+   * simplifies future input; it never makes recorded information disappear.
+   */
+  const visibility = React.useMemo(
+    () =>
+      resolveVisibility(moduleConfig, consultation.values, {
+        diagnoses: consultation.diagnoses.length,
+        investigations: consultation.investigations.length,
+      }),
+    [moduleConfig, consultation],
+  );
 
   /**
    * The three values from last time that a doctor may reasonably reuse.
@@ -277,22 +307,38 @@ export function ConsultationWorkspace({
           previous" press — and nothing else is offered, because everything else
           is an observation of a visit rather than a standing fact.
         */}
-        <VitalFields
-          values={s.values}
-          dirtyKeys={s.dirtyKeys}
-          errors={s.vitalErrors}
-          disabled={readOnly}
-          onChange={s.setField}
-          carryForward={carryForward}
-        />
+        {visibility.VITALS.visible ? (
+          <VitalFields
+            values={s.values}
+            dirtyKeys={s.dirtyKeys}
+            errors={s.vitalErrors}
+            disabled={readOnly}
+            onChange={s.setField}
+            carryForward={carryForward}
+            shownBecauseFilled={visibility.VITALS.shownBecauseFilled}
+          />
+        ) : null}
+
         <SectionFields
           values={s.values}
           dirtyKeys={s.dirtyKeys}
           disabled={readOnly}
           onChange={s.setField}
           carryForward={carryForward}
+          visibility={visibility}
         />
 
+        {visibility.NEXT_VISIT.visible ? (
+          <NextVisitFields
+            values={s.values}
+            dirtyKeys={s.dirtyKeys}
+            disabled={readOnly}
+            onChange={s.setField}
+            shownBecauseFilled={visibility.NEXT_VISIT.shownBecauseFilled}
+          />
+        ) : null}
+
+        {visibility.DIAGNOSIS.visible ? (
         <FindingList
           kind="diagnosis"
           title="Diagnoses"
@@ -313,8 +359,11 @@ export function ConsultationWorkspace({
           onAskRemove={(row) => s.askRemove("diagnosis", row)}
           onCancelRemove={s.cancelRemove}
           onConfirmRemove={(row) => confirmRemove("diagnosis", row)}
+          shownBecauseFilled={visibility.DIAGNOSIS.shownBecauseFilled}
         />
+        ) : null}
 
+        {visibility.INVESTIGATIONS.visible ? (
         <FindingList
           kind="investigation"
           title="Investigations"
@@ -337,7 +386,9 @@ export function ConsultationWorkspace({
           onAskRemove={(row) => s.askRemove("investigation", row)}
           onCancelRemove={s.cancelRemove}
           onConfirmRemove={(row) => confirmRemove("investigation", row)}
+          shownBecauseFilled={visibility.INVESTIGATIONS.shownBecauseFilled}
         />
+        ) : null}
 
         {/*
           Prescribing is a separate screen, not a section — it has its own

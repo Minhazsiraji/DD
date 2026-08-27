@@ -4,6 +4,23 @@ import * as React from "react";
 import { cn } from "@/lib/utils";
 import { SectionCard, SectionHeader } from "@/components/common/section-card";
 import { SECTIONS, VITALS, type DraftKey, type DraftValues, type VitalKey } from "../schema";
+import { MODULE_BY_DRAFT_KEY, type VisibilityMap } from "../module-visibility";
+
+/**
+ * WHY A SECTION THE DOCTOR TURNED OFF IS ON THE SCREEN.
+ *
+ * Without this line, a doctor who switched Examination off and still sees it
+ * concludes the setting did not save — and turns it off again, and again.
+ * Saying it plainly costs one line and makes the rule visible: configuration
+ * simplifies future input, it never hides information already recorded.
+ */
+function ShownBecauseFilled() {
+  return (
+    <p className="border-b border-hairline bg-surface-muted px-4 py-2 text-[12px] text-ink-secondary sm:px-5">
+      Shown because this visit already contains information.
+    </p>
+  );
+}
 
 /**
  * The clinical form.
@@ -21,17 +38,36 @@ export function SectionFields({
   disabled,
   onChange,
   carryForward,
+  visibility,
 }: {
   values: DraftValues;
   dirtyKeys: DraftKey[];
   disabled: boolean;
   onChange: (key: DraftKey, value: string) => void;
   carryForward?: CarryForward;
+  /**
+   * Which sections the doctor has asked to write on. Omitted means all of them
+   * — the read failed, and a failed read must never hide a clinical field.
+   */
+  visibility?: VisibilityMap;
 }) {
+  /**
+   * Filtered by MODULE, not by field: History is one printed section built from
+   * two fields, so both stand or fall together — hiding half of it would put a
+   * doctor's past history out of reach while its neighbour stayed on screen.
+   */
+  const shown = SECTIONS.filter((section) => {
+    if (!visibility) return true;
+    const owner = MODULE_BY_DRAFT_KEY.get(section.key);
+    return owner ? visibility[owner].visible : true;
+  });
+
   return (
     <div className="space-y-4">
-      {SECTIONS.map((section) => {
+      {shown.map((section) => {
         const unsaved = dirtyKeys.includes(section.key);
+        const owner = MODULE_BY_DRAFT_KEY.get(section.key);
+        const becauseFilled = owner ? (visibility?.[owner].shownBecauseFilled ?? false) : false;
         return (
           <SectionCard key={section.key}>
             <SectionHeader
@@ -44,6 +80,7 @@ export function SectionFields({
                 ) : null
               }
             />
+            {becauseFilled ? <ShownBecauseFilled /> : null}
             <div className="p-4 sm:p-5">
               <label htmlFor={section.key} className="sr-only">
                 {section.label}
@@ -185,6 +222,7 @@ export function VitalFields({
   disabled,
   onChange,
   carryForward,
+  shownBecauseFilled = false,
 }: {
   values: DraftValues;
   dirtyKeys: DraftKey[];
@@ -192,6 +230,7 @@ export function VitalFields({
   disabled: boolean;
   onChange: (key: DraftKey, value: string) => void;
   carryForward?: CarryForward;
+  shownBecauseFilled?: boolean;
 }) {
   return (
     <SectionCard>
@@ -201,6 +240,7 @@ export function VitalFields({
           <span className="text-[11px] text-ink-muted">Leave blank to skip · clear to remove</span>
         }
       />
+      {shownBecauseFilled ? <ShownBecauseFilled /> : null}
       <div className="grid grid-cols-2 gap-3 p-4 sm:grid-cols-4 sm:p-5">
         {VITALS.map((vital) => {
           const error = errors[vital.key];

@@ -36,6 +36,7 @@
     "db:verify:commercial-sql": "node --env-file=.env.local scripts/verify-commercial-sql.mjs",
     "db:verify:commercial": "node --env-file=.env.local scripts/verify-commercial.mjs",
     "db:verify:race": "node --env-file=.env.local scripts/verify-booking-race.mjs",
+    "db:verify:adoption": "node --env-file=.env.local scripts/verify-consultation-adoption.mjs",
     "db:verify:migrations": "node --env-file=.env.local scripts/verify-migrations.mjs",
     "db:gate": "node --env-file=.env.local scripts/security-gate.mjs",
     "qa:create": "node --env-file=.env.local scripts/qa-fixture.mjs create",

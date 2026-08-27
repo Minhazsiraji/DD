@@ -7,6 +7,7 @@ import { getConsultation } from "@/features/encounters/queries";
 import { getPreviousVisit, getVisitType } from "@/features/encounters/previous-visit";
 import { opensPreviousVisit } from "@/features/encounters/visit-type";
 import { ConsultationWorkspace } from "@/features/encounters/components/consultation-workspace";
+import { getRxModulesAction } from "@/features/doctor/rx-module-actions";
 
 export const metadata: Metadata = { title: "Consultation" };
 
@@ -108,9 +109,20 @@ export default async function ConsultationPage({
    * Neither read can block the consultation: `getPreviousVisit` returns null on
    * failure, because today's notes matter more than last month's context.
    */
-  const [previousVisit, visitType] = await Promise.all([
+  const [previousVisit, visitType, modules] = await Promise.all([
     getPreviousVisit(outcome.consultation.patient.id, encounterId),
     getVisitType(outcome.consultation.appointmentId),
+    /**
+     * The doctor's own section configuration, through the same trusted identity
+     * boundary as everything else — `doctor_rx_modules()` resolves the doctor
+     * from `auth.uid()` and no id is passed.
+     *
+     * A failed read shows EVERY section. It must never be the reason a doctor
+     * cannot see a field: the cost of showing one they had turned off is a
+     * moment's confusion, and the cost of hiding one is clinical text they
+     * cannot reach.
+     */
+    getRxModulesAction(),
   ]);
 
   return (
@@ -119,6 +131,7 @@ export default async function ConsultationPage({
       locationName={ctx.locationName}
       previousVisit={previousVisit}
       expandPreviousVisit={opensPreviousVisit(visitType)}
+      moduleConfig={modules.ok ? modules.modules : null}
     />
   );
 }

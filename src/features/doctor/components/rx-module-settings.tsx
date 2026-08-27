@@ -213,13 +213,33 @@ function ModuleRow({
           </div>
 
           <div className="flex flex-wrap gap-x-6 gap-y-1">
-            <Check
-              id={`use-${row.module}`}
-              label="Use while writing"
-              checked={row.useDuringConsultation}
-              disabled={busy}
-              onChange={(v) => onChange({ useDuringConsultation: v })}
-            />
+            {/*
+              PATIENT-LEVEL SECTIONS HAVE NOTHING TO WRITE HERE.
+
+              Allergies and long-term medicines live on the patient's record and
+              are edited there. Offering "Use while writing" would promise a
+              consultation field that does not exist — and building one would be
+              a SECOND place to record an allergy, which is how two places to
+              record one clinical fact end up disagreeing.
+
+              The stored value is left exactly as it is; nothing on this row
+              changes it, so an existing setting is neither shown as something
+              it is not nor quietly rewritten.
+            */}
+            {patientLevel ? (
+              <p className="text-[13px] text-ink-secondary">
+                Edited on the patient&rsquo;s record — there is nothing to write for this during a
+                consultation.
+              </p>
+            ) : (
+              <Check
+                id={`use-${row.module}`}
+                label="Use while writing"
+                checked={row.useDuringConsultation}
+                disabled={busy}
+                onChange={(v) => onChange({ useDuringConsultation: v })}
+              />
+            )}
             <Check
               id={`print-${row.module}`}
               label="Print on the prescription"

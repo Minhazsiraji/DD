@@ -102,11 +102,19 @@ export type ConsultationOutcome =
 
 const COLUMN_BY_KEY: Record<DraftKey, string> = {
   chiefComplaints: "chief_complaints",
+  symptoms: "symptoms",
   presentIllness: "present_illness",
   pastHistory: "past_history",
   examination: "examination",
   assessment: "assessment",
   advice: "advice",
+  nextVisitNote: "next_visit_note",
+  /**
+   * Read back as the literal `YYYY-MM-DD` Postgres stores for a `date`. It is
+   * never parsed into a `Date` on the way to the editor — that is exactly how a
+   * follow-up moves a day.
+   */
+  nextVisitOn: "next_visit_on",
   vitalHeightCm: "vital_height_cm",
   vitalWeightKg: "vital_weight_kg",
   vitalTemperatureC: "vital_temperature_c",

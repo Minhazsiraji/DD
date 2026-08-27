@@ -39,6 +39,7 @@ export function FindingList({
   onCancelRemove,
   onConfirmRemove,
   onDismissError,
+  shownBecauseFilled = false,
 }: {
   kind: ListKind;
   title: string;
@@ -61,6 +62,12 @@ export function FindingList({
   onCancelRemove: () => void;
   onConfirmRemove: (row: FindingRow) => void;
   onDismissError: () => void;
+  /**
+   * On screen only because this visit already holds rows, despite the doctor
+   * having turned the section off. Said out loud, or they would conclude the
+   * setting had not saved.
+   */
+  shownBecauseFilled?: boolean;
 }) {
   const formOpen = editor !== null;
   const disabled = readOnly || blocked;
@@ -85,6 +92,12 @@ export function FindingList({
           )
         }
       />
+
+      {shownBecauseFilled ? (
+        <p className="border-b border-hairline bg-surface-muted px-4 py-2 text-[12px] text-ink-secondary sm:px-5">
+          Shown because this visit already contains information.
+        </p>
+      ) : null}
 
       <div className="space-y-3 p-4 sm:p-5">
         {error ? (
