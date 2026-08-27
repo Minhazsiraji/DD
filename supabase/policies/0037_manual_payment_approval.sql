@@ -20,17 +20,38 @@
 -- patient, an encounter or a prescription — the same invariant 0030 established
 -- for cancellation, now restated for activation. Money changing hands must
 -- never touch the record of care.
+--
+-- MANUAL APPROVAL GOVERNS MANUAL PAYMENTS, AND ONLY THOSE.
+--
+-- `subscription_payments.method` allows MANUAL_BANK, SSLCOMMERZ, CARD and
+-- OTHER. A human confirming a MANUAL_BANK transfer is doing the verification
+-- themselves: they looked at a bank statement. A gateway payment is verified by
+-- the provider, and its PENDING row means "the provider has not confirmed this
+-- yet" — a human marking that CONFIRMED would be asserting something they have
+-- not checked and cannot check, straight past the trust boundary the gateway
+-- exists to be.
+--
+-- So both functions below are scoped to MANUAL_BANK. When a gateway is
+-- integrated it brings its own confirmation path; it does not borrow this one.
+--
+-- OTHER IS NOT MANUAL. It is undefined, and an undefined method must not
+-- inherit human approval by being lumped in with the one we understand. When
+-- OTHER acquires a meaning, whoever gives it one can decide who may confirm it.
 
 -- ---------------------------------------------------------------------------
 -- Review queue
 -- ---------------------------------------------------------------------------
 
 /**
- * Payments awaiting a decision, with the minimum needed to decide.
+ * MANUAL payments awaiting a decision, with the minimum needed to decide.
  *
  * A reviewer matching a bank transfer to an account needs the amount, the
  * reference, when it was submitted and whose subscription it belongs to. They
  * do not need — and do not get — anything clinical.
+ *
+ * Gateway payments are absent by construction, not merely un-actionable. A
+ * queue that listed them would invite someone to wonder why they cannot be
+ * cleared, and the answer is that they are not this reviewer's to clear.
  */
 create or replace function public.owner_pending_payments()
 returns jsonb
@@ -64,6 +85,7 @@ begin
     join public.doctor_profiles d on d.id = s.doctor_profile_id
     join public.profiles prof on prof.id = d.user_id
     where pay.status = 'PENDING'
+      and pay.method = 'MANUAL_BANK'
   ), '[]'::jsonb);
 end;
 $$;
@@ -110,6 +132,7 @@ as $$
 declare
   v_owner uuid := auth.uid();
   v_status text;
+  v_method text;
   v_target text;
   v_subscription uuid;
   v_amount numeric;
@@ -127,14 +150,28 @@ begin
     raise exception 'NOTE_TOO_LONG';
   end if;
 
-  select pay.status, pay.subscription_id, pay.amount
-    into v_status, v_subscription, v_amount
+  select pay.status, pay.method, pay.subscription_id, pay.amount
+    into v_status, v_method, v_subscription, v_amount
   from public.subscription_payments pay
   where pay.id = p_payment_id
   for update;
 
   if not found then
     raise exception 'PAYMENT_NOT_FOUND';
+  end if;
+
+  /*
+   * MANUAL ONLY, and checked here rather than left to the queue.
+   *
+   * Filtering `owner_pending_payments()` hides gateway rows from the screen,
+   * but a payment id is a caller-supplied uuid and this function is granted to
+   * every authenticated owner — an id obtained any other way would otherwise
+   * reach CONFIRMED. The list is a convenience; this is the control.
+   *
+   * Read under the same lock as the status, so the check cannot be raced.
+   */
+  if v_method <> 'MANUAL_BANK' then
+    raise exception 'PAYMENT_NOT_MANUAL';
   end if;
 
   v_target := case p_decision when 'CONFIRM' then 'CONFIRMED' else 'REJECTED' end;
@@ -204,6 +241,7 @@ begin
       'amount', v_amount,
       'fromStatus', v_status,
       'toStatus', v_target,
+      'method', v_method,
       'subscriptionWas', v_sub_status,
       'note', nullif(btrim(p_note), '')
     )
@@ -217,5 +255,6 @@ revoke all on function public.owner_decide_subscription_payment(uuid, text, text
 grant execute on function public.owner_decide_subscription_payment(uuid, text, text) to authenticated;
 
 -- What this file does not do: it defines no second owner authority, gives the
--- doctor no path to CONFIRMED, reads no clinical table, models no refund, and
--- never rewrites a settled decision.
+-- doctor no path to CONFIRMED, reads no clinical table, models no refund, never
+-- rewrites a settled decision, and gives a human no way to confirm a payment a
+-- payment provider has not.

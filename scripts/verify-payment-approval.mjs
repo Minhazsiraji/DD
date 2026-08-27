@@ -10,6 +10,8 @@
  *   • the doctor still has no path to CONFIRMED
  *   • confirming moves commercial state and touches NO clinical row
  *   • a settled decision is never rewritten
+ *   • the approval reaches MANUAL payments only — a human cannot confirm a
+ *     gateway payment the provider has not
  *
  * HERMETIC. Policies applied inside one transaction in deployment order,
  * everything proven, whole thing rolled back. db:policies never run.
@@ -333,7 +335,189 @@ await sql
     const finalDigest = await clinicalDigest();
     check(sha(finalDigest) === sha(before), "clinical digest still unchanged after three decisions");
 
-    console.log("\n8. Rolling back");
+    // -----------------------------------------------------------------
+    console.log("\n8. Manual approval governs manual payments, and only those");
+
+    /**
+     * THE TRUST BOUNDARY A GATEWAY EXISTS TO BE.
+     *
+     * `subscription_payments.method` allows SSLCOMMERZ and CARD as well as
+     * MANUAL_BANK. A PENDING gateway row means "the provider has not confirmed
+     * this yet" — a human marking it CONFIRMED asserts something they did not
+     * check and cannot check. A manual transfer is the opposite: the human IS
+     * the verification, because they read the bank statement.
+     *
+     * Hiding gateway rows from the queue is not the control. A payment id is a
+     * caller-supplied uuid and the decision function is granted to every
+     * authenticated owner, so the refusal has to live in the function. That is
+     * what this section proves, against rows the queue never showed.
+     *
+     * Dr Other is used throughout: they start with no subscription at all, so a
+     * subscription still not ACTIVE at the end is proof in itself.
+     */
+    const [otherDoc] = await tx`select id from public.doctor_profiles where user_id = ${other}`;
+
+    const otherFirst = await as(tx, other, async () => {
+      const [r] = await tx`select public.submit_manual_subscription_payment(
+        5000, 'BANK-REF-800', null) as id`;
+      return r.id;
+    });
+    const [otherFirstRow] =
+      await tx`select method from public.subscription_payments where id = ${otherFirst}`;
+    check(
+      otherFirstRow.method === "MANUAL_BANK",
+      "the doctor's submit path can only mint MANUAL_BANK",
+      otherFirstRow.method,
+    );
+
+    await as(tx, owner, () => tx`select public.owner_decide_subscription_payment(
+      ${otherFirst}, 'REJECT', 'Reference not found')`);
+    await tx`select set_config('role', null, true)`;
+    const [otherSub] = await tx`select id, status, current_period_end
+                                from public.doctor_subscriptions
+                                where doctor_profile_id = ${otherDoc.id}`;
+    check(
+      otherSub.status !== "ACTIVE" && otherSub.current_period_end === null,
+      "a REJECTED manual payment leaves the subscription non-active",
+      `${otherSub.status}, period end ${otherSub.current_period_end ?? "unset"}`,
+    );
+
+    /*
+     * A MANUAL payment must be PENDING alongside the gateway rows, or the
+     * queue assertions below are vacuous: an empty list contains no gateway
+     * payment and every one of its zero entries is MANUAL_BANK. The filter is
+     * only proven by a queue that shows one thing and hides another.
+     */
+    const otherManual = await as(tx, other, async () => {
+      const [r] = await tx`select public.submit_manual_subscription_payment(
+        5000, 'BANK-REF-801', null) as id`;
+      return r.id;
+    });
+
+    // Rows no path in the app can create — a real gateway inserts its own.
+    const gateway = {};
+    for (const [method, reference] of [
+      ["SSLCOMMERZ", "SSL-TXN-9001"],
+      ["CARD", "CARD-AUTH-9002"],
+      ["OTHER", "UNDEFINED-9003"],
+    ]) {
+      const [row] = await tx`
+        insert into public.subscription_payments
+          (subscription_id, amount, currency, method, status, payer_reference)
+        values (${otherSub.id}, 5000, 'BDT', ${method}, 'PENDING', ${reference})
+        returning id`;
+      gateway[method] = row.id;
+    }
+    const gatewayIds = Object.values(gateway);
+
+    const queueWithGateways = await as(tx, owner, async () => {
+      const [r] = await tx`select public.owner_pending_payments() as v`;
+      return r.v;
+    });
+    const listedIds = queueWithGateways.map((q) => q.id);
+    check(
+      listedIds.includes(otherManual),
+      "the queue still lists the manual payment sitting beside them",
+      `${queueWithGateways.length} pending shown`,
+    );
+    check(
+      gatewayIds.every((id) => !listedIds.includes(id)),
+      "…and lists none of the three gateway payments",
+      `${gatewayIds.length} hidden`,
+    );
+    check(
+      queueWithGateways.length > 0 && queueWithGateways.every((q) => q.method === "MANUAL_BANK"),
+      "…so everything it does list is MANUAL_BANK",
+      [...new Set(queueWithGateways.map((q) => q.method))].join(",") || "none",
+    );
+
+    for (const [method, id] of Object.entries(gateway)) {
+      await refused(tx, `${method} PENDING cannot be manually confirmed`, "PAYMENT_NOT_MANUAL", async (sp) => {
+        await sp`select set_config('request.jwt.claims', ${JSON.stringify({ sub: owner, role: "authenticated" })}, true)`;
+        await sp`select set_config('role', 'authenticated', true)`;
+        await sp`select public.owner_decide_subscription_payment(${id}, 'CONFIRM', 'looks fine to me')`;
+      });
+    }
+
+    /*
+     * Rejection is refused too, and that is deliberate. The guard sits above
+     * the decision branch because settling a gateway payment either way is the
+     * provider's call — a manual REJECT is the same overreach wearing the other
+     * hat.
+     */
+    await refused(tx, "…nor manually rejected", "PAYMENT_NOT_MANUAL", async (sp) => {
+      await sp`select set_config('request.jwt.claims', ${JSON.stringify({ sub: owner, role: "authenticated" })}, true)`;
+      await sp`select set_config('role', 'authenticated', true)`;
+      await sp`select public.owner_decide_subscription_payment(${gateway.SSLCOMMERZ}, 'REJECT', 'no')`;
+    });
+
+    await tx`select set_config('role', null, true)`;
+    const untouched = await tx`
+      select method, status, confirmed_at, recorded_by, note
+      from public.subscription_payments
+      where id = any(${gatewayIds}::uuid[])`;
+    check(
+      untouched.length === 3 &&
+        untouched.every(
+          (r) =>
+            r.status === "PENDING" &&
+            r.confirmed_at === null &&
+            r.recorded_by === null &&
+            r.note === null,
+        ),
+      "every refused gateway payment is exactly where it was",
+      untouched.map((r) => `${r.method}:${r.status}`).join(" "),
+    );
+    const [{ n: gatewayAudits }] = await tx`
+      select count(*)::int as n from public.audit_events
+      where resource_id = any(${gatewayIds}::uuid[])`;
+    check(gatewayAudits === 0, "…and no audit row claims a decision was made", `${gatewayAudits}`);
+
+    const [subAfterRefusals] = await tx`select status, current_period_end
+                                        from public.doctor_subscriptions where id = ${otherSub.id}`;
+    check(
+      subAfterRefusals.status !== "ACTIVE" && subAfterRefusals.current_period_end === null,
+      "…and the subscription behind them never activated",
+      subAfterRefusals.status,
+    );
+
+    // The boundary refuses the gateway without breaking the path it guards.
+    const otherConfirm = await as(tx, owner, async () => {
+      const [r] = await tx`select public.owner_decide_subscription_payment(
+        ${otherManual}, 'CONFIRM', 'Statement line 42') as v`;
+      return r.v;
+    });
+    check(
+      otherConfirm.changed === true && otherConfirm.status === "CONFIRMED",
+      "a MANUAL_BANK payment is still confirmable after the refusals",
+    );
+    const otherRepeat = await as(tx, owner, async () => {
+      const [r] = await tx`select public.owner_decide_subscription_payment(${otherManual}, 'CONFIRM') as v`;
+      return r.v;
+    });
+    check(otherRepeat.changed === false, "…and repeating it is still idempotent");
+
+    await tx`select set_config('role', null, true)`;
+    const [subActivated] = await tx`select status, current_period_end
+                                    from public.doctor_subscriptions where id = ${otherSub.id}`;
+    check(
+      subActivated.status === "ACTIVE" && subActivated.current_period_end !== null,
+      "…and only the manual payment activated the subscription",
+      subActivated.status,
+    );
+    const [manualAudit] = await tx`select meta from public.audit_events
+                                   where resource_id = ${otherManual}
+                                     and action = 'SUBSCRIPTION_PAYMENT_CONFIRMED'`;
+    check(
+      manualAudit?.meta?.method === "MANUAL_BANK",
+      "…and the audit row records which method was approved",
+      manualAudit?.meta?.method,
+    );
+
+    const boundaryDigest = await clinicalDigest();
+    check(sha(boundaryDigest) === sha(before), "clinical digest unchanged across the whole boundary section");
+
+    console.log("\n9. Rolling back");
     throw new Error("__ROLLBACK_ALL__");
   })
   .catch((e) => {

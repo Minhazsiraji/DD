@@ -11,6 +11,8 @@ const errors: Record<string, string> = {
   "check-decision": "Check the decision and try again.",
   "not-found": "That payment no longer exists.",
   "already-decided": "That payment was already decided. Decisions are not overwritten.",
+  "not-manual":
+    "That payment was made through a payment provider, not a bank transfer. Only the provider can confirm it.",
   "note-too-long": "The note is too long.",
   "not-owner": "You are not a platform owner.",
   "decision-failed": "The decision could not be recorded. Nothing was changed.",
@@ -44,6 +46,10 @@ export default async function OwnerPaymentsPage(props: PageProps<"/owner/payment
         Match each transfer against the bank before confirming. Confirming
         activates the doctor&apos;s subscription and runs the period for a
         month; rejecting changes nothing but the payment.
+      </p>
+      <p className="mt-2 text-sm text-ink-secondary">
+        Only bank transfers appear here. A payment made through a payment
+        provider is confirmed by that provider, never from this screen.
       </p>
       <p className="mt-2 text-sm text-ink-secondary">
         A decision here reaches no patient, consultation or prescription.

@@ -23,6 +23,7 @@ const MESSAGES: Record<string, string> = {
   NOT_PLATFORM_OWNER: "not-owner",
   PAYMENT_NOT_FOUND: "not-found",
   PAYMENT_ALREADY_DECIDED: "already-decided",
+  PAYMENT_NOT_MANUAL: "not-manual",
   INVALID_DECISION: "check-decision",
   NOTE_TOO_LONG: "note-too-long",
 };
