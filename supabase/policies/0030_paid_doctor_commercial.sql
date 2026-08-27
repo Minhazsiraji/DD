@@ -124,10 +124,15 @@ begin
     return null;
   end if;
 
-  select d.*, p.full_name
-    into v_doctor, v_full_name
+  /**
+   * Two statements, not one, because plpgsql refuses a %rowtype variable in a
+   * multi-target INTO list. The visibility boundary is unchanged: the doctor is
+   * still resolved ONLY by (slug, profile_visibility = 'PUBLIC'), and a miss
+   * still returns null rather than an error, so a private slug stays
+   * indistinguishable from one that does not exist.
+   */
+  select d.* into v_doctor
   from public.doctor_profiles d
-  join public.profiles p on p.id = d.user_id
   where d.profile_slug = lower(btrim(p_slug))
     and d.profile_visibility = 'PUBLIC'
   limit 1;
@@ -135,6 +140,11 @@ begin
   if not found then
     return null;
   end if;
+
+  -- The display name only. Reached through the row already proven PUBLIC.
+  select p.full_name into v_full_name
+  from public.profiles p
+  where p.id = v_doctor.user_id;
 
   select coalesce(jsonb_agg(ch order by (ch->>'position')::int), '[]'::jsonb)
   into v_chambers

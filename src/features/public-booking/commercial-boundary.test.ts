@@ -228,10 +228,12 @@ describe("the public profile shape is closed", () => {
     }
   });
 
-  it("reads user_id only to join the display name, never to return it", () => {
+  it("reads user_id only to look up the display name, never to return it", () => {
+    // One use, and it is the name lookup — which hangs off the row already
+    // proven PUBLIC, so it cannot reach a private doctor's profile row.
     const body = fn.public_doctor_profile!;
     const uses = [...body.matchAll(/^.*user_id.*$/gm)].map((m) => m[0]!.trim());
-    expect(uses).toEqual(["join public.profiles p on p.id = d.user_id"]);
+    expect(uses).toEqual(["where p.id = v_doctor.user_id;"]);
   });
 
   it("returns exactly the agreed keys and nothing more", () => {
@@ -512,6 +514,56 @@ describe("a doctor cannot pay themselves into an active subscription", () => {
     const seed = sql.slice(sql.indexOf("insert into public.subscription_plans"));
     expect(seed).toMatch(/\('FOUNDING_DOCTOR', 'Founding Doctor', 0,/);
     expect(seed).toContain("priceConfigurable");
+  });
+});
+
+/**
+ * WHAT THIS FILE CANNOT PROVE.
+ *
+ * Every assertion above reads SQL as text. That is enough to show a guard is
+ * present and enough to fail loudly when one is deleted — but it says nothing
+ * about whether the file is valid PL/pgSQL.
+ *
+ * It already missed one: `public_doctor_profile` held a `%rowtype` variable in
+ * a multi-target INTO list, which Postgres rejects at CREATE FUNCTION. Forty-one
+ * assertions passed over a function that had never been executable, and only
+ * applying the file to a real database found it.
+ *
+ * The real gate is `npm run db:verify:commercial-sql`, which applies the whole
+ * file inside a transaction and rolls back. These tests exist so that gate is
+ * not quietly dropped, and to catch the one bug class cheaply on the way past.
+ */
+describe("text assertions know their limits", () => {
+  it("keeps the transactional compile verifier wired up", async () => {
+    const pkg = JSON.parse(await readFile(path.resolve("package.json"), "utf8"));
+    expect(
+      pkg.scripts["db:verify:commercial-sql"],
+      "the compile gate was removed — text tests alone cannot replace it",
+    ).toContain("verify-commercial-sql.mjs");
+
+    const script = await readFile(path.resolve("scripts/verify-commercial-sql.mjs"), "utf8");
+    expect(script, "the verifier must apply the real policy file").toContain(POLICY);
+    expect(script, "the verifier must roll back").toContain("__ROLLBACK_ALL__");
+    expect(script, "the verifier must never commit").not.toMatch(/\bcommit\b/i);
+  });
+
+  it("catches a rowtype variable in a multi-target INTO list", () => {
+    // The exact defect that got through. Cheap to check, so check it.
+    const rowtypeVars = [...sql.matchAll(/^\s*(\w+)\s+public\.\w+%rowtype;/gm)].map((m) => m[1]!);
+    for (const name of rowtypeVars) {
+      const multi = new RegExp(`into\\s+${name}\\s*,|,\\s*${name}\\s*(?:from|;)`, "i");
+      expect(sql, `${name} is a record and cannot share an INTO list`).not.toMatch(multi);
+    }
+  });
+
+  it("still resolves the public profile only through PUBLIC visibility", () => {
+    // The fix split one query into two. The boundary must not have moved with it.
+    const body = fn.public_doctor_profile!;
+    const lookup = body.slice(body.indexOf("select d.*"), body.indexOf("if not found"));
+    expect(lookup).toMatch(/profile_visibility\s*=\s*'PUBLIC'/);
+    expect(lookup).toMatch(/profile_slug = lower\(btrim\(p_slug\)\)/);
+    // The name lookup must hang off the row already proven public.
+    expect(body).toMatch(/where p\.id = v_doctor\.user_id/);
   });
 });
 
