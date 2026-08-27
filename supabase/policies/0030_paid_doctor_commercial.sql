@@ -834,3 +834,266 @@ grant execute on function public.reactivate_own_subscription() to authenticated;
 
 -- No function here changes clinical rows on cancellation, expiry or non-payment.
 -- That is an invariant, not an omission.
+
+-- ---------------------------------------------------------------------------
+-- Doctor-owned booking configuration
+-- ---------------------------------------------------------------------------
+--
+-- Without these, Area K is implemented and unreachable: `booking_enabled`
+-- defaults to false, every table grant is revoked, and nothing could turn it on
+-- except direct database access.
+--
+-- The doctor is the only authority here, and they are resolved from the session
+-- by current_doctor_id() — never taken as a parameter. Every function re-proves
+-- that the chamber belongs to the caller before it writes, because a chamber id
+-- is a caller-supplied uuid and knowing one must never be enough.
+
+create or replace function public.doctor_booking_config()
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_doctor uuid := public.current_doctor_id();
+  v_result jsonb;
+begin
+  if v_doctor is null then
+    raise exception 'DOCTOR_REQUIRED';
+  end if;
+
+  select coalesce(jsonb_agg(ch order by (ch->>'position')::int), '[]'::jsonb)
+  into v_result
+  from (
+    select jsonb_build_object(
+      'chamberId', dc.id,
+      'locationId', pl.id,
+      'locationName', pl.name,
+      'district', pl.district,
+      'timezone', pl.timezone,
+      'isActive', pl.is_active,
+      'position', dc.position,
+      'bookingEnabled', coalesce(bs.booking_enabled, false),
+      'bookingMode', coalesce(bs.booking_mode, 'TOKEN'),
+      'slotMinutes', coalesce(bs.slot_minutes, 15),
+      'maxPatients', coalesce(bs.max_patients, 30),
+      'bookingWindowDays', coalesce(bs.booking_window_days, 30),
+      'minLeadMinutes', coalesce(bs.min_lead_minutes, 60),
+      'consultationFee', bs.consultation_fee,
+      'currency', coalesce(bs.currency, 'BDT'),
+      'configured', (bs.id is not null),
+      'sessions', coalesce((
+        select jsonb_agg(
+          jsonb_build_object('weekday', h.weekday, 'startsAt', h.starts_at, 'endsAt', h.ends_at)
+          order by h.weekday, h.starts_at)
+        from public.doctor_chamber_hours h
+        where h.chamber_id = dc.id
+      ), '[]'::jsonb),
+      'closedDates', coalesce((
+        select jsonb_agg(
+          jsonb_build_object('closedOn', c.closed_on, 'reason', c.reason)
+          order by c.closed_on)
+        from public.doctor_booking_closed_dates c
+        where c.doctor_chamber_id = dc.id
+          and c.closed_on >= (now() at time zone pl.timezone)::date
+      ), '[]'::jsonb)
+    ) as ch
+    from public.doctor_chambers dc
+    join public.practice_locations pl on pl.id = dc.practice_location_id
+    left join public.doctor_booking_settings bs on bs.doctor_chamber_id = dc.id
+    where dc.doctor_profile_id = v_doctor
+  ) q;
+
+  return v_result;
+end;
+$$;
+
+revoke all on function public.doctor_booking_config() from public, anon;
+grant execute on function public.doctor_booking_config() to authenticated;
+
+/**
+ * One write for one chamber.
+ *
+ * Enabling booking is refused unless the chamber actually has visiting hours:
+ * a public "Book now" button over a chamber with no sessions is a promise the
+ * availability function cannot keep, and the patient would meet an empty list
+ * with no explanation.
+ */
+create or replace function public.save_doctor_booking_settings(
+  p_chamber_id uuid,
+  p_enabled boolean,
+  p_mode text,
+  p_slot_minutes integer,
+  p_max_patients integer,
+  p_window_days integer,
+  p_lead_minutes integer,
+  p_fee numeric default null,
+  p_currency text default 'BDT'
+)
+returns uuid
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_doctor uuid := public.current_doctor_id();
+  v_id uuid;
+begin
+  if v_doctor is null then
+    raise exception 'DOCTOR_REQUIRED';
+  end if;
+
+  -- The chamber must be the caller's. Knowing its id proves nothing.
+  if not exists (
+    select 1 from public.doctor_chambers dc
+    where dc.id = p_chamber_id and dc.doctor_profile_id = v_doctor
+  ) then
+    raise exception 'CHAMBER_NOT_FOUND';
+  end if;
+
+  if p_mode not in ('TOKEN', 'TIME_SLOT') then
+    raise exception 'INVALID_MODE';
+  end if;
+  if p_slot_minutes is null or p_slot_minutes < 5 or p_slot_minutes > 180 then
+    raise exception 'INVALID_SLOT_MINUTES';
+  end if;
+  if p_max_patients is null or p_max_patients < 1 or p_max_patients > 500 then
+    raise exception 'INVALID_MAX_PATIENTS';
+  end if;
+  if p_window_days is null or p_window_days < 1 or p_window_days > 180 then
+    raise exception 'INVALID_WINDOW';
+  end if;
+  if p_lead_minutes is null or p_lead_minutes < 0 or p_lead_minutes > 10080 then
+    raise exception 'INVALID_LEAD';
+  end if;
+  if p_fee is not null and (p_fee < 0 or p_fee > 1000000) then
+    raise exception 'INVALID_FEE';
+  end if;
+  if p_currency is null or p_currency !~ '^[A-Z]{3}$' then
+    raise exception 'INVALID_CURRENCY';
+  end if;
+
+  if p_enabled and not exists (
+    select 1 from public.doctor_chamber_hours h where h.chamber_id = p_chamber_id
+  ) then
+    raise exception 'NO_VISITING_HOURS';
+  end if;
+
+  if p_enabled and not exists (
+    select 1
+    from public.doctor_chambers dc
+    join public.practice_locations pl on pl.id = dc.practice_location_id
+    where dc.id = p_chamber_id and pl.is_active = true
+  ) then
+    raise exception 'LOCATION_INACTIVE';
+  end if;
+
+  insert into public.doctor_booking_settings (
+    doctor_profile_id, doctor_chamber_id, booking_enabled, booking_mode,
+    slot_minutes, max_patients, booking_window_days, min_lead_minutes,
+    consultation_fee, currency
+  ) values (
+    v_doctor, p_chamber_id, p_enabled, p_mode,
+    p_slot_minutes, p_max_patients, p_window_days, p_lead_minutes,
+    p_fee, p_currency
+  )
+  on conflict (doctor_chamber_id) do update set
+    booking_enabled = excluded.booking_enabled,
+    booking_mode = excluded.booking_mode,
+    slot_minutes = excluded.slot_minutes,
+    max_patients = excluded.max_patients,
+    booking_window_days = excluded.booking_window_days,
+    min_lead_minutes = excluded.min_lead_minutes,
+    consultation_fee = excluded.consultation_fee,
+    currency = excluded.currency,
+    updated_at = now()
+  returning id into v_id;
+
+  return v_id;
+end;
+$$;
+
+revoke all on function public.save_doctor_booking_settings(uuid, boolean, text, integer, integer, integer, integer, numeric, text) from public, anon;
+grant execute on function public.save_doctor_booking_settings(uuid, boolean, text, integer, integer, integer, integer, numeric, text) to authenticated;
+
+/**
+ * Closing a date does NOT cancel appointments already booked on it. Those are
+ * clinical commitments a patient is holding, and silently voiding them from a
+ * settings screen would be the worst possible surprise. The doctor closes the
+ * date to stop NEW bookings; existing ones stay and are theirs to handle.
+ */
+create or replace function public.add_doctor_booking_closed_date(
+  p_chamber_id uuid,
+  p_date date,
+  p_reason text default null
+)
+returns void
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_doctor uuid := public.current_doctor_id();
+begin
+  if v_doctor is null then
+    raise exception 'DOCTOR_REQUIRED';
+  end if;
+
+  if not exists (
+    select 1 from public.doctor_chambers dc
+    where dc.id = p_chamber_id and dc.doctor_profile_id = v_doctor
+  ) then
+    raise exception 'CHAMBER_NOT_FOUND';
+  end if;
+
+  if p_date is null then
+    raise exception 'INVALID_DATE';
+  end if;
+  if p_reason is not null and length(p_reason) > 120 then
+    raise exception 'REASON_TOO_LONG';
+  end if;
+
+  insert into public.doctor_booking_closed_dates (doctor_chamber_id, closed_on, reason)
+  values (p_chamber_id, p_date, nullif(btrim(p_reason), ''))
+  on conflict (doctor_chamber_id, closed_on) do update
+    set reason = excluded.reason;
+end;
+$$;
+
+revoke all on function public.add_doctor_booking_closed_date(uuid, date, text) from public, anon;
+grant execute on function public.add_doctor_booking_closed_date(uuid, date, text) to authenticated;
+
+create or replace function public.remove_doctor_booking_closed_date(
+  p_chamber_id uuid,
+  p_date date
+)
+returns void
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_doctor uuid := public.current_doctor_id();
+begin
+  if v_doctor is null then
+    raise exception 'DOCTOR_REQUIRED';
+  end if;
+
+  if not exists (
+    select 1 from public.doctor_chambers dc
+    where dc.id = p_chamber_id and dc.doctor_profile_id = v_doctor
+  ) then
+    raise exception 'CHAMBER_NOT_FOUND';
+  end if;
+
+  delete from public.doctor_booking_closed_dates
+  where doctor_chamber_id = p_chamber_id and closed_on = p_date;
+end;
+$$;
+
+revoke all on function public.remove_doctor_booking_closed_date(uuid, date) from public, anon;
+grant execute on function public.remove_doctor_booking_closed_date(uuid, date) to authenticated;
+
+-- Every function above resolves the doctor from the session and re-proves
+-- chamber ownership. None of them is reachable by anon, and none of them
+-- touches a patient, an encounter or a prescription.

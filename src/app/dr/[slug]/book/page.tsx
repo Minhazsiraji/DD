@@ -4,11 +4,22 @@ import { MarketingShell } from "@/components/marketing/marketing-shell";
 import { createPublicBooking } from "@/features/public-booking/actions";
 import { getPublicDoctor, getPublicSlots } from "@/features/public-booking/queries";
 
+/**
+ * TWO CODES, AND ONE OF THEM IS DELIBERATELY VAGUE.
+ *
+ * "check-details" is our own validation failing before anything is sent — it
+ * describes the form, not the database, so it can be specific.
+ *
+ * "unavailable" covers every refusal that came back from the server: the slot
+ * was taken, the session filled, the date closed, the notice period was too
+ * short, or this phone already holds a booking. Naming which one would let a
+ * stranger probe phone numbers until the wording changed, and learn that a
+ * particular person is seeing this doctor. The vagueness is the feature.
+ */
 const errorCopy: Record<string, string> = {
   "check-details": "Please check the patient details and try again.",
-  "already-booked": "This phone number already has an active booking for that chamber and date.",
-  "slot-unavailable": "That time is no longer available. Please choose another.",
-  "booking-failed": "We could not create the booking. Please try again.",
+  unavailable:
+    "That booking is not available. Please choose another time, or contact the chamber directly.",
 };
 
 export default async function PublicBookingPage(props: PageProps<"/dr/[slug]/book">) {

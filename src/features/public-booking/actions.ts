@@ -43,17 +43,29 @@ export async function createPublicBooking(slug: string, formData: FormData) {
   });
 
   if (error || !data) {
-    const message = (error?.message ?? "").toUpperCase();
-    const code =
-      message.includes("DUPLICATE_BOOKING") ? "already-booked" :
-      message.includes("SLOT_TAKEN") || message.includes("SESSION_FULL") ? "slot-unavailable" :
-      message.includes("TOO_SOON") || message.includes("DATE_NOT_AVAILABLE") ? "slot-unavailable" :
-      "booking-failed";
-    redirect(`/dr/${encodeURIComponent(slug)}/book?error=${code}`);
+    /**
+     * ONE generic code for every server-side refusal, deliberately.
+     *
+     * The database refuses a booking for several distinct reasons and names
+     * each one, as it should — a doctor reading logs needs the difference. But
+     * this endpoint is anonymous, so passing that difference to the caller
+     * hands a stranger an oracle: a refusal that means "this number already has
+     * a booking" confirms that person is seeing this doctor on this date. That
+     * is a clinical disclosure made by an error message.
+     *
+     * `error.message` is deliberately not read here, and a test asserts it
+     * stays that way. The cost is real and accepted: a patient who genuinely
+     * double-books is told "not available" rather than why. Their booking still
+     * exists, and the chamber can tell them. Leaking one patient's attendance
+     * to strangers is the worse trade.
+     */
+    redirect(`/dr/${encodeURIComponent(slug)}/book?error=unavailable`);
   }
 
+  // Same generic code: a response without a reference is a server-side outcome
+  // too, and a distinct message here would restore the oracle by the back door.
   const ref = (data as { bookingRef?: string }).bookingRef;
-  if (!ref) redirect(`/dr/${encodeURIComponent(slug)}/book?error=booking-failed`);
+  if (!ref) redirect(`/dr/${encodeURIComponent(slug)}/book?error=unavailable`);
 
   redirect(`/dr/${encodeURIComponent(slug)}/book/confirmed?ref=${encodeURIComponent(ref)}`);
 }

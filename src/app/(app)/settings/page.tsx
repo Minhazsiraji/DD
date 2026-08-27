@@ -9,6 +9,7 @@ import {
   ChevronRight,
   Stethoscope,
   IdCard,
+  CalendarClock,
 } from "lucide-react";
 import { cookies } from "next/headers";
 import { PageHeader } from "@/components/common/page-header";
@@ -161,6 +162,25 @@ export default async function SettingsPage() {
           <p className="mt-2 text-xs text-ink-muted">
             Your photo, credentials and visiting hours — with a preview of how a
             patient would see them. Private to you.
+          </p>
+
+          {/*
+            Booking sits beside the profile rather than inside it: the profile
+            answers "what may a patient READ about me?", booking answers "what
+            may a stranger WRITE into my appointment list?". The second is a
+            far bigger decision and should not be a sub-setting of the first.
+          */}
+          <Link
+            href="/settings/booking"
+            className="mt-3 inline-flex h-10 items-center gap-2 rounded-xl border border-hairline bg-white px-4 text-sm font-semibold text-ink transition-colors hover:bg-surface-muted focus-visible:focus-ring"
+          >
+            <CalendarClock className="size-4 text-brand" aria-hidden="true" />
+            Online appointment booking
+            <ChevronRight className="size-4 text-ink-muted" aria-hidden="true" />
+          </Link>
+          <p className="mt-2 text-xs text-ink-muted">
+            Whether patients can book you from your public profile, per chamber.
+            Off until you turn it on.
           </p>
 
           <p className="mt-4 text-xs text-ink-muted">

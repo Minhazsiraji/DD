@@ -42,9 +42,96 @@ beforeAll(async () => {
     "submit_manual_subscription_payment",
     "cancel_own_subscription",
     "reactivate_own_subscription",
+    "doctor_booking_config",
+    "save_doctor_booking_settings",
+    "add_doctor_booking_closed_date",
+    "remove_doctor_booking_closed_date",
   ]) {
     fn[name] = bodyOf(sql, name);
   }
+});
+
+/**
+ * The settings RPCs are what make Area K reachable at all: `booking_enabled`
+ * defaults to false and every table grant is revoked, so without these a doctor
+ * could never turn booking on. They are also the first doctor-authored WRITE
+ * into the configuration the public path reads, which makes ownership checking
+ * the whole game.
+ */
+describe("only the owning doctor can configure booking", () => {
+  const SETTINGS_FNS = [
+    "doctor_booking_config",
+    "save_doctor_booking_settings",
+    "add_doctor_booking_closed_date",
+    "remove_doctor_booking_closed_date",
+  ];
+
+  it("is never reachable by anon", () => {
+    for (const name of SETTINGS_FNS) {
+      expect(sql, `${name} not revoked from anon`).toMatch(
+        new RegExp(`revoke all on function public\\.${name}\\([^)]*\\) from public, anon;`),
+      );
+      const grant = sql.match(
+        new RegExp(`grant execute on function public\\.${name}\\([^)]*\\)\\s*\\n?\\s*to ([^;]+);`),
+      );
+      expect(grant, `${name} has no grant`).not.toBeNull();
+      expect(grant![1], `${name} is exposed to anon`).not.toContain("anon");
+    }
+  });
+
+  it("resolves the doctor from the session, never from a parameter", () => {
+    for (const name of SETTINGS_FNS) {
+      const body = fn[name]!;
+      expect(body).toContain("public.current_doctor_id()");
+      const params = body.slice(body.indexOf("(") + 1, body.indexOf(")"));
+      expect(params.toLowerCase(), `${name} accepts a caller-supplied doctor`).not.toMatch(
+        /doctor_profile|user_id/,
+      );
+    }
+  });
+
+  it("re-proves chamber ownership on every write", () => {
+    // A chamber id is a caller-supplied uuid. Knowing one must never be enough.
+    for (const name of [
+      "save_doctor_booking_settings",
+      "add_doctor_booking_closed_date",
+      "remove_doctor_booking_closed_date",
+    ]) {
+      expect(fn[name], `${name} does not verify chamber ownership`).toMatch(
+        /where dc\.id = p_chamber_id and dc\.doctor_profile_id = v_doctor/,
+      );
+      expect(fn[name], `${name} does not refuse a foreign chamber`).toContain("CHAMBER_NOT_FOUND");
+    }
+  });
+
+  it("refuses to enable booking a patient could not actually use", () => {
+    const body = fn.save_doctor_booking_settings!;
+    expect(body, "no visiting-hours guard").toContain("NO_VISITING_HOURS");
+    expect(body, "no inactive-location guard").toContain("LOCATION_INACTIVE");
+  });
+
+  it("revalidates every bound rather than trusting the form", () => {
+    const body = fn.save_doctor_booking_settings!;
+    for (const code of [
+      "INVALID_MODE",
+      "INVALID_SLOT_MINUTES",
+      "INVALID_MAX_PATIENTS",
+      "INVALID_WINDOW",
+      "INVALID_LEAD",
+      "INVALID_FEE",
+      "INVALID_CURRENCY",
+    ]) {
+      expect(body, `missing ${code}`).toContain(code);
+    }
+  });
+
+  it("touches no clinical table — closing a date cancels nobody", () => {
+    for (const name of SETTINGS_FNS) {
+      for (const table of ["patients", "encounters", "prescriptions", "appointments"]) {
+        expect(fn[name]!.toLowerCase(), `${name} touches ${table}`).not.toContain(`public.${table}`);
+      }
+    }
+  });
 });
 
 describe("every SECURITY DEFINER function is sealed", () => {
