@@ -2,6 +2,7 @@ import "server-only";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { requireUser, requireLocationContext } from "@/lib/auth/session";
 import type { AppointmentStatus, VisitType, CancellationReason } from "./schema";
+import { appointmentSerials } from "./serial";
 
 /**
  * Appointment reads.
@@ -31,11 +32,16 @@ export interface AppointmentRow {
   patientName: string;
   patientNumber: string;
   patientPhone: string | null;
+  createdAt: string;
+  bookingSource: string;
+  publicBookingRef: string | null;
+  bookingSerial?: number;
 }
 
 const COLUMNS =
   "id, scheduled_for, session_date, duration_minutes, visit_type, status, reason, " +
   "token_number, cancellation_reason, cancellation_note, rescheduled_from_id, " +
+  "created_at, booking_source, public_booking_ref, " +
   "practice_location_id, owner_doctor_id, " +
   "practice_locations(name), " +
   "patients(id, full_name, patient_number, phone), " +
@@ -72,6 +78,9 @@ function toRow(r: any): AppointmentRow {
     patientName: patient?.full_name ?? "Unknown patient",
     patientNumber: patient?.patient_number ?? "",
     patientPhone: patient?.phone ?? null,
+    createdAt: r.created_at,
+    bookingSource: r.booking_source ?? "INTERNAL",
+    publicBookingRef: r.public_booking_ref ?? null,
   };
 }
 /* eslint-enable @typescript-eslint/no-explicit-any */
@@ -106,7 +115,12 @@ export async function getAppointmentsForDay(
     console.error("[appointments] day query failed", error.message);
     return { ok: false, reason: error.message };
   }
-  return { ok: true, appointments: (data ?? []).map(toRow) };
+  const appointments = (data ?? []).map(toRow);
+  const serials = appointmentSerials(appointments);
+  return {
+    ok: true,
+    appointments: appointments.map((a) => ({ ...a, bookingSerial: serials.get(a.id) })),
+  };
 }
 
 export async function getAppointment(id: string): Promise<AppointmentRow | null> {
@@ -272,6 +286,7 @@ export interface DayCounts {
   inConsultation: number;
   completed: number;
   cancelled: number;
+  online: number;
 }
 
 export type DayCountsOutcome =
@@ -313,6 +328,7 @@ export async function getDayCounts(
       inConsultation: a.filter((x) => x.status === "IN_CONSULTATION").length,
       completed: a.filter((x) => x.status === "COMPLETED").length,
       cancelled: a.filter((x) => x.status === "CANCELLED").length,
+      online: a.filter((x) => x.bookingSource === "PUBLIC" && x.status !== "CANCELLED").length,
     },
   };
 }
