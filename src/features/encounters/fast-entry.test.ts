@@ -290,6 +290,26 @@ describe("nothing here can write", () => {
     expect(src).toMatch(/event\.preventDefault\(\)/);
   });
 
+  it("focus is restored in a LAYOUT EFFECT, never from requestAnimationFrame", async () => {
+    /**
+     * Found by smoke-testing this, not by reading it. `requestAnimationFrame`
+     * does not fire in a tab that is not compositing — a background tab, a
+     * throttled one, or the preview pane — and the failure is silent: the
+     * dialog closes and the doctor's cursor is simply gone from the sentence
+     * they were writing, with no error anywhere.
+     */
+    const src = (await readFile(
+      path.resolve("src/features/encounters/components/fast-entry.tsx"),
+      "utf8",
+    ))
+      .replace(/\/\*[\s\S]*?\*\//g, "")
+      .replace(/\/\/[^\n]*/g, "");
+
+    expect(src).not.toMatch(/requestAnimationFrame/);
+    expect(src).not.toMatch(/setTimeout/);
+    expect(src).toMatch(/useLayoutEffect/);
+  });
+
   it("the workspace passes its OWN visibility, never a second computation", async () => {
     const src = await readFile(
       path.resolve("src/features/encounters/components/consultation-workspace.tsx"),

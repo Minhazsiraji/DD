@@ -645,8 +645,18 @@ console.log("\nJ. Two tabs, one correction");
   const a = connect();
   const b = connect();
   let created = null;
+  /**
+   * Declared OUT HERE so `finally` can reach it.
+   *
+   * This section really commits, so it is the one place in this file that can
+   * leave rows behind — and its cleanup used to sit at the end of the `try`,
+   * where any earlier assertion failure skipped it. One aborted run then left
+   * four `@qa.invalid` users and a doctor profile whose BMDC blocked every
+   * later run on a unique index, which is how a single failure turned into a
+   * permanently red verifier.
+   */
+  let fixture = null;
   try {
-    let fixture;
     await a.begin(async (tx) => {
       fixture = await seed(tx);
     });
@@ -686,31 +696,47 @@ console.log("\nJ. Two tabs, one correction");
       "…and it is the one both tabs were given",
     );
 
-    // Clean up exactly what this section committed.
-    await a`delete from public.prescription_events where prescription_id in (
-              select id from public.prescriptions where encounter_id = ${fixture.enc})`;
-    await a`delete from public.audit_events where actor_id = ${uidA}`;
-    await a`delete from public.prescription_items where prescription_id in (
-              select id from public.prescriptions where encounter_id = ${fixture.enc})`;
-    await a`update public.prescriptions set replaces_prescription_id = null
-             where encounter_id = ${fixture.enc}`;
-    await a`delete from public.prescriptions where encounter_id = ${fixture.enc}`;
-    await a`delete from public.encounters where id = ${fixture.enc}`;
-    await a`delete from public.prescription_templates where id = ${fixture.tpl}`;
-    await a`delete from public.patient_location_links where patient_id = ${fixture.pat}`;
-    await a`delete from public.patients where id = ${fixture.pat}`;
-    await a`delete from public.practice_location_members
-             where practice_location_id in (${fixture.hospital}, ${fixture.other})`;
-    await a`delete from public.doctor_profiles where user_id in (${uidA}, ${uidB})`;
-    await a`delete from public.practice_locations where id in (${fixture.hospital}, ${fixture.other})`;
-    await a`delete from public.profiles where id in (${uidA}, ${uidB}, ${uidR}, ${uidM})`;
-    await a`delete from auth.users where id in (${uidA}, ${uidB}, ${uidR}, ${uidM})`;
     created = null;
   } catch (e) {
     console.error("  race section failed:", e.message);
     failures.push("two-tab race");
     if (created) console.error(`  LEFTOVER prescription ${created} — remove it by hand.`);
   } finally {
+    /**
+     * IN `finally`, so a failed assertion cannot leave the fixture behind.
+     * Removes exactly what this section committed, by id, and nothing else —
+     * it never matches on `@qa.invalid` or any other pattern, so it cannot
+     * reach a row some other run is relying on.
+     */
+    if (fixture) {
+      try {
+        await a`delete from public.prescription_events where prescription_id in (
+                  select id from public.prescriptions where encounter_id = ${fixture.enc})`;
+        await a`delete from public.audit_events where actor_id = ${uidA}`;
+        await a`delete from public.prescription_items where prescription_id in (
+                  select id from public.prescriptions where encounter_id = ${fixture.enc})`;
+        await a`update public.prescriptions set replaces_prescription_id = null
+                 where encounter_id = ${fixture.enc}`;
+        await a`delete from public.prescriptions where encounter_id = ${fixture.enc}`;
+        await a`delete from public.encounters where id = ${fixture.enc}`;
+        await a`delete from public.prescription_templates where id = ${fixture.tpl}`;
+        await a`delete from public.patient_location_links where patient_id = ${fixture.pat}`;
+        await a`delete from public.patients where id = ${fixture.pat}`;
+        await a`delete from public.practice_location_members
+                 where practice_location_id in (${fixture.hospital}, ${fixture.other})`;
+        await a`delete from public.doctor_profiles where user_id in (${uidA}, ${uidB})`;
+        await a`delete from public.practice_locations
+                 where id in (${fixture.hospital}, ${fixture.other})`;
+        await a`delete from public.profiles where id in (${uidA}, ${uidB}, ${uidR}, ${uidM})`;
+        await a`delete from auth.users where id in (${uidA}, ${uidB}, ${uidR}, ${uidM})`;
+      } catch (cleanupError) {
+        // Said out loud rather than swallowed: rows nobody knows about are
+        // exactly what caused this.
+        console.error("  race cleanup failed:", cleanupError.message);
+        console.error(`  LEFTOVER users ${uidA}, ${uidB}, ${uidR}, ${uidM} — remove by hand.`);
+        failures.push("race cleanup");
+      }
+    }
     await a.end();
     await b.end();
   }

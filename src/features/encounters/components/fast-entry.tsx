@@ -37,35 +37,51 @@ export function FastEntry({
    */
   const returnTo = React.useRef<HTMLElement | null>(null);
 
+  /**
+   * WHERE FOCUS GOES ONCE THE SURFACE IS GONE — the jump destination, or the
+   * caret we borrowed.
+   *
+   * NOT `requestAnimationFrame`. rAF does not fire in a tab that is not
+   * compositing — a background tab, a throttled one, or the preview pane this
+   * was smoke-tested in — and the failure is silent: the dialog closes and the
+   * doctor's cursor is simply gone from the sentence they were writing. A
+   * layout effect runs after the DOM is committed and before paint, every time,
+   * with nothing to schedule.
+   */
+  const focusAfterClose = React.useRef<{ el: HTMLElement; scroll: boolean } | null>(null);
+
   const targets = React.useMemo(() => jumpTargets(visibility), [visibility]);
 
+  React.useLayoutEffect(() => {
+    if (surface !== null) return;
+    const next = focusAfterClose.current;
+    focusAfterClose.current = null;
+    if (!next) return;
+
+    if (next.scroll) {
+      /**
+       * Respect the viewer's motion setting. A doctor who has asked for reduced
+       * motion has asked for it here too, and this is exactly the incidental
+       * animation that setting exists for.
+       */
+      const reduced = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+      next.el.scrollIntoView({ block: "center", behavior: reduced ? "auto" : "smooth" });
+    }
+    next.el.focus({ preventScroll: next.scroll });
+  }, [surface]);
+
   const close = React.useCallback(() => {
-    setSurface(null);
     const el = returnTo.current;
     returnTo.current = null;
-    // The surface is still mounted this tick; hand focus back after it goes.
-    requestAnimationFrame(() => el?.focus());
+    if (el) focusAfterClose.current = { el, scroll: false };
+    setSurface(null);
   }, []);
 
   const go = React.useCallback((target: JumpTarget) => {
-    setSurface(null);
     returnTo.current = null;
-
     const el = document.getElementById(target.elementId);
-    if (!el) return;
-
-    /**
-     * Respect the viewer's motion setting. A doctor who has asked for reduced
-     * motion has asked for it here too, and this is the kind of incidental
-     * animation that setting exists for.
-     */
-    const reduced =
-      typeof window !== "undefined" &&
-      window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
-
-    el.scrollIntoView({ block: "center", behavior: reduced ? "auto" : "smooth" });
-    // Focus after the scroll is requested, so the browser does not fight it.
-    el.focus({ preventScroll: true });
+    if (el) focusAfterClose.current = { el, scroll: true };
+    setSurface(null);
   }, []);
 
   React.useEffect(() => {
