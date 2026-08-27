@@ -136,11 +136,18 @@ describe("reviewing a claim reaches no clinical data", () => {
 
 describe("no caller ever supplies an identity", () => {
   it("submit takes no claimant or target id", () => {
-    const sig = policy.slice(
-      policy.indexOf("create or replace function public.submit_doctor_profile_claim("),
-      policy.indexOf(")\nreturns uuid"),
+    /*
+     * The PARAMETER LIST only, and matched without depending on line endings —
+     * an earlier version sliced on ")\nreturns uuid" and broke the moment a
+     * rebase normalised the file to CRLF. `returns uuid` is the function's own
+     * return type and must not be mistaken for an argument.
+     */
+    const start = policy.indexOf("create or replace function public.submit_doctor_profile_claim(");
+    const params = policy.slice(
+      policy.indexOf("(", start) + 1,
+      policy.indexOf(")", start),
     );
-    expect(sig, "a uuid parameter here would be a caller-supplied identity").not.toContain("uuid");
+    expect(params, "a uuid parameter here would be a caller-supplied identity").not.toContain("uuid");
     expect(policy).toMatch(/v_user uuid := auth\.uid\(\)/);
     expect(policy).toMatch(/v_doctor uuid := public\.current_doctor_id\(\)/);
   });
