@@ -4,7 +4,7 @@ import { requirePlatformOwner } from "@/features/owner/authority";
 import { getClaimsForReview } from "@/features/owner/claims";
 import { decideClaim } from "@/features/owner/claim-actions";
 
-export const metadata: Metadata = { title: "Doctor claims" };
+export const metadata: Metadata = { title: "Doctor verification" };
 
 const errors: Record<string, string> = {
   "check-decision": "Check the decision and try again.",
@@ -18,8 +18,8 @@ const errors: Record<string, string> = {
 };
 
 const decided: Record<string, string> = {
-  approve: "Claim approved. The doctor's profile visibility is unchanged.",
-  reject: "Claim rejected.",
+  approve: "Verified. The doctor's account ownership and profile visibility are both unchanged.",
+  reject: "Verification declined.",
   needs_information: "Sent back to the doctor for more information.",
 };
 
@@ -42,11 +42,15 @@ export default async function OwnerClaimsPage(props: PageProps<"/owner/claims">)
   return (
     <main className="mx-auto max-w-3xl px-5 py-12 sm:px-6">
       <p className="text-sm font-semibold uppercase tracking-[0.14em] text-brand">Platform</p>
-      <h1 className="mt-1 text-2xl font-semibold text-ink">Doctor profile claims</h1>
+      <h1 className="mt-1 text-2xl font-semibold text-ink">Doctor professional verification</h1>
       <p className="mt-2 text-sm text-ink-secondary">
-        Confirm that the person holding this account is the professional they
-        say they are. Approving a claim does not publish anyone — the doctor
-        chooses that separately.
+        Confirm that the person <em>already holding</em> this account is the
+        professional they say they are.
+      </p>
+      <p className="mt-2 text-sm text-ink-secondary">
+        This is verification, not a transfer of ownership. Approving does not
+        move the account to anyone, and does not publish the doctor — they
+        choose visibility themselves.
       </p>
       <Link href="/owner" className="mt-3 inline-block text-sm font-medium text-brand">
         ← Owner console
@@ -57,7 +61,7 @@ export default async function OwnerClaimsPage(props: PageProps<"/owner/claims">)
 
       {claims.length === 0 ? (
         <p className="clinical-surface mt-6 rounded-glass-lg p-6 text-sm text-ink-secondary">
-          No claims are waiting for a decision.
+          No verification requests are waiting for a decision.
         </p>
       ) : (
         <ul className="mt-6 grid gap-4">

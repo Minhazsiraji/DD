@@ -2,7 +2,7 @@ import "server-only";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 /**
- * The doctor's own claim over their professional identity.
+ * The doctor's own PROFESSIONAL VERIFICATION request.
  *
  * Every read here is scoped inside the database by `auth.uid()`. Nothing on
  * this path accepts a claim id for READING and nothing accepts a claimant id at
@@ -50,7 +50,7 @@ export function approvedClaim(claims: MyClaim[]): MyClaim | null {
 export const CLAIM_STATUS_COPY: Record<ClaimStatus, string> = {
   PENDING: "Submitted — waiting for review",
   NEEDS_INFORMATION: "More information needed",
-  APPROVED: "Verified",
-  REJECTED: "Not approved",
+  APPROVED: "Verified professional identity",
+  REJECTED: "Not verified",
   CANCELLED: "Withdrawn",
 };

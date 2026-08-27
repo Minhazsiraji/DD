@@ -2035,7 +2035,13 @@ export const platformOwners = pgTable(
 
 
 /**
- * DOCTOR PROFILE CLAIM — professional identity, reviewed by a platform owner.
+ * DOCTOR PROFESSIONAL VERIFICATION — reviewed by a platform owner.
+ *
+ * NOT A DIRECTORY CLAIM, despite the table name (kept to avoid churn). The
+ * profile ALREADY belongs to the requesting account; what is settled is whether
+ * the professional identity behind it is genuine. The future
+ * prepared-directory-profile claim, where ownership actually moves, is a
+ * separate capability — see docs/decisions/0014.
  *
  * WHAT APPROVAL ACTUALLY DOES. `doctor_profiles.user_id` is NOT NULL, so a
  * profile always has an owning account from the moment it exists; approval does

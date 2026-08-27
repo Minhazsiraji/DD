@@ -288,18 +288,30 @@ await sql
     // -----------------------------------------------------------------
     console.log("\n8. Approval: verified, NOT published (9, 10, 14)");
 
-    const [beforeVis] = await tx`select profile_visibility from public.doctor_profiles where id = ${profA.id}`;
+    const [before] = await tx`select profile_visibility, user_id from public.doctor_profiles where id = ${profA.id}`;
+    const beforeVis = before;
     const first = await as(tx, owner, async () => {
       const [r] = await tx`select public.owner_decide_doctor_profile_claim(${claimA}, 'APPROVE', 'Register checked') as v`;
       return r.v;
     });
     check(first.changed === true && first.status === "APPROVED", "owner approved the claim");
 
-    const [afterVis] = await tx`select profile_visibility from public.doctor_profiles where id = ${profA.id}`;
+    const [afterVis] = await tx`select profile_visibility, user_id from public.doctor_profiles where id = ${profA.id}`;
     check(
       beforeVis.profile_visibility === "PRIVATE" && afterVis.profile_visibility === "PRIVATE",
       "THE INVARIANT: a PRIVATE profile is still PRIVATE after approval",
       `${beforeVis.profile_visibility} → ${afterVis.profile_visibility}`,
+    );
+    /*
+     * This is VERIFICATION, not a directory claim. The account already owned
+     * the profile; approval settles whether the professional identity is real
+     * and moves nothing. If ownership ever starts changing here, the funnel has
+     * been smuggled in through the wrong door — see ADR 0014.
+     */
+    check(
+      afterVis.user_id === beforeVis.user_id && afterVis.user_id === drA,
+      "NOT A TRANSFER: doctor_profiles.user_id is unchanged by approval",
+      `${beforeVis.user_id === afterVis.user_id ? "unchanged" : "MOVED"}`,
     );
 
     const [decided] = await tx`select status, decided_at, decided_by, decision_note

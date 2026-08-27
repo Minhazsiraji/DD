@@ -1,4 +1,22 @@
--- Doctor profile claim, and the platform owner's decision on it.
+-- DOCTOR PROFESSIONAL VERIFICATION, decided by a platform owner.
+--
+-- READ THIS BEFORE EXTENDING IT. Despite the `doctor_profile_claim*` names —
+-- kept to avoid churn — this is NOT a claim over an unowned directory listing.
+-- `doctor_profiles.user_id` is NOT NULL, so the profile ALREADY belongs to the
+-- requesting account. What a reviewer settles is whether the professional
+-- identity behind that account is genuine.
+--
+-- Nothing here transfers ownership. `doctor_profiles` is never updated on any
+-- path, and a test fails if that changes.
+--
+-- The acquisition funnel we eventually want —
+--   prepared directory profile → doctor finds it → doctor claims it →
+--   verified → ownership moves to them
+-- — is a SEPARATE capability requiring a directory entity that can exist
+-- without clinical ownership. It must NOT be built by making
+-- `doctor_profiles.user_id` nullable: that column is what `current_doctor_id()`
+-- and every clinical isolation policy resolve through. See
+-- docs/decisions/0014-doctor-professional-verification.md.
 --
 -- ORDERING — RUN `db:migrate` BEFORE `db:policies`. Migration
 -- 0020_freezing_mister_sinister owns the shape of `doctor_profile_claims`,

@@ -58,6 +58,51 @@ describe("approval verifies an identity; it does not publish a doctor", () => {
   });
 });
 
+describe("verification is not an ownership transfer", () => {
+  /**
+   * THE DISTINCTION THIS STAGE IS NAMED FOR.
+   *
+   * `doctor_profiles.user_id` is NOT NULL, so the profile already belongs to
+   * the requesting account — approval settles whether the professional
+   * identity is genuine, and moves nothing. The funnel where a prepared
+   * directory listing changes hands is a separate architecture (ADR 0014),
+   * and it must not arrive by quietly writing `user_id` here.
+   */
+  it("never writes doctor_profiles.user_id", () => {
+    expect(policyCode, "approval must not move account ownership").not.toMatch(
+      /update[\s\S]{0,200}?doctor_profiles[\s\S]{0,200}?set[\s\S]{0,120}?user_id/i,
+    );
+    // It may READ user_id — that is the ownership-conflict guard.
+    expect(policyCode, "the conflict guard reads user_id").toContain("d.user_id into v_profile_owner");
+    expect(policyCode).toContain("OWNERSHIP_CONFLICT");
+  });
+
+  it("says so where a person can read it", async () => {
+    const doctorPage = await readFile(
+      path.resolve("src/app/(app)/settings/claim/page.tsx"),
+      "utf8",
+    );
+    expect(doctorPage, "the doctor must be told this is not a transfer").toMatch(
+      /does not transfer|already owns/i,
+    );
+    const ownerPage = await readFile(path.resolve("src/app/owner/claims/page.tsx"), "utf8");
+    expect(ownerPage, "the reviewer must be told the same").toMatch(
+      /not a transfer of ownership|already.*holding/i,
+    );
+  });
+
+  it("records the future capability rather than leaving it folklore", async () => {
+    const adr = await readFile(
+      path.resolve("docs/decisions/0014-doctor-professional-verification.md"),
+      "utf8",
+    );
+    expect(adr).toMatch(/Prepared Directory Profile Claim/i);
+    expect(adr, "the ADR must warn against the dangerous shortcut").toMatch(
+      /do not make `?doctor_profiles\.user_id`? nullable/i,
+    );
+  });
+});
+
 describe("reviewing a claim reaches no clinical data", () => {
   it("names no clinical table in the policy", () => {
     for (const table of [

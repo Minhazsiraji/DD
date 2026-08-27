@@ -8,15 +8,15 @@ import {
 } from "@/features/doctor/claim";
 import { respondToClaim, submitClaim } from "@/features/doctor/claim-actions";
 
-export const metadata: Metadata = { title: "Verify your identity" };
+export const metadata: Metadata = { title: "Professional verification" };
 
 const errors: Record<string, string> = {
   "check-details": "Check the details and try again.",
   "no-doctor-profile": "This account has no doctor profile yet.",
-  "already-open": "You already have a claim waiting for review.",
+  "already-open": "You already have a verification request waiting for review.",
   "already-approved": "This profile is already verified.",
-  "claim-not-found": "That claim could not be found.",
-  "already-decided": "That claim has already been decided.",
+  "claim-not-found": "That request could not be found.",
+  "already-decided": "That request has already been decided.",
   "nothing-to-resubmit": "There is nothing to resubmit.",
   "claim-failed": "Could not save. Nothing was changed.",
 };
@@ -26,12 +26,19 @@ const field =
 const label = "text-xs font-medium uppercase tracking-wide text-ink-muted";
 
 /**
- * The doctor's claim over their own professional identity.
+ * DOCTOR PROFESSIONAL VERIFICATION — for a profile this account ALREADY OWNS.
  *
- * This screen says out loud what verification does and does not do, because the
- * distinction is the whole point: being verified is not being published. A
- * doctor who has been approved is still invisible to the public until they
- * choose otherwise on their professional profile.
+ * This is not a claim over an unowned directory listing. `doctor_profiles.user_id`
+ * is NOT NULL, so the profile already belongs to this account; what a reviewer
+ * settles is whether the professional identity behind it is genuine. Nothing
+ * here transfers ownership, and nothing here publishes anyone.
+ *
+ * The future "prepared directory profile → doctor claims it → ownership moves"
+ * capability is a SEPARATE architecture — see docs/decisions/0014.
+ *
+ * The screen says both of these out loud, because a doctor reading
+ * "verification" could reasonably assume it makes them findable, and it does
+ * not.
  */
 export default async function ClaimPage(props: PageProps<"/settings/claim">) {
   const search = await props.searchParams;
@@ -47,21 +54,27 @@ export default async function ClaimPage(props: PageProps<"/settings/claim">) {
         <p className="text-sm font-semibold uppercase tracking-[0.14em] text-brand">
           Professional identity
         </p>
-        <h1 className="mt-1 text-2xl font-semibold text-ink">Verify your registration</h1>
+        <h1 className="mt-1 text-2xl font-semibold text-ink">
+          Request professional verification
+        </h1>
         <p className="mt-2 text-sm text-ink-secondary">
-          Confirm you are the professional behind this account. Verification is
-          separate from being listed publicly —{" "}
+          Confirm you are the professional behind this account. This account
+          already owns its doctor profile — verification does not transfer
+          anything, it records that your registration was checked.
+        </p>
+        <p className="mt-2 text-sm text-ink-secondary">
+          Being verified is separate from being listed publicly —{" "}
           <Link href="/settings/professional" className="font-medium text-brand">
             you choose that on your professional profile
           </Link>
-          , and approving a claim never changes it.
+          , and a decision here never changes it.
         </p>
       </div>
 
       {error && <p className="rounded-xl bg-red-50 px-4 py-3 text-sm text-red-800">{error}</p>}
       {search.submitted === "1" && (
         <p className="rounded-xl bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
-          Submitted for review.
+          Verification requested.
         </p>
       )}
       {search.resubmitted === "1" && (
@@ -71,20 +84,20 @@ export default async function ClaimPage(props: PageProps<"/settings/claim">) {
       )}
       {search.withdrawn === "1" && (
         <p className="rounded-xl bg-slate-100 px-4 py-3 text-sm text-ink-secondary">
-          Claim withdrawn.
+          Verification request withdrawn.
         </p>
       )}
 
       {approved && (
         <section className="clinical-surface rounded-glass-lg p-5">
-          <h2 className="text-lg font-semibold text-ink">Verified</h2>
+          <h2 className="text-lg font-semibold text-ink">Verified professional identity</h2>
           <p className="mt-2 text-sm text-ink-secondary">
             {approved.regulatorName} · {approved.countryCode} ·{" "}
             <span className="tabular-nums">{approved.registrationNumber}</span>
           </p>
           <p className="mt-3 text-xs text-ink-muted">
-            Your profile visibility was not changed by this. It is still whatever
-            you last set it to.
+            Your account ownership and profile visibility were both unchanged.
+            Visibility is still whatever you last set it to.
           </p>
         </section>
       )}
@@ -179,7 +192,8 @@ export default async function ClaimPage(props: PageProps<"/settings/claim">) {
           <p className="text-xs text-ink-muted">
             A platform reviewer sees only what you enter here and the
             professional fields on your profile. They cannot see your patients,
-            consultations or prescriptions.
+            consultations or prescriptions — and approving this does not give
+            them, or anyone else, control of your account.
           </p>
 
           <div>
@@ -187,7 +201,7 @@ export default async function ClaimPage(props: PageProps<"/settings/claim">) {
               type="submit"
               className="inline-flex h-11 items-center rounded-xl bg-brand px-5 text-sm font-semibold text-white"
             >
-              Submit for verification
+              Request verification
             </button>
           </div>
         </form>
