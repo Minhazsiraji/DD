@@ -56,8 +56,8 @@ export default function RootPage() {
           </p>
         </div>
 
-        <div className="rounded-[2rem] border border-slate-200 bg-white p-5 shadow-[0_24px_80px_rgba(15,23,42,.08)] sm:p-7">
-          <div className="rounded-3xl bg-[#edf4ff] p-6">
+        <div className="relative overflow-hidden rounded-[2rem] border border-white/90 bg-white/30 p-5 shadow-[0_30px_90px_rgba(46,104,170,0.18),inset_0_1px_0_rgba(255,255,255,1)] backdrop-blur-2xl sm:p-7 animate-in fade-in zoom-in-95 duration-1000 [animation-delay:250ms] [animation-fill-mode:both]">
+          <div className="relative overflow-hidden rounded-3xl border border-white/80 bg-gradient-to-br from-white/55 via-sky-50/35 to-cyan-100/25 p-6 shadow-[0_18px_55px_rgba(60,113,170,0.13),inset_0_1px_0_rgba(255,255,255,1),inset_0_-1px_0_rgba(164,214,255,0.45)]">
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Today</p>
@@ -67,7 +67,7 @@ export default function RootPage() {
             </div>
             <div className="mt-6 grid gap-3">
               {workflow.map((item, i) => (
-                <div key={item} className="flex items-center gap-3 rounded-2xl bg-white px-4 py-3 text-sm text-slate-700 shadow-sm">
+                <div key={item} className="animate-in fade-in slide-in-from-top-4 duration-700 [animation-fill-mode:both] flex items-center gap-3 rounded-2xl border border-white/90 bg-white/42 px-4 py-3 text-sm text-slate-700 backdrop-blur-md shadow-[0_10px_28px_rgba(58,106,160,0.10),inset_0_1px_0_rgba(255,255,255,1)]" style={{ animationDelay: `${700 + i * 180}ms` }}>
                   <span className="grid size-7 shrink-0 place-items-center rounded-full bg-teal-50 font-semibold text-teal-700">{i + 1}</span>
                   {item}
                 </div>

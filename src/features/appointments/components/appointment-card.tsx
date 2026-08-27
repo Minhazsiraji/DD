@@ -51,14 +51,14 @@ export function AppointmentCard({
   const finished = isTerminal(a.status);
 
   return (
-    <li className="clinical-surface rounded-glass p-4 sm:px-5">
+    <li className="relative overflow-hidden rounded-[1.6rem] border border-white/95 bg-white/32 p-4 shadow-[0_22px_60px_rgba(49,100,158,0.15),inset_0_1px_0_rgba(255,255,255,1),inset_0_-1px_0_rgba(174,218,255,0.5)] backdrop-blur-xl sm:px-5 animate-in fade-in slide-in-from-bottom-2 duration-500 [animation-fill-mode:both]">
       <div className="flex flex-wrap items-start gap-3">
         <div className="flex w-14 shrink-0 flex-col items-center">
           <span className="text-sm font-semibold tabular-nums text-ink">
             {timeInZone(a.scheduledFor)}
           </span>
           {a.bookingSerial ? (
-            <span className="mt-1 inline-flex min-w-8 items-center justify-center rounded-lg bg-slate-100 px-1.5 py-0.5 text-[11px] font-bold tabular-nums text-slate-700">
+            <span className="mt-1 inline-flex min-w-8 items-center justify-center rounded-xl border border-white/95 bg-white/48 px-2 py-1 text-[11px] font-bold tabular-nums text-slate-800 shadow-[0_6px_18px_rgba(50,95,145,0.12),inset_0_1px_0_rgba(255,255,255,1)] backdrop-blur-md">
               S#{a.bookingSerial}
             </span>
           ) : null}
