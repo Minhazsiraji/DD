@@ -54,9 +54,9 @@ export default async function PublicDoctorPage(props: PageProps<"/dr/[slug]">) {
                 {chamber.bookingEnabled && (
                   <Link
                     href={`/dr/${encodeURIComponent(slug)}/book?loc=${chamber.locationId}`}
-                    className="rounded-xl bg-teal-600 px-4 py-2.5 text-sm font-semibold text-white"
+                    className="rounded-xl bg-teal-600 px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-teal-700"
                   >
-                    Book appointment
+                    Book Now
                   </Link>
                 )}
               </div>

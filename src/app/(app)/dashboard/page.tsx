@@ -168,9 +168,11 @@ export default async function DashboardPage() {
             icon={<CalendarDays className="size-5" />}
             accent="brand"
             hint={
-              today.counts.completed > 0
-                ? `${today.counts.completed} seen so far`
-                : "Booked here today"
+              today.counts.online > 0
+                ? `${today.counts.online} online booking${today.counts.online === 1 ? "" : "s"}`
+                : today.counts.completed > 0
+                  ? `${today.counts.completed} seen so far`
+                  : "Booked here today"
             }
             href="/appointments"
           />

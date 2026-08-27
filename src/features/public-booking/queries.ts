@@ -36,6 +36,16 @@ export interface PublicSlot {
   label: string;
 }
 
+export interface PublicBookingConfirmation {
+  bookingRef: string;
+  serial: number;
+  doctorName: string;
+  chamberName: string;
+  date: string;
+  localTime: string;
+  status: string;
+}
+
 export async function getPublicDoctor(slug: string): Promise<PublicDoctor | null> {
   const supabase = await createSupabaseServerClient();
   const { data, error } = await supabase.rpc("public_doctor_profile", { p_slug: slug });
@@ -57,4 +67,20 @@ export async function getPublicSlots(
   });
   if (error || !Array.isArray(data)) return [];
   return data as unknown as PublicSlot[];
+}
+
+export async function getPublicBookingConfirmation(
+  slug: string,
+  bookingRef: string,
+): Promise<PublicBookingConfirmation | null> {
+  if (!/^[0-9a-f-]{36}$/i.test(bookingRef)) return null;
+  const supabase = await createSupabaseServerClient();
+  const { data, error } = await supabase.rpc("public_booking_confirmation", {
+    p_slug: slug,
+    p_booking_ref: bookingRef,
+  });
+  if (error || !data) return null;
+  const value = data as unknown as PublicBookingConfirmation;
+  if (!Number.isInteger(value.serial) || value.serial < 1) return null;
+  return value;
 }

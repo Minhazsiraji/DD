@@ -57,9 +57,14 @@ export function AppointmentCard({
           <span className="text-sm font-semibold tabular-nums text-ink">
             {timeInZone(a.scheduledFor)}
           </span>
+          {a.bookingSerial ? (
+            <span className="mt-1 inline-flex min-w-8 items-center justify-center rounded-lg bg-slate-100 px-1.5 py-0.5 text-[11px] font-bold tabular-nums text-slate-700">
+              S#{a.bookingSerial}
+            </span>
+          ) : null}
           {a.tokenNumber !== null ? (
-            <span className="mt-1 inline-flex min-w-8 items-center justify-center rounded-lg bg-brand-soft px-1.5 py-0.5 text-xs font-bold tabular-nums text-brand">
-              #{a.tokenNumber}
+            <span className="mt-1 inline-flex min-w-8 items-center justify-center rounded-lg bg-brand-soft px-1.5 py-0.5 text-[11px] font-bold tabular-nums text-brand">
+              Queue #{a.tokenNumber}
             </span>
           ) : null}
         </div>
@@ -72,6 +77,11 @@ export function AppointmentCard({
             >
               {a.patientName}
             </Link>
+            {a.bookingSource === "PUBLIC" ? (
+              <span className="rounded-full bg-teal-50 px-2 py-0.5 text-[11px] font-semibold text-teal-700 ring-1 ring-inset ring-teal-200">
+                Online
+              </span>
+            ) : null}
             <AppointmentStatusBadge status={a.status} />
           </div>
 

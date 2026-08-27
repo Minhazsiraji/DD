@@ -33,7 +33,10 @@ if (!url) {
   process.exit(1);
 }
 
-const POLICY = "supabase/policies/0030_paid_doctor_commercial.sql";
+const POLICIES = [
+  "supabase/policies/0030_paid_doctor_commercial.sql",
+  "supabase/policies/0031_public_booking_serial.sql",
+];
 
 /** Every function the file is expected to install, with its argument types. */
 const EXPECTED = [
@@ -49,6 +52,7 @@ const EXPECTED = [
   ["save_doctor_booking_settings", "uuid, boolean, text, integer, integer, integer, integer, numeric, text"],
   ["add_doctor_booking_closed_date", "uuid, date, text"],
   ["remove_doctor_booking_closed_date", "uuid, date"],
+  ["public_booking_confirmation", "text, uuid"],
 ];
 
 const sql = postgres(url, { max: 1, prepare: false, onnotice: () => {} });
@@ -59,7 +63,9 @@ function check(ok, label, detail = "") {
   if (!ok) failures += 1;
 }
 
-const content = await readFile(path.resolve(POLICY), "utf8");
+const policyFiles = await Promise.all(
+  POLICIES.map(async (file) => ({ file, content: await readFile(path.resolve(file), "utf8") })),
+);
 
 /**
  * How many of these functions exist BEFORE we start.
@@ -80,7 +86,7 @@ console.log(
 
 await sql
   .begin(async (tx) => {
-    console.log(`\n1. Applying ${POLICY} inside a transaction`);
+    console.log(`\n1. Applying ${POLICIES.join(" + ")} inside a transaction`);
 
     /**
      * check_function_bodies is ON by default, which is what makes this a
@@ -93,8 +99,10 @@ await sql
     const [{ setting }] = await tx`select current_setting('check_function_bodies') as setting`;
     check(setting === "on", "check_function_bodies is on — bodies are parsed", setting);
 
-    await tx.unsafe(content);
-    check(true, "the whole file applied without error");
+    for (const policy of policyFiles) {
+      await tx.unsafe(policy.content);
+      check(true, `${policy.file} applied without error`);
+    }
 
     console.log("\n2. Every expected function exists");
     for (const [name, args] of EXPECTED) {
@@ -197,7 +205,7 @@ check(
 
 console.log(
   failures === 0
-    ? `\n${POLICY} compiles cleanly. Nothing was installed.\n`
+    ? `\nCommercial policies compile cleanly. Nothing was installed.\n`
     : `\n${failures} CHECK(S) FAILED. Nothing was installed.\n`,
 );
 
