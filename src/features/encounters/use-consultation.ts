@@ -36,6 +36,7 @@ import {
   type FindingRow,
   type ListKind,
 } from "./finding-types";
+import { staysOpenAfterSuccess } from "./finding-entry";
 import { MutationGate } from "./mutation-gate";
 import type { Consultation, ServerState } from "./queries";
 import type { DraftKey, DraftValues } from "./schema";
@@ -92,8 +93,18 @@ export interface ConsultationSession {
   runList: (
     list: ListKind,
     fn: (expectedVersion: number) => Promise<ListResult>,
-    options?: { closeEditorOnSuccess?: boolean },
+    options?: { closeEditorOnSuccess?: boolean; resetDraftOnSuccess?: boolean },
   ) => Promise<ListResult | null>;
+
+  /**
+   * Bumped ONLY when a confirmed add cleared the form for the next one.
+   *
+   * The form is disabled while its save is in flight, and a disabled input is
+   * blurred by the browser — so the field the doctor was typing in loses focus
+   * on every add. This is the signal that lets it take focus back, from a
+   * layout effect rather than a scheduled callback.
+   */
+  addedTokens: Record<ListKind, number>;
 
   version: number;
   state: SaveState;
@@ -135,6 +146,10 @@ export function useConsultation(consultation: Consultation): ConsultationSession
   const [state, setState] = React.useState<SaveState>({ kind: "clean" });
   const [busy, setBusy] = React.useState<MutationKind | null>(null);
   const [listError, setListError] = React.useState<string | null>(null);
+  const [addedTokens, setAddedTokens] = React.useState<Record<ListKind, number>>({
+    diagnosis: 0,
+    investigation: 0,
+  });
   const [desynced, setDesynced] = React.useState<{ kind: DesyncKind; message: string } | null>(null);
   /** Read synchronously when deciding whether the gate may reopen. */
   const desyncedRef = React.useRef<{ kind: DesyncKind; message: string } | null>(null);
@@ -420,7 +435,7 @@ export function useConsultation(consultation: Consultation): ConsultationSession
     async (
       list: ListKind,
       fn: (expectedVersion: number) => Promise<ListResult>,
-      options?: { closeEditorOnSuccess?: boolean },
+      options?: { closeEditorOnSuccess?: boolean; resetDraftOnSuccess?: boolean },
     ): Promise<ListResult | null> =>
       run("list", async () => {
         setListError(null);
@@ -455,7 +470,28 @@ export function useConsultation(consultation: Consultation): ConsultationSession
             return result;
           }
 
-          if (options?.closeEditorOnSuccess !== false) {
+          /**
+           * THE ONE OUTCOME FAST ENTRY CHANGES: a clean, confirmed success.
+           *
+           * The write is in the record and the rows have been read back, so
+           * the doctor's text is no longer their only copy — it is now safe,
+           * and only now, to clear the field. On an ADD the form stays open
+           * with an empty draft so the next finding can be typed straight
+           * away; on a correction it closes as it always did.
+           *
+           * Every other outcome below is untouched. Nothing clears text that
+           * the record has not confirmed it holds.
+           */
+          const open = liveEditors.current[list];
+          if (options?.resetDraftOnSuccess && open && staysOpenAfterSuccess(open.mode)) {
+            commitEditors({
+              ...liveEditors.current,
+              [list]: { ...open, draft: emptyFinding() },
+            });
+            // Tells the form its field was cleared by a SAVE, so it can take
+            // focus back — `disabled` while saving blurs it.
+            setAddedTokens((t) => ({ ...t, [list]: t[list] + 1 }));
+          } else if (options?.closeEditorOnSuccess !== false) {
             commitEditors({ ...liveEditors.current, [list]: null });
           }
           commitPending(null);
@@ -674,7 +710,7 @@ export function useConsultation(consultation: Consultation): ConsultationSession
   return {
     values, dirtyKeys, isDirty, vitalErrors, hasVitalErrors, setField, save,
     diagnoses, investigations, editors, confirmingRemoval,
-    openAdd, openEdit, closeEditor, setDraft, askRemove, cancelRemove, runList,
+    openAdd, openEdit, closeEditor, setDraft, askRemove, cancelRemove, runList, addedTokens,
     version, state, busy, blocked, listError, notice, dismissNotice, desynced, retrySync, clearListError,
     conflict, keepMine, takeTheirs, resolveFinding, anythingUnsaved,
   };

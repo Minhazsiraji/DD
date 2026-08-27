@@ -3,6 +3,7 @@
 import * as React from "react";
 import { cn } from "@/lib/utils";
 import { CERTAINTIES, CERTAINTY_HINT, CERTAINTY_LABEL } from "../list-schema";
+import { enterOutcome } from "../finding-entry";
 import type { FindingDraft, ListKind } from "../finding-types";
 
 /**
@@ -21,6 +22,8 @@ export function FindingForm({
   busy,
   blocked = false,
   submitLabel,
+  keepsGoing = false,
+  refocusToken = 0,
   onChange,
   onSubmit,
   onCancel,
@@ -37,6 +40,14 @@ export function FindingForm({
    */
   blocked?: boolean;
   submitLabel: string;
+  /** Adds only: the form stays open afterwards, so it says so. */
+  keepsGoing?: boolean;
+  /**
+   * Bumped when a CONFIRMED add cleared this form for the next one. Saving
+   * disables the input, and a disabled input is blurred by the browser — so
+   * without this the doctor's cursor is gone after every add.
+   */
+  refocusToken?: number;
   onChange: (next: FindingDraft) => void;
   onSubmit: () => void;
   onCancel?: () => void;
@@ -45,6 +56,20 @@ export function FindingForm({
   const isDiagnosis = kind === "diagnosis";
   const titleLabel = isDiagnosis ? "Diagnosis" : "Investigation";
   const canSubmit = value.title.trim().length > 0 && !busy && !blocked;
+  const titleRef = React.useRef<HTMLInputElement>(null);
+
+  /**
+   * Take the cursor back after a confirmed add — from a LAYOUT EFFECT, never
+   * from `requestAnimationFrame` or `setTimeout`. rAF does not fire in a tab
+   * that is not compositing, and the failure is silent: the field clears and
+   * the doctor's next word goes nowhere. Same rule Fast Entry Step 1 settled.
+   *
+   * Keyed on the token alone, so it fires exactly once per confirmed add and
+   * never steals focus while the doctor is somewhere else on the screen.
+   */
+  React.useLayoutEffect(() => {
+    if (refocusToken > 0) titleRef.current?.focus();
+  }, [refocusToken]);
 
   return (
     <form
@@ -60,9 +85,33 @@ export function FindingForm({
         </label>
         <input
           id={`${id}-title`}
+          ref={titleRef}
           value={value.title}
           disabled={busy}
           autoComplete="off"
+          /*
+            ENTER ADDS, AND KEEPS GOING.
+
+            Handled here rather than left to the form's implicit submission,
+            because implicit submission cannot be told about an input method:
+            a doctor composing Bangla or CJK presses Enter to CHOOSE A WORD,
+            and that Enter belongs to the IME. `enterOutcome` decides; every
+            outcome preventDefaults, so the browser never submits behind it.
+          */
+          onKeyDown={(e) => {
+            const outcome = enterOutcome(
+              {
+                key: e.key,
+                isComposing: e.nativeEvent.isComposing,
+                keyCode: e.nativeEvent.keyCode,
+                shiftKey: e.shiftKey,
+              },
+              { canSubmit },
+            );
+            if (outcome === "ignore") return;
+            e.preventDefault();
+            if (outcome === "submit") onSubmit();
+          }}
           onChange={(e) => onChange({ ...value, title: e.target.value })}
           placeholder={isDiagnosis ? "Dengue fever" : "CBC with platelet count"}
           className="mt-1 h-11 w-full rounded-xl border border-hairline bg-white px-3 text-[15px] text-ink placeholder:text-ink-muted focus-visible:focus-ring disabled:bg-surface-muted"
@@ -141,10 +190,22 @@ export function FindingForm({
             disabled={busy}
             className="inline-flex h-11 items-center justify-center rounded-xl border border-hairline bg-white px-4 text-[13px] font-semibold text-ink hover:bg-surface-muted disabled:opacity-55 focus-visible:focus-ring"
           >
-            Cancel
+            {keepsGoing ? "Done" : "Cancel"}
           </button>
         ) : null}
       </div>
+
+      {/*
+        Said once, where the doctor is looking. The same sentence the medicine
+        composer uses, because it is the same interaction — and a shortcut
+        nobody is told about is a shortcut nobody uses.
+      */}
+      {keepsGoing ? (
+        <p className="text-[11px] text-ink-muted">
+          Only the {isDiagnosis ? "diagnosis" : "investigation"} is required. Press{" "}
+          <kbd className="font-sans font-semibold">Enter</kbd> to add and keep going.
+        </p>
+      ) : null}
     </form>
   );
 }

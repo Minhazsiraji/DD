@@ -40,6 +40,7 @@ export function FindingList({
   onConfirmRemove,
   onDismissError,
   shownBecauseFilled = false,
+  refocusToken = 0,
 }: {
   kind: ListKind;
   title: string;
@@ -68,6 +69,8 @@ export function FindingList({
    * setting had not saved.
    */
   shownBecauseFilled?: boolean;
+  /** Bumped when a confirmed add cleared the add form for the next finding. */
+  refocusToken?: number;
 }) {
   const formOpen = editor !== null;
   const disabled = readOnly || blocked;
@@ -238,6 +241,8 @@ export function FindingList({
             busy={busy}
             blocked={blocked}
             submitLabel={kind === "diagnosis" ? "Add diagnosis" : "Add investigation"}
+            keepsGoing
+            refocusToken={refocusToken}
             onChange={onDraftChange}
             onSubmit={onSubmit}
             onCancel={onCloseEditor}

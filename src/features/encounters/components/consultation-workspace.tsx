@@ -113,14 +113,19 @@ export function ConsultationWorkspace({
 
     if (list === "diagnosis") {
       if (editor.mode === "add") {
-        void s.runList("diagnosis", (expectedVersion) =>
-          addDiagnosisAction({
-            encounterId: consultation.id,
-            expectedVersion,
-            label: draft.title,
-            certainty: draft.certainty,
-            note: draft.note,
-          }),
+        void s.runList(
+          "diagnosis",
+          (expectedVersion) =>
+            addDiagnosisAction({
+              encounterId: consultation.id,
+              expectedVersion,
+              label: draft.title,
+              certainty: draft.certainty,
+              note: draft.note,
+            }),
+          // Adds only, and only on a CONFIRMED success: the form stays open
+          // with an empty draft so the next diagnosis can be typed straight in.
+          { resetDraftOnSuccess: true },
         );
         return;
       }
@@ -138,13 +143,16 @@ export function ConsultationWorkspace({
     }
 
     if (editor.mode === "add") {
-      void s.runList("investigation", (expectedVersion) =>
-        addInvestigationAction({
-          encounterId: consultation.id,
-          expectedVersion,
-          name: draft.title,
-          note: draft.note,
-        }),
+      void s.runList(
+        "investigation",
+        (expectedVersion) =>
+          addInvestigationAction({
+            encounterId: consultation.id,
+            expectedVersion,
+            name: draft.title,
+            note: draft.note,
+          }),
+        { resetDraftOnSuccess: true },
       );
       return;
     }
@@ -375,6 +383,7 @@ export function ConsultationWorkspace({
           onCancelRemove={s.cancelRemove}
           onConfirmRemove={(row) => confirmRemove("diagnosis", row)}
           shownBecauseFilled={visibility.DIAGNOSIS.shownBecauseFilled}
+          refocusToken={s.addedTokens.diagnosis}
         />
         ) : null}
 
@@ -402,6 +411,7 @@ export function ConsultationWorkspace({
           onCancelRemove={s.cancelRemove}
           onConfirmRemove={(row) => confirmRemove("investigation", row)}
           shownBecauseFilled={visibility.INVESTIGATIONS.shownBecauseFilled}
+          refocusToken={s.addedTokens.investigation}
         />
         ) : null}
 
