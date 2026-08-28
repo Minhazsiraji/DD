@@ -23,11 +23,11 @@ jobs:
         run: npm ci
       - name: Lint
         run: npm run lint
-      - name: Typecheck
-        run: npm run typecheck
       - name: Focused mobile and public tests
         run: npx vitest run src/features/mobile-responsive.test.ts src/features/public-booking/public-profile-ui.test.ts src/features/public-booking/commercial-boundary.test.ts src/features/public-booking/public-failure-shape.test.ts src/features/appointments/schema.test.ts src/features/appointments/when-fields.test.ts
       - name: Full tests
         run: npm test
       - name: Build
         run: npm run build
+      - name: Typecheck
+        run: npm run typecheck
