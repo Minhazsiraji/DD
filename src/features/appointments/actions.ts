@@ -417,6 +417,17 @@ async function lookupVisibleDuplicates(
 function translate(message: string): string {
   const m = message.toLowerCase();
 
+  /**
+   * C-006. The desk's API refuses to finish a consultation, and this says why
+   * rather than showing a bare refusal.
+   *
+   * It should be unreachable from the interface — no control offers this
+   * transition any more — so anything that lands here arrived by another route,
+   * and the sentence has to point at the one place that can actually do it.
+   */
+  if (m.includes("finish_via_consultation")) {
+    return "A visit is finished from the consultation itself, so the notes are closed with it. Open the consultation and use Finish consultation there.";
+  }
   if (m.includes("cannot move an appointment from")) {
     return "That change is not possible from the appointment's current state — reload and try again.";
   }

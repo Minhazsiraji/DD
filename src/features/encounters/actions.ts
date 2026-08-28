@@ -113,11 +113,19 @@ export async function finishConsultationAction(input: {
   const ctx = await requireLocationContext();
   const supabase = await createSupabaseServerClient();
 
-  const { error } = await supabase.rpc("close_encounter", {
+  /**
+   * `finish_consultation`, not `close_encounter`.
+   *
+   * The live queue is built from APPOINTMENTS, so closing the encounter alone
+   * left the patient pinned to the top of the queue — IN_CONSULTATION sorts
+   * first — and the next patient could never be reached. The orchestrator
+   * closes the visit and completes the appointment in one transaction, each
+   * through the function that owns that lifecycle.
+   */
+  const { error } = await supabase.rpc("finish_consultation", {
     p_encounter_id: parsed.data.encounterId,
     p_practice_location_id: ctx.locationId,
     p_expected_version: parsed.data.expectedVersion,
-    p_status: "COMPLETED",
   });
 
   if (error) {
@@ -133,7 +141,7 @@ export async function finishConsultationAction(input: {
       return { ok: true, alreadyClosed: true };
     }
 
-    const translated = safeMessage("close_encounter", error.message);
+    const translated = safeMessage("finish_consultation", error.message);
     return {
       ok: false,
       kind: translated.kind === "conflict" ? "conflict" : "error",

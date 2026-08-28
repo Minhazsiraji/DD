@@ -414,30 +414,48 @@ try {
           select count(*)::int as n from public.patients
           where deleted_at is null and owner_doctor_id = ${docA.id}`;
 
+        /**
+         * THIS USED TO ASSERT THE OPPOSITE.
+         *
+         * It read `visible.n > mine.n` — "RLS alone counts colleagues' patients
+         * too, so the query MUST scope" — which documented a cross-doctor read
+         * as a known property and made application scoping the only thing
+         * standing between two doctors' repositories. It was the leak, written
+         * down as expected behaviour.
+         *
+         * RLS is the boundary now: a doctor sees their own patients and no
+         * others, whoever else practises at the same hospital.
+         */
         check(
-          visible.n > mine.n,
-          "RLS alone counts colleagues' patients too (so the query MUST scope)",
+          visible.n === mine.n,
+          "RLS alone returns the doctor's own patients and nobody else's",
           `${visible.n} visible vs ${mine.n} owned`,
         );
         check(
-          mine.n > 0 && mine.n < visible.n,
-          "scoping by owner_doctor_id yields only the doctor's own",
+          mine.n > 0,
+          "…and that is a real set, not an empty one",
           `${mine.n}`,
         );
 
         /**
-         * The ordering half. Eight newer colleague patients exist; an unscoped
-         * "six most recent" is entirely theirs, which is exactly how a doctor
-         * ended up with an empty Recent Patients list.
+         * The ordering half. Eight NEWER colleague patients exist, and an
+         * unscoped "six most recent" used to be entirely theirs — which is how
+         * a doctor ended up looking at a Recent Patients list with none of
+         * their own patients in it.
+         *
+         * It cannot be any more: the colleague's rows are not visible to this
+         * doctor at all. The application still scopes by `owner_doctor_id`
+         * below, and should keep doing so — RLS is the second wall, not the
+         * first — but the wall is now real.
          */
         const unscoped = await tx`
           select owner_doctor_id from public.patients
           where deleted_at is null
           order by created_at desc limit 6`;
         check(
-          unscoped.every((r) => r.owner_doctor_id === docB.id),
-          "an UNSCOPED recent-six is entirely the colleague's",
-          `${unscoped.filter((r) => r.owner_doctor_id === docA.id).length} of A's`,
+          unscoped.length > 0 && unscoped.every((r) => r.owner_doctor_id === docA.id),
+          "even an UNSCOPED recent-six is entirely this doctor's own",
+          `${unscoped.filter((r) => r.owner_doctor_id === docB.id).length} of B's leaked in`,
         );
 
         const scoped = await tx`
@@ -477,8 +495,16 @@ try {
         const [none] = await tx`
           select count(*)::int as n from public.patients
           where deleted_at is null and owner_doctor_id = ${docC.id}`;
-        check(visible.n > 0, "a new doctor can still SEE the location's patients", `${visible.n}`);
-        check(none.n === 0, "…but their own repository count is a true zero");
+        /**
+         * Dr C practises at this hospital and owns nobody. They see NOTHING —
+         * this once asserted `visible.n > 0`, "a new doctor can still SEE the
+         * location's patients", which is the leak stated as a feature.
+         *
+         * The empty list is the correct answer and is still distinguishable
+         * from an outage: it is a true zero, not a failed query.
+         */
+        check(visible.n === 0, "a doctor who owns nobody sees nobody", `${visible.n}`);
+        check(none.n === 0, "…and their own repository count is a true zero");
       });
     }
 

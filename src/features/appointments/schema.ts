@@ -100,6 +100,25 @@ export function canReschedule(status: AppointmentStatus): boolean {
 /**
  * The action a receptionist most likely wants next, given the status. Shown as
  * the primary button so the common path is one tap on a busy desk.
+ *
+ * THERE IS NO ENTRY FOR `IN_CONSULTATION` (C-006), AND THERE MUST NOT BE.
+ *
+ * This map once carried `{ to: "COMPLETED", label: "Finish consultation" }`,
+ * which rendered a button on the appointments screen that completed the
+ * APPOINTMENT and nothing else. The patient left the live queue, the day moved
+ * on, and the encounter stayed DRAFT — a visit that had plainly happened,
+ * recorded as still in progress, with nothing on any screen looking wrong.
+ * Reception and the location admin could press it too.
+ *
+ * Finishing a visit closes the notes AND the appointment together, so it lives
+ * where the notes are: `FinishConsultation` on the consultation screen, through
+ * `finish_consultation`. A second button here — even a correct one — would be
+ * two controls with the same words and different authority, which is how the
+ * wrong one gets pressed on a busy desk.
+ *
+ * The database refuses this transition through the desk's API regardless; see
+ * `0038_finish_consultation_authority.sql`. This map is the affordance, not the
+ * control.
  */
 export const PRIMARY_ACTION: Partial<
   Record<AppointmentStatus, { to: AppointmentStatus; label: string }>
@@ -107,7 +126,6 @@ export const PRIMARY_ACTION: Partial<
   SCHEDULED: { to: "ARRIVED", label: "Patient has arrived" },
   CONFIRMED: { to: "ARRIVED", label: "Patient has arrived" },
   ARRIVED: { to: "IN_CONSULTATION", label: "Start consultation" },
-  IN_CONSULTATION: { to: "COMPLETED", label: "Finish consultation" },
 };
 
 export const STATUS_ACTION_LABEL: Record<AppointmentStatus, string> = {
