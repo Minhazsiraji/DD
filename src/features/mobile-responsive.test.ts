@@ -25,6 +25,20 @@ describe("P0 mobile responsive boundaries", () => {
     expect(card).toContain("w-full min-w-0 sm:w-auto");
   });
 
+  it("stacks every appointment-card action on phones without changing desktop layout", () => {
+    const appointment = source("src/features/appointments/components/appointment-card.tsx");
+
+    expect(appointment).toContain("data-mobile-appointment-actions");
+    expect(appointment).toContain(
+      "w-full min-w-0 shrink-0 flex-col items-stretch gap-2 sm:w-auto sm:flex-row",
+    );
+    expect(appointment).toContain('className="w-full sm:w-auto"');
+    expect(appointment).toContain("h-11 w-full items-center justify-center");
+    expect(appointment).toContain("sm:h-10 sm:w-auto");
+    expect(appointment).toContain("Confirmed by phone");
+    expect(appointment).toContain("They did not come");
+  });
+
   it("keeps every patient timeline filter reachable on narrow screens", () => {
     const timeline = source("src/features/patients/components/patient-timeline.tsx");
     expect(timeline).toContain("data-mobile-timeline-filters");
