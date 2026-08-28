@@ -28,6 +28,12 @@ export interface PublicDoctor {
   specialization: string | null;
   bmdc: string | null;
   slug: string;
+  /**
+   * Optional because the current public RPC deliberately does not expose the
+   * private portrait path. A future hardened RPC may return only a short-lived
+   * signed HTTPS URL under this key; the public avatar component validates it.
+   */
+  photoUrl?: string | null;
   chambers: PublicChamber[];
 }
 
