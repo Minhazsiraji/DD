@@ -31,7 +31,7 @@ export function ReviewSheet({
     >
       <div
         data-review-sheet
-        className="flex min-w-0 w-full flex-col bg-white text-ink shadow-soft ring-1 ring-hairline"
+        className="flex flex-col min-w-0 w-full bg-white text-ink shadow-soft ring-1 ring-hairline"
         style={{
           aspectRatio: `${paper.w} / ${paper.h}`,
           padding: u.mm(view.marginMm),
