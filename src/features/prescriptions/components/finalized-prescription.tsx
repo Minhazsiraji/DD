@@ -59,6 +59,8 @@ export function FinalizedPrescription({
   const view = render.ok ? render.view : null;
   const [signatureUrl, setSignatureUrl] = React.useState<string | null>(null);
   const frozen = view?.signature.kind === "frozen";
+  const digestClass =
+    "mx-auto mt-4 min-w-0 max-w-[820px] break-all font-mono text-[11px] text-ink-muted";
 
   React.useEffect(() => {
     if (!frozen) return;
@@ -118,7 +120,6 @@ export function FinalizedPrescription({
 
         <CorrectionLineage lineage={lineage} unavailable={lineageUnavailable} />
 
-        {/* On a phone these are two deliberate, full-width actions rather than a squeezed row. */}
         <div className="flex min-w-0 flex-col items-stretch gap-2 sm:flex-row sm:items-start sm:gap-3">
           <PrintPrescription prescriptionId={prescriptionId} view={doc} />
           {viewerIsOwner && !lineage?.replacedBy ? (
@@ -127,18 +128,12 @@ export function FinalizedPrescription({
         </div>
       </div>
 
-      {/* The preview stays inside the page; only the print portal uses physical paper dimensions. */}
       <div className="mt-5 min-w-0 overflow-hidden rounded-glass bg-surface-muted px-2 py-4 sm:px-6 sm:py-8">
         <ReviewSheet view={doc} signatureUrl={frozen ? signatureUrl : null} />
       </div>
 
       {viewerIsOwner ? (
-        <p
-          data-print-hidden
-          className="mx-auto mt-4 min-w-0 max-w-[820px] font-mono text-[11px] break-all text-ink-muted"
-        >
-          {digest}
-        </p>
+        <p data-print-hidden className={digestClass}>{digest}</p>
       ) : null}
     </div>
   );
