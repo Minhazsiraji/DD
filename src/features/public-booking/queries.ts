@@ -28,11 +28,7 @@ export interface PublicDoctor {
   specialization: string | null;
   bmdc: string | null;
   slug: string;
-  /**
-   * Optional because the current public RPC deliberately does not expose the
-   * private portrait path. A future hardened RPC may return only a short-lived
-   * signed HTTPS URL under this key; the public avatar component validates it.
-   */
+  /** Only a short-lived signed HTTPS URL. The raw storage object key is never public data. */
   photoUrl?: string | null;
   chambers: PublicChamber[];
 }
@@ -57,6 +53,35 @@ export async function getPublicDoctor(slug: string): Promise<PublicDoctor | null
   const { data, error } = await supabase.rpc("public_doctor_profile", { p_slug: slug });
   if (error || !data) return null;
   return data as unknown as PublicDoctor;
+}
+
+/**
+ * Resolve the public portrait without ever receiving a storage path in this app.
+ * The Edge Function accepts only the public slug, re-checks PUBLIC visibility,
+ * derives the doctor's own fixed portrait path server-side, and returns one
+ * short-lived signed HTTPS URL. Failure is non-fatal: the initials fallback is
+ * the safe presentation state.
+ */
+export async function getPublicDoctorPhotoUrl(slug: string): Promise<string | null> {
+  const normalized = slug.trim().toLowerCase();
+  if (!/^[a-z0-9]([a-z0-9-]{1,38}[a-z0-9])$/.test(normalized)) return null;
+
+  const supabase = await createSupabaseServerClient();
+  const { data, error } = await supabase.functions.invoke("public-doctor-photo", {
+    body: { slug: normalized },
+  });
+  if (error || !data || typeof data !== "object") return null;
+
+  const value = (data as { photoUrl?: unknown }).photoUrl;
+  if (typeof value !== "string") return null;
+
+  try {
+    const url = new URL(value);
+    if (url.protocol !== "https:" || url.username || url.password) return null;
+    return url.toString();
+  } catch {
+    return null;
+  }
 }
 
 export async function getPublicSlots(
