@@ -3,7 +3,10 @@ import { notFound } from "next/navigation";
 import type { Metadata } from "next";
 import { MarketingShell } from "@/components/marketing/marketing-shell";
 import { PublicDoctorAvatar } from "@/features/public-booking/components/public-doctor-avatar";
-import { getPublicDoctor } from "@/features/public-booking/queries";
+import {
+  getPublicDoctor,
+  getPublicDoctorPhotoUrl,
+} from "@/features/public-booking/queries";
 
 const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
@@ -21,12 +24,17 @@ export default async function PublicDoctorPage(props: PageProps<"/dr/[slug]">) {
   const doctor = await getPublicDoctor(slug);
   if (!doctor) notFound();
 
+  // Photo resolution is deliberately separate from the public profile RPC so
+  // no storage key becomes public Postgres data. Failure keeps the initials
+  // fallback instead of making the profile unavailable.
+  const photoUrl = await getPublicDoctorPhotoUrl(slug);
+
   return (
     <MarketingShell>
       <section className="mx-auto min-w-0 max-w-5xl px-4 py-8 sm:px-5 sm:py-12 lg:px-8 lg:py-20">
         <div className="min-w-0 rounded-[2rem] border border-slate-200 bg-white p-5 shadow-sm sm:p-8 lg:p-10">
           <div className="flex min-w-0 flex-col items-center gap-5 text-center sm:flex-row sm:items-center sm:gap-7 sm:text-left">
-            <PublicDoctorAvatar fullName={doctor.fullName} photoUrl={doctor.photoUrl} />
+            <PublicDoctorAvatar fullName={doctor.fullName} photoUrl={photoUrl} />
 
             <div className="min-w-0 flex-1">
               <p className="text-xs font-semibold uppercase tracking-[0.14em] text-teal-700 sm:text-sm sm:tracking-[0.16em]">
@@ -90,7 +98,7 @@ export default async function PublicDoctorPage(props: PageProps<"/dr/[slug]">) {
                 </div>
 
                 {chamber.bookingEnabled && (
-                  <div className="flex min-w-0 items-end md:justify-end">
+                  <div className="flex items-end md:min-w-36 md:justify-end">
                     <Link
                       data-public-chamber-booking-cta
                       data-booking-location={chamber.locationId}
@@ -98,7 +106,6 @@ export default async function PublicDoctorPage(props: PageProps<"/dr/[slug]">) {
                       className="inline-flex min-h-11 w-full items-center justify-center rounded-xl bg-teal-600 px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-teal-700 md:w-auto"
                     >
                       Book Now
-                      <span className="sr-only"> at {chamber.name}</span>
                     </Link>
                   </div>
                 )}
