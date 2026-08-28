@@ -1,0 +1,55 @@
+name: Public Photo Follow-up Gate
+
+on:
+  push:
+    branches:
+      - fix/mobile-responsive-p0
+
+permissions:
+  contents: read
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install
+        run: npm ci
+      - name: Lint
+        run: npm run lint
+      - name: Focused public photo tests
+        run: npx vitest run src/features/public-booking/public-photo-boundary.test.ts src/features/public-booking/public-profile-ui.test.ts src/features/mobile-responsive.test.ts
+      - name: Live public photo broker smoke
+        shell: bash
+        run: |
+          set -euo pipefail
+          endpoint='https://gzpqrxrevnkgdyktgrud.supabase.co/functions/v1/public-doctor-photo'
+          body=$(curl --fail-with-body --silent --show-error -H 'content-type: application/json' --data '{"slug":"dr-siraji"}' "$endpoint")
+          BODY="$body" node - <<'NODE'
+          const body = JSON.parse(process.env.BODY || '{}');
+          if (typeof body.photoUrl !== 'string') throw new Error('public doctor photo URL missing');
+          const url = new URL(body.photoUrl);
+          if (url.protocol !== 'https:') throw new Error('photo URL is not HTTPS');
+          const serialized = JSON.stringify(body);
+          if (serialized.includes('professional_photo_path') || serialized.includes('/photo"')) {
+            throw new Error('raw storage path leaked in payload');
+          }
+          console.log(body.photoUrl);
+          NODE
+          photo=$(BODY="$body" node -e "process.stdout.write(JSON.parse(process.env.BODY).photoUrl)")
+          curl --fail --silent --show-error --output /dev/null "$photo"
+          status=$(curl --silent --output /tmp/missing.json --write-out '%{http_code}' -H 'content-type: application/json' --data '{"slug":"definitely-not-a-real-doctor"}' "$endpoint")
+          test "$status" = '404'
+          grep -q '"photoUrl":null' /tmp/missing.json
+      - name: Full tests
+        run: npm test
+      - name: Build
+        run: npm run build
+      - name: Typecheck
+        run: npm run typecheck
