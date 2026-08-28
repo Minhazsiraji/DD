@@ -61,6 +61,13 @@ $$;
 /**
  * Can the caller reach this patient at all — as owning doctor, or as staff at a
  * location the patient is linked to?
+ *
+ * SUPERSEDED BY `0039_patient_read_isolation.sql`. THE DEFINITION BELOW IS
+ * UNSAFE and is kept only so this file still reads as the history of the
+ * table: it does not constrain the member's ROLE, so a SECOND DOCTOR at the
+ * same location matched it and could read the first doctor's patient. 0039
+ * moves this onto `can_access_patient_as`, which takes an allowlist of
+ * operational roles. Do not copy the predicate below.
  */
 create or replace function public.can_access_patient(target_patient uuid)
 returns boolean
@@ -155,6 +162,10 @@ end $$;
 -- patients
 -- -----------------------------------------------------------------------------
 
+-- SUPERSEDED BY `0039_patient_read_isolation.sql` — the staff branch below
+-- admits ANY active member, including another doctor, which is how one
+-- doctor's patient became readable by another. 0039 restricts it to
+-- operational roles. Do not copy the predicate below.
 drop policy if exists patients_select on public.patients;
 create policy patients_select
   on public.patients for select to authenticated
