@@ -8,24 +8,8 @@ import { requestGuardedNavigation } from "./unsaved-guard";
 import { finishConsultationAction } from "../actions";
 
 /**
- * Ending the visit.
- *
- * `close_encounter` has existed since Stage 6 and nothing called it. The
- * appointment screen's "Finish consultation" completes the APPOINTMENT — a
- * different record — so a doctor could write the notes, the diagnosis and a
- * signed prescription, print it, and the encounter stayed DRAFT for ever. The
- * patient's own timeline then said "Consultation in progress" about a visit
- * that had obviously ended.
- *
- * It sits at the END of the consultation, after prescribing, because that is
- * where the visit actually finishes.
- *
- * NOT triggered by finalising a prescription. A doctor often signs the
- * prescription and then adds a last line to the notes; closing the visit
- * underneath them would be the software deciding the consultation is over.
- *
- * Two steps, like every other terminal action here: after this the notes are
- * read-only, and a single mis-click should not end a consultation.
+ * Ending the visit. The clinical authority remains `finishConsultationAction`;
+ * this component only controls presentation and explicit confirmation.
  */
 export function FinishConsultation({
   encounterId,
@@ -34,7 +18,6 @@ export function FinishConsultation({
 }: {
   encounterId: string;
   version: number;
-  /** Notes typed but not saved. Closing now would strand them. */
   unsaved: boolean;
 }) {
   const router = useRouter();
@@ -50,11 +33,6 @@ export function FinishConsultation({
     const result = await finishConsultationAction({ encounterId, expectedVersion: version });
 
     if (result.ok) {
-      /**
-       * Through the guard, not `router.push`: a bare push bypasses the unsaved
-       * check silently. Nothing should be unsaved by now — the button refuses
-       * while anything is — but the guard is the rule for this screen.
-       */
       requestGuardedNavigation(
         () => {
           router.refresh();
@@ -70,45 +48,48 @@ export function FinishConsultation({
   }
 
   return (
-    <SectionCard>
-      <div className="space-y-3 p-4 sm:p-5">
-        <div>
+    <SectionCard className="min-w-0">
+      <div className="min-w-0 space-y-3 p-4 sm:p-5">
+        <div className="min-w-0">
           <h2 className="text-[15px] font-semibold text-ink">Finished with this patient?</h2>
-          <p className="mt-0.5 text-[13px] text-ink-secondary">
+          <p className="mt-0.5 break-words text-[13px] text-ink-secondary">
             Closing the visit puts it in the patient&rsquo;s history as seen. The notes become
             read-only; any prescription you have already signed is unaffected.
           </p>
         </div>
 
         {unsaved ? (
-          <p className="flex items-start gap-2 rounded-xl bg-warning-soft px-3 py-2 text-[13px] font-medium text-ink">
+          <p className="flex min-w-0 items-start gap-2 rounded-xl bg-warning-soft px-3 py-2 text-[13px] font-medium text-ink">
             <CircleAlert className="mt-px size-4 shrink-0 text-warning" aria-hidden="true" />
-            Save your notes first — closing the visit now would leave them unsaved.
+            <span className="min-w-0 break-words">Save your notes first — closing the visit now would leave them unsaved.</span>
           </p>
         ) : null}
 
         {error ? (
           <p
             role="alert"
-            className="flex items-start gap-2 rounded-xl bg-danger-soft px-3 py-2 text-[13px] font-medium text-[#a81c1c]"
+            className="flex min-w-0 items-start gap-2 rounded-xl bg-danger-soft px-3 py-2 text-[13px] font-medium text-[#a81c1c]"
           >
             <CircleAlert className="mt-px size-4 shrink-0" aria-hidden="true" />
-            {error}
+            <span className="min-w-0 break-words">{error}</span>
           </p>
         ) : null}
 
         {confirming ? (
-          <div className="rounded-xl border border-hairline bg-surface-muted/60 p-3 sm:p-4">
+          <div
+            data-mobile-finish-confirmation
+            className="min-w-0 rounded-xl border border-hairline bg-surface-muted/60 p-3 sm:p-4"
+          >
             <p className="text-[15px] font-semibold text-ink">Finish this consultation?</p>
-            <p className="mt-1 text-[13px] text-ink-secondary">
+            <p className="mt-1 break-words text-[13px] text-ink-secondary">
               The visit is recorded as seen and the notes can no longer be edited.
             </p>
-            <div className="mt-3 flex flex-wrap gap-2">
+            <div className="mt-3 flex min-w-0 flex-col gap-2 sm:flex-row sm:flex-wrap">
               <button
                 type="button"
                 onClick={() => void finish()}
                 disabled={busy}
-                className="inline-flex h-11 items-center justify-center gap-1.5 rounded-xl bg-brand px-4 text-[13px] font-semibold text-white shadow-soft transition-colors hover:bg-brand-hover disabled:cursor-not-allowed disabled:opacity-55 focus-visible:focus-ring"
+                className="inline-flex min-h-11 w-full items-center justify-center gap-1.5 rounded-xl bg-brand px-4 text-[13px] font-semibold text-white shadow-soft transition-colors hover:bg-brand-hover disabled:cursor-not-allowed disabled:opacity-55 focus-visible:focus-ring sm:w-auto"
               >
                 {busy ? (
                   <Loader2 className="size-4 animate-spin" aria-hidden="true" />
@@ -121,7 +102,7 @@ export function FinishConsultation({
                 type="button"
                 onClick={() => setConfirming(false)}
                 disabled={busy}
-                className="inline-flex h-11 items-center justify-center rounded-xl border border-hairline bg-white px-4 text-[13px] font-semibold text-ink hover:bg-surface-muted disabled:opacity-55 focus-visible:focus-ring"
+                className="inline-flex min-h-11 w-full items-center justify-center rounded-xl border border-hairline bg-white px-4 text-[13px] font-semibold text-ink hover:bg-surface-muted disabled:opacity-55 focus-visible:focus-ring sm:w-auto"
               >
                 Keep it open
               </button>
@@ -132,7 +113,7 @@ export function FinishConsultation({
             type="button"
             onClick={() => setConfirming(true)}
             disabled={unsaved}
-            className="inline-flex h-11 items-center justify-center gap-1.5 rounded-xl bg-brand px-4 text-[13px] font-semibold text-white shadow-soft transition-colors hover:bg-brand-hover disabled:cursor-not-allowed disabled:opacity-55 focus-visible:focus-ring"
+            className="inline-flex min-h-11 w-full items-center justify-center gap-1.5 rounded-xl bg-brand px-4 text-[13px] font-semibold text-white shadow-soft transition-colors hover:bg-brand-hover disabled:cursor-not-allowed disabled:opacity-55 focus-visible:focus-ring sm:w-auto"
           >
             <CheckCircle2 className="size-4" aria-hidden="true" />
             Finish consultation
