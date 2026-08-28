@@ -21,13 +21,13 @@ export function TopBar({ doctorName, locations, activeLocationId }: TopBarProps)
   return (
     <header
       data-print-hidden
-      className="glass sticky top-0 z-30 border-b border-glass-border"
+      className="glass sticky top-0 z-30 min-w-0 border-b border-glass-border"
     >
-      <div className="flex h-16 items-center gap-2 px-4 sm:gap-3 sm:px-6">
+      <div className="flex h-16 min-w-0 items-center gap-1.5 px-3 sm:gap-3 sm:px-6">
         {/* Brand — mobile only; the sidebar carries it from lg up. */}
         <Link
           href="/dashboard"
-          className="flex items-center gap-2 rounded-lg lg:hidden focus-visible:focus-ring"
+          className="flex shrink-0 items-center gap-2 rounded-lg lg:hidden focus-visible:focus-ring"
         >
           <IconOrb accent="brand" size="md">
             <Stethoscope className="size-[18px]" />
@@ -46,7 +46,7 @@ export function TopBar({ doctorName, locations, activeLocationId }: TopBarProps)
           <label htmlFor="global-search" className="sr-only">
             Search patients by name, phone or patient number
           </label>
-          <div className="relative">
+          <div className="relative min-w-0">
             <Search
               className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-ink-muted"
               aria-hidden="true"
@@ -55,7 +55,7 @@ export function TopBar({ doctorName, locations, activeLocationId }: TopBarProps)
               id="global-search"
               type="search"
               placeholder="Search patients…"
-              className="h-10 w-full rounded-xl border border-hairline bg-white/80 pr-3 pl-9 text-sm text-ink placeholder:text-ink-muted focus-visible:focus-ring sm:max-w-md"
+              className="h-10 min-w-0 w-full rounded-xl border border-hairline bg-white/80 pr-2 pl-9 text-sm text-ink placeholder:text-ink-muted focus-visible:focus-ring sm:max-w-md sm:pr-3"
             />
           </div>
         </div>
@@ -70,26 +70,18 @@ export function TopBar({ doctorName, locations, activeLocationId }: TopBarProps)
 
         <QuickActionMenu variant="button" className="hidden sm:inline-flex" />
 
-        {/*
-          No unread marker until there is something to be unread.
-
-          This said "Notifications, 3 unread" and wore a permanent red dot, both
-          written as Phase-1 decoration. There is no notifications feature yet,
-          so the three were never real — and a screen reader announced them as
-          fact on every screen. Same defect as the sidebar's 7 and 24: a count
-          nobody can act on, that never changes, and that is simply untrue.
-        */}
+        {/* Secondary chrome disappears first on a phone; search keeps the room. */}
         <button
           type="button"
           aria-label="Notifications"
-          className="relative flex size-10 shrink-0 items-center justify-center rounded-xl text-ink-secondary transition-colors hover:bg-white/70 focus-visible:focus-ring"
+          className="relative hidden size-10 shrink-0 items-center justify-center rounded-xl text-ink-secondary transition-colors hover:bg-white/70 focus-visible:focus-ring sm:flex"
         >
           <Bell className="size-5" aria-hidden="true" />
         </button>
 
-        <div className="flex shrink-0 items-center gap-2">
+        <div className="flex shrink-0 items-center gap-1 sm:gap-2">
           <span
-            className="flex size-9 items-center justify-center rounded-full bg-brand-soft text-[13px] font-semibold text-brand"
+            className="hidden size-9 items-center justify-center rounded-full bg-brand-soft text-[13px] font-semibold text-brand sm:flex"
             aria-hidden="true"
           >
             {initials(doctorName)}
@@ -108,7 +100,7 @@ export function TopBar({ doctorName, locations, activeLocationId }: TopBarProps)
               type="submit"
               aria-label="Sign out"
               title="Sign out"
-              className="flex size-9 items-center justify-center rounded-xl text-ink-secondary transition-colors hover:bg-white/70 hover:text-ink focus-visible:focus-ring"
+              className="flex size-10 items-center justify-center rounded-xl text-ink-secondary transition-colors hover:bg-white/70 hover:text-ink focus-visible:focus-ring sm:size-9"
             >
               <LogOut className="size-4" aria-hidden="true" />
             </button>
@@ -118,6 +110,3 @@ export function TopBar({ doctorName, locations, activeLocationId }: TopBarProps)
     </header>
   );
 }
-
-
-
