@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
-import { ArrowLeft, CloudOff, ImageOff, Lock } from "lucide-react";
+import { ArrowLeft, CloudOff, ImageOff, Lock, TriangleAlert } from "lucide-react";
 import { requireLocationContext } from "@/lib/auth/session";
 import { translateRxError } from "@/features/prescriptions/errors";
 import {
@@ -106,15 +106,60 @@ export default async function ReviewPage({
   if (!outcome.ok) notFound();
 
   const templates = await getSelectableTemplates(ctx.locationId);
+  const patient = detail.prescription.patient;
+  const allergies = patient.allergies.map((allergy) => allergy.substance);
+  const conditions = patient.conditions.map((condition) => condition.condition);
 
   return (
-    <ReviewScreen
-      prescriptionId={prescriptionId}
-      encounterId={detail.prescription.encounterId}
-      initialReview={outcome.review}
-      templates={templates}
-      initialTemplateId={null}
-    />
+    <div className="space-y-4">
+      {/*
+        Live patient safety context, deliberately OUTSIDE the canonical review
+        bundle. It does not print and does not participate in the reviewed
+        digest; it is a guardrail around the approval decision. Keeping it
+        sticky means the doctor cannot lose the allergy while scrolling through
+        an A4 preview to the irreversible Finalize control.
+      */}
+      <section
+        data-prescription-review-safety-context
+        aria-label="Patient safety context"
+        className="clinical-surface sticky top-2 z-20 min-w-0 rounded-glass border-l-4 border-l-danger px-4 py-3 shadow-soft"
+      >
+        <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
+          <div className="min-w-0">
+            {allergies.length > 0 ? (
+              <p className="flex min-w-0 items-start gap-2 break-words text-[13px] font-semibold text-[#a81c1c]">
+                <TriangleAlert className="mt-px size-4 shrink-0" aria-hidden="true" />
+                <span>
+                  <strong className="font-bold uppercase">Allergy:</strong>{" "}
+                  {allergies.join(", ")}
+                </span>
+              </p>
+            ) : (
+              <p className="text-[13px] font-medium text-ink-secondary">
+                No known drug allergies recorded
+              </p>
+            )}
+            {conditions.length > 0 ? (
+              <p className="mt-1 break-words text-[12px] text-ink-secondary">
+                <strong className="font-semibold text-ink">Conditions:</strong>{" "}
+                {conditions.join(" · ")}
+              </p>
+            ) : null}
+          </div>
+          <p className="shrink-0 text-[11px] text-ink-muted sm:text-right">
+            Patient safety · review only · not printed
+          </p>
+        </div>
+      </section>
+
+      <ReviewScreen
+        prescriptionId={prescriptionId}
+        encounterId={detail.prescription.encounterId}
+        initialReview={outcome.review}
+        templates={templates}
+        initialTemplateId={null}
+      />
+    </div>
   );
 }
 
