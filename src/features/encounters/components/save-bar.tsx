@@ -7,22 +7,9 @@ import { formatInstantTime } from "@/lib/format";
 import type { SaveState } from "../use-draft";
 
 /**
- * The save state, said out loud.
- *
- * This bar exists because the alternative — a screen that looks the same
- * whether or not the work is stored — is the single most dangerous thing a
- * clinical editor can do. Every state below is distinguishable by ICON AND
- * TEXT, never by colour alone, and none of them lies:
- *
- *   clean     nothing to save, and we mean it
- *   dirty     changes exist only on this screen
- *   saving    in flight; not yet stored
- *   saved     stored, with the time it happened
- *   error     not stored, and the text is still here
- *   conflict  not stored, and there is a decision to make
- *
- * "Saved" is never shown optimistically. It appears only after the database
- * returns a new version.
+ * The save state, said out loud. The bar remains sticky rather than fixed, so
+ * the mobile visual viewport/keyboard can move it without a second overlay
+ * fighting the browser keyboard.
  */
 export function SaveBar({
   state,
@@ -40,26 +27,23 @@ export function SaveBar({
   return (
     <div
       data-print-hidden
-      className="glass-strong sticky bottom-0 z-30 -mx-4 mt-4 flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-t border-glass-border px-4 py-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] sm:-mx-6 sm:px-6"
+      data-mobile-save-bar
+      className="glass-strong sticky bottom-0 z-30 -mx-4 mt-4 flex min-w-0 flex-col items-stretch gap-2 border-t border-glass-border px-4 py-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] sm:-mx-6 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:gap-x-4 sm:px-6"
     >
-      {/*
-        aria-live so a screen-reader user hears the outcome. polite, not
-        assertive: it must not interrupt someone mid-sentence in a note.
-      */}
       <p
         role="status"
         aria-live="polite"
-        className={cn("flex min-w-0 items-center gap-2 text-[13px] font-medium", status.tone)}
+        className={cn("flex min-w-0 items-start gap-2 text-[13px] font-medium sm:items-center", status.tone)}
       >
         {status.icon}
-        <span className="min-w-0">{status.text}</span>
+        <span className="min-w-0 break-words">{status.text}</span>
       </p>
 
       <button
         type="button"
         onClick={onSave}
         disabled={disabled}
-        className="inline-flex h-11 shrink-0 items-center justify-center gap-1.5 rounded-xl bg-brand px-4 text-[13px] font-semibold text-white shadow-soft transition-[background-color,transform] duration-200 hover:bg-brand-hover active:scale-[0.985] disabled:cursor-not-allowed disabled:opacity-55 motion-reduce:active:scale-100 focus-visible:focus-ring"
+        className="inline-flex min-h-11 w-full shrink-0 items-center justify-center gap-1.5 rounded-xl bg-brand px-4 text-[13px] font-semibold text-white shadow-soft transition-[background-color,transform] duration-200 hover:bg-brand-hover active:scale-[0.985] disabled:cursor-not-allowed disabled:opacity-55 motion-reduce:active:scale-100 focus-visible:focus-ring sm:w-auto"
       >
         {state.kind === "saving" ? (
           <>
@@ -75,14 +59,6 @@ export function SaveBar({
 }
 
 function describe(state: SaveState, dirtyCount: number) {
-  /**
-   * A last guard, deliberately duplicating the hook's rule.
-   *
-   * "Saved" alongside unsaved changes is the most dangerous sentence this bar
-   * can produce — a doctor who reads it walks away from work that is only on
-   * this screen. The state machine already refuses to emit it; this makes the
-   * bar incapable of rendering it even if that ever regresses.
-   */
   if (state.kind === "saved" && dirtyCount > 0) {
     return describe({ kind: "dirty" }, dirtyCount);
   }
@@ -90,31 +66,31 @@ function describe(state: SaveState, dirtyCount: number) {
   switch (state.kind) {
     case "saving":
       return {
-        icon: <Loader2 className="size-4 shrink-0 animate-spin" aria-hidden="true" />,
+        icon: <Loader2 className="mt-px size-4 shrink-0 animate-spin sm:mt-0" aria-hidden="true" />,
         text: "Saving…",
         tone: "text-ink-secondary",
       };
     case "saved":
       return {
-        icon: <Check className="size-4 shrink-0" aria-hidden="true" />,
+        icon: <Check className="mt-px size-4 shrink-0 sm:mt-0" aria-hidden="true" />,
         text: `Saved at ${formatInstantTime(state.at)}`,
         tone: "text-success",
       };
     case "error":
       return {
-        icon: <CircleAlert className="size-4 shrink-0" aria-hidden="true" />,
+        icon: <CircleAlert className="mt-px size-4 shrink-0 sm:mt-0" aria-hidden="true" />,
         text: state.message,
         tone: "text-danger",
       };
     case "conflict":
       return {
-        icon: <TriangleAlert className="size-4 shrink-0" aria-hidden="true" />,
+        icon: <TriangleAlert className="mt-px size-4 shrink-0 sm:mt-0" aria-hidden="true" />,
         text: "Not saved — choose which version to keep.",
         tone: "text-warning",
       };
     case "dirty":
       return {
-        icon: <Pencil className="size-4 shrink-0" aria-hidden="true" />,
+        icon: <Pencil className="mt-px size-4 shrink-0 sm:mt-0" aria-hidden="true" />,
         text:
           dirtyCount === 1
             ? "1 unsaved change on this screen"
@@ -123,7 +99,7 @@ function describe(state: SaveState, dirtyCount: number) {
       };
     default:
       return {
-        icon: <Check className="size-4 shrink-0" aria-hidden="true" />,
+        icon: <Check className="mt-px size-4 shrink-0 sm:mt-0" aria-hidden="true" />,
         text: "No unsaved changes",
         tone: "text-ink-muted",
       };

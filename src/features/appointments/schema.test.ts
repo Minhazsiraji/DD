@@ -66,14 +66,33 @@ describe("the state machine", () => {
     }
   });
 
-  it("offers a primary action only where one exists", () => {
+  it("every primary action it does offer is a legal transition", () => {
     for (const status of APPOINTMENT_STATUSES) {
       const action = PRIMARY_ACTION[status];
-      if (!action) {
-        expect(isTerminal(status)).toBe(true);
-        continue;
-      }
-      expect(canTransition(status, action.to)).toBe(true);
+      if (action) expect(canTransition(status, action.to)).toBe(true);
+    }
+  });
+
+  /**
+   * C-006. This map used to carry `IN_CONSULTATION -> COMPLETED` under the
+   * label "Finish consultation", and pressing it completed the APPOINTMENT
+   * alone: the patient left the live queue, the day moved on, and the encounter
+   * stayed DRAFT with nothing on any screen looking wrong. Reception and the
+   * location admin could press it too.
+   *
+   * Finishing a visit closes the notes and the appointment together, so it
+   * belongs on the consultation screen and nowhere else.
+   */
+  it("offers NO primary action for a consultation in progress", () => {
+    expect(PRIMARY_ACTION.IN_CONSULTATION).toBeUndefined();
+  });
+
+  it("…and the only statuses without one are terminal, or that one", () => {
+    // Keeps the absence deliberate: a future status that quietly loses its
+    // action fails here rather than becoming a dead end on the desk.
+    for (const status of APPOINTMENT_STATUSES) {
+      if (PRIMARY_ACTION[status]) continue;
+      expect(isTerminal(status) || status === "IN_CONSULTATION", status).toBe(true);
     }
   });
 });

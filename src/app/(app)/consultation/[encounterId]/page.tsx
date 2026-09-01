@@ -1,10 +1,18 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ArrowLeft, CloudOff, MapPinOff } from "lucide-react";
+import { ArrowLeft, CloudOff, FileText, MapPinOff } from "lucide-react";
 import { requireLocationContext } from "@/lib/auth/session";
 import { getConsultation } from "@/features/encounters/queries";
-import { getPreviousVisit, getVisitType } from "@/features/encounters/previous-visit";
+import {
+  getEncounterFinalizedPrescription,
+  getPreviousVisit,
+  getVisitType,
+} from "@/features/encounters/previous-visit";
+import {
+  safeConsultationReturn,
+  withConsultationReturn,
+} from "@/features/encounters/return-context";
 import { opensPreviousVisit } from "@/features/encounters/visit-type";
 import { ConsultationWorkspace } from "@/features/encounters/components/consultation-workspace";
 import { getRxModulesAction } from "@/features/doctor/rx-module-actions";
@@ -12,28 +20,20 @@ import { getRxModulesAction } from "@/features/doctor/rx-module-actions";
 export const metadata: Metadata = { title: "Consultation" };
 
 /**
- * The consultation screen.
- *
- * Reached by id, and the id alone proves nothing — RLS decides whether this
- * doctor may read the row at all, and the save RPC re-checks the location on
- * every write. Nothing here is a security boundary; it is presentation over a
- * boundary that already exists.
+ * One consultation. Historical records may be opened from today's visit with a
+ * tightly allow-listed `returnTo` path so the doctor can inspect old notes/Rx
+ * and get back to the unfinished current consultation without browser history.
  */
 export default async function ConsultationPage({
   params,
+  searchParams,
 }: PageProps<"/consultation/[encounterId]">) {
   const { encounterId } = await params;
+  const query = await searchParams;
+  const returnTo = safeConsultationReturn(query.returnTo);
   const ctx = await requireLocationContext();
   const outcome = await getConsultation(encounterId, ctx.locationId);
 
-  /**
-   * Belongs to them, but not to here.
-   *
-   * Fail closed: no identity strip, no editable notes, no save attempt. The
-   * doctor is told which location to switch to, because they already have
-   * access to it — withholding the name would leave them stuck rather than
-   * safe. The RPC's own location check remains the final boundary.
-   */
   if (!outcome.ok && outcome.reason === "wrong-location") {
     const home = ctx.memberships.find((m) => m.locationId === outcome.locationId);
     return (
@@ -57,24 +57,16 @@ export default async function ConsultationPage({
           happened.
         </p>
         <Link
-          href="/queue"
+          href={returnTo ?? "/queue"}
           className="mt-5 inline-flex h-11 items-center justify-center gap-1.5 rounded-xl border border-hairline bg-white px-4 text-[13px] font-semibold text-ink hover:bg-surface-muted focus-visible:focus-ring"
         >
           <ArrowLeft className="size-4" aria-hidden="true" />
-          Back to the queue
+          {returnTo ? "Return to current consultation" : "Back to the queue"}
         </Link>
       </div>
     );
   }
 
-  /**
-   * "We could not read it" is NOT "it does not exist".
-   *
-   * Telling a doctor the consultation is gone when the database is merely
-   * unreachable invites them to start a second one and write into it — the
-   * visit ends up split across two half-records. So the two outcomes get two
-   * different screens, and only one of them is a 404.
-   */
   if (!outcome.ok && outcome.reason === "unavailable") {
     return (
       <div className="mx-auto max-w-md py-16 text-center">
@@ -87,11 +79,11 @@ export default async function ConsultationPage({
           consultation for this patient; try again in a moment so their notes stay in one place.
         </p>
         <Link
-          href="/queue"
+          href={returnTo ?? "/queue"}
           className="mt-5 inline-flex h-11 items-center justify-center gap-1.5 rounded-xl border border-hairline bg-white px-4 text-[13px] font-semibold text-ink hover:bg-surface-muted focus-visible:focus-ring"
         >
           <ArrowLeft className="size-4" aria-hidden="true" />
-          Back to the queue
+          {returnTo ? "Return to current consultation" : "Back to the queue"}
         </Link>
       </div>
     );
@@ -99,39 +91,56 @@ export default async function ConsultationPage({
 
   if (!outcome.ok) notFound();
 
-  /**
-   * The previous visit, and whether to open it on arrival.
-   *
-   * Read here rather than in the client so it goes through RLS — which already
-   * scopes encounters to `owner_doctor_id = current_doctor_id()`, and therefore
-   * to this doctor's own records across their own locations and nobody else's.
-   *
-   * Neither read can block the consultation: `getPreviousVisit` returns null on
-   * failure, because today's notes matter more than last month's context.
-   */
-  const [previousVisit, visitType, modules] = await Promise.all([
+  const [previousVisit, visitType, modules, encounterPrescription] = await Promise.all([
     getPreviousVisit(outcome.consultation.patient.id, encounterId),
     getVisitType(outcome.consultation.appointmentId),
-    /**
-     * The doctor's own section configuration, through the same trusted identity
-     * boundary as everything else — `doctor_rx_modules()` resolves the doctor
-     * from `auth.uid()` and no id is passed.
-     *
-     * A failed read shows EVERY section. It must never be the reason a doctor
-     * cannot see a field: the cost of showing one they had turned off is a
-     * moment's confusion, and the cost of hiding one is clinical text they
-     * cannot reach.
-     */
     getRxModulesAction(),
+    outcome.consultation.status === "DRAFT"
+      ? Promise.resolve(null)
+      : getEncounterFinalizedPrescription(outcome.consultation.patient.id, encounterId),
   ]);
 
   return (
-    <ConsultationWorkspace
-      consultation={outcome.consultation}
-      locationName={ctx.locationName}
-      previousVisit={previousVisit}
-      expandPreviousVisit={opensPreviousVisit(visitType)}
-      moduleConfig={modules.ok ? modules.modules : null}
-    />
+    <div className="space-y-3">
+      {returnTo ? (
+        <Link
+          href={returnTo}
+          className="inline-flex min-h-11 items-center gap-1.5 rounded-xl border border-hairline bg-white px-3.5 text-[13px] font-semibold text-ink hover:bg-surface-muted focus-visible:focus-ring"
+        >
+          <ArrowLeft className="size-4" aria-hidden="true" />
+          Return to current consultation
+        </Link>
+      ) : null}
+
+      {encounterPrescription ? (
+        <div className="clinical-surface flex min-w-0 flex-col gap-2 rounded-glass px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="min-w-0">
+            <p className="text-[13px] font-semibold text-ink">Prescription from this consultation</p>
+            <p className="text-[12px] text-ink-secondary">
+              {encounterPrescription.medicineCount}{" "}
+              {encounterPrescription.medicineCount === 1 ? "medicine" : "medicines"} · finalized
+            </p>
+          </div>
+          <Link
+            href={withConsultationReturn(
+              `/prescription/${encounterPrescription.id}`,
+              returnTo,
+            )}
+            className="inline-flex min-h-11 w-full items-center justify-center gap-1.5 rounded-xl border border-hairline bg-white px-3.5 text-[13px] font-semibold text-ink hover:bg-surface-muted focus-visible:focus-ring sm:w-auto"
+          >
+            <FileText className="size-4" aria-hidden="true" />
+            Open prescription
+          </Link>
+        </div>
+      ) : null}
+
+      <ConsultationWorkspace
+        consultation={outcome.consultation}
+        locationName={ctx.locationName}
+        previousVisit={previousVisit}
+        expandPreviousVisit={opensPreviousVisit(visitType)}
+        moduleConfig={modules.ok ? modules.modules : null}
+      />
+    </div>
   );
 }

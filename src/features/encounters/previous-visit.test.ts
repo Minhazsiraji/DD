@@ -58,35 +58,38 @@ describe("which visit is shown", () => {
   });
 });
 
-describe("authorisation is RLS, and this file does not widen it", () => {
-  it("never takes a doctor id from anywhere — the policy supplies it", async () => {
+describe("authorisation stays on the existing clinical read boundaries", () => {
+  it("never takes a doctor id from anywhere — the policy/RPC supplies it", async () => {
     /**
-     * `encounters_select` is `owner_doctor_id = current_doctor_id()`, so the
-     * query returns this doctor's own encounters across their own locations and
-     * nobody else's. A colleague gets nothing; reception and a location admin
-     * have no `current_doctor_id()` at all.
-     *
-     * A `doctorId` parameter here would be a browser-supplied identity on a
-     * clinical read — the exact shape of the trust-boundary defect this project
-     * has already fixed once.
+     * `encounters_select` is `owner_doctor_id = current_doctor_id()`, and the
+     * prescription history RPC resolves the current doctor internally. A
+     * browser-supplied doctor id would reopen the exact trust-boundary defect
+     * this project has already closed elsewhere.
      */
     const src = await read(QUERY);
     expect(src).not.toMatch(/doctorId|owner_doctor_id|ownerDoctorId/);
     expect(src).not.toMatch(/service|admin|SERVICE_ROLE/i);
   });
 
-  it("reads the previous prescription from its own immutable snapshot", async () => {
+  it("reads the previous finalized prescription through the doctor-owned history RPC", async () => {
     /**
-     * Never rebuilt from today's template, today's doctor profile or the live
-     * `prescription_items` — a corrected prescription that had rows removed
-     * would otherwise report a count that never printed.
+     * Direct authenticated SELECT on prescription tables is deliberately
+     * revoked. Returning-visit context must therefore reuse the existing
+     * doctor-only ownership RPC instead of widening grants or silently losing
+     * the prescription.
      */
     const src = await read(QUERY);
-    expect(src).toMatch(/review_bundle_snapshot/);
-    expect(src).toMatch(/\.eq\("status", "FINALIZED"\)/);
+    expect(src).toMatch(/rpc\("patient_prescription_history"/);
+    expect(src).toMatch(/p_patient_id: patientId/);
+    expect(src).toMatch(/row\.encounter_id === encounterId/);
+    expect(src).not.toMatch(/\.from\("prescriptions"\)/);
   });
 
-  it("never reads or shows why a prescription was corrected", async () => {
+  it("prefers the current correction leaf and never reads why it was corrected", async () => {
+    const src = await read(QUERY);
+    expect(src).toMatch(/candidate\.superseded_by === null/);
+    expect(src).toMatch(/superseded_by/);
+
     /**
      * That one was superseded is operational and safe to show. WHY is clinical
      * and belongs to the correction record alone.

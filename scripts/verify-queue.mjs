@@ -429,8 +429,28 @@ try {
         "the patient with the doctor is first on the screen",
       );
 
-      await tx`select public.set_appointment_status(${made[1]},
-                 'COMPLETED'::public.appointment_status, null, null)`;
+      /**
+       * C-006. The desk's API no longer completes a consultation for anyone —
+       * that was the bypass that emptied the queue while the encounter stayed
+       * DRAFT.
+       */
+      const bypass = await expectDenied(tx, async (t) => {
+        await t`select public.set_appointment_status(${made[1]},
+                  'COMPLETED'::public.appointment_status, null, null)`;
+      });
+      check(bypass, "the desk's API cannot finish a consultation");
+    });
+
+    /**
+     * Completed as the script's own role, through the internal writer that
+     * `authenticated` cannot reach — standing in for `finish_consultation`,
+     * because what this section tests is the QUEUE's reaction to a completed
+     * appointment, not who is allowed to complete one.
+     */
+    await tx`select public.apply_appointment_status(${made[1]},
+               'COMPLETED'::public.appointment_status, null, null, true)`;
+
+    await as(tx, uidA, async () => {
       const q2 = await tx`select * from public.get_queue(${hospital.id}, ${session}::date)`;
       check(
         !q2.some((r) => r.appointment_id === made[1]),

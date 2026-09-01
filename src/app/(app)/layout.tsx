@@ -82,7 +82,7 @@ export default async function AppLayout({ children }: LayoutProps<"/">) {
   const navCounts = await getNavCounts(activeLocationId);
 
   return (
-    <div className="flex min-h-dvh">
+    <div className="flex min-h-dvh min-w-0 overflow-x-clip">
       <DesktopSidebar counts={navCounts} />
 
       <div className="flex min-w-0 flex-1 flex-col">
@@ -94,7 +94,7 @@ export default async function AppLayout({ children }: LayoutProps<"/">) {
 
         <main
           id="main"
-          className="mx-auto w-full max-w-[1400px] flex-1 px-4 py-5 pb-[calc(76px+env(safe-area-inset-bottom))] sm:px-6 sm:py-6 lg:pb-8"
+          className="mx-auto min-w-0 w-full max-w-[1400px] flex-1 overflow-x-clip px-4 py-5 pb-[calc(76px+env(safe-area-inset-bottom))] sm:px-6 sm:py-6 lg:pb-8"
         >
           {children}
         </main>
@@ -106,5 +106,3 @@ export default async function AppLayout({ children }: LayoutProps<"/">) {
     </div>
   );
 }
-
-

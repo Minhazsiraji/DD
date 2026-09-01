@@ -26,7 +26,6 @@ const ICON: Record<TimelineEventType, React.ReactNode> = {
   followup: <CalendarClock className="size-4" />,
 };
 
-/** "appointments and prescriptions" — named, so the doctor knows what is absent. */
 function listSources(names: string[]): string {
   if (names.length === 1) return names[0]!;
   return `${names.slice(0, -1).join(", ")} and ${names.at(-1)}`;
@@ -42,14 +41,6 @@ function formatWhen(iso: string): string {
   }).format(d);
 }
 
-/**
- * The patient's one continuous timeline, across every practice location.
- *
- * Filters for modules that do not exist yet still render — but say so plainly.
- * Showing an empty list for "Prescriptions" would read as "this patient has
- * never been prescribed anything", which is a clinically misleading thing to
- * imply.
- */
 export function PatientTimeline({
   patientId,
   events,
@@ -60,12 +51,6 @@ export function PatientTimeline({
 }: {
   patientId: string;
   events: TimelineEvent[];
-  /**
-   * History sources that failed to load. A doctor cannot tell "no
-   * prescriptions" from "prescriptions could not be read", and on a clinical
-   * history those mean opposite things — so an incomplete timeline says so
-   * instead of quietly looking complete.
-   */
   missing: string[];
   activeType: TimelineEventType | "all";
   activeLocationId: string | "all";
@@ -78,28 +63,31 @@ export function PatientTimeline({
     activeType !== "all" && !TIMELINE_AVAILABLE[activeType];
 
   return (
-    <SectionCard id="timeline" className="overflow-hidden">
+    <SectionCard id="timeline" className="min-w-0 overflow-hidden">
       <SectionHeader title="Timeline" icon={<History className="size-4" />} />
 
-      {/*
-        Shown ABOVE the events, because a warning underneath a list a doctor has
-        already read and acted on is not a warning.
-      */}
       {missing.length > 0 ? (
         <p
           role="alert"
-          className="flex items-start gap-2 border-b border-hairline bg-danger-soft px-4 py-3 text-[13px] font-medium text-[#a81c1c] sm:px-5"
+          className="flex min-w-0 items-start gap-2 border-b border-hairline bg-danger-soft px-4 py-3 text-[13px] font-medium text-[#a81c1c] sm:px-5"
         >
           <CircleAlert className="mt-px size-4 shrink-0" aria-hidden="true" />
-          <span>
+          <span className="min-w-0 break-words">
             This history is incomplete — {listSources(missing)} could not be loaded. Do not rely on
             it until the page has been reloaded successfully.
           </span>
         </p>
       ) : null}
 
-      <div className="space-y-3 border-b border-hairline p-4 sm:p-5">
-        <div className="-mx-1 flex gap-1.5 overflow-x-auto px-1 pb-1">
+      <div className="min-w-0 space-y-3 border-b border-hairline p-4 sm:p-5">
+        {/*
+          At phone widths the chips wrap so none can disappear beyond the
+          viewport. From sm upward they become a compact horizontal scroller.
+        */}
+        <div
+          data-mobile-timeline-filters
+          className="flex min-w-0 flex-wrap gap-1.5 sm:-mx-1 sm:flex-nowrap sm:overflow-x-auto sm:px-1 sm:pb-1"
+        >
           <FilterChip href={href("all", activeLocationId)} active={activeType === "all"}>
             All
           </FilterChip>
@@ -116,7 +104,7 @@ export function PatientTimeline({
         </div>
 
         {locations.length > 1 ? (
-          <div className="-mx-1 flex gap-1.5 overflow-x-auto px-1 pb-1">
+          <div className="flex min-w-0 flex-wrap gap-1.5 sm:-mx-1 sm:flex-nowrap sm:overflow-x-auto sm:px-1 sm:pb-1">
             <FilterChip href={href(activeType, "all")} active={activeLocationId === "all"}>
               <MapPin className="size-3" aria-hidden="true" />
               All locations
@@ -137,12 +125,6 @@ export function PatientTimeline({
       {moduleMissing ? (
         <EmptyState
           icon={ICON[activeType]}
-          /*
-            Neutral pilot wording. "Isn't built yet" invites the reader to
-            wonder whether something broke; "not included in this pilot"
-            states a scope decision. The capability flag itself is unchanged
-            and still false — the honesty is in the flag, not the sentence.
-          */
           title={`${TIMELINE_LABEL[activeType]} is not included in this pilot yet`}
           description="Nothing is missing or hidden — this part of the record is not part of the pilot, so there is no data of this kind to show."
         />
@@ -164,12 +146,8 @@ export function PatientTimeline({
                   {ICON[e.type]}
                 </span>
                 <span className="min-w-0 flex-1">
-                  <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                    <span className="text-sm font-semibold text-ink">{e.title}</span>
-                    {/*
-                      Never colour alone — the badge carries the word itself, so
-                      "Superseded" reads the same to anyone.
-                    */}
+                  <span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+                    <span className="min-w-0 break-words text-sm font-semibold text-ink">{e.title}</span>
                     {e.badge ? (
                       <span
                         className={cn(
@@ -184,16 +162,16 @@ export function PatientTimeline({
                     ) : null}
                   </span>
                   {e.summary ? (
-                    <span className="mt-0.5 block text-[13px] text-ink-secondary">{e.summary}</span>
+                    <span className="mt-0.5 block break-words text-[13px] text-ink-secondary">{e.summary}</span>
                   ) : null}
-                  <span className="mt-1 flex flex-wrap items-center gap-x-2 text-xs tabular-nums text-ink-muted">
+                  <span className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs tabular-nums text-ink-muted">
                     <span>{formatWhen(e.occurredAt)}</span>
                     {e.locationName ? (
                       <>
                         <span aria-hidden="true">·</span>
-                        <span className="inline-flex items-center gap-1">
-                          <MapPin className="size-3" aria-hidden="true" />
-                          {e.locationName}
+                        <span className="inline-flex min-w-0 items-center gap-1">
+                          <MapPin className="size-3 shrink-0" aria-hidden="true" />
+                          <span className="break-words">{e.locationName}</span>
                         </span>
                       </>
                     ) : null}
@@ -206,22 +184,16 @@ export function PatientTimeline({
             );
 
             return (
-              <li key={e.id}>
-                {/*
-                  A link only where there is somewhere safe to go. An event with
-                  no detail screen renders as a plain entry rather than a link
-                  that 404s — the timeline is the one place a doctor should be
-                  able to trust that what looks openable opens.
-                */}
+              <li key={e.id} className="min-w-0">
                 {e.href ? (
                   <Link
                     href={e.href}
-                    className="flex gap-3 px-4 py-3.5 transition-colors hover:bg-surface-muted focus-visible:focus-ring sm:px-5"
+                    className="flex min-w-0 gap-3 px-4 py-3.5 transition-colors hover:bg-surface-muted focus-visible:focus-ring sm:px-5"
                   >
                     {body}
                   </Link>
                 ) : (
-                  <div className="flex gap-3 px-4 py-3.5 sm:px-5">{body}</div>
+                  <div className="flex min-w-0 gap-3 px-4 py-3.5 sm:px-5">{body}</div>
                 )}
               </li>
             );
@@ -249,7 +221,7 @@ function FilterChip({
       scroll={false}
       aria-current={active ? "true" : undefined}
       className={cn(
-        "inline-flex shrink-0 items-center gap-1 rounded-full px-3 py-1.5 text-[13px] font-medium whitespace-nowrap transition-colors focus-visible:focus-ring",
+        "inline-flex min-h-10 shrink-0 items-center gap-1 rounded-full px-3 py-1.5 text-[13px] font-medium whitespace-nowrap transition-colors focus-visible:focus-ring",
         active
           ? "bg-brand text-white"
           : muted

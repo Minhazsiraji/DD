@@ -4,18 +4,6 @@ import { MarketingShell } from "@/components/marketing/marketing-shell";
 import { createPublicBooking } from "@/features/public-booking/actions";
 import { getPublicDoctor, getPublicSlots } from "@/features/public-booking/queries";
 
-/**
- * TWO CODES, AND ONE OF THEM IS DELIBERATELY VAGUE.
- *
- * "check-details" is our own validation failing before anything is sent — it
- * describes the form, not the database, so it can be specific.
- *
- * "unavailable" covers every refusal that came back from the server: the slot
- * was taken, the session filled, the date closed, the notice period was too
- * short, or this phone already holds a booking. Naming which one would let a
- * stranger probe phone numbers until the wording changed, and learn that a
- * particular person is seeing this doctor. The vagueness is the feature.
- */
 const errorCopy: Record<string, string> = {
   "check-details": "Please check the patient details and try again.",
   unavailable:
@@ -39,53 +27,55 @@ export default async function PublicBookingPage(props: PageProps<"/dr/[slug]/boo
   const slots = date ? await getPublicSlots(slug, chamber.locationId, date) : [];
   const error = typeof search.error === "string" ? errorCopy[search.error] : null;
 
+  const fieldClass = "mt-2 min-h-11 min-w-0 w-full rounded-xl border border-slate-300 bg-white px-3 py-3";
+
   return (
     <MarketingShell>
-      <section className="mx-auto max-w-3xl px-5 py-12 lg:px-8 lg:py-20">
-        <Link href={`/dr/${encodeURIComponent(slug)}`} className="text-sm font-medium text-teal-700">
+      <section className="mx-auto min-w-0 max-w-3xl px-4 py-8 sm:px-5 sm:py-12 lg:px-8 lg:py-20">
+        <Link href={`/dr/${encodeURIComponent(slug)}`} className="inline-flex min-h-11 items-center text-sm font-medium text-teal-700">
           ← Back to doctor profile
         </Link>
-        <div className="mt-5 rounded-[2rem] border border-slate-200 bg-white p-7 shadow-sm">
-          <h1 className="text-3xl font-semibold tracking-tight">Book {doctor.fullName}</h1>
-          <p className="mt-2 text-slate-600">
+        <div className="mt-3 min-w-0 rounded-[2rem] border border-slate-200 bg-white p-5 shadow-sm sm:mt-5 sm:p-7">
+          <h1 className="break-words text-2xl font-semibold tracking-tight sm:text-3xl">Book {doctor.fullName}</h1>
+          <p className="mt-2 break-words text-sm text-slate-600 sm:text-base">
             Choose a chamber and date first. Only currently available sessions are shown.
           </p>
 
-          {error && <p className="mt-5 rounded-xl bg-rose-50 px-4 py-3 text-sm text-rose-800">{error}</p>}
+          {error && <p className="mt-5 break-words rounded-xl bg-rose-50 px-4 py-3 text-sm text-rose-800">{error}</p>}
 
-          <form method="get" className="mt-7 grid gap-4 sm:grid-cols-2">
-            <div>
+          <form method="get" className="mt-6 grid min-w-0 gap-4 sm:mt-7 sm:grid-cols-2">
+            <div className="min-w-0">
               <label className="text-sm font-semibold text-slate-700">Chamber</label>
-              <select name="loc" defaultValue={chamber.locationId} className="mt-2 w-full rounded-xl border border-slate-300 bg-white px-3 py-3">
+              <select name="loc" defaultValue={chamber.locationId} className={fieldClass}>
                 {bookable.map((c) => <option key={c.locationId} value={c.locationId}>{c.name}</option>)}
               </select>
             </div>
-            <div>
+            <div className="min-w-0">
               <label className="text-sm font-semibold text-slate-700">Date</label>
-              <input name="date" type="date" defaultValue={date} required className="mt-2 w-full rounded-xl border border-slate-300 px-3 py-3" />
+              <input name="date" type="date" defaultValue={date} required className={fieldClass} />
             </div>
-            <button className="rounded-xl border border-slate-300 px-4 py-3 text-sm font-semibold sm:col-span-2">
+            <button className="min-h-11 w-full rounded-xl border border-slate-300 px-4 py-3 text-sm font-semibold sm:col-span-2">
               Check availability
             </button>
           </form>
 
           {date && (
-            <form action={createPublicBooking.bind(null, slug)} className="mt-8 grid gap-5">
+            <form action={createPublicBooking.bind(null, slug)} className="mt-8 grid min-w-0 gap-5">
               <input type="hidden" name="locationId" value={chamber.locationId} />
               <input type="hidden" name="date" value={date} />
 
-              <fieldset>
+              <fieldset className="min-w-0">
                 <legend className="text-sm font-semibold text-slate-700">Available session/time</legend>
                 {slots.length === 0 ? (
-                  <p className="mt-3 rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                  <p className="mt-3 break-words rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-900">
                     No online availability for this date.
                   </p>
                 ) : (
-                  <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                  <div className="mt-3 grid min-w-0 gap-2 sm:grid-cols-2">
                     {slots.map((slot) => (
-                      <label key={slot.localTime} className="flex cursor-pointer items-center gap-3 rounded-xl border border-slate-200 px-4 py-3">
-                        <input type="radio" name="localTime" value={slot.localTime} required />
-                        <span>{slot.label}</span>
+                      <label key={slot.localTime} className="flex min-h-11 min-w-0 cursor-pointer items-center gap-3 rounded-xl border border-slate-200 px-4 py-3">
+                        <input type="radio" name="localTime" value={slot.localTime} required className="shrink-0" />
+                        <span className="min-w-0 break-words">{slot.label}</span>
                       </label>
                     ))}
                   </div>
@@ -94,18 +84,18 @@ export default async function PublicBookingPage(props: PageProps<"/dr/[slug]/boo
 
               {slots.length > 0 && (
                 <>
-                  <div>
+                  <div className="min-w-0">
                     <label className="text-sm font-semibold text-slate-700">Patient name</label>
-                    <input name="patientName" required maxLength={120} className="mt-2 w-full rounded-xl border border-slate-300 px-3 py-3" />
+                    <input name="patientName" required maxLength={120} className={fieldClass} />
                   </div>
-                  <div className="grid gap-4 sm:grid-cols-2">
-                    <div>
+                  <div className="grid min-w-0 gap-4 sm:grid-cols-2">
+                    <div className="min-w-0">
                       <label className="text-sm font-semibold text-slate-700">Mobile number</label>
-                      <input name="phone" required inputMode="tel" maxLength={24} className="mt-2 w-full rounded-xl border border-slate-300 px-3 py-3" />
+                      <input name="phone" required inputMode="tel" maxLength={24} className={fieldClass} />
                     </div>
-                    <div>
+                    <div className="min-w-0">
                       <label className="text-sm font-semibold text-slate-700">Sex</label>
-                      <select name="sex" defaultValue="UNKNOWN" className="mt-2 w-full rounded-xl border border-slate-300 bg-white px-3 py-3">
+                      <select name="sex" defaultValue="UNKNOWN" className={fieldClass}>
                         <option value="UNKNOWN">Prefer not to say</option>
                         <option value="MALE">Male</option>
                         <option value="FEMALE">Female</option>
@@ -113,12 +103,12 @@ export default async function PublicBookingPage(props: PageProps<"/dr/[slug]/boo
                       </select>
                     </div>
                   </div>
-                  <div>
+                  <div className="min-w-0">
                     <label className="text-sm font-semibold text-slate-700">Reason for visit (optional)</label>
-                    <textarea name="reason" maxLength={300} rows={3} className="mt-2 w-full rounded-xl border border-slate-300 px-3 py-3" />
-                    <p className="mt-1 text-xs text-slate-500">Please keep this brief. Do not use this form for emergencies.</p>
+                    <textarea name="reason" maxLength={300} rows={3} className={fieldClass} />
+                    <p className="mt-1 break-words text-xs text-slate-500">Please keep this brief. Do not use this form for emergencies.</p>
                   </div>
-                  <button className="rounded-xl bg-teal-600 px-5 py-3 text-sm font-semibold text-white">
+                  <button className="min-h-11 w-full rounded-xl bg-teal-600 px-5 py-3 text-sm font-semibold text-white">
                     Confirm booking
                   </button>
                 </>
