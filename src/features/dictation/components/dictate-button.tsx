@@ -14,10 +14,6 @@ import { useVoiceLanguage } from "../voice-language";
  * not know what field it is beside, and cannot reach a clinical write path —
  * the doctor reviews the text and presses the same explicit Save/Add control
  * they already use.
- *
- * ABSENT, NOT BROKEN, where the browser has no speech engine. Firefox users get
- * no control at all rather than one that fails when pressed, and typing is
- * exactly as it was.
  */
 export function DictateButton({
   fieldLabel,
@@ -39,19 +35,21 @@ export function DictateButton({
 }) {
   const voiceLanguage = useVoiceLanguage();
 
-  /**
-   * The form owns the caret while the doctor is typing. Once dictation inserts
-   * text the microphone button has focus, so the textarea may not emit another
-   * selection event. Remember the returned insertion caret here so a second
-   * dictation continues after the first instead of jumping back to the old
-   * cursor position.
-   */
   const insertionCaret = React.useRef<number | undefined>(caretAt);
   React.useEffect(() => {
     insertionCaret.current = caretAt;
   }, [caretAt]);
 
-  const { state, transcript, error, supported, start, stop, cancel } = useDictation({
+  const {
+    state,
+    transcript,
+    error,
+    supported,
+    providerNotice,
+    start,
+    stop,
+    cancel,
+  } = useDictation({
     language: voiceLanguage.lang,
     onFinal: (said) => {
       const result = insertTranscript(value, said, insertionCaret.current);
@@ -104,7 +102,6 @@ export function DictateButton({
           </button>
         )}
 
-        {/* STATE IN WORDS, never colour alone. */}
         {busy && (
           <span
             role="status"
@@ -124,7 +121,6 @@ export function DictateButton({
         )}
       </div>
 
-      {/* What was heard, before it lands anywhere. */}
       {busy && transcript && (
         <p className="mt-2 min-w-0 rounded-xl bg-surface-muted px-3 py-2 text-[13px] break-words whitespace-pre-wrap text-ink-secondary">
           {transcript}
@@ -141,16 +137,9 @@ export function DictateButton({
         </p>
       )}
 
-      {/*
-        Said where it is acted on, not buried in a policy page. Browser speech
-        engines may use a vendor-hosted recognition service; Doctor's Diary's
-        narrower promise is only that DD itself does not store the audio.
-      */}
       {state === "recording" && (
         <p className="mt-1.5 text-[11px] text-ink-muted">
-          Speech is transcribed by your browser&rsquo;s speech service. No audio is stored by
-          Doctor&rsquo;s Diary, and nothing is added to the clinical record until you explicitly
-          save or add it.
+          {providerNotice} Nothing is added to the clinical record until you explicitly save or add it.
         </p>
       )}
     </div>
