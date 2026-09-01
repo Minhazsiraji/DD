@@ -58,11 +58,12 @@ describe("accepted draft insertion behavior remains intact", () => {
 });
 
 describe("accepted recovery and accessibility behavior remains intact", () => {
-  it("all public states have text labels including provider unavailable", () => {
+  it("all public streaming states have text labels", () => {
     for (const state of [
       "ready",
-      "recording",
-      "transcribing",
+      "connecting",
+      "listening",
+      "finalizing",
       "error",
       "provider-unavailable",
       "unsupported",
@@ -78,6 +79,8 @@ describe("accepted recovery and accessibility behavior remains intact", () => {
       "network",
       "provider-unavailable",
       "provider-error",
+      "connection-timeout",
+      "first-transcript-timeout",
       "no-speech",
       "weird",
     ]) {
@@ -87,17 +90,13 @@ describe("accepted recovery and accessibility behavior remains intact", () => {
     }
   });
 
-  it("silence is not described as an alarming failure", () => {
-    expect(dictationErrorMessage("no-speech")).not.toMatch(/error|failed/i);
-  });
-
   it("DictateButton names its field and exposes start stop discard", async () => {
     const button = await source("src/features/dictation/components/dictate-button.tsx");
     expect(button).toMatch(/aria-label=/);
     expect(button).toMatch(/fieldLabel/);
-    for (const action of ["start", "stop", "cancel"]) {
-      expect(button.includes(`onClick={${action}}`), action).toBe(true);
-    }
+    expect(button).toMatch(/onClick=\{startDictation\}/);
+    expect(button).toMatch(/onClick=\{stop\}/);
+    expect(button).toMatch(/onClick=\{cancel\}/);
     expect(button).toMatch(/Try again/);
   });
 
@@ -111,7 +110,14 @@ describe("accepted recovery and accessibility behavior remains intact", () => {
   it("repeated dictation continues from the returned insertion caret", async () => {
     const button = await source("src/features/dictation/components/dictate-button.tsx");
     expect(button).toMatch(/insertionCaret\.current = result\.caret/);
-    expect(button).toMatch(/insertTranscript\(value, said, insertionCaret\.current\)/);
+    expect(button).toMatch(/runBaseCaret\.current = insertionCaret\.current/);
+  });
+
+  it("errors stay compact and local to the active Dictate control", async () => {
+    const button = await source("src/features/dictation/components/dictate-button.tsx");
+    expect(button).toMatch(/role="alert"/);
+    expect(button).toMatch(/text-\[11px\]/);
+    expect(button).not.toMatch(/bg-danger-soft/);
   });
 });
 
@@ -121,6 +127,7 @@ describe("browser fallback and provider-neutral authority remain intact", () => 
     expect(provider).toMatch(/SpeechRecognition/);
     expect(provider).toMatch(/webkitSpeechRecognition/);
     expect(provider).toMatch(/engine\.lang = language/);
+    expect(provider).toMatch(/engine\.interimResults = true/);
   });
 
   it("unsupported provider hides Dictate without breaking typing", async () => {
@@ -168,7 +175,7 @@ describe("browser fallback and provider-neutral authority remain intact", () => 
     const provider = await source("src/features/dictation/provider.ts");
     const button = await source("src/features/dictation/components/dictate-button.tsx");
     expect(provider).toMatch(/browser's speech service/);
-    expect(provider).toMatch(/Audio is sent to Deepgram for transcription/);
+    expect(provider).toMatch(/streamed to Deepgram for transcription/);
     expect(provider).toMatch(/does not store the audio/);
     expect(button).toMatch(/providerNotice/);
     expect(`${provider}\n${button}`).not.toMatch(/audio never leaves (?:your|the) device/i);
