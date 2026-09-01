@@ -2,10 +2,11 @@
 
 import * as React from "react";
 import Link from "next/link";
+import { usePathname, useSearchParams } from "next/navigation";
 import { ChevronDown, FileText, History } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { formatDate } from "@/lib/format";
-import { withConsultationReturn } from "../return-context";
+import { safeConsultationReturn, withConsultationReturn } from "../return-context";
 import type { PreviousVisit } from "../previous-visit";
 
 /**
@@ -21,21 +22,23 @@ import type { PreviousVisit } from "../previous-visit";
  *
  * So this shows; today's fields stay blank and stay the doctor's.
  *
- * Expanded by default for a report review or a follow-up, because those are
- * precisely the visits that are ABOUT the previous one. Collapsed otherwise, so
- * a new complaint is not read through the lens of an old visit.
+ * Historical links remember the consultation the doctor came FROM. That means
+ * "open previous prescription" and "view full previous consultation" can be
+ * explored without forcing the doctor to use browser history to find today's
+ * unfinished visit again.
  */
 export function PreviousVisitCard({
   visit,
   expandedByDefault,
-  returnTo,
 }: {
   visit: PreviousVisit;
   expandedByDefault: boolean;
-  /** The current consultation to return to after opening historical records. */
-  returnTo: string;
 }) {
   const [open, setOpen] = React.useState(expandedByDefault);
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const returnTo =
+    safeConsultationReturn(searchParams.get("returnTo")) ?? safeConsultationReturn(pathname);
 
   const vitals = [
     ["Height", visit.vitals.heightCm, "cm"],
