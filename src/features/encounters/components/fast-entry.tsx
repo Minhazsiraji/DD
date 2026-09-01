@@ -4,6 +4,7 @@ import * as React from "react";
 import { Keyboard } from "lucide-react";
 import { jumpTargets, resolveShortcut, type FastEntryAction, type JumpTarget } from "../fast-entry";
 import type { VisibilityMap } from "../module-visibility";
+import { VoiceLanguageControl } from "@/features/dictation/voice-language";
 import { SectionJump } from "./section-jump";
 import { ShortcutHelp } from "./shortcut-help";
 
@@ -128,28 +129,33 @@ export function FastEntry({
 
   return (
     <>
-      {/*
-        A visible way in, because a shortcut nobody knows about is a shortcut
-        nobody uses — and because the palette must be reachable by touch and by
-        Tab, not only by a chord. Hidden from print like every other control.
-      */}
-      <button
-        type="button"
-        data-print-hidden
-        onClick={() => {
-          returnTo.current = document.activeElement as HTMLElement | null;
-          setSurface("jump");
-        }}
-        disabled={blocked}
-        aria-keyshortcuts="Alt+G"
-        className="inline-flex h-11 items-center gap-1.5 rounded-xl border border-hairline bg-white px-3 text-[13px] font-semibold text-ink-secondary transition-colors hover:bg-surface-muted hover:text-ink disabled:cursor-not-allowed disabled:opacity-55 focus-visible:focus-ring"
-      >
-        <Keyboard className="size-4" aria-hidden="true" />
-        Go to section
-        <kbd className="hidden font-sans text-[11px] font-medium text-ink-muted sm:inline">
-          Alt&nbsp;G
-        </kbd>
-      </button>
+      <div className="flex min-w-0 flex-wrap items-center justify-end gap-2">
+        {/* One language choice drives every draft-only Dictate button. */}
+        <VoiceLanguageControl disabled={blocked} />
+
+        {/*
+          A visible way in, because a shortcut nobody knows about is a shortcut
+          nobody uses — and because the palette must be reachable by touch and by
+          Tab, not only by a chord. Hidden from print like every other control.
+        */}
+        <button
+          type="button"
+          data-print-hidden
+          onClick={() => {
+            returnTo.current = document.activeElement as HTMLElement | null;
+            setSurface("jump");
+          }}
+          disabled={blocked}
+          aria-keyshortcuts="Alt+G"
+          className="inline-flex h-11 items-center gap-1.5 rounded-xl border border-hairline bg-white px-3 text-[13px] font-semibold text-ink-secondary transition-colors hover:bg-surface-muted hover:text-ink disabled:cursor-not-allowed disabled:opacity-55 focus-visible:focus-ring"
+        >
+          <Keyboard className="size-4" aria-hidden="true" />
+          Go to section
+          <kbd className="hidden font-sans text-[11px] font-medium text-ink-muted sm:inline">
+            Alt&nbsp;G
+          </kbd>
+        </button>
+      </div>
 
       {surface === "jump" ? (
         <SectionJump targets={targets} onGo={go} onClose={close} />
