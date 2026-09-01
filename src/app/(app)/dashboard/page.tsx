@@ -28,6 +28,8 @@ import { todayInDhaka } from "@/features/appointments/schema";
 import { getQueue } from "@/features/queue/queries";
 import { groupQueue } from "@/features/queue/schema";
 import { WorkNow } from "@/features/dashboard/components/work-now";
+import { getSetupProgress } from "@/features/adoption/queries";
+import { SetupNudge } from "@/features/adoption/components/setup-nudge";
 
 export const metadata: Metadata = { title: "Dashboard" };
 
@@ -69,12 +71,19 @@ export default async function DashboardPage() {
    * asked for explicitly. Reception passes no doctor id and keeps the
    * location-wide view they need.
    */
-  const [{ data: profile }, patients, recent, today, queue] = await Promise.all([
+  const [{ data: profile }, patients, recent, today, queue, setup] = await Promise.all([
     supabase.from("profiles").select("full_name").eq("id", ctx.user.id).maybeSingle(),
     getPatientCount(myDoctorId),
     getRecentPatients(6, myDoctorId),
     getDayCounts(sessionDate, myDoctorId),
     getQueue(ctx.locationId, sessionDate),
+    /*
+     * Setup progress never blocks the dashboard. It is read alongside the
+     * clinical loads, and a failure returns null so the prompt simply does not
+     * appear — a commercial nudge must not be able to take down the screen a
+     * doctor opens between patients.
+     */
+    getSetupProgress().catch(() => null),
   ]);
 
   const doctorName = profile?.full_name ?? ctx.user.email?.split("@")[0] ?? "Doctor";
@@ -121,6 +130,16 @@ export default async function DashboardPage() {
           {ctx.locationName} · {formatDate(clinicToday())}
         </p>
       </header>
+
+      {/*
+        ONE line, and only while there is something worth pointing at.
+
+        This is the whole of the adoption prompt on the busiest screen in the
+        product. It renders nothing for a doctor who is set up, nothing for a
+        doctor who is nearly set up, and nothing for reception — and it never
+        stands between anyone and the queue below it.
+      */}
+      {setup ? <SetupNudge progress={setup} /> : null}
 
       {/*
         [&>*]:min-w-0 — grid items default to min-width:auto, so a tile whose

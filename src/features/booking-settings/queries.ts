@@ -43,10 +43,26 @@ export interface ChamberBookingConfig {
  * value this layer could supply is a value a caller could forge.
  */
 export async function getBookingConfig(): Promise<ChamberBookingConfig[]> {
+  return (await getBookingConfigResult()).chambers;
+}
+
+/**
+ * The same read, with the failure kept.
+ *
+ * `getBookingConfig` collapses an error into an empty list, which is right for
+ * the booking screen — a doctor who cannot load their chambers sees "no
+ * chambers yet" and tries again. It is wrong for anything that DRAWS A
+ * CONCLUSION from emptiness: the setup checklist would report "no chambers"
+ * as work the doctor has not done, when in fact we failed to look.
+ */
+export async function getBookingConfigResult(): Promise<{
+  ok: boolean;
+  chambers: ChamberBookingConfig[];
+}> {
   const supabase = await createSupabaseServerClient();
   const { data, error } = await supabase.rpc("doctor_booking_config");
-  if (error || !Array.isArray(data)) return [];
-  return data as unknown as ChamberBookingConfig[];
+  if (error || !Array.isArray(data)) return { ok: false, chambers: [] };
+  return { ok: true, chambers: data as unknown as ChamberBookingConfig[] };
 }
 
 const WEEKDAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];

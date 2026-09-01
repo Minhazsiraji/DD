@@ -38,6 +38,7 @@
     "db:verify:booking-settings": "node --env-file=.env.local scripts/verify-booking-settings.mjs",
     "db:verify:claim": "node --env-file=.env.local scripts/verify-doctor-claim.mjs",
     "db:verify:owner": "node --env-file=.env.local scripts/verify-owner-authority.mjs",
+    "db:verify:owner-metrics": "node --env-file=.env.local scripts/verify-owner-metrics.mjs",
     "db:verify:commercial-sql": "node --env-file=.env.local scripts/verify-commercial-sql.mjs",
     "db:verify:commercial": "node --env-file=.env.local scripts/verify-commercial.mjs",
     "db:verify:race": "node --env-file=.env.local scripts/verify-booking-race.mjs",

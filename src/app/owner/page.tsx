@@ -47,6 +47,16 @@ export default async function OwnerPage() {
             </Link>
           </li>
         </ul>
+        <ul className="mt-3 grid gap-2 border-t border-hairline pt-3 text-sm">
+          <li>
+            <Link href="/owner/adoption" className="font-medium text-brand">
+              Adoption
+            </Link>
+            <span className="ml-2 text-xs text-ink-muted">
+              Counts of doctors, platform-wide. Nothing to decide here.
+            </span>
+          </li>
+        </ul>
         <p className="mt-4 text-xs text-ink-muted">
           Both decide platform state only. Neither reaches a patient, a
           consultation or a prescription.

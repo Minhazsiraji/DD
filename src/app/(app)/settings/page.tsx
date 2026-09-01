@@ -10,6 +10,7 @@ import {
   Stethoscope,
   IdCard,
   CalendarClock,
+  ListChecks,
 } from "lucide-react";
 import { cookies } from "next/headers";
 import { PageHeader } from "@/components/common/page-header";
@@ -84,6 +85,28 @@ export default async function SettingsPage() {
         title="Where you practise"
         subtitle="Add every chamber, clinic or hospital you work from. Your patient records stay with you across all of them."
       />
+
+      {/*
+        The way in to the adoption view, placed above the places list because
+        it is the page that explains what the rest of settings is for.
+      */}
+      <SectionCard className="overflow-hidden">
+        <SectionHeader title="Getting set up" icon={<ListChecks className="size-4" />} />
+        <div className="p-4 sm:p-5">
+          <Link
+            href="/settings/setup"
+            className="inline-flex h-11 items-center gap-2 rounded-xl border border-hairline bg-white px-4 text-sm font-semibold text-ink transition-colors hover:bg-surface-muted focus-visible:focus-ring"
+          >
+            <ListChecks className="size-4 text-brand" aria-hidden="true" />
+            Your Doctor&apos;s Diary setup
+            <ChevronRight className="size-4 text-ink-muted" aria-hidden="true" />
+          </Link>
+          <p className="mt-2 text-xs text-ink-muted">
+            What is set up, what is not, and how patients find you. Read from
+            your account as it is — nothing is required to see patients.
+          </p>
+        </div>
+      </SectionCard>
 
       <SectionCard className="overflow-hidden">
         <SectionHeader
