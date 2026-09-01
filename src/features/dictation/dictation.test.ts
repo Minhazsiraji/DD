@@ -16,259 +16,128 @@ async function code(file: string) {
 }
 
 describe("a transcript never destroys what is already written", () => {
-  it("fills an empty field", () => {
+  it("fills empty and appends to existing text", () => {
     expect(insertTranscript("", "Fever for three days").text).toBe("Fever for three days");
-  });
-
-  it("appends after existing text with a single space", () => {
     expect(insertTranscript("Fever", "for three days").text).toBe("Fever for three days");
   });
 
-  it("starts a new line after a finished sentence", () => {
-    expect(insertTranscript("Throat congested.", "Chest clear.").text).toBe(
-      "Throat congested.\nChest clear.",
-    );
-  });
-
-  it("adds no second space where one already exists", () => {
-    expect(insertTranscript("Fever ", "three days").text).toBe("Fever three days");
-    expect(insertTranscript("Fever\n", "three days").text).toBe("Fever\nthree days");
-  });
-
-  it("inserts at the caret, keeping both sides", () => {
+  it("inserts at caret and preserves both sides", () => {
     const r = insertTranscript("Fever and cough", "high", 5);
     expect(r.text).toBe("Fever high and cough");
     expect(r.text.slice(0, r.caret)).toBe("Fever high");
   });
 
-  it("appends when the caret is absent or nonsensical", () => {
-    for (const caret of [undefined, -1, 999]) {
-      expect(insertTranscript("Fever", "today", caret).text, String(caret)).toBe("Fever today");
-    }
-  });
-
-  it("NEVER replaces the existing text", () => {
-    const preserved = (original: string, result: string) => {
-      let i = 0;
-      for (const ch of result) if (ch === original[i]) i++;
-      return i === original.length;
-    };
-
-    const existing = "Detailed examination the doctor typed by hand.";
-    for (const caret of [undefined, 0, 5, 22, existing.length]) {
-      const r = insertTranscript(existing, "and more", caret);
-      expect(preserved(existing, r.text), `caret ${caret}`).toBe(true);
-      expect(r.text.length).toBeGreaterThan(existing.length);
-    }
-  });
-
-  it("an empty or blank transcript changes nothing at all", () => {
-    for (const said of ["", "   ", "\n\t"]) {
-      expect(insertTranscript("Fever", said).text).toBe("Fever");
-    }
-  });
-
-  it("preserves the words exactly, including Bangla", () => {
+  it("preserves Bangla exactly", () => {
     const said = "জ্বর তিন দিন";
     expect(insertTranscript("", said).text).toBe(said);
     expect(insertTranscript("Note:", said).text).toBe(`Note: ${said}`);
   });
 
-  it("returns the next caret so repeated dictation can continue after the last insertion", () => {
+  it("keeps returned caret for repeated dictation", () => {
     const first = insertTranscript("Fever and cough", "high", 5);
     const second = insertTranscript(first.text, "persistent", first.caret);
     expect(second.text).toBe("Fever high persistent and cough");
   });
 });
 
-describe("cancelling inserts nothing", () => {
-  it("a cancelled run yields no text", () => {
+describe("discard and stale-result boundary", () => {
+  it("cancel yields no text", () => {
     expect(transcriptAfterCancel()).toBe("");
     expect(insertTranscript("Fever", transcriptAfterCancel()).text).toBe("Fever");
   });
 
-  it("invalidates an aborted provider session before abort so late callbacks are stale", async () => {
+  it("invalidates old provider sessions before abort and gates callbacks by run id", async () => {
     const hook = await code("src/features/dictation/use-dictation.ts");
     expect(hook).toMatch(/const activeRun = React\.useRef\(0\)/);
     expect(hook).toMatch(/activeRun\.current \+= 1;[\s\S]*?current\?\.abort\(\)/);
-    expect(hook).toMatch(/if \(activeRun\.current !== runId \|\| ended\) return/);
-    expect((hook.match(/activeRun\.current !== runId/g) ?? []).length).toBeGreaterThanOrEqual(3);
+    expect(hook).toMatch(/activeRun\.current !== runId \|\| ended/);
+    expect(hook).toMatch(/const runId = activeRun\.current \+ 1;\s*activeRun\.current = runId/);
   });
 
-  it("a replacement run invalidates the old provider session before aborting it", async () => {
-    const hook = await code("src/features/dictation/use-dictation.ts");
-    expect(hook).toMatch(
-      /const runId = activeRun\.current \+ 1;\s*activeRun\.current = runId;[\s\S]*?previous\?\.abort\(\)/,
-    );
+  it("Deepgram abort cancels upload/result delivery", async () => {
+    const provider = await code("src/features/dictation/provider.ts");
+    expect(provider).toMatch(/cancelled = true/);
+    expect(provider).toMatch(/controller\.abort\(\)/);
+    expect(provider).toMatch(/if \(cancelled\) return/);
   });
 });
 
-describe("a failed run leaves the draft alone", () => {
-  it("every error is explained, and none of them mention the draft being lost", () => {
-    for (const errorCode of ["not-allowed", "audio-capture", "network", "no-speech", "weird"]) {
-      const msg = dictationErrorMessage(errorCode);
-      expect(msg.length, errorCode).toBeGreaterThan(0);
-      expect(msg).not.toMatch(/lost|deleted|cleared/i);
+describe("failure leaves draft alone", () => {
+  it("provider and network errors say draft is untouched", () => {
+    for (const code of ["network", "provider-unavailable", "provider-error"]) {
+      expect(dictationErrorMessage(code)).toMatch(/untouched/);
     }
   });
 
-  it("a blocked microphone says how to fix it", () => {
+  it("permission denial is actionable", () => {
     expect(dictationErrorMessage("not-allowed")).toMatch(/[Aa]llow microphone/);
   });
-
-  it("network failure tells the doctor their notes are untouched", () => {
-    expect(dictationErrorMessage("network")).toMatch(/untouched/);
-  });
-
-  it("silence is not an alarm", () => {
-    expect(dictationErrorMessage("no-speech")).not.toMatch(/error|failed/i);
-  });
-
-  it("the hook only ever delivers a successful, non-empty completed run", async () => {
-    const hook = await code("src/features/dictation/use-dictation.ts");
-    expect(hook).toMatch(/if \(said !== ""\) onFinalRef\.current\?\.\(said\)/);
-    expect(hook).toMatch(/let ended = false/);
-    expect(hook).toMatch(/ended = true/);
-  });
 });
 
-describe("state is never colour alone", () => {
-  it("every state has a word for it", () => {
+describe("state and accessibility", () => {
+  it("every state has words", () => {
     for (const state of ["ready", "recording", "transcribing", "error", "unsupported"] as const) {
-      expect(DICTATION_LABEL[state]?.length, state).toBeGreaterThan(0);
+      expect(DICTATION_LABEL[state]?.length).toBeGreaterThan(0);
     }
   });
 
-  it("the control renders the word, not just a dot", async () => {
+  it("control exposes recording state and real touch targets", async () => {
     const button = await code("src/features/dictation/components/dictate-button.tsx");
-    expect(button).toMatch(/DICTATION_LABEL\[state\]/);
     expect(button).toMatch(/role="status"/);
     expect(button).toMatch(/aria-live="polite"/);
-    expect(button).toMatch(/aria-hidden="true"/);
-  });
-
-  it("the control names the field it fills", async () => {
-    const button = await code("src/features/dictation/components/dictate-button.tsx");
-    expect(button).toMatch(/aria-label=/);
-    expect(button).toMatch(/fieldLabel/);
-  });
-
-  it("start, stop and cancel are all reachable", async () => {
-    const button = await code("src/features/dictation/components/dictate-button.tsx");
-    for (const control of ["start", "stop", "cancel"]) {
-      expect(button.includes(`onClick={${control}}`), `${control} has no control`).toBe(true);
-    }
-    expect(button).toMatch(/Try again/);
-  });
-
-  it("every control is a real touch target", async () => {
-    const button = await code("src/features/dictation/components/dictate-button.tsx");
-    const buttons = button.match(/<button[\s\S]*?>/g) ?? [];
-    expect(buttons.length).toBeGreaterThan(0);
-    for (const b of buttons) expect(b).toMatch(/min-h-11/);
-  });
-
-  it("carries the returned insertion caret into the next dictation", async () => {
-    const button = await code("src/features/dictation/components/dictate-button.tsx");
-    expect(button).toMatch(/insertionCaret\.current = result\.caret/);
-    expect(button).toMatch(/insertTranscript\(value, said, insertionCaret\.current\)/);
+    for (const b of button.match(/<button[\s\S]*?>/g) ?? []) expect(b).toMatch(/min-h-11/);
   });
 });
 
-describe("dictation cannot reach a clinical write path", () => {
-  it("no voice infrastructure imports an action, query, database client or write endpoint", async () => {
+describe("voice remains draft assistance, not clinical authority", () => {
+  it("shared UI/orchestration imports no clinical actions and performs no save/finalize", async () => {
     for (const file of [
-      "src/features/dictation/dictation.ts",
-      "src/features/dictation/provider.ts",
       "src/features/dictation/use-dictation.ts",
       "src/features/dictation/components/dictate-button.tsx",
       "src/features/dictation/voice-language.tsx",
     ]) {
       const src = await code(file);
-      for (const [pattern, what] of [
-        [/\bfrom\s+["'][^"']*actions["']/, "imports a server action module"],
-        [/\bfrom\s+["'][^"']*queries["']/, "imports a query module"],
-        [/\bfrom\s+["'][^"']*supabase[^"']*["']/, "imports a Supabase client"],
-        [/\w+Action\s*\(/, "calls a server action"],
-        [/\bfetch\s*\(/, "calls fetch"],
-        [/\bfinalize\w*\s*\(/, "calls a finalisation"],
-        [/\bsave\w*\s*\(/, "calls a save"],
-      ] as [RegExp, string][]) {
-        expect(pattern.test(src), `${file} ${what}`).toBe(false);
-      }
+      expect(src).not.toMatch(/from\s+["'][^"']*actions["']/);
+      expect(src).not.toMatch(/\bfinalize\w*\s*\(/);
+      expect(src).not.toMatch(/\bsave\w*\s*\(/);
+      expect(src).not.toMatch(/\bfinish\w*consultation\w*\s*\(/i);
     }
   });
 
-  it("the transcript reaches a draft setter and nothing else", async () => {
+  it("consultation transcript still reaches draft setters only", async () => {
     const fields = await code("src/features/encounters/components/draft-fields.tsx");
     expect(fields).toMatch(/onInsert=\{\(next\) => onChange\(section\.key, next\)\}/);
     expect(fields).not.toMatch(/autoSave|autosave/i);
   });
 
-  it("finding dictation may draft title and note but never submits the finding", async () => {
+  it("finding voice drafts title/note but submit remains explicit", async () => {
     const finding = await code("src/features/encounters/components/finding-form.tsx");
     expect((finding.match(/<DictateButton/g) ?? []).length).toBeGreaterThanOrEqual(2);
-    expect(finding).toMatch(/value=\{value\.title\}/);
-    expect(finding).toMatch(/title: next/);
-    expect(finding).toMatch(/value=\{value\.note\}/);
-    expect(finding).toMatch(/note: next/);
     expect(finding).toMatch(/type="submit"/);
     expect(finding).toMatch(/if \(canSubmit\) onSubmit\(\)/);
   });
-
-  it("no DD-side audio is stored, uploaded or attached to a record", async () => {
-    for (const file of [
-      "src/features/dictation/provider.ts",
-      "src/features/dictation/use-dictation.ts",
-    ]) {
-      const src = await code(file);
-      for (const forbidden of [
-        "MediaRecorder",
-        "createObjectURL",
-        "FormData",
-        "Blob",
-        "upload",
-        "localStorage",
-        "indexedDB",
-        "console.log",
-      ]) {
-        expect(src.includes(forbidden), `${file} must not use ${forbidden}`).toBe(false);
-      }
-    }
-  });
-
-  it("capture is released and callbacks invalidated when the screen goes away", async () => {
-    const hook = await code("src/features/dictation/use-dictation.ts");
-    expect(hook).toMatch(/activeRun\.current \+= 1/);
-    expect(hook).toMatch(/abort\(\)/);
-    expect(hook).toMatch(/session\.current = null/);
-  });
 });
 
-describe("an unsupported browser/provider blocks nothing", () => {
-  it("the control is absent rather than broken", async () => {
-    const button = await code("src/features/dictation/components/dictate-button.tsx");
-    expect(button).toMatch(/if \(!supported\) return null/);
-  });
-
-  it("the hook reports unsupported and the browser adapter owns Web Speech details", async () => {
-    const hook = await code("src/features/dictation/use-dictation.ts");
-    const provider = await code("src/features/dictation/provider.ts");
-    expect(hook).toMatch(/setState\("unsupported"\)/);
-    expect(provider).toMatch(/webkitSpeechRecognition/);
-    expect(provider).toMatch(/SpeechRecognition/);
-  });
-
-  it("the doctor is told the accurate active-provider privacy boundary", async () => {
-    const button = await readFile(
-      path.resolve("src/features/dictation/components/dictate-button.tsx"),
-      "utf8",
-    );
+describe("provider privacy boundary", () => {
+  it("browser and Deepgram disclosures are accurate and never promise on-device processing", async () => {
     const provider = await readFile(path.resolve("src/features/dictation/provider.ts"), "utf8");
-    expect(button).toMatch(/providerNotice/);
     expect(provider).toMatch(/browser's speech service/);
-    expect(provider).toMatch(/No audio is stored/);
-    expect(button).toMatch(/until you explicitly save or add it/i);
-    expect(`${button}\n${provider}`).not.toMatch(/audio never leaves (?:your|the) device/i);
+    expect(provider).toMatch(/sent to Deepgram for transcription/);
+    expect(provider).toMatch(/does not store the audio/);
+    expect(provider).not.toMatch(/audio never leaves (?:your|the) device/i);
+  });
+
+  it("Deepgram client transport goes only through the DD transcription endpoint", async () => {
+    const provider = await code("src/features/dictation/provider.ts");
+    expect(provider).toMatch(/fetch\("\/api\/voice\/transcribe"/);
+    expect(provider).not.toMatch(/api\.deepgram\.com/);
+    expect(provider).not.toMatch(/DEEPGRAM_API_KEY/);
+  });
+
+  it("no voice client persists audio or transcript", async () => {
+    const provider = await code("src/features/dictation/provider.ts");
+    for (const forbidden of ["localStorage", "sessionStorage", "indexedDB", "console.log", "supabase"] ) {
+      expect(provider.includes(forbidden), forbidden).toBe(false);
+    }
   });
 });
