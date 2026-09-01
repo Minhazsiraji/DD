@@ -100,10 +100,7 @@ describe("Deepgram live configuration", () => {
   });
 
   it("uses Deepgram bearer-token WebSocket subprotocols", () => {
-    expect(deepgramBearerProtocols("short-lived-token")).toEqual([
-      "bearer",
-      "short-lived-token",
-    ]);
+    expect(deepgramBearerProtocols("short-lived-token")).toEqual(["bearer", "short-lived-token"]);
   });
 
   it("keeps bounded connection, transcript and Stop-finalization timeouts", () => {
@@ -120,7 +117,9 @@ describe("stream transport and credential security", () => {
     const provider = codeOnly(await source("src/features/dictation/provider.ts"));
     expect(provider).toMatch(/recorder\.start\(DEEPGRAM_MEDIA_TIMESLICE_MS\)/);
     expect(provider).toMatch(/socket\.send\(event\.data\)/);
-    expect(provider).toMatch(/new WebSocket\(buildDeepgramStreamingUrl\(language\), deepgramBearerProtocols\(accessToken\)\)/);
+    expect(provider).toMatch(
+      /new WebSocket\(\s*buildDeepgramStreamingUrl\(language\),\s*deepgramBearerProtocols\(accessToken\),?\s*\)/,
+    );
     expect(provider).not.toMatch(/new Blob\(|new FormData\(|\/api\/voice\/transcribe/);
   });
 
@@ -143,18 +142,18 @@ describe("stream transport and credential security", () => {
     }
   });
 
-  it("authenticates before granting a 30-second token and checks same origin", async () => {
-    const route = codeOnly(await source("src/app/api/voice/token/route.ts"));
-    const authAt = route.indexOf('requirePermission("update", "encounter")');
-    const keyAt = route.indexOf("process.env.DEEPGRAM_API_KEY");
-    const grantAt = route.indexOf('https://api.deepgram.com/v1/auth/grant');
+  it("authenticates before granting a 30-second token and fails closed on Origin", async () => {
+    const raw = await source("src/app/api/voice/token/route.ts");
+    const authAt = raw.indexOf('requirePermission("update", "encounter")');
+    const keyAt = raw.indexOf("process.env.DEEPGRAM_API_KEY");
+    const grantAt = raw.indexOf("https://api.deepgram.com/v1/auth/grant");
     expect(authAt).toBeGreaterThanOrEqual(0);
     expect(keyAt).toBeGreaterThan(authAt);
     expect(grantAt).toBeGreaterThan(keyAt);
-    expect(route).toMatch(/ttl_seconds: TOKEN_TTL_SECONDS/);
-    expect(route).toMatch(/TOKEN_TTL_SECONDS = 30/);
-    expect(route).toMatch(/origin.*request\.nextUrl\.origin/s);
-    expect(route).toMatch(/MAX_GRANTS_PER_WINDOW = 12/);
+    expect(raw).toMatch(/ttl_seconds: TOKEN_TTL_SECONDS/);
+    expect(raw).toMatch(/TOKEN_TTL_SECONDS = 30/);
+    expect(raw).toMatch(/if \(origin !== request\.nextUrl\.origin\)/);
+    expect(raw).toMatch(/MAX_GRANTS_PER_WINDOW = 12/);
   });
 
   it("token route contains no audio, transcript, patient or clinical write path", async () => {
