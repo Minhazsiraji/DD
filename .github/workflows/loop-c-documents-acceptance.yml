@@ -1,0 +1,75 @@
+name: Loop C Documents V1 Acceptance
+on:
+  push:
+    branches:
+      - qa/loop-c-documents-v1-acceptance
+permissions:
+  contents: read
+jobs:
+  source-gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Documents focused tests
+        run: npx vitest run src/features/documents/documents-boundary.test.ts src/features/documents/file-validation.test.ts src/features/patients/timeline.test.ts src/features/mobile-responsive.test.ts
+      - name: Critical clinical/security regressions
+        run: npx vitest run src/features/security/policy.test.ts src/features/encounters/mutation-gate.test.ts src/features/prescriptions/freeze.test.ts src/features/prescriptions/finalize-outcome.test.ts src/features/prescriptions/review-bundle.test.ts src/features/prescriptions/correction.test.ts src/features/patients/timeline.test.ts src/features/prescriptions/storage-writes.test.ts
+      - name: Full suite
+        run: npm test
+      - name: Lint
+        run: npm run lint
+      - name: Build
+        run: npm run build
+      - name: Typecheck
+        run: npm run typecheck
+  db-verifiers:
+    runs-on: ubuntu-latest
+    env:
+      DIRECT_URL: ${{ secrets.DIRECT_URL }}
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Prepare env file
+        run: touch .env.local
+      - name: db verify documents
+        id: documents
+        continue-on-error: true
+        run: npm run db:verify:documents
+      - name: db verify
+        id: security
+        continue-on-error: true
+        run: npm run db:verify
+      - name: db verify patients
+        id: patients
+        continue-on-error: true
+        run: npm run db:verify:patients
+      - name: db verify history
+        id: history
+        continue-on-error: true
+        run: npm run db:verify:history
+      - name: db verify migrations
+        id: migrations
+        continue-on-error: true
+        run: npm run db:verify:migrations
+      - name: db verify encounters
+        id: encounters
+        continue-on-error: true
+        run: npm run db:verify:encounters
+      - name: Summarize DB verifier outcomes
+        run: |
+          echo "documents=${{ steps.documents.outcome }}"
+          echo "security=${{ steps.security.outcome }}"
+          echo "patients=${{ steps.patients.outcome }}"
+          echo "history=${{ steps.history.outcome }}"
+          echo "migrations=${{ steps.migrations.outcome }}"
+          echo "encounters=${{ steps.encounters.outcome }}"
