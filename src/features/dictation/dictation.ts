@@ -8,6 +8,7 @@ export type DictationState =
   | "recording"
   | "transcribing"
   | "error"
+  | "provider-unavailable"
   | "unsupported";
 
 export const DICTATION_LABEL: Record<DictationState, string> = {
@@ -15,6 +16,7 @@ export const DICTATION_LABEL: Record<DictationState, string> = {
   recording: "Recording",
   transcribing: "Transcribing",
   error: "Error",
+  "provider-unavailable": "Provider unavailable",
   unsupported: "Dictation unavailable",
 };
 
