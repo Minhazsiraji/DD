@@ -87,15 +87,15 @@ describe("cancelling inserts nothing", () => {
     expect(insertTranscript("Fever", transcriptAfterCancel()).text).toBe("Fever");
   });
 
-  it("invalidates an aborted engine before abort so late result/end events are stale", async () => {
+  it("invalidates an aborted provider session before abort so late callbacks are stale", async () => {
     const hook = await code("src/features/dictation/use-dictation.ts");
     expect(hook).toMatch(/const activeRun = React\.useRef\(0\)/);
-    expect(hook).toMatch(/activeRun\.current \+= 1;[\s\S]*?engine\?\.abort\(\)/);
+    expect(hook).toMatch(/activeRun\.current \+= 1;[\s\S]*?current\?\.abort\(\)/);
     expect(hook).toMatch(/if \(activeRun\.current !== runId \|\| ended\) return/);
     expect((hook.match(/activeRun\.current !== runId/g) ?? []).length).toBeGreaterThanOrEqual(3);
   });
 
-  it("a replacement run invalidates the old engine before aborting it", async () => {
+  it("a replacement run invalidates the old provider session before aborting it", async () => {
     const hook = await code("src/features/dictation/use-dictation.ts");
     expect(hook).toMatch(
       /const runId = activeRun\.current \+ 1;\s*activeRun\.current = runId;[\s\S]*?previous\?\.abort\(\)/,
@@ -176,11 +176,13 @@ describe("state is never colour alone", () => {
 });
 
 describe("dictation cannot reach a clinical write path", () => {
-  it("no dictation file imports an action, a query or a client", async () => {
+  it("no voice infrastructure imports an action, query, database client or write endpoint", async () => {
     for (const file of [
       "src/features/dictation/dictation.ts",
+      "src/features/dictation/provider.ts",
       "src/features/dictation/use-dictation.ts",
       "src/features/dictation/components/dictate-button.tsx",
+      "src/features/dictation/voice-language.tsx",
     ]) {
       const src = await code(file);
       for (const [pattern, what] of [
@@ -214,50 +216,59 @@ describe("dictation cannot reach a clinical write path", () => {
     expect(finding).toMatch(/if \(canSubmit\) onSubmit\(\)/);
   });
 
-  it("no audio is stored, uploaded or attached to a record", async () => {
-    const hook = await code("src/features/dictation/use-dictation.ts");
-    for (const forbidden of [
-      "MediaRecorder",
-      "createObjectURL",
-      "FormData",
-      "Blob",
-      "upload",
-      "localStorage",
-      "indexedDB",
-      "console.log",
+  it("no DD-side audio is stored, uploaded or attached to a record", async () => {
+    for (const file of [
+      "src/features/dictation/provider.ts",
+      "src/features/dictation/use-dictation.ts",
     ]) {
-      expect(hook.includes(forbidden), `use-dictation.ts must not use ${forbidden}`).toBe(false);
+      const src = await code(file);
+      for (const forbidden of [
+        "MediaRecorder",
+        "createObjectURL",
+        "FormData",
+        "Blob",
+        "upload",
+        "localStorage",
+        "indexedDB",
+        "console.log",
+      ]) {
+        expect(src.includes(forbidden), `${file} must not use ${forbidden}`).toBe(false);
+      }
     }
   });
 
-  it("the microphone is released and its callbacks invalidated when the screen goes away", async () => {
+  it("capture is released and callbacks invalidated when the screen goes away", async () => {
     const hook = await code("src/features/dictation/use-dictation.ts");
     expect(hook).toMatch(/activeRun\.current \+= 1/);
     expect(hook).toMatch(/abort\(\)/);
-    expect(hook).toMatch(/recognition\.current = null/);
+    expect(hook).toMatch(/session\.current = null/);
   });
 });
 
-describe("an unsupported browser blocks nothing", () => {
+describe("an unsupported browser/provider blocks nothing", () => {
   it("the control is absent rather than broken", async () => {
     const button = await code("src/features/dictation/components/dictate-button.tsx");
     expect(button).toMatch(/if \(!supported\) return null/);
   });
 
-  it("the hook reports unsupported instead of throwing", async () => {
+  it("the hook reports unsupported and the browser adapter owns Web Speech details", async () => {
     const hook = await code("src/features/dictation/use-dictation.ts");
+    const provider = await code("src/features/dictation/provider.ts");
     expect(hook).toMatch(/setState\("unsupported"\)/);
-    expect(hook).toMatch(/webkitSpeechRecognition/);
+    expect(provider).toMatch(/webkitSpeechRecognition/);
+    expect(provider).toMatch(/SpeechRecognition/);
   });
 
-  it("the doctor is told the accurate browser/provider privacy boundary", async () => {
+  it("the doctor is told the accurate active-provider privacy boundary", async () => {
     const button = await readFile(
       path.resolve("src/features/dictation/components/dictate-button.tsx"),
       "utf8",
     );
-    expect(button).toMatch(/browser&rsquo;s speech service|browser's speech service/);
-    expect(button).toMatch(/No audio is stored/);
-    expect(button).toMatch(/until you explicitly[\s\S]*save or add it/i);
-    expect(button).not.toMatch(/audio never leaves (?:your|the) device/i);
+    const provider = await readFile(path.resolve("src/features/dictation/provider.ts"), "utf8");
+    expect(button).toMatch(/providerNotice/);
+    expect(provider).toMatch(/browser's speech service/);
+    expect(provider).toMatch(/No audio is stored/);
+    expect(button).toMatch(/until you explicitly save or add it/i);
+    expect(`${button}\n${provider}`).not.toMatch(/audio never leaves (?:your|the) device/i);
   });
 });
