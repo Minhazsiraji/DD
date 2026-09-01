@@ -52,7 +52,7 @@ export default async function OwnerAdoptionPage() {
     {
       label: "First consultation done",
       value: m.withFirstConsultation,
-      note: "Aggregate count only — no clinical detail is exposed",
+      note: "Doctors who completed at least one — no patient detail is read",
     },
   ];
 
