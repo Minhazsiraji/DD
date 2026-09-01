@@ -5,6 +5,7 @@ import { CircleAlert, Loader2, Mic, Square, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { DICTATION_LABEL, insertTranscript } from "../dictation";
 import { useDictation } from "../use-dictation";
+import { useVoiceLanguage } from "../voice-language";
 
 /**
  * ONE dictation control, used by every field that has one.
@@ -36,6 +37,8 @@ export function DictateButton({
   onInsert: (next: string, caret: number) => void;
   className?: string;
 }) {
+  const voiceLanguage = useVoiceLanguage();
+
   /**
    * The form owns the caret while the doctor is typing. Once dictation inserts
    * text the microphone button has focus, so the textarea may not emit another
@@ -49,6 +52,7 @@ export function DictateButton({
   }, [caretAt]);
 
   const { state, transcript, error, supported, start, stop, cancel } = useDictation({
+    language: voiceLanguage.lang,
     onFinal: (said) => {
       const result = insertTranscript(value, said, insertionCaret.current);
       insertionCaret.current = result.caret;
