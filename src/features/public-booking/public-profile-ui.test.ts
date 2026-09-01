@@ -52,12 +52,17 @@ describe("public doctor profile presentation", () => {
     expect((profile.match(/Book Now/g) ?? []).length).toBe(1);
   });
 
-  it("uses the requested bookable location instead of silently choosing the first chamber", () => {
+  it("requires the exact requested bookable chamber and never silently falls back", () => {
     const booking = source("src/app/dr/[slug]/book/page.tsx");
 
     expect(booking).toContain(
-      "bookable.find((c) => c.locationId === requestedLocation) ?? bookable[0]",
+      "const chamber = bookable.find((c) => c.locationId === requestedLocation);",
     );
+    expect(booking).toContain(
+      "if (!chamber) redirect(`/dr/${encodeURIComponent(slug)}`);",
+    );
+    expect(booking).not.toContain("?? bookable[0]");
+    expect(booking).not.toContain("|| bookable[0]");
     expect(booking).toContain('name="locationId" value={chamber.locationId}');
   });
 
