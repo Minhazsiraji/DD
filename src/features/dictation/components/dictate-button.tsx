@@ -7,14 +7,6 @@ import { DICTATION_LABEL, insertTranscript } from "../dictation";
 import { useDictation } from "../use-dictation";
 import { useVoiceLanguage } from "../voice-language";
 
-/**
- * ONE dictation control, used by every field that has one.
- *
- * It captures speech and hands the words to `onInsert`. It does not save, does
- * not know what field it is beside, and cannot reach a clinical write path —
- * the doctor reviews the text and presses the same explicit Save/Add control
- * they already use.
- */
 export function DictateButton({
   fieldLabel,
   disabled = false,
@@ -23,18 +15,14 @@ export function DictateButton({
   onInsert,
   className,
 }: {
-  /** Named in the button's accessible label — "Dictate examination". */
   fieldLabel: string;
   disabled?: boolean;
-  /** The draft as it stands. Dictation adds to this; it never replaces it. */
   value: string;
-  /** Where the doctor's cursor is, if it is in this field. */
   caretAt?: number;
   onInsert: (next: string, caret: number) => void;
   className?: string;
 }) {
   const voiceLanguage = useVoiceLanguage();
-
   const insertionCaret = React.useRef<number | undefined>(caretAt);
   React.useEffect(() => {
     insertionCaret.current = caretAt;
@@ -50,7 +38,8 @@ export function DictateButton({
     stop,
     cancel,
   } = useDictation({
-    language: voiceLanguage.lang,
+    language: voiceLanguage.providerLanguage,
+    providerId: voiceLanguage.provider,
     onFinal: (said) => {
       const result = insertTranscript(value, said, insertionCaret.current);
       insertionCaret.current = result.caret;
@@ -103,11 +92,7 @@ export function DictateButton({
         )}
 
         {busy && (
-          <span
-            role="status"
-            aria-live="polite"
-            className="inline-flex items-center gap-1.5 text-[12px] font-medium text-ink-secondary"
-          >
+          <span role="status" aria-live="polite" className="inline-flex items-center gap-1.5 text-[12px] font-medium text-ink-secondary">
             <span
               aria-hidden="true"
               className={cn(
@@ -115,8 +100,7 @@ export function DictateButton({
                 state === "recording" ? "animate-pulse bg-[#a81c1c]" : "bg-ink-muted",
               )}
             />
-            {label}
-            {state === "recording" ? "…" : ""}
+            {label}{state === "recording" ? "…" : ""}
           </span>
         )}
       </div>
@@ -128,10 +112,7 @@ export function DictateButton({
       )}
 
       {state === "error" && error && (
-        <p
-          role="alert"
-          className="mt-2 flex min-w-0 items-start gap-2 rounded-xl bg-danger-soft px-3 py-2 text-[12px] font-medium text-[#a81c1c]"
-        >
+        <p role="alert" className="mt-2 flex min-w-0 items-start gap-2 rounded-xl bg-danger-soft px-3 py-2 text-[12px] font-medium text-[#a81c1c]">
           <CircleAlert className="mt-px size-4 shrink-0" aria-hidden="true" />
           <span className="min-w-0 break-words">{error}</span>
         </p>
