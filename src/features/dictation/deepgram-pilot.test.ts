@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { readFile } from "node:fs/promises";
+import { readFile, access } from "node:fs/promises";
 import path from "node:path";
 
 async function source(file: string) {
@@ -13,93 +13,94 @@ function codeOnly(src: string) {
     .replace(/\/\/[^\n]*/g, "");
 }
 
-describe("Deepgram Nova-3 pilot boundary", () => {
-  it("uses Nova-3 with Bengali bn and model-improvement opt-out", async () => {
-    const route = await source("src/app/api/voice/transcribe/route.ts");
-    expect(route).toMatch(/DEEPGRAM_MODEL = "nova-3"/);
-    expect(route).toMatch(/ALLOWED_LANGUAGES = new Set\(\["bn", "en-US"\]\)/);
-    expect(route).toMatch(/mip_opt_out: "true"/);
-    expect(route).toMatch(/smart_format: "true"/);
-    expect(route).toMatch(/punctuate: "true"/);
+describe("Deepgram Nova-3 streaming pilot boundary", () => {
+  it("uses Nova-3 streaming with Bengali bn and model-improvement opt-out", async () => {
+    const stream = await source("src/features/dictation/deepgram-stream.ts");
+    expect(stream).toMatch(/DEEPGRAM_STREAM_MODEL = "nova-3"/);
+    expect(stream).toMatch(/new Set\(\["bn", "en-US"\]\)/);
+    expect(stream).toMatch(/interim_results: "true"/);
+    expect(stream).toMatch(/mip_opt_out: "true"/);
+    expect(stream).toMatch(/smart_format: "true"/);
+    expect(stream).toMatch(/punctuate: "true"/);
+  });
+
+  it("removes the stop-then-upload batch endpoint", async () => {
+    await expect(access(path.resolve("src/app/api/voice/transcribe/route.ts"))).rejects.toBeTruthy();
+    const provider = codeOnly(await source("src/features/dictation/provider.ts"));
+    expect(provider).not.toMatch(/new Blob\(|new FormData\(|\/api\/voice\/transcribe/);
   });
 
   it("keeps DEEPGRAM_API_KEY server-side only", async () => {
-    const route = await source("src/app/api/voice/transcribe/route.ts");
+    const route = await source("src/app/api/voice/token/route.ts");
     const provider = await source("src/features/dictation/provider.ts");
     const button = await source("src/features/dictation/components/dictate-button.tsx");
     expect(route).toMatch(/process\.env\.DEEPGRAM_API_KEY/);
     expect(route).not.toMatch(/NEXT_PUBLIC_DEEPGRAM/);
-    expect(provider).not.toMatch(/DEEPGRAM_API_KEY|api\.deepgram\.com/);
-    expect(button).not.toMatch(/DEEPGRAM_API_KEY|api\.deepgram\.com/);
+    expect(provider).not.toMatch(/DEEPGRAM_API_KEY|NEXT_PUBLIC_DEEPGRAM/);
+    expect(button).not.toMatch(/DEEPGRAM_API_KEY|NEXT_PUBLIC_DEEPGRAM/);
   });
 
-  it("authenticates a doctor before accepting audio", async () => {
-    const route = codeOnly(await source("src/app/api/voice/transcribe/route.ts"));
+  it("authenticates a doctor before minting any temporary credential", async () => {
+    const route = codeOnly(await source("src/app/api/voice/token/route.ts"));
     const authAt = route.indexOf('requirePermission("update", "encounter")');
-    const formAt = route.indexOf("request.formData()");
+    const keyAt = route.indexOf("process.env.DEEPGRAM_API_KEY");
+    const grantAt = route.indexOf("/v1/auth/grant");
     expect(authAt).toBeGreaterThanOrEqual(0);
-    expect(formAt).toBeGreaterThan(authAt);
+    expect(keyAt).toBeGreaterThan(authAt);
+    expect(grantAt).toBeGreaterThan(keyAt);
   });
 
-  it("limits audio size, language choices and pilot request rate", async () => {
-    const route = await source("src/app/api/voice/transcribe/route.ts");
-    expect(route).toMatch(/MAX_AUDIO_BYTES = 5 \* 1024 \* 1024/);
-    expect(route).toMatch(/MAX_REQUESTS_PER_WINDOW = 12/);
-    expect(route).toMatch(/audio\.size > MAX_AUDIO_BYTES/);
-    expect(route).toMatch(/ALLOWED_LANGUAGES\.has\(language\)/);
-    expect(route).toMatch(/audio\.type\.startsWith\("audio\/"\)/);
+  it("limits token lifetime and pilot grant rate", async () => {
+    const route = await source("src/app/api/voice/token/route.ts");
+    expect(route).toMatch(/TOKEN_TTL_SECONDS = 30/);
+    expect(route).toMatch(/MAX_GRANTS_PER_WINDOW = 12/);
+    expect(route).toMatch(/ttl_seconds: TOKEN_TTL_SECONDS/);
+    expect(route).toMatch(/Cache-Control.*private, no-store/s);
   });
 
-  it("returns only transcript and never logs provider payload/audio/transcript", async () => {
-    const route = codeOnly(await source("src/app/api/voice/transcribe/route.ts"));
+  it("server token route never receives or logs audio/transcript/clinical context", async () => {
+    const route = codeOnly(await source("src/app/api/voice/token/route.ts"));
+    expect(route).not.toMatch(/formData\(|File|Blob|MediaRecorder|transcript/);
+    expect(route).not.toMatch(/patientId|encounterId|prescriptionId|fieldName/);
     expect(route).not.toMatch(/console\.(log|info|warn|error)/);
     expect(route).not.toMatch(/supabase|storage\.from|insert\(|update\(/);
-    expect(route).toMatch(/return noStore\(\{ transcript \}\)/);
   });
 
-  it("sends no patient, encounter, prescription or field identifier to Deepgram", async () => {
+  it("client audio is transient, chunked and cancellable", async () => {
     const provider = codeOnly(await source("src/features/dictation/provider.ts"));
-    const route = codeOnly(await source("src/app/api/voice/transcribe/route.ts"));
-    for (const clinicalId of ["patientId", "encounterId", "prescriptionId", "fieldName"]) {
-      expect(provider).not.toContain(clinicalId);
-      expect(route).not.toContain(clinicalId);
-    }
-  });
-
-  it("missing/invalid provider credentials fail as provider unavailable without exposing details", async () => {
-    const route = await source("src/app/api/voice/transcribe/route.ts");
-    expect(route).toMatch(/if \(!apiKey\) return noStore\(\{ code: "provider-unavailable" \}, 503\)/);
-    expect(route).toMatch(/response\.status === 401 \|\| response\.status === 403/);
-    expect(route).not.toMatch(/response\.text\(|response\.body/);
-  });
-
-  it("client capture is transient and cancellable", async () => {
-    const provider = codeOnly(await source("src/features/dictation/provider.ts"));
-    expect(provider).toMatch(/new Blob\(chunks/);
-    expect(provider).toMatch(/controller\.abort\(\)/);
+    expect(provider).toMatch(/getUserMedia/);
+    expect(provider).toMatch(/new MediaRecorder/);
+    expect(provider).toMatch(/recorder\.start\(DEEPGRAM_MEDIA_TIMESLICE_MS\)/);
+    expect(provider).toMatch(/socket\.send\(event\.data\)/);
     expect(provider).toMatch(/getTracks\(\)\.forEach\(\(track\) => track\.stop\(\)\)/);
     for (const forbidden of ["localStorage", "indexedDB", "supabase", "upload(", "console.log"]) {
       expect(provider).not.toContain(forbidden);
     }
   });
 
-  it("late/cancelled provider results cannot reach a new run", async () => {
+  it("late/cancelled provider events cannot reach a new run", async () => {
     const hook = await source("src/features/dictation/use-dictation.ts");
     const provider = await source("src/features/dictation/provider.ts");
-    expect(hook).toMatch(/activeRun\.current !== runId \|\| ended/);
+    expect((hook.match(/activeRun\.current !== runId \|\| ended/g) ?? []).length).toBeGreaterThanOrEqual(4);
     expect(hook).toMatch(/activeRun\.current \+= 1/);
-    expect(provider).toMatch(/if \(cancelled\) return/);
+    expect(provider).toMatch(/if \(cancelled \|\| terminal/);
   });
 
-  it("the provider route contains no clinical write authority", async () => {
-    const route = codeOnly(await source("src/app/api/voice/transcribe/route.ts"));
-    for (const forbidden of [
-      /finalize/i,
-      /finishConsultation|finish_consultation/i,
-      /addDiagnosis|addInvestigation|addPrescription/i,
-      /expectedVersion|CAS/,
+  it("the provider/token boundary contains no clinical write authority", async () => {
+    for (const file of [
+      "src/features/dictation/provider.ts",
+      "src/features/dictation/deepgram-stream.ts",
+      "src/app/api/voice/token/route.ts",
     ]) {
-      expect(route).not.toMatch(forbidden);
+      const src = codeOnly(await source(file));
+      for (const forbidden of [
+        /finalizePrescription/i,
+        /finishConsultation|finish_consultation/i,
+        /addDiagnosis|addInvestigation|addMedicine/i,
+        /expectedVersion|CAS/,
+      ]) {
+        expect(src).not.toMatch(forbidden);
+      }
     }
   });
 });
