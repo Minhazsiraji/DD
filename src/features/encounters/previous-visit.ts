@@ -67,16 +67,6 @@ const COLUMNS = `
   vital_systolic, vital_diastolic, vital_resp_rate, vital_spo2
 `;
 
-/**
- * The IMMEDIATELY PRECEDING completed visit — not the first one, ever.
- *
- * Visit 3 shows visit 2. Pinning the first consultation would freeze the
- * context on a visit the doctor has already moved past.
- *
- * Excluded: this encounter, drafts (an unfinished visit is not history), and
- * anything cancelled. `COMPLETED` is the only eligible status, which is also
- * why finishing a consultation matters.
- */
 export async function getPreviousVisit(
   patientId: string,
   currentEncounterId: string,
@@ -94,7 +84,6 @@ export async function getPreviousVisit(
     .maybeSingle();
 
   if (error) {
-    // Never blocks the consultation: today's notes matter more than context.
     console.error("[encounters] previous visit lookup failed", patientId, error.message);
     return null;
   }
@@ -133,6 +122,20 @@ export async function getPreviousVisit(
     investigations: lists.investigations,
     prescription,
   };
+}
+
+/**
+ * The finalized prescription that belongs to this exact encounter, when any.
+ * Used when a doctor opens a completed historical consultation so its Rx does
+ * not appear to have vanished. It reuses the same doctor-owned history RPC as
+ * the previous-visit card; no direct prescription-table access is restored.
+ */
+export async function getEncounterFinalizedPrescription(
+  patientId: string,
+  encounterId: string,
+): Promise<PreviousVisitPrescription | null> {
+  const supabase = await createSupabaseServerClient();
+  return readPrescription(supabase, patientId, encounterId);
 }
 
 /** The booked reason for today's visit. Null for a walk-in with no appointment. */
@@ -200,18 +203,7 @@ type PrescriptionHistoryRow = {
 
 /**
  * That visit's finalised prescription through the EXISTING doctor-owned history
- * RPC. Direct authenticated SELECT on `prescriptions` is deliberately revoked,
- * so reading that table here silently lost the prescription from a returning
- * patient's previous-visit card.
- *
- * The RPC is doctor-only, ownership-scoped, FINALIZED-only, and returns no
- * correction reason. The caller supplies only the patient id already being
- * consulted; the encounter match is performed locally against the previous
- * encounter that RLS already proved belongs to this doctor.
- *
- * When a prescription was corrected, prefer the current leaf (the finalized
- * prescription that has not itself been superseded). This prevents a returning
- * visit from presenting an obsolete prescription as the current one.
+ * RPC. Direct authenticated SELECT on `prescriptions` is deliberately revoked.
  */
 async function readPrescription(
   supabase: Client,
@@ -224,7 +216,6 @@ async function readPrescription(
   });
 
   if (error) {
-    // Previous prescription context is useful, but must never block today's visit.
     console.error("[encounters] previous prescription lookup failed", patientId, error.message);
     return null;
   }
@@ -233,7 +224,6 @@ async function readPrescription(
   const forVisit = rows.filter((row) => row.encounter_id === encounterId);
   if (forVisit.length === 0) return null;
 
-  // The RPC is newest-first. Prefer the current correction leaf when present.
   const row = forVisit.find((candidate) => candidate.superseded_by === null) ?? forVisit[0];
 
   return {
