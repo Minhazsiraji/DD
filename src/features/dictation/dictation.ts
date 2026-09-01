@@ -37,9 +37,6 @@ export const DICTATION_LABEL: Record<DictationState, string> = {
   unsupported: "Dictation unavailable",
 };
 
-/** The spoken-language tag handed to the engine. */
-export const DICTATION_LANG = "en-US";
-
 export interface InsertionResult {
   text: string;
   /** Where the caret should sit afterwards — the end of what was just added. */
