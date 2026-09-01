@@ -1,0 +1,35 @@
+name: Loop C Voice Language Gate
+
+on:
+  push:
+    branches:
+      - fix/loop-c-voice-language
+
+permissions:
+  contents: read
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install
+        run: npm ci
+      - name: Lint
+        run: npm run lint
+      - name: Focused voice tests
+        run: npx vitest run src/features/dictation/dictation.test.ts src/features/dictation/voice-language.test.ts
+      - name: Critical clinical authority regressions
+        run: npx vitest run src/features/encounters/mutation-gate.test.ts src/features/prescriptions/freeze.test.ts src/features/prescriptions/finalize-outcome.test.ts src/features/prescriptions/review-bundle.test.ts src/features/security/policy.test.ts src/features/appointments/schema.test.ts src/features/queue/schema.test.ts
+      - name: Full tests
+        run: npm test
+      - name: Build
+        run: npm run build
+      - name: Typecheck
+        run: npm run typecheck
