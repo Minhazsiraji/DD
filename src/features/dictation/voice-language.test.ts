@@ -11,6 +11,13 @@ async function source(file: string) {
   return readFile(path.resolve(file), "utf8");
 }
 
+function codeOnly(src: string) {
+  return src
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .replace(/\{\/\*[\s\S]*?\*\/\}/g, "")
+    .replace(/\/\/[^\n]*/g, "");
+}
+
 describe("configurable browser dictation languages", () => {
   it("ships English and Bangla Bangladesh as initial configured locales", () => {
     expect(DICTATION_LANGUAGES).toContainEqual({ label: "English", lang: "en-US" });
@@ -45,7 +52,7 @@ describe("configurable browser dictation languages", () => {
   });
 
   it("keeps the language preference local to the browser UI with no persistence or backend", async () => {
-    const language = await source("src/features/dictation/voice-language.tsx");
+    const language = codeOnly(await source("src/features/dictation/voice-language.tsx"));
     for (const forbidden of [
       "localStorage",
       "sessionStorage",
@@ -90,7 +97,7 @@ describe("language support does not weaken the corrected discard boundary", () =
       "src/features/dictation/components/dictate-button.tsx",
       "src/features/dictation/voice-language.tsx",
     ]) {
-      const src = await source(file);
+      const src = codeOnly(await source(file));
       for (const forbidden of [
         /from\s+["'][^"']*actions["']/,
         /from\s+["'][^"']*supabase[^"']*["']/,
