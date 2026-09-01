@@ -1,0 +1,48 @@
+name: Loop C Profile Voice Gate
+
+on:
+  push:
+    branches:
+      - fix/loop-c-voice-acceptance
+
+permissions:
+  contents: read
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install
+        run: npm ci
+      - name: Lint
+        run: npm run lint
+      - name: Focused dictation tests
+        run: npx vitest run src/features/dictation/dictation.test.ts
+      - name: Focused public profile tests
+        run: npx vitest run src/features/public-booking/profile-v2.test.ts src/features/public-booking/public-profile-ui.test.ts src/features/public-booking/public-photo-boundary.test.ts src/features/public-booking/commercial-boundary.test.ts src/features/public-booking/booking-serial-boundary.test.ts src/features/public-booking/public-failure-shape.test.ts src/features/mobile-responsive.test.ts
+      - name: Critical clinical authority regressions
+        run: npx vitest run src/features/encounters/mutation-gate.test.ts src/features/prescriptions/freeze.test.ts src/features/prescriptions/finalize-outcome.test.ts src/features/prescriptions/review-bundle.test.ts src/features/security/policy.test.ts src/features/appointments/schema.test.ts src/features/queue/schema.test.ts
+      - name: Live public photo broker smoke
+        shell: bash
+        run: |
+          set -euo pipefail
+          endpoint='https://gzpqrxrevnkgdyktgrud.supabase.co/functions/v1/public-doctor-photo'
+          body=$(curl -fsS -X POST -H 'content-type: application/json' --data '{"slug":"dr-siraji"}' "$endpoint")
+          node -e 'const x=JSON.parse(process.argv[1]); if(typeof x.photoUrl!=="string" || !x.photoUrl.startsWith("https://gzpqrxrevnkgdyktgrud.supabase.co/")) process.exit(1); if(/professional_photo_path|doctor-profile-photos\/[0-9a-f-]+\/photo/.test(JSON.stringify(x).replace(x.photoUrl,""))) process.exit(1);' "$body"
+          url=$(node -e 'process.stdout.write(JSON.parse(process.argv[1]).photoUrl)' "$body")
+          curl -fsS --range 0-64 "$url" >/dev/null
+          code=$(curl -sS -o /tmp/missing.json -w '%{http_code}' -X POST -H 'content-type: application/json' --data '{"slug":"definitely-no-such-doctor"}' "$endpoint")
+          test "$code" = '404'
+      - name: Full tests
+        run: npm test
+      - name: Build
+        run: npm run build
+      - name: Typecheck
+        run: npm run typecheck
