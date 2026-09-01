@@ -5,16 +5,18 @@
  */
 export type DictationState =
   | "ready"
-  | "recording"
-  | "transcribing"
+  | "connecting"
+  | "listening"
+  | "finalizing"
   | "error"
   | "provider-unavailable"
   | "unsupported";
 
 export const DICTATION_LABEL: Record<DictationState, string> = {
   ready: "Dictate",
-  recording: "Recording",
-  transcribing: "Transcribing",
+  connecting: "Connecting",
+  listening: "Listening",
+  finalizing: "Finalizing",
   error: "Error",
   "provider-unavailable": "Provider unavailable",
   unsupported: "Dictation unavailable",
@@ -48,7 +50,7 @@ function separatorFor(before: string): string {
   if (before === "") return "";
   if (/\n[ \t]*$/.test(before)) return "";
   if (/\s$/.test(before)) return "";
-  if (/[.!?]$/.test(before)) return "\n";
+  if (/[.!?।]$/.test(before)) return "\n";
   return " ";
 }
 
@@ -63,18 +65,22 @@ export function dictationErrorMessage(code: string): string {
       return "The microphone is blocked. Allow microphone access for this site, then try again.";
     case "audio-capture":
       return "No usable microphone audio was captured. Check the device and try again.";
+    case "connection-timeout":
+      return "The speech service took too long to connect. Your draft is preserved — retry or choose Browser fallback.";
+    case "first-transcript-timeout":
+      return "Speech was detected but no transcript arrived in time. Your draft is preserved — retry or choose Browser fallback.";
     case "network":
-      return "The speech service could not be reached. Your draft is untouched — type instead, choose Browser fallback, or try again.";
+      return "The speech connection was interrupted. Your draft is preserved — retry, choose Browser fallback, or type normally.";
     case "provider-unavailable":
-      return "The selected speech provider is unavailable. Your draft is untouched — choose Browser fallback or type normally.";
+      return "The selected speech provider is unavailable. Your draft is preserved — choose Browser fallback or type normally.";
     case "provider-error":
-      return "The speech provider could not transcribe this recording. Your draft is untouched — retry, choose Browser fallback, or type normally.";
+      return "The speech provider could not continue this dictation. Your draft is preserved — retry, choose Browser fallback, or type normally.";
     case "no-speech":
       return "Nothing was heard. Try again, closer to the microphone.";
     case "aborted":
       return "Dictation stopped.";
     default:
-      return "Dictation did not work. Your draft is untouched — type instead, choose Browser fallback, or try again.";
+      return "Dictation did not work. Your draft is preserved — type instead, choose Browser fallback, or try again.";
   }
 }
 
