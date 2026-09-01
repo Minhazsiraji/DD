@@ -80,7 +80,7 @@ export function AppointmentCard({
           <p className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-ink-secondary">
             <span className="tabular-nums">{a.patientNumber}</span>
             <span aria-hidden="true">·</span>
-            <span>{VISIT_TYPE_LABEL[a.visitType]}</span>
+            <span>{a.visitType === "NEW" ? "New visit" : VISIT_TYPE_LABEL[a.visitType]}</span>
             <span aria-hidden="true">·</span>
             <span className="inline-flex items-center gap-1">
               <Clock className="size-3" aria-hidden="true" />
