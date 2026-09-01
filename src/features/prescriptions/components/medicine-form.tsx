@@ -3,19 +3,21 @@
 import * as React from "react";
 import { Check, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { MEDICINE_FIELDS, type MedicineDraft, type Suggestion } from "../schema";
+import { DictateButton } from "@/features/dictation/components/dictate-button";
+import {
+  MEDICINE_FIELDS,
+  type MedicineDraft,
+  type MedicineField,
+  type Suggestion,
+} from "../schema";
+import { medicineFieldSupportsDictation } from "../prescription-dictation";
 
 /**
  * One medicine line, being written.
  *
- * Only the name is required. A doctor mid-consultation types "Tab. Napa 500 mg"
- * and presses add; everything else is optional and can be filled where it
- * matters. Enter submits from any single-line field, so the whole loop —
- * type, add, repeat — is reachable without touching the mouse.
- *
- * The option chips are ACCELERATORS. Every one of these fields stays free
- * text: the lists are what this practice writes most often, not what it is
- * allowed to write.
+ * Only the name is required. Dictation may assist selected FREE-TEXT fields,
+ * but it only changes this local draft. The doctor must still explicitly press
+ * Add/Save, then later Review and Finalize through the existing trusted path.
  */
 export function MedicineForm({
   value,
@@ -41,29 +43,11 @@ export function MedicineForm({
 
   const [suggestions, setSuggestions] = React.useState<Suggestion[]>([]);
   const [showSuggestions, setShowSuggestions] = React.useState(false);
+  const [carets, setCarets] = React.useState<Partial<Record<MedicineField, number>>>({});
   const query = value.displayName;
 
-  /**
-   * Suggestions trail the typing and never gate it. A failed or slow lookup
-   * leaves the doctor typing exactly as before — the list is a shortcut, not a
-   * step.
-   */
-  /**
-   * Fetched over HTTP, NOT through a server action.
-   *
-   * Next.js serialises server actions from one client, so as an action this
-   * lookup queued in front of the doctor's save — measured at 1.8s of a save
-   * that had already been clicked, and longer when several were pending. See
-   * `src/app/api/medicine-suggestions/route.ts`. A convenience read must never
-   * be able to delay a clinical write.
-   *
-   * Aborted on every change, so a stale lookup cannot answer over a newer one
-   * and nothing is left in flight when the form closes.
-   */
   React.useEffect(() => {
     const q = query.trim();
-    // Nothing to clear: `visibleSuggestions` below already gates on the same
-    // rule at RENDER, so a short query shows nothing without a state write.
     if (q.length < 2) return;
 
     const controller = new AbortController();
@@ -76,8 +60,7 @@ export function MedicineForm({
         const body = (await res.json()) as { suggestions?: Suggestion[] };
         setSuggestions(body.suggestions ?? []);
       } catch {
-        // A failed or aborted lookup leaves the doctor typing exactly as
-        // before. The list is a shortcut, never a step.
+        // Suggestions are optional and never gate prescribing.
       }
     }, 200);
 
@@ -87,14 +70,15 @@ export function MedicineForm({
     };
   }, [query]);
 
-  /**
-   * Gated at render, not only in the effect: a list fetched for "Nap" must stop
-   * being offered the instant the field is cleared, without waiting on a timer.
-   */
   const visibleSuggestions = query.trim().length < 2 ? [] : suggestions;
 
   const set = (key: keyof MedicineDraft, v: string | boolean) =>
     onChange({ ...value, [key]: v } as MedicineDraft);
+
+  const rememberCaret = (key: MedicineField, caret: number | null) => {
+    if (caret === null) return;
+    setCarets((current) => ({ ...current, [key]: caret }));
+  };
 
   return (
     <form
@@ -107,6 +91,7 @@ export function MedicineForm({
       <div className="grid grid-cols-12 gap-3">
         {MEDICINE_FIELDS.map((field) => {
           const isName = field.key === "displayName";
+          const dictatable = medicineFieldSupportsDictation(field.key);
           const span =
             field.span === 12 ? "col-span-12"
             : field.span === 6 ? "col-span-12 sm:col-span-6"
@@ -129,6 +114,7 @@ export function MedicineForm({
                   value={value[field.key]}
                   disabled={busy}
                   onChange={(e) => set(field.key, e.target.value)}
+                  onSelect={(e) => dictatable && rememberCaret(field.key, e.currentTarget.selectionStart)}
                   placeholder={field.placeholder}
                   className="mt-1 w-full resize-y rounded-xl border border-hairline bg-white px-3 py-2 text-[15px] text-ink placeholder:text-ink-muted focus-visible:focus-ring disabled:bg-surface-muted"
                 />
@@ -140,8 +126,8 @@ export function MedicineForm({
                   value={value[field.key]}
                   disabled={busy}
                   onChange={(e) => set(field.key, e.target.value)}
+                  onSelect={(e) => dictatable && rememberCaret(field.key, e.currentTarget.selectionStart)}
                   onFocus={() => isName && setShowSuggestions(true)}
-                  // A short delay so a click on a suggestion lands first.
                   onBlur={() => isName && setTimeout(() => setShowSuggestions(false), 150)}
                   onKeyDown={(e) => {
                     if (e.key === "Enter") {
@@ -155,16 +141,24 @@ export function MedicineForm({
                 />
               )}
 
+              {!busy && dictatable ? (
+                <DictateButton
+                  className="mt-2"
+                  fieldLabel={`prescription ${field.label.toLowerCase()}`}
+                  disabled={blocked}
+                  value={value[field.key]}
+                  caretAt={carets[field.key]}
+                  onInsert={(next, caret) => {
+                    setCarets((current) => ({ ...current, [field.key]: caret }));
+                    set(field.key, next);
+                  }}
+                />
+              ) : null}
+
               {field.hint ? (
                 <p className="mt-1 text-[11px] text-ink-muted">{field.hint}</p>
               ) : null}
 
-              {/*
-                What this doctor has written before. Choosing one COPIES the
-                text into these fields — it stores no reference, so nothing
-                already finalised can change because a later line was worded
-                differently.
-              */}
               {isName && showSuggestions && visibleSuggestions.length > 0 ? (
                 <ul className="clinical-surface absolute inset-x-0 top-full z-20 mt-1 max-h-64 overflow-y-auto rounded-xl border border-hairline shadow-soft">
                   {visibleSuggestions.map((s, i) => (
@@ -269,7 +263,7 @@ export function MedicineForm({
           Cancel
         </button>
         <p className="basis-full text-[11px] text-ink-muted">
-          Only the medicine name is required. Press Enter to add and keep going.
+          Dictation only edits this draft. Nothing is added until you press {submitLabel}.
         </p>
       </div>
     </form>
