@@ -50,6 +50,7 @@ export function DictateButton({
   if (!supported) return null;
 
   const busy = state === "recording" || state === "transcribing";
+  const failed = state === "error" || state === "provider-unavailable";
   const label = DICTATION_LABEL[state];
 
   return (
@@ -79,7 +80,7 @@ export function DictateButton({
             type="button"
             onClick={start}
             disabled={disabled || state === "transcribing"}
-            aria-label={`${state === "error" ? "Try dictation again for" : "Dictate"} ${fieldLabel}`}
+            aria-label={`${failed ? "Try dictation again for" : "Dictate"} ${fieldLabel}`}
             className="inline-flex min-h-11 items-center gap-1.5 rounded-xl border border-hairline bg-white px-3 text-[13px] font-semibold text-ink-secondary transition-colors hover:bg-surface-muted hover:text-ink disabled:cursor-not-allowed disabled:opacity-55 focus-visible:focus-ring"
           >
             {state === "transcribing" ? (
@@ -87,7 +88,7 @@ export function DictateButton({
             ) : (
               <Mic className="size-4 shrink-0" aria-hidden="true" />
             )}
-            {state === "error" ? "Try again" : label}
+            {failed ? "Try again" : label}
           </button>
         )}
 
@@ -111,7 +112,7 @@ export function DictateButton({
         </p>
       )}
 
-      {state === "error" && error && (
+      {failed && error && (
         <p role="alert" className="mt-2 flex min-w-0 items-start gap-2 rounded-xl bg-danger-soft px-3 py-2 text-[12px] font-medium text-[#a81c1c]">
           <CircleAlert className="mt-px size-4 shrink-0" aria-hidden="true" />
           <span className="min-w-0 break-words">{error}</span>
