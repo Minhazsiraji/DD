@@ -4,9 +4,17 @@ import * as React from "react";
 import { dictationErrorMessage, type DictationState } from "./dictation";
 import {
   getVoiceTranscriptionProvider,
+  type VoiceLatencySnapshot,
   type VoiceTranscriptionProviderId,
   type VoiceTranscriptionSession,
 } from "./provider";
+
+interface ActiveVoiceLease {
+  owner: symbol;
+  cancel: () => void;
+}
+
+let activeVoiceLease: ActiveVoiceLease | null = null;
 
 /**
  * TRANSCRIPTION ORCHESTRATION, AND NOTHING ELSE.
@@ -22,6 +30,7 @@ export interface Dictation {
   supported: boolean;
   providerNotice: string;
   providerId: VoiceTranscriptionProviderId;
+  latency: VoiceLatencySnapshot;
   start: () => void;
   stop: () => void;
   cancel: () => void;
@@ -40,10 +49,12 @@ export function useDictation({
   const [rawState, setState] = React.useState<DictationState>("ready");
   const [transcript, setTranscript] = React.useState("");
   const [error, setError] = React.useState<string | null>(null);
+  const [latency, setLatency] = React.useState<VoiceLatencySnapshot>({});
 
   const provider = getVoiceTranscriptionProvider(providerId);
   const session = React.useRef<VoiceTranscriptionSession | null>(null);
   const activeRun = React.useRef(0);
+  const owner = React.useRef(Symbol("voice-dictation-owner")).current;
 
   const onFinalRef = React.useRef(onFinal);
   React.useLayoutEffect(() => {
@@ -58,14 +69,31 @@ export function useDictation({
   const supported = mounted && provider?.isSupported() === true;
   const state: DictationState = supported ? rawState : "unsupported";
 
+  const releaseLease = React.useCallback(() => {
+    if (activeVoiceLease?.owner === owner) activeVoiceLease = null;
+  }, [owner]);
+
+  const cancelCurrent = React.useCallback(() => {
+    activeRun.current += 1;
+    const current = session.current;
+    session.current = null;
+    current?.abort();
+    releaseLease();
+    setTranscript("");
+    setError(null);
+    setLatency({});
+    setState("ready");
+  }, [releaseLease]);
+
   React.useEffect(
     () => () => {
       activeRun.current += 1;
       const current = session.current;
       session.current = null;
       current?.abort();
+      releaseLease();
     },
-    [],
+    [releaseLease],
   );
 
   const start = React.useCallback(() => {
@@ -73,6 +101,8 @@ export function useDictation({
       setState("unsupported");
       return;
     }
+
+    if (activeVoiceLease && activeVoiceLease.owner !== owner) activeVoiceLease.cancel();
 
     const runId = activeRun.current + 1;
     activeRun.current = runId;
@@ -82,19 +112,32 @@ export function useDictation({
 
     setTranscript("");
     setError(null);
+    setLatency({});
+    setState("connecting");
 
     let ended = false;
     let current: VoiceTranscriptionSession | null = null;
     current = provider.createSession({
       language,
       callbacks: {
+        onPhase(phase) {
+          if (activeRun.current !== runId || ended) return;
+          setState(phase);
+        },
         onTranscript(next) {
           if (activeRun.current !== runId || ended) return;
-          setTranscript(next);
+          setTranscript(next.text);
+        },
+        onLatency(next) {
+          if (activeRun.current !== runId || ended) return;
+          setLatency(next);
         },
         onError(code) {
-          if (activeRun.current !== runId || ended) return;
-          if (code === "aborted") return;
+          if (activeRun.current !== runId || ended || code === "aborted") return;
+          ended = true;
+          activeRun.current += 1;
+          if (session.current === current) session.current = null;
+          releaseLease();
           setError(dictationErrorMessage(code));
           setState(code === "provider-unavailable" ? "provider-unavailable" : "error");
         },
@@ -103,9 +146,8 @@ export function useDictation({
           ended = true;
           activeRun.current += 1;
           if (session.current === current) session.current = null;
-          setState((existing) =>
-            existing === "error" || existing === "provider-unavailable" ? existing : "ready",
-          );
+          releaseLease();
+          setState("ready");
           if (said !== "") onFinalRef.current?.(said);
         },
       },
@@ -117,38 +159,35 @@ export function useDictation({
     }
 
     session.current = current;
+    activeVoiceLease = { owner, cancel: cancelCurrent };
     try {
       current.start();
-      setState("recording");
     } catch {
       if (activeRun.current === runId) {
         activeRun.current += 1;
         if (session.current === current) session.current = null;
+        releaseLease();
         setError(dictationErrorMessage("unknown"));
         setState("error");
       }
     }
-  }, [language, provider]);
+  }, [cancelCurrent, language, owner, provider, releaseLease]);
 
   const stop = React.useCallback(() => {
     if (!session.current) return;
-    setState("transcribing");
+    setState("finalizing");
     session.current.stop();
   }, []);
 
   const cancel = React.useCallback(() => {
-    activeRun.current += 1;
-    const current = session.current;
-    session.current = null;
-    current?.abort();
-    setTranscript("");
-    setError(null);
-    setState("ready");
-  }, []);
+    cancelCurrent();
+  }, [cancelCurrent]);
 
   const reset = React.useCallback(() => {
+    if (session.current) return;
     setTranscript("");
     setError(null);
+    setLatency({});
     setState("ready");
   }, []);
 
@@ -159,6 +198,7 @@ export function useDictation({
     supported,
     providerNotice: provider?.privacyNotice ?? "",
     providerId,
+    latency,
     start,
     stop,
     cancel,
