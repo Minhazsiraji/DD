@@ -104,10 +104,10 @@ const browserProvider: VoiceTranscriptionProvider = {
 };
 
 function mediaRecorderSupported(): boolean {
-  if (typeof window === "undefined") return false;
-  return Boolean(
-    navigator.mediaDevices?.getUserMedia &&
-      typeof MediaRecorder !== "undefined",
+  return (
+    typeof window !== "undefined" &&
+    "mediaDevices" in navigator &&
+    typeof MediaRecorder !== "undefined"
   );
 }
 
