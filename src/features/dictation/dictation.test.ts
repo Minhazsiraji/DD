@@ -15,26 +15,16 @@ async function code(file: string) {
     .replace(/\/\/[^\n]*/g, "");
 }
 
-/**
- * DICTATION TYPES. IT DOES NOT DECIDE, AND IT DOES NOT SAVE.
- *
- * Every test here is one of two sentences: a transcript never destroys what a
- * doctor already wrote, and a transcript is never clinical data until the
- * doctor saves it through the path they have always used.
- */
-
 describe("a transcript never destroys what is already written", () => {
   it("fills an empty field", () => {
     expect(insertTranscript("", "Fever for three days").text).toBe("Fever for three days");
   });
 
   it("appends after existing text with a single space", () => {
-    const r = insertTranscript("Fever", "for three days");
-    expect(r.text).toBe("Fever for three days");
+    expect(insertTranscript("Fever", "for three days").text).toBe("Fever for three days");
   });
 
   it("starts a new line after a finished sentence", () => {
-    // Two dictated sentences should read as two, not run together.
     expect(insertTranscript("Throat congested.", "Chest clear.").text).toBe(
       "Throat congested.\nChest clear.",
     );
@@ -48,7 +38,6 @@ describe("a transcript never destroys what is already written", () => {
   it("inserts at the caret, keeping both sides", () => {
     const r = insertTranscript("Fever and cough", "high", 5);
     expect(r.text).toBe("Fever high and cough");
-    // The caret follows what was just said, ready to keep going.
     expect(r.text.slice(0, r.caret)).toBe("Fever high");
   });
 
@@ -58,18 +47,7 @@ describe("a transcript never destroys what is already written", () => {
     }
   });
 
-  /**
-   * The failure this forecloses: a doctor dictates over a note they spent two
-   * minutes typing and it disappears. There is no code path that replaces the
-   * field — insertion only ever adds.
-   */
   it("NEVER replaces the existing text", () => {
-    /**
-     * Checked as a SUBSEQUENCE, because inserting at a caret inside a word
-     * legitimately splits the text — "Detai|led" becomes "Detai and more led".
-     * Nothing is contiguous afterwards, and nothing is missing either, which is
-     * the actual promise: every character the doctor typed survives, in order.
-     */
     const preserved = (original: string, result: string) => {
       let i = 0;
       for (const ch of result) if (ch === original[i]) i++;
@@ -85,7 +63,6 @@ describe("a transcript never destroys what is already written", () => {
   });
 
   it("an empty or blank transcript changes nothing at all", () => {
-    // Nothing heard is not a reason to touch a draft.
     for (const said of ["", "   ", "\n\t"]) {
       expect(insertTranscript("Fever", said).text).toBe("Fever");
     }
@@ -96,6 +73,12 @@ describe("a transcript never destroys what is already written", () => {
     expect(insertTranscript("", said).text).toBe(said);
     expect(insertTranscript("Note:", said).text).toBe(`Note: ${said}`);
   });
+
+  it("returns the next caret so repeated dictation can continue after the last insertion", () => {
+    const first = insertTranscript("Fever and cough", "high", 5);
+    const second = insertTranscript(first.text, "persistent", first.caret);
+    expect(second.text).toBe("Fever high persistent and cough");
+  });
 });
 
 describe("cancelling inserts nothing", () => {
@@ -104,22 +87,27 @@ describe("cancelling inserts nothing", () => {
     expect(insertTranscript("Fever", transcriptAfterCancel()).text).toBe("Fever");
   });
 
-  it("the hook discards a cancelled run even though the engine still ends", async () => {
-    /**
-     * `abort()` still fires `onend`. Without the flag, the words spoken before
-     * Cancel would arrive in the draft a moment after the doctor discarded them.
-     */
+  it("invalidates an aborted engine before abort so late result/end events are stale", async () => {
     const hook = await code("src/features/dictation/use-dictation.ts");
-    expect(hook).toMatch(/cancelled\.current = true/);
-    expect(hook).toMatch(/if \(cancelled\.current\)/);
+    expect(hook).toMatch(/const activeRun = React\.useRef\(0\)/);
+    expect(hook).toMatch(/activeRun\.current \+= 1;[\s\S]*?engine\?\.abort\(\)/);
+    expect(hook).toMatch(/if \(activeRun\.current !== runId \|\| ended\) return/);
+    expect((hook.match(/activeRun\.current !== runId/g) ?? []).length).toBeGreaterThanOrEqual(3);
+  });
+
+  it("a replacement run invalidates the old engine before aborting it", async () => {
+    const hook = await code("src/features/dictation/use-dictation.ts");
+    expect(hook).toMatch(
+      /const runId = activeRun\.current \+ 1;\s*activeRun\.current = runId;[\s\S]*?previous\?\.abort\(\)/,
+    );
   });
 });
 
 describe("a failed run leaves the draft alone", () => {
   it("every error is explained, and none of them mention the draft being lost", () => {
-    for (const code of ["not-allowed", "audio-capture", "network", "no-speech", "weird"]) {
-      const msg = dictationErrorMessage(code);
-      expect(msg.length, code).toBeGreaterThan(0);
+    for (const errorCode of ["not-allowed", "audio-capture", "network", "no-speech", "weird"]) {
+      const msg = dictationErrorMessage(errorCode);
+      expect(msg.length, errorCode).toBeGreaterThan(0);
       expect(msg).not.toMatch(/lost|deleted|cleared/i);
     }
   });
@@ -136,10 +124,11 @@ describe("a failed run leaves the draft alone", () => {
     expect(dictationErrorMessage("no-speech")).not.toMatch(/error|failed/i);
   });
 
-  it("the hook only ever delivers on a successful, non-empty run", async () => {
+  it("the hook only ever delivers a successful, non-empty completed run", async () => {
     const hook = await code("src/features/dictation/use-dictation.ts");
-    // Delivery is guarded on there being something to deliver.
     expect(hook).toMatch(/if \(said !== ""\) onFinalRef\.current\?\.\(said\)/);
+    expect(hook).toMatch(/let ended = false/);
+    expect(hook).toMatch(/ended = true/);
   });
 });
 
@@ -155,7 +144,6 @@ describe("state is never colour alone", () => {
     expect(button).toMatch(/DICTATION_LABEL\[state\]/);
     expect(button).toMatch(/role="status"/);
     expect(button).toMatch(/aria-live="polite"/);
-    // The dot is decoration beside the word, never the message.
     expect(button).toMatch(/aria-hidden="true"/);
   });
 
@@ -170,7 +158,6 @@ describe("state is never colour alone", () => {
     for (const control of ["start", "stop", "cancel"]) {
       expect(button.includes(`onClick={${control}}`), `${control} has no control`).toBe(true);
     }
-    // And a failed run offers another go rather than a dead end.
     expect(button).toMatch(/Try again/);
   });
 
@@ -180,15 +167,16 @@ describe("state is never colour alone", () => {
     expect(buttons.length).toBeGreaterThan(0);
     for (const b of buttons) expect(b).toMatch(/min-h-11/);
   });
+
+  it("carries the returned insertion caret into the next dictation", async () => {
+    const button = await code("src/features/dictation/components/dictate-button.tsx");
+    expect(button).toMatch(/insertionCaret\.current = result\.caret/);
+    expect(button).toMatch(/insertTranscript\(value, said, insertionCaret\.current\)/);
+  });
 });
 
 describe("dictation cannot reach a clinical write path", () => {
   it("no dictation file imports an action, a query or a client", async () => {
-    /**
-     * The structural version of "this is not a Copilot". Speech becomes text in
-     * a draft; the screen underneath owns every mutation, on the one version
-     * and the one queue it always had.
-     */
     for (const file of [
       "src/features/dictation/dictation.ts",
       "src/features/dictation/use-dictation.ts",
@@ -211,9 +199,15 @@ describe("dictation cannot reach a clinical write path", () => {
 
   it("the transcript reaches a draft setter and nothing else", async () => {
     const fields = await code("src/features/encounters/components/draft-fields.tsx");
-    // The same `onChange` typing uses — no separate write, no autosave.
     expect(fields).toMatch(/onInsert=\{\(next\) => onChange\(section\.key, next\)\}/);
     expect(fields).not.toMatch(/autoSave|autosave/i);
+  });
+
+  it("finding dictation changes only the optional note draft, not the structured title", async () => {
+    const finding = await code("src/features/encounters/components/finding-form.tsx");
+    expect(finding).toMatch(/value=\{value\.note\}/);
+    expect(finding).toMatch(/onInsert=\{\(next\) => onChange\(\{ \.\.\.value, note: next \}\)\}/);
+    expect(finding).not.toMatch(/DictateButton[\s\S]{0,250}title: next/);
   });
 
   it("no audio is stored, uploaded or attached to a record", async () => {
@@ -226,13 +220,15 @@ describe("dictation cannot reach a clinical write path", () => {
       "upload",
       "localStorage",
       "indexedDB",
+      "console.log",
     ]) {
       expect(hook.includes(forbidden), `use-dictation.ts must not use ${forbidden}`).toBe(false);
     }
   });
 
-  it("the microphone is released when the screen goes away", async () => {
+  it("the microphone is released and its callbacks invalidated when the screen goes away", async () => {
     const hook = await code("src/features/dictation/use-dictation.ts");
+    expect(hook).toMatch(/activeRun\.current \+= 1/);
     expect(hook).toMatch(/abort\(\)/);
     expect(hook).toMatch(/recognition\.current = null/);
   });
@@ -240,8 +236,6 @@ describe("dictation cannot reach a clinical write path", () => {
 
 describe("an unsupported browser blocks nothing", () => {
   it("the control is absent rather than broken", async () => {
-    // Firefox has no engine. A button that fails when pressed is worse than
-    // no button, and typing must be exactly as it was.
     const button = await code("src/features/dictation/components/dictate-button.tsx");
     expect(button).toMatch(/if \(!supported\) return null/);
   });
@@ -252,18 +246,14 @@ describe("an unsupported browser blocks nothing", () => {
     expect(hook).toMatch(/webkitSpeechRecognition/);
   });
 
-  it("the doctor is told where their voice goes", async () => {
-    /**
-     * The browser's engine streams audio to the browser vendor. This is a
-     * patient describing symptoms, so it is said at the point of use rather
-     * than buried in a policy page.
-     */
+  it("the doctor is told the accurate browser/provider privacy boundary", async () => {
     const button = await readFile(
       path.resolve("src/features/dictation/components/dictate-button.tsx"),
       "utf8",
     );
     expect(button).toMatch(/browser&rsquo;s speech service|browser's speech service/);
     expect(button).toMatch(/No audio is stored/);
-    expect(button).toMatch(/nothing is saved until you press Save/i);
+    expect(button).toMatch(/until you explicitly[\s\S]*save or add it/i);
+    expect(button).not.toMatch(/audio never leaves (?:your|the) device/i);
   });
 });
