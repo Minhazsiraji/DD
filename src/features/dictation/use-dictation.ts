@@ -17,14 +17,15 @@ import {
  *
  * THE PROVIDER IS THE BROWSER, AND THAT IS A PRIVACY FACT.
  *
- * `SpeechRecognition` in Chrome and Edge streams audio to the browser vendor's
- * speech service. This is a patient describing symptoms, so it is not an
- * implementation detail to be buried: the control that starts it says where the
- * audio goes, and starting it is always a deliberate press.
+ * `SpeechRecognition` in Chrome and Edge may stream audio to the browser
+ * vendor's speech service. This is a patient describing symptoms, so it is not
+ * an implementation detail to be buried: the control that starts it says where
+ * the audio goes, and starting it is always a deliberate press.
  *
  * WE STORE NO AUDIO. Nothing is recorded to disk, nothing is uploaded by this
  * application, nothing is attached to the patient record, and the transcript
- * lives in React state until the doctor saves it or navigates away.
+ * lives in React state until the doctor explicitly saves/adds it or navigates
+ * away.
  */
 
 /** The slice of the Web Speech API actually used. */
@@ -87,9 +88,14 @@ export function useDictation({
   const [error, setError] = React.useState<string | null>(null);
 
   const recognition = React.useRef<SpeechRecognitionLike | null>(null);
-  const finalText = React.useRef("");
-  /** A cancelled run must deliver nothing, even though `onend` still fires. */
-  const cancelled = React.useRef(false);
+  /**
+   * Every engine gets an identity. Abort does not guarantee that its queued
+   * `result`/`end` events disappear, so callbacks from an old engine must prove
+   * they still own the active run before they may touch transcript state or
+   * deliver text. This is the discard boundary.
+   */
+  const activeRun = React.useRef(0);
+
   /**
    * The latest callback, read from inside an engine event that fires long after
    * the render which created it. Synced in a layout effect rather than written
@@ -123,11 +129,13 @@ export function useDictation({
    */
   const state: DictationState = supported ? rawState : "unsupported";
 
-  /** Always leave the microphone off when this unmounts. */
+  /** Always leave the microphone off and invalidate queued events on unmount. */
   React.useEffect(
     () => () => {
-      recognition.current?.abort();
+      activeRun.current += 1;
+      const engine = recognition.current;
       recognition.current = null;
+      engine?.abort();
     },
     [],
   );
@@ -139,13 +147,22 @@ export function useDictation({
       return;
     }
 
-    recognition.current?.abort();
-    finalText.current = "";
-    cancelled.current = false;
+    // Invalidate the previous engine BEFORE aborting it. Some browser engines
+    // deliver queued events after abort; those callbacks now fail their run-id
+    // check even if the doctor immediately starts another dictation.
+    const runId = activeRun.current + 1;
+    activeRun.current = runId;
+    const previous = recognition.current;
+    recognition.current = null;
+    previous?.abort();
+
     setTranscript("");
     setError(null);
 
     const engine = new Ctor();
+    let finalText = "";
+    let ended = false;
+
     engine.lang = DICTATION_LANG;
     // Clinical dictation is sentences, not single commands, so it must survive
     // the pauses a doctor takes while examining someone.
@@ -154,31 +171,36 @@ export function useDictation({
     engine.interimResults = true;
 
     engine.onresult = (event) => {
+      if (activeRun.current !== runId || ended) return;
+
       let interim = "";
       for (let i = event.resultIndex; i < event.results.length; i++) {
         const result = event.results[i];
         const said = result?.[0]?.transcript ?? "";
-        if (result?.isFinal) finalText.current += said;
+        if (result?.isFinal) finalText += said;
         else interim += said;
       }
-      setTranscript(finalText.current + interim);
+      setTranscript(finalText + interim);
     };
 
     engine.onerror = (event) => {
+      if (activeRun.current !== runId || ended) return;
+
       const code = event.error ?? "unknown";
-      if (code === "aborted") return; // Cancel and unmount both land here.
+      if (code === "aborted") return; // Cancel, replacement and unmount all land here.
       setError(dictationErrorMessage(code));
       setState("error");
     };
 
     engine.onend = () => {
-      recognition.current = null;
-      if (cancelled.current) {
-        setTranscript("");
-        setState("ready");
-        return;
-      }
-      const said = finalText.current.trim();
+      if (activeRun.current !== runId || ended) return;
+      ended = true;
+      // Close this run before invoking the caller so any event queued behind
+      // `onend` is stale and cannot deliver or mutate the next run.
+      activeRun.current += 1;
+      if (recognition.current === engine) recognition.current = null;
+
+      const said = finalText.trim();
       setState((current) => (current === "error" ? "error" : "ready"));
       // Nothing heard is not a failure and must not clear anyone's draft.
       if (said !== "") onFinalRef.current?.(said);
@@ -189,8 +211,12 @@ export function useDictation({
       engine.start();
       setState("recording");
     } catch {
-      setError(dictationErrorMessage("unknown"));
-      setState("error");
+      if (activeRun.current === runId) {
+        activeRun.current += 1;
+        if (recognition.current === engine) recognition.current = null;
+        setError(dictationErrorMessage("unknown"));
+        setState("error");
+      }
     }
   }, []);
 
@@ -202,10 +228,12 @@ export function useDictation({
   }, []);
 
   const cancel = React.useCallback(() => {
-    cancelled.current = true;
-    finalText.current = "";
-    recognition.current?.abort();
+    // The identity changes BEFORE abort, so even a synchronous/queued old event
+    // cannot become current again when the doctor retries quickly.
+    activeRun.current += 1;
+    const engine = recognition.current;
     recognition.current = null;
+    engine?.abort();
     setTranscript("");
     setError(null);
     setState("ready");
