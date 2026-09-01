@@ -1,0 +1,33 @@
+name: Returning Visit Prescription Gate
+
+on:
+  push:
+    branches:
+      - fix/mobile-responsive-p0
+
+permissions:
+  contents: read
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install
+        run: npm ci
+      - name: Lint
+        run: npm run lint
+      - name: Focused returning-patient tests
+        run: npx vitest run src/features/encounters/previous-visit.test.ts src/features/patients/timeline.test.ts src/features/prescriptions/prescription-renderers.test.ts src/features/mobile-responsive.test.ts
+      - name: Full tests
+        run: npm test
+      - name: Build
+        run: npm run build
+      - name: Typecheck
+        run: npm run typecheck
