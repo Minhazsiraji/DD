@@ -98,12 +98,34 @@ export const TIMELINE_AVAILABLE: Record<TimelineEventType, boolean> = {
    *                    order alone is a half-answer to "what happened last
    *                    time", and a half-answer on a clinical screen is worse
    *                    than an honest "not built yet".
-   * `document`       — no table exists.
    * `followup`       — no table exists.
    */
   investigation: false,
-  document: false,
+  /**
+   * Module D / Phase D1. `patient_documents` is queried, the authorisation is
+   * `owner_doctor_id = current_doctor_id()` and nothing else, and an empty list
+   * here means "nothing filed" rather than "nothing was asked for".
+   */
+  document: true,
   followup: false,
+};
+
+/**
+ * Document types in a TIMELINE's words.
+ *
+ * A separate map from `DOCUMENT_TYPE_LABEL` on purpose: the timeline summary
+ * sits under a title and reads as a sentence fragment, where the workspace's
+ * "Lab report" is a column value. Importing the documents module here would
+ * also point the patients feature at Module D for a string.
+ */
+const DOCUMENT_TIMELINE_LABEL: Record<string, string> = {
+  LAB_REPORT: "Lab report",
+  IMAGING_REPORT: "Imaging report",
+  PREVIOUS_PRESCRIPTION: "Previous prescription",
+  DISCHARGE_SUMMARY: "Discharge summary",
+  REFERRAL: "Referral",
+  MEDICAL_CERTIFICATE: "Medical certificate",
+  OTHER: "Document",
 };
 
 /** What the timeline calls each appointment outcome, in a patient's terms. */
@@ -342,6 +364,62 @@ export async function getPatientTimeline(
        * in the prescription's own lineage view, behind an ownership check.
        */
       badge: superseded ? "Superseded" : corrects ? "Current" : null,
+    });
+  }
+  /* eslint-enable @typescript-eslint/no-explicit-any */
+
+  /**
+   * Documents (Module D, Phase D1).
+   *
+   * Read straight from `patient_documents`, whose SELECT policy is already
+   * exactly the rule this history needs: `owner_doctor_id =
+   * current_doctor_id()`. Reception opening this page gets zero rows and no
+   * count — an empty section rather than "2 documents you may not see".
+   *
+   * ARCHIVED DOCUMENTS ARE EXCLUDED. A removed report sitting in a clinical
+   * history reads as a current one, and the timeline has no room to explain the
+   * difference; the Documents workspace does, and shows them there.
+   */
+  const { data: docs, error: docError } = await supabase
+    .from("patient_documents")
+    .select(
+      "id, document_type, title, document_date, created_at, practice_location_id," +
+        " practice_locations(name)",
+    )
+    .eq("patient_id", patientId)
+    .is("archived_at", null)
+    .order("created_at", { ascending: false });
+
+  if (docError) {
+    console.error("[timeline] documents query failed", docError.message);
+    missing.push("documents");
+  }
+
+  /* eslint-disable @typescript-eslint/no-explicit-any */
+  for (const row of (docs ?? []) as any[]) {
+    const location = Array.isArray(row.practice_locations)
+      ? row.practice_locations[0]
+      : row.practice_locations;
+
+    events.push({
+      id: `document-${row.id}`,
+      type: "document",
+      /**
+       * The date the document is ABOUT, falling back to when it was filed. A
+       * report from March uploaded in July belongs in March, or the history
+       * claims a test happened on the day someone got round to scanning it.
+       */
+      occurredAt: row.document_date
+        ? `${row.document_date}T00:00:00.000Z`
+        : row.created_at,
+      title: row.title,
+      summary: DOCUMENT_TIMELINE_LABEL[row.document_type as string] ?? "Document",
+      locationId: row.practice_location_id ?? null,
+      locationName: location?.name ?? null,
+      doctorName: null,
+      // Straight to the file, through the same authorised route the list uses.
+      href: `/api/documents/${row.id}`,
+      badge: null,
     });
   }
   /* eslint-enable @typescript-eslint/no-explicit-any */
