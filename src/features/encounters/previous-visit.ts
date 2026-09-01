@@ -9,14 +9,14 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
  * to remember what they had said last time. The continuity is the product's
  * whole point; it should not require navigating away from the patient.
  *
- * AUTHORISATION IS RLS, NOT THIS FILE.
+ * AUTHORISATION IS THE EXISTING CLINICAL READ BOUNDARY, NOT THIS FILE.
  *
- * `encounters_select` is `owner_doctor_id = current_doctor_id()`, so this query
- * can only ever return the caller's OWN encounters — across every location they
- * practise at, which is exactly the doctor-owned longitudinal boundary. A
- * colleague reading the same patient id gets nothing; reception and a location
- * admin have no `current_doctor_id()` at all and get nothing. Nothing here
- * widens that, and nothing here may be given a doctor id by the browser.
+ * `encounters_select` is `owner_doctor_id = current_doctor_id()`, so the encounter
+ * query can only ever return the caller's OWN encounters across their own
+ * locations. The prescription summary uses `patient_prescription_history`, the
+ * existing doctor-only ownership RPC, because direct authenticated SELECT on the
+ * prescription tables is intentionally revoked. Nothing here widens either
+ * boundary, and nothing here may be given a doctor id by the browser.
  *
  * READ-ONLY, ALWAYS. Nothing in this module writes, and the previous encounter
  * is never touched by opening today's.
@@ -106,7 +106,7 @@ export async function getPreviousVisit(
   const [lists, location, prescription] = await Promise.all([
     readLists(supabase, previousId),
     readLocationName(supabase, row.practice_location_id as string),
-    readPrescription(supabase, previousId),
+    readPrescription(supabase, patientId, previousId),
   ]);
 
   return {
@@ -189,53 +189,58 @@ async function readLocationName(supabase: Client, locationId: string) {
   return (data as { name: string } | null)?.name ?? null;
 }
 
+type PrescriptionHistoryRow = {
+  prescription_id: string;
+  encounter_id: string;
+  finalized_at: string | null;
+  item_count: number | null;
+  replaces_id: string | null;
+  superseded_by: string | null;
+};
+
 /**
- * That visit's finalised prescription, FROM ITS OWN SNAPSHOT.
+ * That visit's finalised prescription through the EXISTING doctor-owned history
+ * RPC. Direct authenticated SELECT on `prescriptions` is deliberately revoked,
+ * so reading that table here silently lost the prescription from a returning
+ * patient's previous-visit card.
  *
- * The medicine count is read out of `review_bundle_snapshot` — the immutable
- * object the doctor approved — never rebuilt from today's template, today's
- * doctor profile or the live `prescription_items`. A corrected prescription
- * that had rows removed would otherwise report a count that never printed.
+ * The RPC is doctor-only, ownership-scoped, FINALIZED-only, and returns no
+ * correction reason. The caller supplies only the patient id already being
+ * consulted; the encounter match is performed locally against the previous
+ * encounter that RLS already proved belongs to this doctor.
  *
- * Drafts are excluded: an unfinalised prescription is not something that was
- * ever given to a patient.
- *
- * `replacement_reason` is deliberately NOT read. Whether this one was
- * superseded is operational and safe to show; WHY it was corrected is clinical
- * and belongs only to the correction record.
+ * When a prescription was corrected, prefer the current leaf (the finalized
+ * prescription that has not itself been superseded). This prevents a returning
+ * visit from presenting an obsolete prescription as the current one.
  */
 async function readPrescription(
   supabase: Client,
+  patientId: string,
   encounterId: string,
 ): Promise<PreviousVisitPrescription | null> {
-  const { data, error } = await supabase
-    .from("prescriptions")
-    .select("id, finalized_at, review_bundle_snapshot")
-    .eq("encounter_id", encounterId)
-    .eq("status", "FINALIZED")
-    .order("finalized_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
+  const { data, error } = await supabase.rpc("patient_prescription_history", {
+    p_patient_id: patientId,
+    p_practice_location_id: null,
+  });
 
-  if (error || !data) return null;
+  if (error) {
+    // Previous prescription context is useful, but must never block today's visit.
+    console.error("[encounters] previous prescription lookup failed", patientId, error.message);
+    return null;
+  }
 
-  const row = data as unknown as Record<string, unknown>;
-  const snapshot = row.review_bundle_snapshot as { items?: unknown[] } | null;
+  const rows = (data ?? []) as unknown as PrescriptionHistoryRow[];
+  const forVisit = rows.filter((row) => row.encounter_id === encounterId);
+  if (forVisit.length === 0) return null;
 
-  const { data: replacement } = await supabase
-    .from("prescriptions")
-    .select("id")
-    .eq("replaces_prescription_id", row.id as string)
-    .limit(1)
-    .maybeSingle();
-
-  const replacedById = (replacement as { id: string } | null)?.id ?? null;
+  // The RPC is newest-first. Prefer the current correction leaf when present.
+  const row = forVisit.find((candidate) => candidate.superseded_by === null) ?? forVisit[0];
 
   return {
-    id: row.id as string,
-    finalizedAt: (row.finalized_at as string | null) ?? null,
-    medicineCount: Array.isArray(snapshot?.items) ? snapshot.items.length : 0,
-    superseded: replacedById !== null,
-    replacedById,
+    id: row.prescription_id,
+    finalizedAt: row.finalized_at,
+    medicineCount: Number(row.item_count ?? 0),
+    superseded: row.superseded_by !== null,
+    replacedById: row.superseded_by,
   };
 }
