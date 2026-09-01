@@ -68,7 +68,7 @@ export function dictationErrorMessage(code: string): string {
     case "connection-timeout":
       return "The speech service took too long to connect. Your draft is preserved — retry or choose Browser fallback.";
     case "first-transcript-timeout":
-      return "Speech was detected but no transcript arrived in time. Your draft is preserved — retry or choose Browser fallback.";
+      return "No transcript arrived in time. Your draft is preserved — retry or choose Browser fallback.";
     case "network":
       return "The speech connection was interrupted. Your draft is preserved — retry, choose Browser fallback, or type normally.";
     case "provider-unavailable":
