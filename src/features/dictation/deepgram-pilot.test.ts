@@ -41,10 +41,10 @@ describe("Deepgram Nova-3 streaming pilot boundary", () => {
   });
 
   it("authenticates a doctor before minting any temporary credential", async () => {
-    const route = codeOnly(await source("src/app/api/voice/token/route.ts"));
+    const route = await source("src/app/api/voice/token/route.ts");
     const authAt = route.indexOf('requirePermission("update", "encounter")');
     const keyAt = route.indexOf("process.env.DEEPGRAM_API_KEY");
-    const grantAt = route.indexOf("/v1/auth/grant");
+    const grantAt = route.indexOf("https://api.deepgram.com/v1/auth/grant");
     expect(authAt).toBeGreaterThanOrEqual(0);
     expect(keyAt).toBeGreaterThan(authAt);
     expect(grantAt).toBeGreaterThan(keyAt);
