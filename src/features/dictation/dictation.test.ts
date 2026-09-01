@@ -203,11 +203,15 @@ describe("dictation cannot reach a clinical write path", () => {
     expect(fields).not.toMatch(/autoSave|autosave/i);
   });
 
-  it("finding dictation changes only the optional note draft, not the structured title", async () => {
+  it("finding dictation may draft title and note but never submits the finding", async () => {
     const finding = await code("src/features/encounters/components/finding-form.tsx");
+    expect((finding.match(/<DictateButton/g) ?? []).length).toBeGreaterThanOrEqual(2);
+    expect(finding).toMatch(/value=\{value\.title\}/);
+    expect(finding).toMatch(/title: next/);
     expect(finding).toMatch(/value=\{value\.note\}/);
-    expect(finding).toMatch(/onInsert=\{\(next\) => onChange\(\{ \.\.\.value, note: next \}\)\}/);
-    expect(finding).not.toMatch(/DictateButton[\s\S]{0,250}title: next/);
+    expect(finding).toMatch(/note: next/);
+    expect(finding).toMatch(/type="submit"/);
+    expect(finding).toMatch(/if \(canSubmit\) onSubmit\(\)/);
   });
 
   it("no audio is stored, uploaded or attached to a record", async () => {
