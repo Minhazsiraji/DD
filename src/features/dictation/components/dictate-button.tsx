@@ -24,48 +24,99 @@ export function DictateButton({
 }) {
   const voiceLanguage = useVoiceLanguage();
   const insertionCaret = React.useRef<number | undefined>(caretAt);
+  const runBaseValue = React.useRef<string | null>(null);
+  const runBaseCaret = React.useRef<number | undefined>(caretAt);
+  const previewApplied = React.useRef(false);
+
   React.useEffect(() => {
     insertionCaret.current = caretAt;
   }, [caretAt]);
 
+  const applyRunTranscript = React.useCallback(
+    (said: string) => {
+      const base = runBaseValue.current ?? value;
+      const result = insertTranscript(base, said, runBaseCaret.current);
+      previewApplied.current = said.trim() !== "";
+      insertionCaret.current = result.caret;
+      onInsert(result.text, result.caret);
+    },
+    [onInsert, value],
+  );
+
+  const revertRunPreview = React.useCallback(() => {
+    const base = runBaseValue.current;
+    if (base !== null && previewApplied.current) {
+      const caret = runBaseCaret.current ?? base.length;
+      insertionCaret.current = caret;
+      onInsert(base, caret);
+    }
+    previewApplied.current = false;
+    runBaseValue.current = null;
+  }, [onInsert]);
+
   const {
     state,
-    transcript,
     error,
     supported,
     providerNotice,
+    latency,
     start,
     stop,
     cancel,
   } = useDictation({
     language: voiceLanguage.providerLanguage,
     providerId: voiceLanguage.provider,
+    onPreview: applyRunTranscript,
     onFinal: (said) => {
-      const result = insertTranscript(value, said, insertionCaret.current);
-      insertionCaret.current = result.caret;
-      onInsert(result.text, result.caret);
+      applyRunTranscript(said);
+      previewApplied.current = false;
+      runBaseValue.current = null;
     },
+    onCancel: revertRunPreview,
   });
 
   if (!supported) return null;
 
-  const busy = state === "recording" || state === "transcribing";
+  const active = state === "connecting" || state === "listening" || state === "finalizing";
+  const canStop = state === "connecting" || state === "listening";
   const failed = state === "error" || state === "provider-unavailable";
   const label = DICTATION_LABEL[state];
 
+  const startDictation = () => {
+    runBaseValue.current = value;
+    runBaseCaret.current = insertionCaret.current;
+    previewApplied.current = false;
+    start();
+  };
+
   return (
-    <div className={cn("min-w-0", className)}>
+    <div
+      className={cn("min-w-0", className)}
+      data-voice-provider={voiceLanguage.provider}
+      data-voice-mic-ready-ms={latency.micReadyMs}
+      data-voice-provider-connected-ms={latency.providerConnectedMs}
+      data-voice-first-audio-ms={latency.firstAudioSentMs}
+      data-voice-first-transcript-ms={latency.firstTranscriptMs}
+      data-voice-stop-final-ms={latency.stopToFinalMs}
+    >
       <div className="flex flex-wrap items-center gap-2">
-        {state === "recording" ? (
+        {active ? (
           <>
-            <button
-              type="button"
-              onClick={stop}
-              className="inline-flex min-h-11 items-center gap-1.5 rounded-xl bg-[#a81c1c] px-3 text-[13px] font-semibold text-white focus-visible:focus-ring"
-            >
-              <Square className="size-3.5 shrink-0 fill-current" aria-hidden="true" />
-              Stop
-            </button>
+            {canStop ? (
+              <button
+                type="button"
+                onClick={stop}
+                className="inline-flex min-h-11 items-center gap-1.5 rounded-xl bg-[#a81c1c] px-3 text-[13px] font-semibold text-white focus-visible:focus-ring"
+              >
+                <Square className="size-3.5 shrink-0 fill-current" aria-hidden="true" />
+                Stop
+              </button>
+            ) : (
+              <span className="inline-flex min-h-11 items-center gap-1.5 rounded-xl border border-hairline bg-surface-muted px-3 text-[13px] font-semibold text-ink-secondary">
+                <Loader2 className="size-4 shrink-0 animate-spin" aria-hidden="true" />
+                Finalizing
+              </span>
+            )}
             <button
               type="button"
               onClick={cancel}
@@ -78,50 +129,44 @@ export function DictateButton({
         ) : (
           <button
             type="button"
-            onClick={start}
-            disabled={disabled || state === "transcribing"}
+            onClick={startDictation}
+            disabled={disabled}
             aria-label={`${failed ? "Try dictation again for" : "Dictate"} ${fieldLabel}`}
             className="inline-flex min-h-11 items-center gap-1.5 rounded-xl border border-hairline bg-white px-3 text-[13px] font-semibold text-ink-secondary transition-colors hover:bg-surface-muted hover:text-ink disabled:cursor-not-allowed disabled:opacity-55 focus-visible:focus-ring"
           >
-            {state === "transcribing" ? (
-              <Loader2 className="size-4 shrink-0 animate-spin" aria-hidden="true" />
-            ) : (
-              <Mic className="size-4 shrink-0" aria-hidden="true" />
-            )}
+            <Mic className="size-4 shrink-0" aria-hidden="true" />
             {failed ? "Try again" : label}
           </button>
         )}
 
-        {busy && (
-          <span role="status" aria-live="polite" className="inline-flex items-center gap-1.5 text-[12px] font-medium text-ink-secondary">
+        {active && (
+          <span
+            role="status"
+            aria-live="polite"
+            className="inline-flex items-center gap-1.5 text-[12px] font-medium text-ink-secondary"
+          >
             <span
               aria-hidden="true"
               className={cn(
                 "size-2 shrink-0 rounded-full",
-                state === "recording" ? "animate-pulse bg-[#a81c1c]" : "bg-ink-muted",
+                state === "listening" ? "animate-pulse bg-[#a81c1c]" : "bg-ink-muted",
               )}
             />
-            {label}{state === "recording" ? "…" : ""}
+            {label}{state === "listening" ? "…" : ""}
           </span>
         )}
       </div>
 
-      {busy && transcript && (
-        <p className="mt-2 min-w-0 rounded-xl bg-surface-muted px-3 py-2 text-[13px] break-words whitespace-pre-wrap text-ink-secondary">
-          {transcript}
-        </p>
-      )}
-
       {failed && error && (
-        <p role="alert" className="mt-2 flex min-w-0 items-start gap-2 rounded-xl bg-danger-soft px-3 py-2 text-[12px] font-medium text-[#a81c1c]">
-          <CircleAlert className="mt-px size-4 shrink-0" aria-hidden="true" />
+        <p role="alert" className="mt-1.5 flex min-w-0 items-start gap-1.5 text-[11px] font-medium text-[#a81c1c]">
+          <CircleAlert className="mt-px size-3.5 shrink-0" aria-hidden="true" />
           <span className="min-w-0 break-words">{error}</span>
         </p>
       )}
 
-      {state === "recording" && (
+      {state === "listening" && (
         <p className="mt-1.5 text-[11px] text-ink-muted">
-          {providerNotice} Nothing is added to the clinical record until you explicitly save or add it.
+          {providerNotice} Speech appears here as an editable draft; nothing enters the clinical record until you explicitly save or add it.
         </p>
       )}
     </div>
