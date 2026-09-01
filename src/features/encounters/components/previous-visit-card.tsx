@@ -5,6 +5,7 @@ import Link from "next/link";
 import { ChevronDown, FileText, History } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { formatDate } from "@/lib/format";
+import { withConsultationReturn } from "../return-context";
 import type { PreviousVisit } from "../previous-visit";
 
 /**
@@ -27,9 +28,12 @@ import type { PreviousVisit } from "../previous-visit";
 export function PreviousVisitCard({
   visit,
   expandedByDefault,
+  returnTo,
 }: {
   visit: PreviousVisit;
   expandedByDefault: boolean;
+  /** The current consultation to return to after opening historical records. */
+  returnTo: string;
 }) {
   const [open, setOpen] = React.useState(expandedByDefault);
 
@@ -114,14 +118,6 @@ export function PreviousVisitCard({
             </div>
           ) : null}
 
-          {/*
-            ORDERED, not resulted.
-
-            Doctor's Diary has no investigation-results module. Saying "results
-            are not recorded yet" is the honest sentence; implying these came
-            back — or worse, showing an invented value — is the failure mode
-            this wording exists to prevent.
-          */}
           {visit.investigations.length > 0 ? (
             <div>
               <Label>Investigations ordered</Label>
@@ -148,19 +144,24 @@ export function PreviousVisitCard({
                   ? ` · finalised ${formatDate(visit.prescription.finalizedAt.slice(0, 10))}`
                   : ""}
               </p>
-              {/*
-                That it was replaced is operational and safe to show. WHY it was
-                corrected is clinical and is never surfaced here.
-              */}
               {visit.prescription.superseded ? (
                 <p className="mt-0.5 text-[12px] font-medium text-warning">
                   A correction has replaced this prescription.
                 </p>
               ) : null}
               <div className="mt-1.5 flex flex-wrap gap-2">
-                <Open href={`/prescription/${visit.prescription.id}`}>Open previous prescription</Open>
+                <Open
+                  href={withConsultationReturn(`/prescription/${visit.prescription.id}`, returnTo)}
+                >
+                  Open previous prescription
+                </Open>
                 {visit.prescription.replacedById ? (
-                  <Open href={`/prescription/${visit.prescription.replacedById}`}>
+                  <Open
+                    href={withConsultationReturn(
+                      `/prescription/${visit.prescription.replacedById}`,
+                      returnTo,
+                    )}
+                  >
                     Open the replacement
                   </Open>
                 ) : null}
@@ -168,7 +169,9 @@ export function PreviousVisitCard({
             </div>
           ) : null}
 
-          <Open href={`/consultation/${visit.id}`}>View full previous consultation</Open>
+          <Open href={withConsultationReturn(`/consultation/${visit.id}`, returnTo)}>
+            View full previous consultation
+          </Open>
         </div>
       ) : null}
     </section>
@@ -188,7 +191,6 @@ function Field({ label, value }: { label: string; value: string | null }) {
   return (
     <div>
       <Label>{label}</Label>
-      {/* The doctor's own words, wrapped and never truncated. */}
       <p className="mt-1 break-words whitespace-pre-wrap text-ink">{value}</p>
     </div>
   );
@@ -198,7 +200,7 @@ function Open({ href, children }: { href: string; children: React.ReactNode }) {
   return (
     <Link
       href={href}
-      className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-hairline bg-white px-3 text-[12px] font-semibold text-ink hover:bg-surface-muted focus-visible:focus-ring"
+      className="inline-flex min-h-11 items-center gap-1.5 rounded-lg border border-hairline bg-white px-3 text-[12px] font-semibold text-ink hover:bg-surface-muted focus-visible:focus-ring"
     >
       <FileText className="size-3.5" aria-hidden="true" />
       {children}
