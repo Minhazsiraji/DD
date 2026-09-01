@@ -2,10 +2,10 @@
 
 import * as React from "react";
 import {
-  DICTATION_LANG,
   dictationErrorMessage,
   type DictationState,
 } from "./dictation";
+import { DEFAULT_DICTATION_LANGUAGE } from "./voice-language";
 
 /**
  * AUDIO CAPTURE, AND NOTHING ELSE.
@@ -76,12 +76,15 @@ export interface Dictation {
 
 export function useDictation({
   onFinal,
+  language = DEFAULT_DICTATION_LANGUAGE,
 }: {
   /**
    * Called ONCE per completed run, with the final text. The caller decides what
    * to do with it — this hook never touches a draft itself.
    */
   onFinal?: (transcript: string) => void;
+  /** BCP-47 tag given only to the browser SpeechRecognition engine. */
+  language?: string;
 } = {}): Dictation {
   const [rawState, setState] = React.useState<DictationState>("ready");
   const [transcript, setTranscript] = React.useState("");
@@ -163,7 +166,9 @@ export function useDictation({
     let finalText = "";
     let ended = false;
 
-    engine.lang = DICTATION_LANG;
+    // Locale affects recognition only. It never changes a field, save path,
+    // diagnosis/investigation authority, or encounter version handling.
+    engine.lang = language;
     // Clinical dictation is sentences, not single commands, so it must survive
     // the pauses a doctor takes while examining someone.
     engine.continuous = true;
@@ -218,7 +223,7 @@ export function useDictation({
         setState("error");
       }
     }
-  }, []);
+  }, [language]);
 
   const stop = React.useCallback(() => {
     if (!recognition.current) return;
