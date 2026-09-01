@@ -41,10 +41,7 @@ export interface VoiceTranscriptionSession {
   abort(): void;
 }
 
-/**
- * Provider boundary for speech-to-text only. Providers receive no clinical
- * identifiers and no save/add/finalize callbacks.
- */
+/** Provider boundary only; no clinical identifiers or write callbacks cross it. */
 export interface VoiceTranscriptionProvider {
   id: VoiceTranscriptionProviderId;
   privacyNotice: string;
@@ -290,6 +287,10 @@ const deepgramProvider: VoiceTranscriptionProvider = {
         if (latency.firstAudioSentMs === undefined) {
           latency.firstAudioSentMs = elapsed(startedAt);
           emitLatency();
+          firstTranscriptTimer = setTimeout(
+            () => fail("first-transcript-timeout"),
+            DEEPGRAM_FIRST_TRANSCRIPT_TIMEOUT_MS,
+          );
         }
         socket.send(event.data);
       };
@@ -309,7 +310,12 @@ const deepgramProvider: VoiceTranscriptionProvider = {
 
       try {
         stream = await navigator.mediaDevices.getUserMedia({
-          audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1 },
+          audio: {
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true,
+            channelCount: 1,
+          },
         });
         if (cancelled || terminal) {
           releaseTracks();
@@ -319,7 +325,10 @@ const deepgramProvider: VoiceTranscriptionProvider = {
         emitLatency();
 
         tokenController = new AbortController();
-        const tokenTimeout = setTimeout(() => tokenController?.abort(), DEEPGRAM_CONNECTION_TIMEOUT_MS);
+        const tokenTimeout = setTimeout(
+          () => tokenController?.abort(),
+          DEEPGRAM_CONNECTION_TIMEOUT_MS,
+        );
         let accessToken: string;
         try {
           accessToken = await requestDeepgramAccessToken(tokenController.signal);
@@ -329,8 +338,14 @@ const deepgramProvider: VoiceTranscriptionProvider = {
         tokenController = null;
         if (cancelled || terminal) return;
 
-        socket = new WebSocket(buildDeepgramStreamingUrl(language), deepgramBearerProtocols(accessToken));
-        connectionTimer = setTimeout(() => fail("connection-timeout"), DEEPGRAM_CONNECTION_TIMEOUT_MS);
+        socket = new WebSocket(
+          buildDeepgramStreamingUrl(language),
+          deepgramBearerProtocols(accessToken),
+        );
+        connectionTimer = setTimeout(
+          () => fail("connection-timeout"),
+          DEEPGRAM_CONNECTION_TIMEOUT_MS,
+        );
 
         socket.onopen = () => {
           if (cancelled || terminal) return;
@@ -352,14 +367,6 @@ const deepgramProvider: VoiceTranscriptionProvider = {
           try {
             message = JSON.parse(event.data) as { type?: string } & Partial<DeepgramResultsMessage>;
           } catch {
-            return;
-          }
-
-          if (message.type === "SpeechStarted" && latency.firstTranscriptMs === undefined && !firstTranscriptTimer) {
-            firstTranscriptTimer = setTimeout(
-              () => fail("first-transcript-timeout"),
-              DEEPGRAM_FIRST_TRANSCRIPT_TIMEOUT_MS,
-            );
             return;
           }
 
@@ -395,7 +402,13 @@ const deepgramProvider: VoiceTranscriptionProvider = {
           return;
         }
         const code = error instanceof Error ? error.message : "";
-        fail(code === "provider-unavailable" ? code : code === "provider-error" ? code : "network");
+        fail(
+          code === "provider-unavailable"
+            ? code
+            : code === "provider-error"
+              ? code
+              : "network",
+        );
       }
     };
 
