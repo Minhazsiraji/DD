@@ -34,7 +34,6 @@ export function useDictation({
   providerId = "browser",
 }: {
   onFinal?: (transcript: string) => void;
-  /** Provider-specific language parameter, chosen by config. */
   language?: string;
   providerId?: VoiceTranscriptionProviderId;
 } = {}): Dictation {
@@ -97,14 +96,16 @@ export function useDictation({
           if (activeRun.current !== runId || ended) return;
           if (code === "aborted") return;
           setError(dictationErrorMessage(code));
-          setState("error");
+          setState(code === "provider-unavailable" ? "provider-unavailable" : "error");
         },
         onEnd(said) {
           if (activeRun.current !== runId || ended) return;
           ended = true;
           activeRun.current += 1;
           if (session.current === current) session.current = null;
-          setState((existing) => (existing === "error" ? "error" : "ready"));
+          setState((existing) =>
+            existing === "error" || existing === "provider-unavailable" ? existing : "ready",
+          );
           if (said !== "") onFinalRef.current?.(said);
         },
       },
