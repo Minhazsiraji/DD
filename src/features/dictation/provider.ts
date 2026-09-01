@@ -1,13 +1,36 @@
-export const VOICE_TRANSCRIPTION_PROVIDER_IDS = [
-  "browser",
-  "deepgram",
-] as const;
+import {
+  DEEPGRAM_CONNECTION_TIMEOUT_MS,
+  DEEPGRAM_FINALIZE_TIMEOUT_MS,
+  DEEPGRAM_FIRST_TRANSCRIPT_TIMEOUT_MS,
+  DEEPGRAM_MEDIA_TIMESLICE_MS,
+  DeepgramTranscriptAssembler,
+  buildDeepgramStreamingUrl,
+  deepgramBearerProtocols,
+  type DeepgramResultsMessage,
+} from "./deepgram-stream";
 
-export type VoiceTranscriptionProviderId =
-  (typeof VOICE_TRANSCRIPTION_PROVIDER_IDS)[number];
+export const VOICE_TRANSCRIPTION_PROVIDER_IDS = ["browser", "deepgram"] as const;
+
+export type VoiceTranscriptionProviderId = (typeof VOICE_TRANSCRIPTION_PROVIDER_IDS)[number];
+export type VoiceProviderPhase = "connecting" | "listening" | "finalizing";
+
+export interface VoiceLatencySnapshot {
+  micReadyMs?: number;
+  providerConnectedMs?: number;
+  firstAudioSentMs?: number;
+  firstTranscriptMs?: number;
+  stopToFinalMs?: number;
+}
+
+export interface VoiceTranscriptEvent {
+  text: string;
+  isFinal: boolean;
+}
 
 export interface VoiceTranscriptionCallbacks {
-  onTranscript: (transcript: string) => void;
+  onPhase: (phase: VoiceProviderPhase) => void;
+  onTranscript: (event: VoiceTranscriptEvent) => void;
+  onLatency: (latency: VoiceLatencySnapshot) => void;
   onError: (code: string) => void;
   onEnd: (finalTranscript: string) => void;
 }
@@ -19,11 +42,8 @@ export interface VoiceTranscriptionSession {
 }
 
 /**
- * Provider boundary for speech-to-text only.
- *
- * A provider may capture/transcribe audio, but it never knows which clinical
- * field it is beside and receives no save/finalize callbacks. That keeps
- * transcription replaceable without creating a second clinical write path.
+ * Provider boundary for speech-to-text only. Providers receive no clinical
+ * identifiers and no save/add/finalize callbacks.
  */
 export interface VoiceTranscriptionProvider {
   id: VoiceTranscriptionProviderId;
@@ -63,6 +83,10 @@ function recognitionCtor(): RecognitionCtor | null {
   return w.SpeechRecognition ?? w.webkitSpeechRecognition ?? null;
 }
 
+function elapsed(startedAt: number): number {
+  return Math.round(performance.now() - startedAt);
+}
+
 const browserProvider: VoiceTranscriptionProvider = {
   id: "browser",
   privacyNotice:
@@ -83,143 +107,314 @@ const browserProvider: VoiceTranscriptionProvider = {
 
     engine.onresult = (event) => {
       let interim = "";
+      let sawFinal = false;
       for (let i = event.resultIndex; i < event.results.length; i++) {
         const result = event.results[i];
         const said = result?.[0]?.transcript ?? "";
-        if (result?.isFinal) finalText += said;
-        else interim += said;
+        if (result?.isFinal) {
+          finalText += said;
+          sawFinal = true;
+        } else {
+          interim += said;
+        }
       }
-      callbacks.onTranscript(finalText + interim);
+      callbacks.onTranscript({ text: (finalText + interim).trim(), isFinal: sawFinal });
     };
 
     engine.onerror = (event) => callbacks.onError(event.error ?? "unknown");
     engine.onend = () => callbacks.onEnd(finalText.trim());
 
     return {
-      start: () => engine.start(),
-      stop: () => engine.stop(),
+      start() {
+        engine.start();
+        callbacks.onPhase("listening");
+      },
+      stop() {
+        callbacks.onPhase("finalizing");
+        engine.stop();
+      },
       abort: () => engine.abort(),
     };
   },
 };
 
-function mediaRecorderSupported(): boolean {
+function deepgramStreamingSupported(): boolean {
   return (
     typeof window !== "undefined" &&
+    typeof WebSocket !== "undefined" &&
+    typeof MediaRecorder !== "undefined" &&
     "mediaDevices" in navigator &&
-    typeof MediaRecorder !== "undefined"
+    typeof navigator.mediaDevices?.getUserMedia === "function"
   );
 }
 
-function preferredRecorderMimeType(): string | undefined {
-  if (typeof MediaRecorder === "undefined") return undefined;
-  for (const type of ["audio/webm;codecs=opus", "audio/webm", "audio/ogg;codecs=opus", "audio/mp4"]) {
+function preferredRecorderMimeType(): string | null {
+  if (typeof MediaRecorder === "undefined") return null;
+  for (const type of ["audio/webm;codecs=opus", "audio/webm", "audio/ogg;codecs=opus"]) {
     if (MediaRecorder.isTypeSupported(type)) return type;
   }
-  return undefined;
+  return null;
+}
+
+async function requestDeepgramAccessToken(signal: AbortSignal): Promise<string> {
+  const response = await fetch("/api/voice/token", {
+    method: "POST",
+    cache: "no-store",
+    signal,
+    headers: { Accept: "application/json" },
+  });
+  if (!response.ok) {
+    throw new Error(response.status === 503 ? "provider-unavailable" : "provider-error");
+  }
+  const payload = (await response.json()) as { accessToken?: string };
+  if (!payload.accessToken) throw new Error("provider-error");
+  return payload.accessToken;
 }
 
 const deepgramProvider: VoiceTranscriptionProvider = {
   id: "deepgram",
   privacyNotice:
-    "Audio is sent to Deepgram for transcription. Doctor's Diary does not store the audio.",
+    "Audio is securely streamed to Deepgram for transcription. Doctor's Diary does not store the audio.",
   isSupported() {
-    return mediaRecorderSupported();
+    return deepgramStreamingSupported() && preferredRecorderMimeType() !== null;
   },
   createSession({ language, callbacks }) {
-    if (!mediaRecorderSupported()) return null;
+    if (!deepgramStreamingSupported()) return null;
+    const mimeType = preferredRecorderMimeType();
+    if (!mimeType) return null;
 
     let recorder: MediaRecorder | null = null;
     let stream: MediaStream | null = null;
+    let socket: WebSocket | null = null;
+    let keepAlive: ReturnType<typeof setInterval> | null = null;
+    let connectionTimer: ReturnType<typeof setTimeout> | null = null;
+    let firstTranscriptTimer: ReturnType<typeof setTimeout> | null = null;
+    let finalizeTimer: ReturnType<typeof setTimeout> | null = null;
+    let tokenController: AbortController | null = null;
     let cancelled = false;
+    let terminal = false;
     let stopped = false;
-    const chunks: Blob[] = [];
-    const controller = new AbortController();
+    let finalizing = false;
+    let latestTranscript = "";
+    let startedAt = 0;
+    let stopAt: number | null = null;
+    const assembler = new DeepgramTranscriptAssembler();
+    const latency: VoiceLatencySnapshot = {};
 
-    const release = () => {
+    const emitLatency = () => callbacks.onLatency({ ...latency });
+    const clearTimer = (timer: ReturnType<typeof setTimeout> | null) => {
+      if (timer) clearTimeout(timer);
+    };
+
+    const releaseTracks = () => {
       stream?.getTracks().forEach((track) => track.stop());
       stream = null;
     };
 
-    const transcribe = async () => {
-      if (cancelled) return;
-      const mimeType = recorder?.mimeType || chunks[0]?.type || "audio/webm";
-      const audio = new Blob(chunks, { type: mimeType });
-      if (audio.size === 0) {
-        callbacks.onError("no-speech");
-        return;
+    const cleanup = () => {
+      tokenController?.abort();
+      tokenController = null;
+      clearTimer(connectionTimer);
+      clearTimer(firstTranscriptTimer);
+      clearTimer(finalizeTimer);
+      connectionTimer = null;
+      firstTranscriptTimer = null;
+      finalizeTimer = null;
+      if (keepAlive) clearInterval(keepAlive);
+      keepAlive = null;
+
+      if (recorder) {
+        recorder.ondataavailable = null;
+        recorder.onerror = null;
+        recorder.onstop = null;
+        if (recorder.state !== "inactive") {
+          try {
+            recorder.stop();
+          } catch {}
+        }
       }
+      recorder = null;
+      releaseTracks();
 
-      const body = new FormData();
-      body.append("audio", audio, "dictation.webm");
-      body.append("language", language);
+      if (socket && socket.readyState === WebSocket.OPEN) {
+        try {
+          socket.send(JSON.stringify({ type: "CloseStream" }));
+        } catch {}
+        socket.close(1000);
+      } else if (socket && socket.readyState === WebSocket.CONNECTING) {
+        socket.close();
+      }
+      socket = null;
+    };
 
-      try {
-        const response = await fetch("/api/voice/transcribe", {
-          method: "POST",
-          body,
-          cache: "no-store",
-          signal: controller.signal,
-        });
+    const fail = (code: string) => {
+      if (cancelled || terminal) return;
+      terminal = true;
+      cleanup();
+      callbacks.onError(code);
+    };
 
-        if (!response.ok) {
-          callbacks.onError(response.status === 503 ? "provider-unavailable" : "provider-error");
+    const settle = () => {
+      if (cancelled || terminal) return;
+      terminal = true;
+      if (stopAt !== null) latency.stopToFinalMs = Math.round(performance.now() - stopAt);
+      emitLatency();
+      cleanup();
+      callbacks.onEnd(latestTranscript.trim());
+    };
+
+    const beginFinalize = () => {
+      if (cancelled || terminal || finalizing) return;
+      finalizing = true;
+      callbacks.onPhase("finalizing");
+      if (stopAt === null) stopAt = performance.now();
+
+      if (socket?.readyState === WebSocket.OPEN) {
+        try {
+          socket.send(JSON.stringify({ type: "Finalize" }));
+        } catch {
+          settle();
           return;
         }
+        finalizeTimer = setTimeout(settle, DEEPGRAM_FINALIZE_TIMEOUT_MS);
+      } else {
+        settle();
+      }
+    };
 
-        const payload = (await response.json()) as { transcript?: string };
-        if (cancelled) return;
-        const transcript = payload.transcript?.trim() ?? "";
-        callbacks.onTranscript(transcript);
-        callbacks.onEnd(transcript);
+    const startRecorder = () => {
+      if (!stream || !socket || socket.readyState !== WebSocket.OPEN || cancelled || terminal) return;
+      recorder = new MediaRecorder(stream, { mimeType });
+      recorder.ondataavailable = (event) => {
+        if (cancelled || terminal || event.data.size === 0 || socket?.readyState !== WebSocket.OPEN) return;
+        if (latency.firstAudioSentMs === undefined) {
+          latency.firstAudioSentMs = elapsed(startedAt);
+          emitLatency();
+        }
+        socket.send(event.data);
+      };
+      recorder.onerror = () => fail("audio-capture");
+      recorder.onstop = () => {
+        releaseTracks();
+        if (!cancelled && !terminal) beginFinalize();
+      };
+      recorder.start(DEEPGRAM_MEDIA_TIMESLICE_MS);
+      callbacks.onPhase("listening");
+      if (stopped && recorder.state !== "inactive") recorder.stop();
+    };
+
+    const connect = async () => {
+      callbacks.onPhase("connecting");
+      startedAt = performance.now();
+
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1 },
+        });
+        if (cancelled || terminal) {
+          releaseTracks();
+          return;
+        }
+        latency.micReadyMs = elapsed(startedAt);
+        emitLatency();
+
+        tokenController = new AbortController();
+        const tokenTimeout = setTimeout(() => tokenController?.abort(), DEEPGRAM_CONNECTION_TIMEOUT_MS);
+        let accessToken: string;
+        try {
+          accessToken = await requestDeepgramAccessToken(tokenController.signal);
+        } finally {
+          clearTimeout(tokenTimeout);
+        }
+        tokenController = null;
+        if (cancelled || terminal) return;
+
+        socket = new WebSocket(buildDeepgramStreamingUrl(language), deepgramBearerProtocols(accessToken));
+        connectionTimer = setTimeout(() => fail("connection-timeout"), DEEPGRAM_CONNECTION_TIMEOUT_MS);
+
+        socket.onopen = () => {
+          if (cancelled || terminal) return;
+          clearTimer(connectionTimer);
+          connectionTimer = null;
+          latency.providerConnectedMs = elapsed(startedAt);
+          emitLatency();
+          keepAlive = setInterval(() => {
+            if (socket?.readyState === WebSocket.OPEN) {
+              socket.send(JSON.stringify({ type: "KeepAlive" }));
+            }
+          }, 3000);
+          startRecorder();
+        };
+
+        socket.onmessage = (event) => {
+          if (cancelled || terminal || typeof event.data !== "string") return;
+          let message: { type?: string } & Partial<DeepgramResultsMessage>;
+          try {
+            message = JSON.parse(event.data) as { type?: string } & Partial<DeepgramResultsMessage>;
+          } catch {
+            return;
+          }
+
+          if (message.type === "SpeechStarted" && latency.firstTranscriptMs === undefined && !firstTranscriptTimer) {
+            firstTranscriptTimer = setTimeout(
+              () => fail("first-transcript-timeout"),
+              DEEPGRAM_FIRST_TRANSCRIPT_TIMEOUT_MS,
+            );
+            return;
+          }
+
+          if (message.type !== "Results") return;
+          const next = assembler.apply(message as DeepgramResultsMessage);
+          if (next?.text) {
+            latestTranscript = next.text;
+            if (latency.firstTranscriptMs === undefined) {
+              latency.firstTranscriptMs = elapsed(startedAt);
+              clearTimer(firstTranscriptTimer);
+              firstTranscriptTimer = null;
+              emitLatency();
+            }
+            callbacks.onTranscript(next);
+          }
+
+          if (finalizing && message.from_finalize === true) settle();
+        };
+
+        socket.onerror = () => {
+          if (!cancelled && !terminal) fail("provider-error");
+        };
+        socket.onclose = () => {
+          if (cancelled || terminal) return;
+          if (finalizing) settle();
+          else fail("network");
+        };
       } catch (error) {
-        if (cancelled || (error instanceof DOMException && error.name === "AbortError")) return;
-        callbacks.onError("network");
+        if (cancelled || terminal) return;
+        releaseTracks();
+        if (error instanceof DOMException && error.name === "NotAllowedError") {
+          fail("not-allowed");
+          return;
+        }
+        const code = error instanceof Error ? error.message : "";
+        fail(code === "provider-unavailable" ? code : code === "provider-error" ? code : "network");
       }
     };
 
     return {
       start() {
-        void navigator.mediaDevices
-          .getUserMedia({ audio: true })
-          .then((nextStream) => {
-            if (cancelled) {
-              nextStream.getTracks().forEach((track) => track.stop());
-              return;
-            }
-            stream = nextStream;
-            const mimeType = preferredRecorderMimeType();
-            recorder = mimeType ? new MediaRecorder(nextStream, { mimeType }) : new MediaRecorder(nextStream);
-            recorder.ondataavailable = (event) => {
-              if (!cancelled && event.data.size > 0) chunks.push(event.data);
-            };
-            recorder.onerror = () => {
-              if (cancelled) return;
-              release();
-              callbacks.onError("audio-capture");
-            };
-            recorder.onstop = () => {
-              release();
-              if (!cancelled) void transcribe();
-            };
-            recorder.start();
-            if (stopped && recorder.state !== "inactive") recorder.stop();
-          })
-          .catch((error: unknown) => {
-            if (cancelled) return;
-            const name = error instanceof DOMException ? error.name : "";
-            callbacks.onError(name === "NotAllowedError" ? "not-allowed" : "audio-capture");
-          });
+        void connect();
       },
       stop() {
+        if (cancelled || terminal) return;
         stopped = true;
+        if (stopAt === null) stopAt = performance.now();
+        callbacks.onPhase("finalizing");
         if (recorder && recorder.state !== "inactive") recorder.stop();
+        else if (socket?.readyState === WebSocket.OPEN) beginFinalize();
       },
       abort() {
         cancelled = true;
-        controller.abort();
-        if (recorder && recorder.state !== "inactive") recorder.stop();
-        release();
+        terminal = true;
+        cleanup();
       },
     };
   },
