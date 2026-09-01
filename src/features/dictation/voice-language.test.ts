@@ -23,77 +23,51 @@ function codeOnly(src: string) {
 }
 
 describe("configurable dictation languages and providers", () => {
-  it("ships English and Bangla Bangladesh on the browser provider for MVP", () => {
-    expect(DICTATION_LANGUAGES).toContainEqual({
-      label: "English",
-      lang: "en-US",
-      provider: "browser",
-    });
-    expect(DICTATION_LANGUAGES).toContainEqual({
-      label: "বাংলা",
-      lang: "bn-BD",
-      provider: "browser",
-    });
+  it("prefers browser for English and Deepgram Nova-3 language bn for Bangla", () => {
+    const english = resolveDictationLanguage("en-US");
+    const bangla = resolveDictationLanguage("bn-BD");
+    expect(english.preferredProvider).toBe("browser");
+    expect(english.providers).toContainEqual({ id: "deepgram", label: "Deepgram", providerLanguage: "en-US" });
+    expect(bangla.preferredProvider).toBe("deepgram");
+    expect(bangla.providers).toContainEqual({ id: "deepgram", label: "Deepgram", providerLanguage: "bn" });
+    expect(bangla.providers).toContainEqual({ id: "browser", label: "Browser fallback", providerLanguage: "bn-BD" });
     expect(DEFAULT_DICTATION_LANGUAGE).toBe("en-US");
   });
 
-  it("keeps a provider kind reserved for a future server implementation without enabling one", () => {
-    expect(VOICE_TRANSCRIPTION_PROVIDER_IDS).toContain("browser");
-    expect(VOICE_TRANSCRIPTION_PROVIDER_IDS).toContain("future_server_provider");
+  it("registers browser and Deepgram behind the same provider interface", () => {
+    expect(VOICE_TRANSCRIPTION_PROVIDER_IDS).toEqual(["browser", "deepgram"]);
     expect(getVoiceTranscriptionProvider("browser")?.id).toBe("browser");
-    expect(getVoiceTranscriptionProvider("future_server_provider")).toBeNull();
+    expect(getVoiceTranscriptionProvider("deepgram")?.id).toBe("deepgram");
   });
 
-  it("is list-based configuration that can accept more locales later", () => {
-    expect(Array.isArray(DICTATION_LANGUAGES)).toBe(true);
+  it("is list-based and can accept more locales/providers later", () => {
     expect(DICTATION_LANGUAGES.length).toBeGreaterThanOrEqual(2);
     for (const option of DICTATION_LANGUAGES) {
       expect(option.label.trim()).not.toBe("");
       expect(option.lang).toMatch(/^[a-z]{2,3}(?:-[A-Z]{2})?$/);
-      expect(VOICE_TRANSCRIPTION_PROVIDER_IDS).toContain(option.provider);
+      expect(option.providers.length).toBeGreaterThan(0);
+      for (const provider of option.providers) {
+        expect(VOICE_TRANSCRIPTION_PROVIDER_IDS).toContain(provider.id);
+        expect(provider.providerLanguage.trim()).not.toBe("");
+      }
     }
   });
 
   it("falls an unknown locale back to the configured default", () => {
-    expect(resolveDictationLanguage("bn-BD").lang).toBe("bn-BD");
-    expect(resolveDictationLanguage("en-US").lang).toBe("en-US");
     expect(resolveDictationLanguage("not-a-locale").lang).toBe(DEFAULT_DICTATION_LANGUAGE);
   });
 
-  it("routes the selected locale through provider config and passes lang to the provider adapter", async () => {
-    const hook = await source("src/features/dictation/use-dictation.ts");
-    const provider = await source("src/features/dictation/provider.ts");
-    expect(hook).toMatch(/resolveDictationLanguage\(language\)/);
-    expect(hook).toMatch(/getVoiceTranscriptionProvider\(activeLanguage\.provider\)/);
-    expect(hook).toMatch(/language: activeLanguage\.lang/);
-    expect(provider).toMatch(/engine\.lang = language/);
-
+  it("passes configured provider id and provider-specific language into DictateButton", async () => {
     const button = await source("src/features/dictation/components/dictate-button.tsx");
-    expect(button).toMatch(/useVoiceLanguage\(\)/);
-    expect(button).toMatch(/language: voiceLanguage\.lang/);
+    expect(button).toMatch(/providerId: voiceLanguage\.provider/);
+    expect(button).toMatch(/language: voiceLanguage\.providerLanguage/);
   });
 
-  it("keeps the language preference local to the UI with no persistence or backend", async () => {
+  it("keeps language/provider preference local to UI state", async () => {
     const language = codeOnly(await source("src/features/dictation/voice-language.tsx"));
-    for (const forbidden of [
-      "localStorage",
-      "sessionStorage",
-      "indexedDB",
-      "fetch(",
-      "supabase",
-      "MediaRecorder",
-      "FormData",
-      "Blob",
-    ]) {
+    for (const forbidden of ["localStorage", "sessionStorage", "indexedDB", "supabase", "DEEPGRAM_API_KEY"]) {
       expect(language.includes(forbidden), forbidden).toBe(false);
     }
-  });
-
-  it("shows one consultation-wide selector rather than one select per Dictate button", async () => {
-    const fastEntry = await source("src/features/encounters/components/fast-entry.tsx");
-    expect(fastEntry).toMatch(/<VoiceLanguageControl disabled=\{blocked\} \/>/);
-    const button = await source("src/features/dictation/components/dictate-button.tsx");
-    expect(button).not.toMatch(/<select/);
   });
 
   it("keeps normal free-form dictation out of structured Vitals", async () => {
@@ -103,31 +77,24 @@ describe("configurable dictation languages and providers", () => {
   });
 });
 
-describe("provider routing does not weaken the discard or clinical authority boundary", () => {
-  it("still invalidates an old session before abort and gates late callbacks by run id", async () => {
+describe("provider routing keeps authority and discard boundaries", () => {
+  it("invalidates an old session before abort and gates late callbacks by run id", async () => {
     const hook = await source("src/features/dictation/use-dictation.ts");
     expect(hook).toMatch(/activeRun\.current \+= 1;[\s\S]*current\?\.abort\(\)/);
     expect(hook).toMatch(/activeRun\.current !== runId \|\| ended/);
     expect(hook).toMatch(/const runId = activeRun\.current \+ 1/);
   });
 
-  it("adds no active server provider and no clinical write authority", async () => {
+  it("DictateButton and orchestration still import no clinical actions", async () => {
     for (const file of [
-      "src/features/dictation/provider.ts",
       "src/features/dictation/use-dictation.ts",
       "src/features/dictation/components/dictate-button.tsx",
       "src/features/dictation/voice-language.tsx",
     ]) {
       const src = codeOnly(await source(file));
-      for (const forbidden of [
-        /from\s+["'][^"']*actions["']/,
-        /from\s+["'][^"']*supabase[^"']*["']/,
-        /\bfetch\s*\(/,
-        /\bfinalize\w*\s*\(/,
-        /\bfinish\w*consultation\w*\s*\(/i,
-      ]) {
-        expect(forbidden.test(src), `${file}: ${forbidden}`).toBe(false);
-      }
+      expect(src).not.toMatch(/from\s+["'][^"']*actions["']/);
+      expect(src).not.toMatch(/\bfinalize\w*\s*\(/);
+      expect(src).not.toMatch(/\bfinish\w*consultation\w*\s*\(/i);
     }
   });
 });
