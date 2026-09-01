@@ -46,6 +46,7 @@ export function FindingForm({
   const isDiagnosis = kind === "diagnosis";
   const titleLabel = isDiagnosis ? "Diagnosis" : "Investigation";
   const canSubmit = value.title.trim().length > 0 && !busy && !blocked;
+  const [titleCaret, setTitleCaret] = React.useState<number | undefined>();
 
   return (
     <form
@@ -65,9 +66,29 @@ export function FindingForm({
           disabled={busy}
           autoComplete="off"
           onChange={(e) => onChange({ ...value, title: e.target.value })}
+          onSelect={(e) => setTitleCaret(e.currentTarget.selectionStart ?? value.title.length)}
           placeholder={isDiagnosis ? "Dengue fever" : "CBC with platelet count"}
           className="mt-1 h-11 w-full rounded-xl border border-hairline bg-white px-3 text-[15px] text-ink placeholder:text-ink-muted focus-visible:focus-ring disabled:bg-surface-muted"
         />
+
+        {/*
+          Voice may draft the finding TITLE, but that is still only local form
+          text. The doctor must explicitly press Add/Save below, which continues
+          through the existing finding mutation coordinator and version gate.
+        */}
+        {busy ? null : (
+          <DictateButton
+            className="mt-2"
+            fieldLabel={isDiagnosis ? "diagnosis" : "investigation"}
+            disabled={blocked}
+            value={value.title}
+            caretAt={titleCaret}
+            onInsert={(next, caret) => {
+              setTitleCaret(caret);
+              onChange({ ...value, title: next });
+            }}
+          />
+        )}
       </div>
 
       {isDiagnosis ? (
@@ -126,14 +147,6 @@ export function FindingForm({
           Emptying this removes the note.
         </p>
 
-        {/*
-          Dictation for the NOTE, not for the title.
-          A diagnosis label is short, specific and often a term the speech
-          engine mangles — "Dengue" is not a word it reaches for — and a
-          mistranscribed diagnosis is a different kind of wrong from a
-          mistranscribed sentence. The doctor types the diagnosis and may
-          dictate the reasoning beside it.
-        */}
         {busy ? null : (
           <DictateButton
             className="mt-2"
