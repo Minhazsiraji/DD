@@ -1,0 +1,66 @@
+name: Loop C Adoption Commercial Acceptance
+
+on:
+  push:
+    branches:
+      - qa/loop-c-doctor-adoption-commercial-acceptance
+
+permissions:
+  contents: read
+
+jobs:
+  source-gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Lint
+        run: npm run lint
+      - name: Focused adoption
+        run: npx vitest run src/features/adoption/progress.test.ts src/features/adoption/adoption-boundary.test.ts
+      - name: Focused commercial
+        run: npx vitest run src/features/commercial/commercial.test.ts
+      - name: Critical clinical and security regressions
+        run: npx vitest run src/features/security/policy.test.ts src/features/encounters/mutation-gate.test.ts src/features/prescriptions/freeze.test.ts src/features/prescriptions/finalize-outcome.test.ts src/features/prescriptions/review-bundle.test.ts src/features/prescriptions/correction.test.ts src/features/booking-settings/hardening.test.ts src/features/public-booking/commercial-boundary.test.ts src/features/public-booking/booking-serial-boundary.test.ts src/features/appointments/schema.test.ts src/features/queue/schema.test.ts
+      - name: Full suite
+        run: npm test
+      - name: Build
+        run: npm run build
+      - name: Typecheck
+        run: npm run typecheck
+
+  db-verifiers:
+    runs-on: ubuntu-latest
+    env:
+      DIRECT_URL: ${{ secrets.DIRECT_URL }}
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Confirm DB verifier connection is available
+        shell: bash
+        run: |
+          if [ -z "$DIRECT_URL" ] && [ -z "$DATABASE_URL" ]; then
+            echo "DB_SECRET_UNAVAILABLE"
+            exit 2
+          fi
+      - name: Owner adoption metric verifier
+        run: node scripts/verify-owner-metrics.mjs
+      - name: Existing owner authority verifier
+        run: node scripts/verify-owner-authority.mjs
+      - name: Commercial verifier
+        run: node scripts/verify-commercial.mjs
+      - name: Booking settings verifier
+        run: node scripts/verify-booking-settings.mjs
+      - name: Payment verifier
+        run: node scripts/verify-payment-approval.mjs
+      - name: Finish Consultation verifier
+        run: node scripts/verify-finish-consultation.mjs
