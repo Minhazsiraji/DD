@@ -4,6 +4,7 @@ import * as React from "react";
 import { Check, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { DictateButton } from "@/features/dictation/components/dictate-button";
+import { VoiceLanguageControl } from "@/features/dictation/voice-language";
 import {
   MEDICINE_FIELDS,
   type MedicineDraft,
@@ -88,6 +89,10 @@ export function MedicineForm({
       }}
       className="space-y-3 rounded-xl border border-hairline bg-surface-muted/60 p-3 sm:p-4"
     >
+      <div className="flex min-w-0 justify-end">
+        <VoiceLanguageControl disabled={busy || blocked} />
+      </div>
+
       <div className="grid grid-cols-12 gap-3">
         {MEDICINE_FIELDS.map((field) => {
           const isName = field.key === "displayName";
