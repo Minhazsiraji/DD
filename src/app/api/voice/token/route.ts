@@ -46,8 +46,10 @@ export async function POST(request: NextRequest) {
     return noStore({ code: "unauthorized" }, 401);
   }
 
+  // Browser POSTs to this grant endpoint must be same-origin. A missing Origin
+  // fails closed because there is no non-browser client in this pilot flow.
   const origin = request.headers.get("origin");
-  if (origin && origin !== request.nextUrl.origin) {
+  if (origin !== request.nextUrl.origin) {
     return noStore({ code: "forbidden" }, 403);
   }
 
