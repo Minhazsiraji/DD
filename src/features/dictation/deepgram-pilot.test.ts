@@ -55,7 +55,7 @@ describe("Deepgram Nova-3 streaming pilot boundary", () => {
     expect(route).toMatch(/TOKEN_TTL_SECONDS = 30/);
     expect(route).toMatch(/MAX_GRANTS_PER_WINDOW = 12/);
     expect(route).toMatch(/ttl_seconds: TOKEN_TTL_SECONDS/);
-    expect(route).toMatch(/Cache-Control.*private, no-store/s);
+    expect(route).toMatch(/Cache-Control[\s\S]*private, no-store/);
   });
 
   it("server token route never receives or logs audio/transcript/clinical context", async () => {
