@@ -20,10 +20,11 @@ import {
  * a billing period — and filling them in would put a date on screen that no
  * row anywhere supports.
  *
- * THE RAW STATUS IS ALWAYS SHOWN alongside the friendly one. The six-state
- * commercial vocabulary is a projection of seven database statuses, and hiding
- * the original would mean a doctor on the phone to support cannot tell them
- * what their account actually says.
+ * THE RAW STATUS REMAINS AVAILABLE FOR SUPPORT without making an internal
+ * database vocabulary part of the ordinary doctor-facing summary. The
+ * six-state commercial vocabulary is a projection of seven database statuses;
+ * the source value is kept in a small disclosure so support can still inspect
+ * what the account actually says.
  */
 
 /** An ISO instant to a date, without pretending to know the doctor's clock. */
@@ -40,7 +41,7 @@ interface Props {
 
 export function PlanCard({ summary, entitlements }: Props) {
   const price = renderMoney(summary.monthlyPrice);
-  const attention = needsAttention(summary.state);
+  const attention = summary.state ? needsAttention(summary.state) : true;
 
   return (
     <SectionCard className="overflow-hidden">
@@ -61,7 +62,7 @@ export function PlanCard({ summary, entitlements }: Props) {
             ) : (
               <CircleCheck className="size-3.5" aria-hidden="true" />
             )}
-            {summary.state ? STATE_LABEL[summary.state] : summary.rawStatus}
+            {summary.state ? STATE_LABEL[summary.state] : "Status needs review"}
           </span>
         }
       />
@@ -70,9 +71,7 @@ export function PlanCard({ summary, entitlements }: Props) {
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="min-w-0">
             <h3 className="text-lg font-semibold text-ink">{summary.planName}</h3>
-            <p className="mt-0.5 text-xs text-ink-muted">
-              Plan code {summary.planCode} · account status {summary.rawStatus}
-            </p>
+            <p className="mt-0.5 text-xs text-ink-muted">Plan code {summary.planCode}</p>
           </div>
           <div className="text-right">
             <p className="text-xs text-ink-muted">Monthly price</p>
@@ -161,6 +160,14 @@ export function PlanCard({ summary, entitlements }: Props) {
             </span>
           </p>
         </div>
+
+        <details className="rounded-xl border border-hairline bg-surface-muted/60 px-4 py-3 text-xs text-ink-secondary">
+          <summary className="cursor-pointer font-semibold text-ink">Support details</summary>
+          <p className="mt-2 break-words">
+            Plan code <code>{summary.planCode}</code> · source subscription status{" "}
+            <code>{summary.rawStatus}</code>
+          </p>
+        </details>
       </div>
     </SectionCard>
   );
