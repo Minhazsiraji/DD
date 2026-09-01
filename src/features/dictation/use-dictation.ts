@@ -38,11 +38,15 @@ export interface Dictation {
 }
 
 export function useDictation({
+  onPreview,
   onFinal,
+  onCancel,
   language = "en-US",
   providerId = "browser",
 }: {
+  onPreview?: (transcript: string) => void;
   onFinal?: (transcript: string) => void;
+  onCancel?: () => void;
   language?: string;
   providerId?: VoiceTranscriptionProviderId;
 } = {}): Dictation {
@@ -56,9 +60,13 @@ export function useDictation({
   const activeRun = React.useRef(0);
   const owner = React.useRef(Symbol("voice-dictation-owner")).current;
 
+  const onPreviewRef = React.useRef(onPreview);
   const onFinalRef = React.useRef(onFinal);
+  const onCancelRef = React.useRef(onCancel);
   React.useLayoutEffect(() => {
+    onPreviewRef.current = onPreview;
     onFinalRef.current = onFinal;
+    onCancelRef.current = onCancel;
   });
 
   const mounted = React.useSyncExternalStore(
@@ -79,6 +87,7 @@ export function useDictation({
     session.current = null;
     current?.abort();
     releaseLease();
+    onCancelRef.current?.();
     setTranscript("");
     setError(null);
     setLatency({});
@@ -127,6 +136,7 @@ export function useDictation({
         onTranscript(next) {
           if (activeRun.current !== runId || ended) return;
           setTranscript(next.text);
+          onPreviewRef.current?.(next.text);
         },
         onLatency(next) {
           if (activeRun.current !== runId || ended) return;
@@ -147,6 +157,7 @@ export function useDictation({
           activeRun.current += 1;
           if (session.current === current) session.current = null;
           releaseLease();
+          setTranscript(said);
           setState("ready");
           if (said !== "") onFinalRef.current?.(said);
         },
