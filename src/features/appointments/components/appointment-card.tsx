@@ -23,14 +23,6 @@ import {
 import type { AppointmentRow } from "../queries";
 import { RescheduleForm } from "./reschedule-form";
 
-/**
- * One appointment on the day list.
- *
- * The primary action is a single button because the desk is busy and the common
- * path — "they're here", "start", "done" — should not require a menu. Cancelling
- * and no-show are deliberately secondary: they end the appointment, and the
- * database will not let them be undone.
- */
 export function AppointmentCard({
   appointment,
   canManage,
@@ -126,7 +118,7 @@ export function AppointmentCard({
           {a.rescheduledFromId ? (
             <p className="mt-1 inline-flex items-center gap-1 text-xs text-ink-muted">
               <CalendarClock className="size-3" aria-hidden="true" />
-              Moved from an earlier booking
+              Rescheduled from an earlier booking
             </p>
           ) : null}
         </div>
@@ -144,11 +136,6 @@ export function AppointmentCard({
               </form>
             ) : null}
 
-            {/*
-              Confirming is separate from arriving: it records that the patient
-              was reached and said they are coming, which is what a reminder
-              call produces. Only offered while it still means something.
-            */}
             {canTransition(a.status, "CONFIRMED") ? (
               <form action={formAction} className="w-full sm:w-auto">
                 <input type="hidden" name="appointmentId" value={a.id} />
@@ -171,7 +158,7 @@ export function AppointmentCard({
               className="inline-flex h-11 w-full items-center justify-center gap-1.5 rounded-xl border border-hairline bg-white px-3 text-[13px] font-semibold text-ink transition-colors hover:bg-surface-muted disabled:opacity-50 focus-visible:focus-ring sm:h-10 sm:w-auto"
             >
               <CalendarClock className="size-4" aria-hidden="true" />
-              Move
+              Reschedule
             </button>
 
             <button
@@ -227,13 +214,6 @@ function PrimaryButton({ label }: { label: string }) {
   );
 }
 
-/**
- * Cancelling asks WHY before it asks whether.
- *
- * "Patient asked to cancel" and "doctor was called away" leave the clinic owing
- * the patient completely different things, and nobody will come back later to
- * fill it in.
- */
 function CancelPanel({
   appointmentId,
   status,
@@ -277,7 +257,7 @@ function CancelPanel({
             ))}
           </select>
           <p className="text-xs text-ink-muted">
-            To move it to another time, use Move instead — that keeps the link
+            To change the date or time, use Reschedule instead — that keeps the link
             between the two bookings.
           </p>
         </div>
