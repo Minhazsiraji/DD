@@ -38,34 +38,43 @@ describe("a transcript never destroys what is already written", () => {
     const second = insertTranscript(first.text, "persistent", first.caret);
     expect(second.text).toBe("Fever high persistent and cough");
   });
+
+  it("treats Bangla danda as a finished sentence", () => {
+    expect(insertTranscript("জ্বর আছে।", "কাশি আছে").text).toBe("জ্বর আছে।\nকাশি আছে");
+  });
 });
 
 describe("discard and stale-result boundary", () => {
-  it("cancel yields no text", () => {
+  it("cancel yields no newly dictated text", () => {
     expect(transcriptAfterCancel()).toBe("");
     expect(insertTranscript("Fever", transcriptAfterCancel()).text).toBe("Fever");
   });
 
-  it("invalidates old provider sessions before abort and gates callbacks by run id", async () => {
+  it("invalidates old provider sessions before abort and gates every callback by run id", async () => {
     const hook = await code("src/features/dictation/use-dictation.ts");
     expect(hook).toMatch(/const activeRun = React\.useRef\(0\)/);
     expect(hook).toMatch(/activeRun\.current \+= 1;[\s\S]*?current\?\.abort\(\)/);
-    expect(hook).toMatch(/activeRun\.current !== runId \|\| ended/);
+    expect((hook.match(/activeRun\.current !== runId \|\| ended/g) ?? []).length).toBeGreaterThanOrEqual(4);
     expect(hook).toMatch(/const runId = activeRun\.current \+ 1;\s*activeRun\.current = runId/);
   });
 
-  it("Deepgram abort cancels upload/result delivery", async () => {
-    const provider = await code("src/features/dictation/provider.ts");
-    expect(provider).toMatch(/cancelled = true/);
-    expect(provider).toMatch(/controller\.abort\(\)/);
-    expect(provider).toMatch(/if \(cancelled\) return/);
+  it("explicit and cross-field cancellation reaches the draft-revert callback", async () => {
+    const hook = await code("src/features/dictation/use-dictation.ts");
+    expect(hook).toMatch(/onCancelRef\.current\?\.\(\)/);
+    expect(hook).toMatch(/activeVoiceLease\.cancel\(\)/);
   });
 });
 
-describe("failure leaves draft alone", () => {
-  it("provider and network errors say draft is untouched", () => {
-    for (const code of ["network", "provider-unavailable", "provider-error"]) {
-      expect(dictationErrorMessage(code)).toMatch(/untouched/);
+describe("failure leaves the latest draft available", () => {
+  it("streaming provider/network timeout errors promise preservation", () => {
+    for (const code of [
+      "network",
+      "provider-unavailable",
+      "provider-error",
+      "connection-timeout",
+      "first-transcript-timeout",
+    ]) {
+      expect(dictationErrorMessage(code)).toMatch(/preserv/i);
     }
   });
 
@@ -74,17 +83,26 @@ describe("failure leaves draft alone", () => {
   });
 });
 
-describe("state and accessibility", () => {
-  it("every state has words", () => {
-    for (const state of ["ready", "recording", "transcribing", "error", "unsupported"] as const) {
+describe("streaming state and accessibility", () => {
+  it("every public state has words", () => {
+    for (const state of [
+      "ready",
+      "connecting",
+      "listening",
+      "finalizing",
+      "error",
+      "provider-unavailable",
+      "unsupported",
+    ] as const) {
       expect(DICTATION_LABEL[state]?.length).toBeGreaterThan(0);
     }
   });
 
-  it("control exposes recording state and real touch targets", async () => {
+  it("control exposes live status and real mobile touch targets", async () => {
     const button = await code("src/features/dictation/components/dictate-button.tsx");
     expect(button).toMatch(/role="status"/);
     expect(button).toMatch(/aria-live="polite"/);
+    expect(button).toMatch(/state === "listening"/);
     for (const b of button.match(/<button[\s\S]*?>/g) ?? []) expect(b).toMatch(/min-h-11/);
   });
 });
@@ -122,21 +140,21 @@ describe("provider privacy boundary", () => {
   it("browser and Deepgram disclosures are accurate and never promise on-device processing", async () => {
     const provider = await readFile(path.resolve("src/features/dictation/provider.ts"), "utf8");
     expect(provider).toMatch(/browser's speech service/);
-    expect(provider).toMatch(/sent to Deepgram for transcription/);
+    expect(provider).toMatch(/streamed to Deepgram for transcription/);
     expect(provider).toMatch(/does not store the audio/);
     expect(provider).not.toMatch(/audio never leaves (?:your|the) device/i);
   });
 
-  it("Deepgram client transport goes only through the DD transcription endpoint", async () => {
+  it("Deepgram client receives only a short-lived grant from DD and then opens the provider socket", async () => {
     const provider = await code("src/features/dictation/provider.ts");
-    expect(provider).toMatch(/fetch\("\/api\/voice\/transcribe"/);
-    expect(provider).not.toMatch(/api\.deepgram\.com/);
-    expect(provider).not.toMatch(/DEEPGRAM_API_KEY/);
+    expect(provider).toMatch(/fetch\("\/api\/voice\/token"/);
+    expect(provider).toMatch(/new WebSocket/);
+    expect(provider).not.toMatch(/DEEPGRAM_API_KEY|\/api\/voice\/transcribe/);
   });
 
   it("no voice client persists audio or transcript", async () => {
     const provider = await code("src/features/dictation/provider.ts");
-    for (const forbidden of ["localStorage", "sessionStorage", "indexedDB", "console.log", "supabase"] ) {
+    for (const forbidden of ["localStorage", "sessionStorage", "indexedDB", "console.log", "supabase"]) {
       expect(provider.includes(forbidden), forbidden).toBe(false);
     }
   });
