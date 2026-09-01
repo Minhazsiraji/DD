@@ -52,7 +52,7 @@ export default async function OwnerAdoptionPage() {
     {
       label: "First consultation done",
       value: m.withFirstConsultation,
-      note: "Doctors who completed at least one — no patient detail is read",
+      note: "Aggregate count only — no clinical detail is exposed",
     },
   ];
 
@@ -61,8 +61,8 @@ export default async function OwnerAdoptionPage() {
       <p className="text-sm font-semibold uppercase tracking-[0.14em] text-brand">Platform</p>
       <h1 className="mt-1 text-2xl font-semibold text-ink">Adoption</h1>
       <p className="mt-2 text-sm text-ink-secondary">
-        Counts of doctors, platform-wide. Nothing here identifies a doctor, and
-        nothing here reads a patient, a consultation or a prescription.
+        This page returns platform-level aggregate counts only. It does not expose
+        patient, doctor, encounter, diagnosis, prescription or clinical-note details.
       </p>
       <Link href="/owner" className="mt-3 inline-block text-sm font-medium text-brand">
         ← Owner console
