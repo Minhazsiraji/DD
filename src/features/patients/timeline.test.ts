@@ -63,14 +63,23 @@ describe("a filter is available only when it is really connected", () => {
     expect(flags.prescription).toBe(true);
   });
 
-  it("modules with no table behind them stay false", async () => {
+  it("documents became available with the table, not before it", async () => {
     /**
-     * `document` and `followup` have no table at all; `investigation` has
-     * orders but no results and no detail route. A flag here is a promise that
-     * the data is queried and the empty state means "nothing happened".
+     * Flipped by Module D / Phase D1, and only because the query beside it is
+     * real. The flag is a promise that the data is queried, the authorisation
+     * is proven, and an empty list means "nothing filed".
      */
     const flags = await availability();
-    expect(flags.document).toBe(false);
+    expect(flags.document).toBe(true);
+  });
+
+  it("modules with no table behind them stay false", async () => {
+    /**
+     * `followup` has no table at all; `investigation` has orders but no results
+     * and no detail route. A flag here is a promise that the data is queried
+     * and the empty state means "nothing happened".
+     */
+    const flags = await availability();
     expect(flags.followup).toBe(false);
     expect(flags.investigation).toBe(false);
   });
@@ -81,6 +90,14 @@ describe("a filter is available only when it is really connected", () => {
     expect(src).toMatch(/from\("encounters"\)/);
     expect(src).toMatch(/rpc\("patient_prescription_history"/);
     expect(src).toMatch(/from\("appointments"\)/);
+    expect(src).toMatch(/from\("patient_documents"\)/);
+  });
+
+  it("the timeline never shows a document that was removed from the record", async () => {
+    const src = await code(TIMELINE);
+    // A removed report sitting in a clinical history reads as a current one.
+    const block = src.slice(src.indexOf('from("patient_documents")'));
+    expect(block.slice(0, 400)).toContain('.is("archived_at", null)');
   });
 });
 

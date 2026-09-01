@@ -133,9 +133,15 @@ export const QUICK_ACTIONS: QuickAction[] = [
     accent: "warning",
   },
   {
-    href: "/documents",
-    label: "Documents",
-    description: "Lab and imaging reports",
+    /**
+     * `/documents/upload` was one of the four dead placeholders above. It is a
+     * real route as of Module D / Phase D1, and the quick action points at the
+     * screen that DOES the work rather than at the list beside it — filing a
+     * report is the action; reading the list is not.
+     */
+    href: "/documents/upload",
+    label: "Upload Document",
+    description: "File a lab or imaging report",
     icon: <Upload className="size-[18px]" />,
     accent: "info",
   },

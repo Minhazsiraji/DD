@@ -13,6 +13,7 @@ import { formatAge } from "@/features/patients/identity";
 import { SEX_LABEL, BLOOD_GROUP_LABEL } from "@/features/patients/schema";
 import { cn } from "@/lib/utils";
 import { SafetyList } from "@/features/patients/components/safety-list";
+import { PatientDocuments } from "@/features/documents/components/patient-documents";
 
 export async function generateMetadata(
   props: PageProps<"/patients/[id]">,
@@ -140,6 +141,14 @@ export default async function PatientProfilePage(props: PageProps<"/patients/[id
             activeLocationId={activeLocationId}
             locations={patient.locations}
           />
+
+          {/*
+            Below the timeline, not behind a tab. Reports are read alongside the
+            history that explains them, and a tab is where a doctor stops
+            looking. Staff who may open this record see an empty section — RLS
+            returns them no rows, and no count either.
+          */}
+          <PatientDocuments patientId={id} />
         </div>
 
         <div className="space-y-4 sm:space-y-5">

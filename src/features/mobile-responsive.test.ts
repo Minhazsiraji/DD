@@ -69,6 +69,50 @@ describe("P0 mobile responsive boundaries", () => {
     expect(print).toContain("data-print-root");
   });
 
+  it("keeps every document control reachable and tappable at 360px", () => {
+    const list = source("src/features/documents/components/document-list.tsx");
+    const remove = source("src/features/documents/components/document-row-actions.tsx");
+    const filters = source("src/features/documents/components/document-filters.tsx");
+
+    // Row actions stack full-width on a phone and go inline from `sm`.
+    expect(list).toContain("data-mobile-document-actions");
+    expect(list).toContain("w-full min-w-0 flex-col items-stretch gap-2 sm:w-auto sm:flex-row");
+    expect(list).toContain("h-11 w-full items-center justify-center");
+    expect(list).toContain("sm:h-10 sm:w-auto");
+    // A long report title must wrap, never widen the page.
+    expect(list).toContain("min-w-0 break-words");
+
+    expect(remove).toContain("data-mobile-document-remove");
+    expect(remove).toContain("w-full min-w-0 rounded-glass");
+    expect(remove).toContain("mt-3 flex w-full flex-col items-stretch gap-2 sm:flex-row");
+
+    // Filters stack rather than scroll sideways — a filter you cannot see is a
+    // filter that stays wrong.
+    expect(filters).toContain("data-mobile-document-filters");
+    expect(filters).toContain("grid min-w-0 grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4");
+    // 16px inputs, or iOS zooms the page on focus and the layout is lost.
+    expect(filters).toContain("text-base");
+  });
+
+  it("keeps the upload flow usable one-handed", () => {
+    const form = source("src/features/documents/components/upload-form.tsx");
+    const upload = source("src/app/(app)/documents/upload/page.tsx");
+
+    expect(form).toContain("data-document-review");
+    expect(form).toContain("h-12 w-full items-center justify-center");
+    expect(form).toContain("sm:h-11 sm:w-auto");
+    expect(form).toContain("flex w-full min-w-0 flex-col items-stretch gap-2 sm:flex-row");
+    // The field class is 44px+ and 16px text.
+    expect(form).toContain("h-11 w-full min-w-0 rounded-xl");
+    expect(form).toContain("text-base text-ink");
+
+    // Choosing a patient is its own screen, not a combobox squeezed above a form.
+    expect(upload).toContain("Step 1 of 2");
+    expect(upload).toContain("Step 2 of 2");
+    expect(upload).toContain("min-h-[56px]");
+    expect(upload).toContain("h-12 w-full rounded-glass");
+  });
+
   it("makes public booking and finalization primary actions mobile-width safe", () => {
     const booking = source("src/app/dr/[slug]/book/page.tsx");
     const finalize = source("src/features/prescriptions/components/finalize-panel.tsx");

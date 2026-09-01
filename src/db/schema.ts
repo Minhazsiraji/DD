@@ -15,6 +15,7 @@ import {
   uniqueIndex,
   check,
   primaryKey,
+  foreignKey,
   bigserial,
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
@@ -745,6 +746,17 @@ export const patients = pgTable(
     index("patients_owner_phone_idx").on(t.ownerDoctorId, t.phoneNormalized),
     index("patients_owner_name_idx").on(t.ownerDoctorId, t.nameNormalized),
     index("patients_account_idx").on(t.patientAccountId),
+    /**
+     * Not a uniqueness rule anyone needed — `id` is already the primary key.
+     *
+     * It exists so a child table may carry a COMPOSITE foreign key on
+     * (patient_id, owner_doctor_id) and have POSTGRES guarantee that a
+     * denormalised owner can never disagree with the patient's real owner.
+     * A denormalised authority column that only application code keeps honest
+     * is one bad write away from being a cross-doctor read. See
+     * `patientDocuments`.
+     */
+    uniqueIndex("patients_id_owner_key").on(t.id, t.ownerDoctorId),
   ],
 );
 
@@ -2174,6 +2186,153 @@ export const doctorProfileClaimEvents = pgTable(
   ],
 );
 
+/**
+ * Patient documents (Module D, Phase D1).
+ *
+ * A document here is a PATIENT-SCOPED CLINICAL ASSET, not a file in a shared
+ * drive. Every row is anchored to exactly one patient, and the patient is what
+ * carries authority — there is no folder, no sharing, and no way to hold a
+ * document that belongs to nobody.
+ *
+ * The same reader serves the Documents workspace, the patient record, and
+ * later Online Consultation and patient-side uploads. Nothing below is shaped
+ * for the doctor-upload case specifically: `uploaded_by` is a separate question
+ * from ownership precisely so a future receptionist or patient upload changes
+ * one column and no policy.
+ */
+export const documentType = pgEnum("document_type", [
+  "LAB_REPORT",
+  "IMAGING_REPORT",
+  "PREVIOUS_PRESCRIPTION",
+  "DISCHARGE_SUMMARY",
+  "REFERRAL",
+  "MEDICAL_CERTIFICATE",
+  "OTHER",
+]);
+
+export const patientDocuments = pgTable(
+  "patient_documents",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+
+    patientId: uuid("patient_id")
+      .notNull()
+      .references(() => patients.id, { onDelete: "restrict" }),
+
+    /**
+     * DERIVED, NEVER SUPPLIED.
+     *
+     * `create_patient_document()` reads this from the patient row; it is not a
+     * parameter, so a caller cannot name someone else's doctor. It is stored
+     * rather than resolved per row because it is the RLS predicate and the
+     * global list's index — a policy calling a function once per candidate row
+     * cannot use an index, and "list my documents" would scan every doctor's.
+     *
+     * The composite foreign key below is what makes storing it safe: Postgres
+     * refuses any (patient_id, owner_doctor_id) pair that is not the patient's
+     * actual owner, so the copy cannot drift from the original even under a
+     * direct SQL write.
+     */
+    ownerDoctorId: uuid("owner_doctor_id")
+      .notNull()
+      .references(() => doctorProfiles.id, { onDelete: "restrict" }),
+
+    /** Mandatory on every event table (ADR 0001). Where the document was filed. */
+    practiceLocationId: uuid("practice_location_id")
+      .notNull()
+      .references(() => practiceLocations.id, { onDelete: "restrict" }),
+
+    /**
+     * Optional clinical anchor. When present its patient and owner must match
+     * this row's — checked in the write path, because a foreign key cannot say
+     * "and the same patient".
+     *
+     * No `appointment_id`. An appointment is an operational row RECEPTION can
+     * read, and hanging a clinical asset off it would invite exactly the join
+     * that turns an operational reader into a clinical one. The encounter is
+     * the clinical anchor; a document filed for a visit with no encounter
+     * simply has none.
+     */
+    encounterId: uuid("encounter_id").references(() => encounters.id, {
+      onDelete: "restrict",
+    }),
+
+    documentType: documentType("document_type").notNull().default("OTHER"),
+    title: text("title").notNull(),
+
+    /**
+     * The date the document is ABOUT — when the scan was taken, when the blood
+     * was drawn. Distinct from `created_at`, which is when it was filed here,
+     * and usually earlier. A lab report uploaded three weeks late must sort by
+     * the day it describes or the history lies.
+     */
+    documentDate: date("document_date"),
+    notes: text("notes"),
+
+    /** Object key in the private `patient-documents` bucket. Never a URL. */
+    storagePath: text("storage_path").notNull(),
+    /** Server-determined from the file's own bytes, never from its extension. */
+    mimeType: text("mime_type").notNull(),
+    sizeBytes: integer("size_bytes").notNull(),
+    /** Kept for the doctor's benefit only. It confers nothing. */
+    originalFilename: text("original_filename").notNull(),
+
+    uploadedBy: uuid("uploaded_by").references(() => profiles.id, {
+      onDelete: "set null",
+    }),
+
+    /**
+     * ARCHIVED, NOT DELETED (see ADR 0015).
+     *
+     * A clinical document is evidence. Nothing in the application destroys one:
+     * archiving hides it from the working list and keeps both the row and the
+     * stored object, with who did it and why.
+     */
+    archivedAt: timestamp("archived_at", { withTimezone: true }),
+    archivedBy: uuid("archived_by").references(() => profiles.id, {
+      onDelete: "set null",
+    }),
+    archiveReason: text("archive_reason"),
+
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    foreignKey({
+      name: "patient_documents_patient_owner_fk",
+      columns: [t.patientId, t.ownerDoctorId],
+      foreignColumns: [patients.id, patients.ownerDoctorId],
+    }).onDelete("restrict"),
+
+    /** The global Documents list: one doctor's own, newest first. */
+    index("patient_documents_owner_idx").on(t.ownerDoctorId, t.createdAt),
+    /** The patient record's Documents section. */
+    index("patient_documents_patient_idx").on(t.patientId, t.createdAt),
+    index("patient_documents_encounter_idx").on(t.encounterId),
+
+    /**
+     * One row per stored object. Without this, a retry that re-recorded the
+     * same upload would leave two rows pointing at one file, and archiving one
+     * would look like it had done nothing.
+     */
+    uniqueIndex("patient_documents_storage_path_key").on(t.storagePath),
+
+    check("patient_documents_title", sql`length(btrim(title)) between 1 and 200`),
+    check("patient_documents_notes", sql`notes is null or length(notes) <= 2000`),
+    check("patient_documents_size", sql`size_bytes > 0 and size_bytes <= 10485760`),
+    check(
+      "patient_documents_mime",
+      sql`mime_type in ('application/pdf', 'image/jpeg', 'image/png')`,
+    ),
+    /** An archive is a fact plus a reason, or it is nothing. Never half-set. */
+    check(
+      "patient_documents_archive_consistent",
+      sql`(archived_at is null and archived_by is null and archive_reason is null)
+          or (archived_at is not null)`,
+    ),
+  ],
+);
+
 export type Profile = typeof profiles.$inferSelect;
 export type DoctorProfile = typeof doctorProfiles.$inferSelect;
 export type PracticeLocation = typeof practiceLocations.$inferSelect;
@@ -2207,5 +2366,6 @@ export type SubscriptionPayment = typeof subscriptionPayments.$inferSelect;
 export type PlatformOwner = typeof platformOwners.$inferSelect;
 export type DoctorProfileClaim = typeof doctorProfileClaims.$inferSelect;
 export type DoctorProfileClaimEvent = typeof doctorProfileClaimEvents.$inferSelect;
+export type PatientDocument = typeof patientDocuments.$inferSelect;
 
 

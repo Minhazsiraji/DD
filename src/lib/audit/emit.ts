@@ -71,6 +71,24 @@ export type AuditAction =
   | "prescription.item_removed"
   | "prescription.item_moved"
   | "prescription.finalized"
+  /**
+   * Patient documents (Module D). `uploaded`, `archived` and `restored` are
+   * written INSIDE their RPCs, never through `emitAudit` — clinical document
+   * metadata is on ADR 0007's fail-closed list. They are listed here so the
+   * vocabulary stays in one place.
+   *
+   * `meta` carries ids, size and content type only. NEVER the title, filename,
+   * notes or document type: this table is readable by a LOCATION_ADMIN, and
+   * "IMAGING_REPORT for patient X" is a clinical disclosure to someone who may
+   * not read the document itself.
+   *
+   * `viewed` IS emitted here, and correctly so: reading a record must never
+   * block care.
+   */
+  | "document.uploaded"
+  | "document.archived"
+  | "document.restored"
+  | "document.viewed"
   | "location.created"
   | "location.updated"
   | "location.switched"
