@@ -5,6 +5,7 @@ import { cn } from "@/lib/utils";
 import { SectionCard, SectionHeader } from "@/components/common/section-card";
 import { SECTIONS, VITALS, type DraftKey, type DraftValues, type VitalKey } from "../schema";
 import { MODULE_BY_DRAFT_KEY, type VisibilityMap } from "../module-visibility";
+import { DictateButton } from "@/features/dictation/components/dictate-button";
 
 /**
  * WHY A SECTION THE DOCTOR TURNED OFF IS ON THE SCREEN.
@@ -56,6 +57,13 @@ export function SectionFields({
    * two fields, so both stand or fall together — hiding half of it would put a
    * doctor's past history out of reach while its neighbour stayed on screen.
    */
+  /**
+   * The caret per field, so a transcript lands where the doctor is rather than
+   * always at the end. Absent until they put the cursor somewhere, which is
+   * exactly when appending is the right answer anyway.
+   */
+  const [caret, setCaret] = React.useState<Partial<Record<string, number>>>({});
+
   const shown = SECTIONS.filter((section) => {
     if (!visibility) return true;
     const owner = MODULE_BY_DRAFT_KEY.get(section.key);
@@ -92,10 +100,33 @@ export function SectionFields({
                 disabled={disabled}
                 value={values[section.key]}
                 onChange={(e) => onChange(section.key, e.target.value)}
+                /* Where the caret is, so dictation lands there rather than at
+                   the end of a note the doctor is editing in the middle of. */
+                onSelect={(e) =>
+                  setCaret((c) => ({
+                    ...c,
+                    [section.key]: (e.target as HTMLTextAreaElement).selectionStart,
+                  }))
+                }
                 placeholder={section.placeholder}
                 spellCheck={false}
                 className="w-full resize-y rounded-xl border border-hairline bg-white px-3 py-2.5 text-[15px] leading-relaxed text-ink placeholder:text-ink-muted focus-visible:focus-ring disabled:bg-surface-muted disabled:text-ink-secondary"
               />
+
+              {/*
+                DICTATION IS DRAFT ONLY. It inserts words into the box above and
+                stops; the doctor reads them, corrects them, and saves through
+                the same path and the same version as anything they typed.
+              */}
+              {disabled ? null : (
+                <DictateButton
+                  className="mt-2"
+                  fieldLabel={section.label.toLowerCase()}
+                  value={values[section.key]}
+                  caretAt={caret[section.key]}
+                  onInsert={(next) => onChange(section.key, next)}
+                />
+              )}
 
               {/*
                 PAST HISTORY ONLY, and only into an empty field.

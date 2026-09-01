@@ -1,5 +1,6 @@
 import "server-only";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { safePublicPhotoUrl } from "./public-photo";
 
 export interface PublicSession {
   weekday: number;
@@ -72,16 +73,8 @@ export async function getPublicDoctorPhotoUrl(slug: string): Promise<string | nu
   });
   if (error || !data || typeof data !== "object") return null;
 
-  const value = (data as { photoUrl?: unknown }).photoUrl;
-  if (typeof value !== "string") return null;
-
-  try {
-    const url = new URL(value);
-    if (url.protocol !== "https:" || url.username || url.password) return null;
-    return url.toString();
-  } catch {
-    return null;
-  }
+  // The last gate before this is rendered as an <img> on an anonymous page.
+  return safePublicPhotoUrl((data as { photoUrl?: unknown }).photoUrl);
 }
 
 export async function getPublicSlots(

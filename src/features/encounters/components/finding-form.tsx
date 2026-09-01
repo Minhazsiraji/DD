@@ -4,6 +4,7 @@ import * as React from "react";
 import { cn } from "@/lib/utils";
 import { CERTAINTIES, CERTAINTY_HINT, CERTAINTY_LABEL } from "../list-schema";
 import type { FindingDraft, ListKind } from "../finding-types";
+import { DictateButton } from "@/features/dictation/components/dictate-button";
 
 /**
  * The one form used to add a finding and to correct one.
@@ -124,6 +125,24 @@ export function FindingForm({
         <p className="mt-1 text-[11px] text-ink-muted">
           Emptying this removes the note.
         </p>
+
+        {/*
+          Dictation for the NOTE, not for the title.
+          A diagnosis label is short, specific and often a term the speech
+          engine mangles — "Dengue" is not a word it reaches for — and a
+          mistranscribed diagnosis is a different kind of wrong from a
+          mistranscribed sentence. The doctor types the diagnosis and may
+          dictate the reasoning beside it.
+        */}
+        {busy ? null : (
+          <DictateButton
+            className="mt-2"
+            fieldLabel={`note for this ${isDiagnosis ? "diagnosis" : "investigation"}`}
+            disabled={blocked}
+            value={value.note}
+            onInsert={(next) => onChange({ ...value, note: next })}
+          />
+        )}
       </div>
 
       <div className="flex flex-wrap gap-2">

@@ -58,8 +58,14 @@ describe("public doctor portrait delivery boundary", () => {
     expect(queries).toContain("body: { slug: normalized }");
     expect(queries).not.toContain("body: { path:");
     expect(profilePage).toContain("getPublicDoctorPhotoUrl(slug)");
-    expect(profilePage).toContain(
-      "<PublicDoctorAvatar fullName={doctor.fullName} photoUrl={photoUrl} />",
+    /**
+     * The avatar moved inside `DoctorHero` when the profile was rebuilt. The
+     * boundary is unchanged: the page holds only the brokered URL and hands
+     * that down — it never sees, and so cannot pass on, a storage path.
+     */
+    expect(profilePage).toContain("photoUrl={photoUrl}");
+    expect(source("src/features/public-booking/components/doctor-hero.tsx")).toContain(
+      "<PublicDoctorAvatar fullName={fullName} photoUrl={photoUrl} />",
     );
   });
 });

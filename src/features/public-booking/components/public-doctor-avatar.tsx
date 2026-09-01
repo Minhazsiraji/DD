@@ -1,4 +1,5 @@
 import * as React from "react";
+import { safePublicPhotoUrl } from "../public-photo";
 
 /**
  * Public-profile portrait presentation only.
@@ -44,16 +45,15 @@ export function PublicDoctorAvatar({
 }
 
 /** A conservative public image boundary: never render data:, javascript:, or a raw path. */
-export function safePublicPhotoUrl(value: string | null | undefined): string | null {
-  if (!value) return null;
-  try {
-    const url = new URL(value);
-    if (url.protocol !== "https:" || url.username || url.password) return null;
-    return url.toString();
-  } catch {
-    return null;
-  }
-}
+/**
+ * Re-exported, not redefined.
+ *
+ * This guard also runs server-side in `queries.ts`, before a brokered URL is
+ * ever handed to a page. Two copies of a security check are two things that can
+ * drift, and the one that drifts is always the one nobody was looking at — so
+ * there is one definition, in `../public-photo`, and both sides import it.
+ */
+export { safePublicPhotoUrl };
 
 export function doctorInitials(fullName: string): string {
   const parts = fullName.trim().split(/\s+/).filter(Boolean);

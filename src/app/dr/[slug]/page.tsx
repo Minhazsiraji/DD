@@ -1,14 +1,12 @@
-import Link from "next/link";
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
 import { MarketingShell } from "@/components/marketing/marketing-shell";
-import { PublicDoctorAvatar } from "@/features/public-booking/components/public-doctor-avatar";
+import { ChamberCard } from "@/features/public-booking/components/chamber-card";
+import { DoctorHero } from "@/features/public-booking/components/doctor-hero";
 import {
   getPublicDoctor,
   getPublicDoctorPhotoUrl,
 } from "@/features/public-booking/queries";
-
-const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
 export async function generateMetadata(props: PageProps<"/dr/[slug]">): Promise<Metadata> {
   const { slug } = await props.params;
@@ -31,87 +29,40 @@ export default async function PublicDoctorPage(props: PageProps<"/dr/[slug]">) {
 
   return (
     <MarketingShell>
+      {/*
+        IDENTITY -> CREDIBILITY -> CHAMBERS -> BOOKING, in that order down the
+        page, because that is the order a patient decides in: who is this, why
+        should I trust them, where do they sit, how do I get in.
+      */}
       <section className="mx-auto min-w-0 max-w-5xl px-4 py-8 sm:px-5 sm:py-12 lg:px-8 lg:py-20">
-        <div className="min-w-0 rounded-[2rem] border border-slate-200 bg-white p-5 shadow-sm sm:p-8 lg:p-10">
-          <div className="flex min-w-0 flex-col items-center gap-5 text-center sm:flex-row sm:items-center sm:gap-7 sm:text-left">
-            <PublicDoctorAvatar fullName={doctor.fullName} photoUrl={photoUrl} />
+        <DoctorHero
+          fullName={doctor.fullName}
+          photoUrl={photoUrl}
+          designation={doctor.designation}
+          specialization={doctor.specialization}
+          qualification={doctor.qualification}
+          bmdc={doctor.bmdc}
+        />
 
-            <div className="min-w-0 flex-1">
-              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-teal-700 sm:text-sm sm:tracking-[0.16em]">
-                Professional profile
-              </p>
-              <h1 className="mt-2 break-words text-3xl font-semibold tracking-tight sm:text-4xl">
-                {doctor.fullName}
-              </h1>
-              <div className="mt-3 flex min-w-0 flex-wrap justify-center gap-x-3 gap-y-1 text-sm text-slate-600 sm:justify-start sm:text-base">
-                {doctor.designation && <span className="break-words">{doctor.designation}</span>}
-                {doctor.specialization && <span className="break-words">· {doctor.specialization}</span>}
-                {doctor.qualification && <span className="break-words">· {doctor.qualification}</span>}
-              </div>
-              {doctor.bmdc && (
-                <p className="mt-3 break-words text-sm text-slate-500">
-                  BMDC: {doctor.bmdc}{" "}
-                  <span className="sm:ml-1">(doctor-displayed; verification badge not implied)</span>
-                </p>
-              )}
-            </div>
-          </div>
-        </div>
+        <h2 className="mt-10 min-w-0 text-[0.7rem] font-semibold uppercase tracking-[0.14em] text-slate-500 sm:mt-12">
+          {doctor.chambers.length === 1 ? "Chamber" : "Chambers"}
+        </h2>
 
-        <div className="mt-6 grid min-w-0 gap-5 sm:mt-8">
+        {/*
+          Vertical at every width. Chambers are compared by reading them, not by
+          scrolling sideways past them, and a horizontal rail on a phone hides
+          the one the patient wanted.
+        */}
+        <div className="mt-3 grid min-w-0 gap-5">
           {doctor.chambers.map((chamber) => (
-            <article
-              key={chamber.chamberId}
-              className="min-w-0 rounded-3xl border border-slate-200 bg-white p-5 sm:p-6"
-            >
-              <div className="grid min-w-0 gap-5 md:grid-cols-[minmax(0,1fr)_auto] md:items-stretch">
-                <div className="min-w-0">
-                  <h2 className="break-words text-xl font-semibold">{chamber.name}</h2>
-                  {(chamber.address || chamber.district) && (
-                    <p className="mt-1 break-words text-sm text-slate-600">
-                      {[chamber.address, chamber.district].filter(Boolean).join(", ")}
-                    </p>
-                  )}
-                  {chamber.publicNote && (
-                    <p className="mt-2 break-words text-sm text-slate-500">{chamber.publicNote}</p>
-                  )}
-
-                  {chamber.sessions.length > 0 && (
-                    <div className="mt-5 grid min-w-0 gap-2 sm:grid-cols-2">
-                      {chamber.sessions.map((s, i) => (
-                        <div
-                          key={`${s.weekday}-${s.startsAt}-${i}`}
-                          className="min-w-0 rounded-xl bg-slate-50 px-4 py-3 text-sm text-slate-700"
-                        >
-                          <span className="font-semibold">{DAYS[s.weekday] ?? "Day"}</span>{" "}
-                          <span className="tabular-nums">{s.startsAt}–{s.endsAt}</span>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-
-                  {chamber.consultationFee != null && (
-                    <p className="mt-4 break-words text-sm font-medium text-slate-700">
-                      Consultation fee: {chamber.currency} {String(chamber.consultationFee)}
-                    </p>
-                  )}
-                </div>
-
-                {chamber.bookingEnabled && (
-                  <div className="flex items-end md:min-w-36 md:justify-end">
-                    <Link
-                      data-public-chamber-booking-cta
-                      data-booking-location={chamber.locationId}
-                      href={`/dr/${encodeURIComponent(slug)}/book?loc=${encodeURIComponent(chamber.locationId)}`}
-                      className="inline-flex min-h-11 w-full items-center justify-center rounded-xl bg-teal-600 px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-teal-700 md:w-auto"
-                    >
-                      Book Now
-                    </Link>
-                  </div>
-                )}
-              </div>
-            </article>
+            <ChamberCard key={chamber.chamberId} slug={slug} chamber={chamber} />
           ))}
+
+          {doctor.chambers.length === 0 && (
+            <p className="min-w-0 break-words rounded-3xl border border-slate-200 bg-white p-6 text-sm text-slate-600">
+              This doctor has not published any chamber details yet.
+            </p>
+          )}
         </div>
       </section>
     </MarketingShell>
