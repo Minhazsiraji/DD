@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { MarketingShell } from "@/components/marketing/marketing-shell";
 import { createPublicBooking } from "@/features/public-booking/actions";
 import { getPublicDoctor, getPublicSlots } from "@/features/public-booking/queries";
@@ -19,8 +19,18 @@ export default async function PublicBookingPage(props: PageProps<"/dr/[slug]/boo
   const bookable = doctor.chambers.filter((c) => c.bookingEnabled);
   if (bookable.length === 0) notFound();
 
+  /**
+   * Chamber context is explicit and sticky.
+   *
+   * Every public-profile CTA supplies an exact location id. If that context is
+   * absent, stale, disabled, or forged, do NOT quietly switch the patient to a
+   * different chamber. Return them to the doctor profile so they deliberately
+   * choose one of the currently bookable chambers.
+   */
   const requestedLocation = typeof search.loc === "string" ? search.loc : "";
-  const chamber = bookable.find((c) => c.locationId === requestedLocation) ?? bookable[0];
+  const chamber = bookable.find((c) => c.locationId === requestedLocation);
+  if (!chamber) redirect(`/dr/${encodeURIComponent(slug)}`);
+
   const date = typeof search.date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(search.date)
     ? search.date
     : "";
