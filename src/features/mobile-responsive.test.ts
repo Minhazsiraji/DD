@@ -96,15 +96,17 @@ describe("P0 mobile responsive boundaries", () => {
 
   it("keeps the upload flow usable one-handed", () => {
     const form = source("src/features/documents/components/upload-form.tsx");
+    const fields = source("src/features/documents/components/upload-fields.tsx");
+    const review = source("src/features/documents/components/upload-review.tsx");
     const upload = source("src/app/(app)/documents/upload/page.tsx");
 
-    expect(form).toContain("data-document-review");
+    expect(review).toContain("data-document-review");
     expect(form).toContain("h-12 w-full items-center justify-center");
     expect(form).toContain("sm:h-11 sm:w-auto");
     expect(form).toContain("flex w-full min-w-0 flex-col items-stretch gap-2 sm:flex-row");
-    // The field class is 44px+ and 16px text.
-    expect(form).toContain("h-11 w-full min-w-0 rounded-xl");
-    expect(form).toContain("text-base text-ink");
+    // Every field is a 44px+ target with 16px text, from ONE shared class.
+    expect(fields).toContain("h-11 w-full min-w-0 rounded-xl");
+    expect(fields).toContain("text-base text-ink");
 
     // Choosing a patient is its own screen, not a combobox squeezed above a form.
     expect(upload).toContain("Step 1 of 2");

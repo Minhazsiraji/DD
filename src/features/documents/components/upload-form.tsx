@@ -3,46 +3,34 @@
 import * as React from "react";
 import { useActionState } from "react";
 import { useRouter } from "next/navigation";
-import { Upload, Paperclip, Check, TriangleAlert, ArrowLeft } from "lucide-react";
-import { formatDate } from "@/lib/format";
+import { Upload, Check, TriangleAlert, ArrowLeft } from "lucide-react";
 import { uploadDocumentAction } from "../actions";
 import { emptyDocumentState } from "../schema";
 import { classifyUpload, SNIFF_BYTES } from "../file-validation";
-import {
-  DOCUMENT_TYPES,
-  DOCUMENT_TYPE_LABEL,
-  FILE_ACCEPT,
-  formatBytes,
-  MIME_LABEL,
-  type AllowedMimeType,
-} from "../types";
+import { isDocumentType, type AllowedMimeType, type DocumentType } from "../types";
 import type { EncounterOption } from "../queries";
+import { UploadFields } from "./upload-fields";
+import { UploadReview } from "./upload-review";
 
 /**
  * File a document against one patient.
  *
- * A REVIEW STEP, not a straight submit. The two mistakes that matter here are
- * the wrong patient and the wrong file, and both are invisible in a form that
- * uploads the instant a button is pressed. So the fields are filled, then the
- * doctor is shown what is about to be stored — this patient, this file, this
- * date — and confirms it.
+ * A REVIEW STEP, not a straight submit — see `upload-review.tsx` for why.
  *
  * The file is checked in the browser from its own leading BYTES, using the same
  * pure function the server uses. That is a courtesy, not a control: the server
- * repeats every check, and the database repeats it again.
+ * repeats every check on the whole file, and the database repeats it again.
  */
-
-const field =
-  "h-11 w-full min-w-0 rounded-xl border border-hairline bg-white px-3 text-base text-ink placeholder:text-ink-muted focus-visible:focus-ring";
-
-interface UploadFormProps {
+export function UploadForm({
+  patient,
+  encounters,
+  backHref,
+}: {
   patient: { id: string; fullName: string; patientNumber: string };
   encounters: EncounterOption[];
   /** Where to go back to when this was reached from a patient record. */
   backHref: string;
-}
-
-export function UploadForm({ patient, encounters, backHref }: UploadFormProps) {
+}) {
   const router = useRouter();
   const [state, submit, pending] = useActionState(uploadDocumentAction, emptyDocumentState);
 
@@ -58,6 +46,8 @@ export function UploadForm({ patient, encounters, backHref }: UploadFormProps) {
   const [encounterId, setEncounterId] = React.useState("");
 
   React.useEffect(() => {
+    // Filed. Land on the workspace already filtered to this patient, so the
+    // doctor sees the thing they just stored rather than a list of everything.
     if (state.ok) router.push(`/documents?patient=${patient.id}`);
   }, [state.ok, router, patient.id]);
 
@@ -80,12 +70,14 @@ export function UploadForm({ patient, encounters, backHref }: UploadFormProps) {
       return;
     }
     setFileType(verdict.mimeType);
-    // A file usually names the report better than an empty box does.
+    // A scanner names the report better than an empty box does. Only ever a
+    // starting point — the doctor can rewrite it, and the filename carries no
+    // authority anywhere else in this flow.
     if (!title.trim()) setTitle(chosen.name.replace(/\.[^.]+$/, "").slice(0, 200));
   }
 
   const canReview = Boolean(file) && !fileError && title.trim().length > 0;
-  const serverFileError = state.fieldErrors?.file?.[0] ?? null;
+  const type: DocumentType = isDocumentType(documentType) ? documentType : "OTHER";
 
   return (
     <form action={submit} className="space-y-4">
@@ -106,149 +98,31 @@ export function UploadForm({ patient, encounters, backHref }: UploadFormProps) {
         </a>
       </section>
 
-      <fieldset
+      <UploadFields
         disabled={reviewing || pending}
-        className="clinical-surface space-y-4 rounded-glass-lg p-4 shadow-soft sm:p-5"
-      >
-        <legend className="sr-only">Document details</legend>
-
-        <div className="grid min-w-0 gap-4 sm:grid-cols-2">
-          <div className="min-w-0">
-            <label htmlFor="documentType" className="mb-1.5 block text-[13px] font-medium text-ink">
-              Type
-            </label>
-            <select
-              id="documentType"
-              name="documentType"
-              className={field}
-              value={documentType}
-              onChange={(e) => setDocumentType(e.target.value)}
-            >
-              {DOCUMENT_TYPES.map((t) => (
-                <option key={t} value={t}>
-                  {DOCUMENT_TYPE_LABEL[t]}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div className="min-w-0">
-            <label htmlFor="documentDate" className="mb-1.5 block text-[13px] font-medium text-ink">
-              Date on the document
-            </label>
-            <input
-              id="documentDate"
-              name="documentDate"
-              type="date"
-              className={field}
-              value={documentDate}
-              onChange={(e) => setDocumentDate(e.target.value)}
-            />
-            <p className="mt-1 text-xs text-ink-muted">
-              When the test or scan was done — not today, unless it was today.
-            </p>
-          </div>
-        </div>
-
-        <div className="min-w-0">
-          <label htmlFor="title" className="mb-1.5 block text-[13px] font-medium text-ink">
-            Title
-          </label>
-          <input
-            id="title"
-            name="title"
-            type="text"
-            required
-            maxLength={200}
-            className={field}
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-            placeholder="e.g. CBC with ESR"
-          />
-          {state.fieldErrors?.title ? (
-            <p className="mt-1.5 text-[13px] text-danger">{state.fieldErrors.title[0]}</p>
-          ) : null}
-        </div>
-
-        {encounters.length > 0 ? (
-          <div className="min-w-0">
-            <label htmlFor="encounterId" className="mb-1.5 block text-[13px] font-medium text-ink">
-              Attach to a consultation <span className="text-ink-muted">(optional)</span>
-            </label>
-            <select
-              id="encounterId"
-              name="encounterId"
-              className={field}
-              value={encounterId}
-              onChange={(e) => setEncounterId(e.target.value)}
-            >
-              <option value="">Not attached to a consultation</option>
-              {encounters.map((e) => (
-                <option key={e.id} value={e.id}>
-                  {formatDate(e.startedAt)}
-                  {e.locationName ? ` · ${e.locationName}` : ""}
-                </option>
-              ))}
-            </select>
-          </div>
-        ) : (
-          <input type="hidden" name="encounterId" value="" />
-        )}
-
-        <div className="min-w-0">
-          <label htmlFor="notes" className="mb-1.5 block text-[13px] font-medium text-ink">
-            Notes <span className="text-ink-muted">(optional)</span>
-          </label>
-          <textarea
-            id="notes"
-            name="notes"
-            rows={3}
-            maxLength={2000}
-            className="w-full min-w-0 rounded-xl border border-hairline bg-white px-3 py-2.5 text-base text-ink placeholder:text-ink-muted focus-visible:focus-ring"
-            value={notes}
-            onChange={(e) => setNotes(e.target.value)}
-            placeholder="Anything you want to remember about this report"
-          />
-        </div>
-
-        <div className="min-w-0">
-          <label htmlFor="file" className="mb-1.5 block text-[13px] font-medium text-ink">
-            File
-          </label>
-          <input
-            id="file"
-            name="file"
-            type="file"
-            required
-            accept={FILE_ACCEPT}
-            onChange={onFileChange}
-            className="block w-full min-w-0 rounded-xl border border-hairline bg-white p-2.5 text-sm text-ink file:mr-3 file:min-h-9 file:rounded-lg file:border-0 file:bg-brand-soft file:px-3 file:text-[13px] file:font-semibold file:text-brand focus-visible:focus-ring"
-          />
-          <p className="mt-1 text-xs text-ink-muted">
-            PDF, JPG or PNG, up to 10 MB. A clear photograph of a paper report is fine.
-          </p>
-          {fileError || serverFileError ? (
-            <p className="mt-1.5 flex items-start gap-1.5 text-[13px] text-danger">
-              <TriangleAlert className="mt-px size-4 shrink-0" aria-hidden="true" />
-              <span>{fileError ?? serverFileError}</span>
-            </p>
-          ) : null}
-          {file && fileType && !fileError ? (
-            <p className="mt-1.5 flex items-center gap-1.5 text-[13px] text-ink-secondary">
-              <Paperclip className="size-4 shrink-0" aria-hidden="true" />
-              <span className="min-w-0 break-all">
-                {file.name} · {MIME_LABEL[fileType]} · {formatBytes(file.size)}
-              </span>
-            </p>
-          ) : null}
-        </div>
-      </fieldset>
+        encounters={encounters}
+        documentType={documentType}
+        onDocumentType={setDocumentType}
+        documentDate={documentDate}
+        onDocumentDate={setDocumentDate}
+        title={title}
+        onTitle={setTitle}
+        notes={notes}
+        onNotes={setNotes}
+        encounterId={encounterId}
+        onEncounterId={setEncounterId}
+        onFileChange={onFileChange}
+        file={file}
+        fileType={fileType}
+        fileError={fileError ?? state.fieldErrors?.file?.[0] ?? null}
+        titleError={state.fieldErrors?.title?.[0] ?? null}
+      />
 
       {reviewing ? (
-        <ReviewPanel
+        <UploadReview
           patientName={patient.fullName}
           patientNumber={patient.patientNumber}
-          documentType={documentType}
+          documentType={type}
           title={title}
           documentDate={documentDate}
           fileName={file?.name ?? ""}
@@ -297,46 +171,5 @@ export function UploadForm({ patient, encounters, backHref }: UploadFormProps) {
         )}
       </div>
     </form>
-  );
-}
-
-function ReviewPanel(props: {
-  patientName: string;
-  patientNumber: string;
-  documentType: string;
-  title: string;
-  documentDate: string;
-  fileName: string;
-  fileSize: number;
-  attached: boolean;
-}) {
-  const rows: [string, string][] = [
-    ["Patient", `${props.patientName} · ${props.patientNumber}`],
-    ["Type", DOCUMENT_TYPE_LABEL[props.documentType as keyof typeof DOCUMENT_TYPE_LABEL]],
-    ["Title", props.title],
-    ["Document date", props.documentDate ? formatDate(props.documentDate) : "Not recorded"],
-    ["Consultation", props.attached ? "Attached" : "Not attached"],
-    ["File", `${props.fileName} · ${formatBytes(props.fileSize)}`],
-  ];
-
-  return (
-    <section
-      data-document-review
-      className="clinical-surface rounded-glass-lg border-l-4 border-l-brand p-4 shadow-soft sm:p-5"
-    >
-      <h2 className="text-[15px] font-semibold text-ink">Check before filing</h2>
-      <p className="mt-1 text-[13px] text-ink-secondary">
-        This is stored on this patient&rsquo;s record. Filing a report on the wrong
-        person is the mistake worth one more look.
-      </p>
-      <dl className="mt-3 divide-y divide-hairline text-[13px]">
-        {rows.map(([label, value]) => (
-          <div key={label} className="flex items-start gap-3 py-2">
-            <dt className="w-32 shrink-0 text-ink-muted">{label}</dt>
-            <dd className="min-w-0 flex-1 break-words text-ink">{value}</dd>
-          </div>
-        ))}
-      </dl>
-    </section>
   );
 }
