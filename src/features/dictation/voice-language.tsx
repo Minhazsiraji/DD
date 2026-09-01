@@ -1,22 +1,26 @@
 "use client";
 
 import * as React from "react";
+import type { VoiceTranscriptionProviderId } from "./provider";
 
 /**
- * Browser speech locales available to the consultation UI.
+ * Speech locales available to the UI, plus the transcription provider each
+ * locale currently uses.
  *
- * This is configuration, not an architecture boundary. Adding a locale later
- * means adding one entry here; the dictation hook accepts any selected BCP-47
- * language tag and still talks only to the browser SpeechRecognition engine.
+ * This is intentionally configuration rather than a hard-coded browser rule.
+ * Today both languages use the browser Web Speech adapter. Later Bangla can be
+ * pointed at a higher-quality server provider by changing this mapping after
+ * that provider's privacy/cost/security boundary is explicitly approved.
  */
 export interface DictationLanguageOption {
   label: string;
   lang: string;
+  provider: VoiceTranscriptionProviderId;
 }
 
 export const DICTATION_LANGUAGES: readonly DictationLanguageOption[] = [
-  { label: "English", lang: "en-US" },
-  { label: "বাংলা", lang: "bn-BD" },
+  { label: "English", lang: "en-US", provider: "browser" },
+  { label: "বাংলা", lang: "bn-BD", provider: "browser" },
 ];
 
 export const DEFAULT_DICTATION_LANGUAGE = DICTATION_LANGUAGES[0]!.lang;
@@ -29,10 +33,10 @@ export function resolveDictationLanguage(lang: string): DictationLanguageOption 
 }
 
 /**
- * Consultation-tab preference only.
+ * App-tab preference only.
  *
- * A locale is not patient data, so it may be shared by the dictation controls
- * on one loaded app tab. It is intentionally NOT persisted to localStorage,
+ * A locale is not patient data, so it may be shared by dictation controls on
+ * one loaded app tab. It is intentionally not persisted to browser storage,
  * Supabase, an encounter, or any server endpoint.
  */
 let activeLanguage = DEFAULT_DICTATION_LANGUAGE;
@@ -59,7 +63,7 @@ export function useVoiceLanguage(): DictationLanguageOption {
   return resolveDictationLanguage(lang);
 }
 
-/** One compact consultation-wide selector; individual note fields stay uncluttered. */
+/** One compact shared selector; individual fields stay uncluttered. */
 export function VoiceLanguageControl({ disabled = false }: { disabled?: boolean }) {
   const active = useVoiceLanguage();
 
