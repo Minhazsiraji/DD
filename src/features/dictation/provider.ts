@@ -1,6 +1,6 @@
 export const VOICE_TRANSCRIPTION_PROVIDER_IDS = [
   "browser",
-  "future_server_provider",
+  "deepgram",
 ] as const;
 
 export type VoiceTranscriptionProviderId =
@@ -21,13 +21,12 @@ export interface VoiceTranscriptionSession {
 /**
  * Provider boundary for speech-to-text only.
  *
- * A provider may capture/transcribe audio, but it can never know which clinical
- * field it is beside and it receives no save/finalize callbacks. That keeps
+ * A provider may capture/transcribe audio, but it never knows which clinical
+ * field it is beside and receives no save/finalize callbacks. That keeps
  * transcription replaceable without creating a second clinical write path.
  */
 export interface VoiceTranscriptionProvider {
   id: VoiceTranscriptionProviderId;
-  /** Short, provider-specific privacy disclosure shown while recording. */
   privacyNotice: string;
   isSupported(): boolean;
   createSession(input: {
@@ -36,7 +35,6 @@ export interface VoiceTranscriptionProvider {
   }): VoiceTranscriptionSession | null;
 }
 
-/** The slice of the browser Web Speech API used by the adapter. */
 interface SpeechRecognitionLike {
   lang: string;
   continuous: boolean;
@@ -105,15 +103,131 @@ const browserProvider: VoiceTranscriptionProvider = {
   },
 };
 
-/**
- * Only the browser provider is implemented in this MVP.
- *
- * `future_server_provider` is a reserved provider kind, not an active backend.
- * Later a server implementation can be registered here and a locale can route
- * to it without changing DictateButton or any consultation/prescription field.
- */
-const PROVIDERS: Partial<Record<VoiceTranscriptionProviderId, VoiceTranscriptionProvider>> = {
+function mediaRecorderSupported(): boolean {
+  if (typeof window === "undefined") return false;
+  return Boolean(
+    navigator.mediaDevices?.getUserMedia &&
+      typeof MediaRecorder !== "undefined",
+  );
+}
+
+function preferredRecorderMimeType(): string | undefined {
+  if (typeof MediaRecorder === "undefined") return undefined;
+  for (const type of ["audio/webm;codecs=opus", "audio/webm", "audio/ogg;codecs=opus", "audio/mp4"]) {
+    if (MediaRecorder.isTypeSupported(type)) return type;
+  }
+  return undefined;
+}
+
+const deepgramProvider: VoiceTranscriptionProvider = {
+  id: "deepgram",
+  privacyNotice:
+    "Audio is sent to Deepgram for transcription. Doctor's Diary does not store the audio.",
+  isSupported() {
+    return mediaRecorderSupported();
+  },
+  createSession({ language, callbacks }) {
+    if (!mediaRecorderSupported()) return null;
+
+    let recorder: MediaRecorder | null = null;
+    let stream: MediaStream | null = null;
+    let cancelled = false;
+    let stopped = false;
+    const chunks: Blob[] = [];
+    const controller = new AbortController();
+
+    const release = () => {
+      stream?.getTracks().forEach((track) => track.stop());
+      stream = null;
+    };
+
+    const transcribe = async () => {
+      if (cancelled) return;
+      const mimeType = recorder?.mimeType || chunks[0]?.type || "audio/webm";
+      const audio = new Blob(chunks, { type: mimeType });
+      if (audio.size === 0) {
+        callbacks.onError("no-speech");
+        return;
+      }
+
+      const body = new FormData();
+      body.append("audio", audio, "dictation.webm");
+      body.append("language", language);
+
+      try {
+        const response = await fetch("/api/voice/transcribe", {
+          method: "POST",
+          body,
+          cache: "no-store",
+          signal: controller.signal,
+        });
+
+        if (!response.ok) {
+          callbacks.onError(response.status === 503 ? "provider-unavailable" : "provider-error");
+          return;
+        }
+
+        const payload = (await response.json()) as { transcript?: string };
+        if (cancelled) return;
+        const transcript = payload.transcript?.trim() ?? "";
+        callbacks.onTranscript(transcript);
+        callbacks.onEnd(transcript);
+      } catch (error) {
+        if (cancelled || (error instanceof DOMException && error.name === "AbortError")) return;
+        callbacks.onError("network");
+      }
+    };
+
+    return {
+      start() {
+        void navigator.mediaDevices
+          .getUserMedia({ audio: true })
+          .then((nextStream) => {
+            if (cancelled) {
+              nextStream.getTracks().forEach((track) => track.stop());
+              return;
+            }
+            stream = nextStream;
+            const mimeType = preferredRecorderMimeType();
+            recorder = mimeType ? new MediaRecorder(nextStream, { mimeType }) : new MediaRecorder(nextStream);
+            recorder.ondataavailable = (event) => {
+              if (!cancelled && event.data.size > 0) chunks.push(event.data);
+            };
+            recorder.onerror = () => {
+              if (cancelled) return;
+              release();
+              callbacks.onError("audio-capture");
+            };
+            recorder.onstop = () => {
+              release();
+              if (!cancelled) void transcribe();
+            };
+            recorder.start();
+            if (stopped && recorder.state !== "inactive") recorder.stop();
+          })
+          .catch((error: unknown) => {
+            if (cancelled) return;
+            const name = error instanceof DOMException ? error.name : "";
+            callbacks.onError(name === "NotAllowedError" ? "not-allowed" : "audio-capture");
+          });
+      },
+      stop() {
+        stopped = true;
+        if (recorder && recorder.state !== "inactive") recorder.stop();
+      },
+      abort() {
+        cancelled = true;
+        controller.abort();
+        if (recorder && recorder.state !== "inactive") recorder.stop();
+        release();
+      },
+    };
+  },
+};
+
+const PROVIDERS: Record<VoiceTranscriptionProviderId, VoiceTranscriptionProvider> = {
   browser: browserProvider,
+  deepgram: deepgramProvider,
 };
 
 export function getVoiceTranscriptionProvider(
