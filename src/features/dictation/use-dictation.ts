@@ -1,18 +1,12 @@
 "use client";
 
 import * as React from "react";
-import {
-  dictationErrorMessage,
-  type DictationState,
-} from "./dictation";
+import { dictationErrorMessage, type DictationState } from "./dictation";
 import {
   getVoiceTranscriptionProvider,
+  type VoiceTranscriptionProviderId,
   type VoiceTranscriptionSession,
 } from "./provider";
-import {
-  DEFAULT_DICTATION_LANGUAGE,
-  resolveDictationLanguage,
-} from "./voice-language";
 
 /**
  * TRANSCRIPTION ORCHESTRATION, AND NOTHING ELSE.
@@ -20,63 +14,43 @@ import {
  * This hook receives text from one configured transcription provider and hands
  * it back to the caller. It does not know which clinical field it is filling,
  * cannot save, cannot add a finding/medicine and cannot finalize anything.
- *
- * The provider itself is selected through the language configuration. Today
- * both English and Bangla resolve to the browser Web Speech adapter. A future
- * approved server provider can implement the same provider contract without
- * changing DictateButton or any clinical form.
  */
 export interface Dictation {
   state: DictationState;
-  /** Words heard so far this run — final text plus whatever is still forming. */
   transcript: string;
   error: string | null;
   supported: boolean;
-  /** Provider-specific privacy wording shown by the shared Dictate control. */
   providerNotice: string;
+  providerId: VoiceTranscriptionProviderId;
   start: () => void;
-  /** Finish and keep what was heard. */
   stop: () => void;
-  /** Throw the run away. Nothing reaches the draft. */
   cancel: () => void;
-  /** Clear the last transcript and error, ready for another go. */
   reset: () => void;
 }
 
 export function useDictation({
   onFinal,
-  language = DEFAULT_DICTATION_LANGUAGE,
+  language = "en-US",
+  providerId = "browser",
 }: {
-  /**
-   * Called ONCE per completed run, with the final text. The caller decides what
-   * to do with it — this hook never touches a draft itself.
-   */
   onFinal?: (transcript: string) => void;
-  /** BCP-47 tag used to choose the configured provider and recognition locale. */
+  /** Provider-specific language parameter, chosen by config. */
   language?: string;
+  providerId?: VoiceTranscriptionProviderId;
 } = {}): Dictation {
   const [rawState, setState] = React.useState<DictationState>("ready");
   const [transcript, setTranscript] = React.useState("");
   const [error, setError] = React.useState<string | null>(null);
 
-  const activeLanguage = resolveDictationLanguage(language);
-  const provider = getVoiceTranscriptionProvider(activeLanguage.provider);
+  const provider = getVoiceTranscriptionProvider(providerId);
   const session = React.useRef<VoiceTranscriptionSession | null>(null);
-
-  /**
-   * Every provider session gets an identity. Abort does not guarantee that
-   * queued callbacks disappear, so an old session must prove it still owns the
-   * active run before it may touch transcript state or deliver text.
-   */
   const activeRun = React.useRef(0);
 
-  /** Latest insertion callback, safe for delayed provider events. */
   const onFinalRef = React.useRef(onFinal);
   React.useLayoutEffect(() => {
     onFinalRef.current = onFinal;
   });
 
-  /** SSR-safe provider support detection. */
   const mounted = React.useSyncExternalStore(
     () => () => {},
     () => true,
@@ -85,7 +59,6 @@ export function useDictation({
   const supported = mounted && provider?.isSupported() === true;
   const state: DictationState = supported ? rawState : "unsupported";
 
-  /** Always stop capture and invalidate queued callbacks on unmount. */
   React.useEffect(
     () => () => {
       activeRun.current += 1;
@@ -102,8 +75,6 @@ export function useDictation({
       return;
     }
 
-    // Invalidate the previous provider session BEFORE aborting it. This keeps
-    // late result/end callbacks from a discarded run out of a quick retry.
     const runId = activeRun.current + 1;
     activeRun.current = runId;
     const previous = session.current;
@@ -116,7 +87,7 @@ export function useDictation({
     let ended = false;
     let current: VoiceTranscriptionSession | null = null;
     current = provider.createSession({
-      language: activeLanguage.lang,
+      language,
       callbacks: {
         onTranscript(next) {
           if (activeRun.current !== runId || ended) return;
@@ -133,7 +104,6 @@ export function useDictation({
           ended = true;
           activeRun.current += 1;
           if (session.current === current) session.current = null;
-
           setState((existing) => (existing === "error" ? "error" : "ready"));
           if (said !== "") onFinalRef.current?.(said);
         },
@@ -157,7 +127,7 @@ export function useDictation({
         setState("error");
       }
     }
-  }, [activeLanguage.lang, provider]);
+  }, [language, provider]);
 
   const stop = React.useCallback(() => {
     if (!session.current) return;
@@ -187,6 +157,7 @@ export function useDictation({
     error,
     supported,
     providerNotice: provider?.privacyNotice ?? "",
+    providerId,
     start,
     stop,
     cancel,
