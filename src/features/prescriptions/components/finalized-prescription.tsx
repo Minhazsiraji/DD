@@ -14,17 +14,6 @@ import { ReviewSheet } from "./review-sheet";
 import { UnsupportedSnapshot } from "./unsupported-snapshot";
 import { WriteCorrection } from "./write-correction";
 
-/**
- * An approved prescription — the permanent record.
- *
- * Rendered entirely from the immutable snapshot the doctor approved, through
- * the same view model and the same sheet the review used. One renderer, so the
- * record cannot look different from the thing that was signed; and Stage 7C-3's
- * print output will read from this same model rather than a second one.
- *
- * No editing controls of any kind, and no approval control — not disabled,
- * absent. There is nothing left to approve.
- */
 export function FinalizedPrescription({
   prescriptionId,
   encounterId,
@@ -34,26 +23,18 @@ export function FinalizedPrescription({
   bundle,
   lineage,
   lineageUnavailable,
+  returnTo,
 }: {
   prescriptionId: string;
   encounterId: string;
-  /**
-   * As the DATABASE answered, not as the session's roles claim. It chooses
-   * chrome and nothing else — every clinical field below comes from the same
-   * immutable snapshot either way, which is what makes the doctor's print and
-   * the front desk's print the same document.
-   */
   viewerIsOwner: boolean;
   finalizedAt: string | null;
   digest: string;
   bundle: ReviewBundle;
-  /**
-   * Correction history. Null when the read failed — which is shown as "we could
-   * not check", never as "there is no correction". Those are different things
-   * to say to someone about to hand a prescription to a patient.
-   */
   lineage: PrescriptionLineage | null;
   lineageUnavailable: boolean;
+  /** A validated current-consultation path when this Rx was opened from history. */
+  returnTo?: string | null;
 }) {
   const render = React.useMemo(() => toPrescriptionView(bundle), [bundle]);
   const view = render.ok ? render.view : null;
@@ -81,16 +62,22 @@ export function FinalizedPrescription({
     );
   }
   const doc = render.view;
+  const backHref = returnTo ?? (viewerIsOwner ? `/consultation/${encounterId}` : "/queue");
+  const backLabel = returnTo
+    ? "Return to current consultation"
+    : viewerIsOwner
+      ? "Back to the consultation"
+      : "Back to the queue";
 
   return (
     <div className="min-w-0 overflow-x-clip pb-2">
       <div className="mx-auto flex min-w-0 max-w-[820px] flex-col gap-3">
         <Link
-          href={viewerIsOwner ? `/consultation/${encounterId}` : "/queue"}
+          href={backHref}
           className="inline-flex min-h-11 items-center gap-1.5 self-start text-[13px] font-semibold text-ink-secondary hover:text-ink focus-visible:focus-ring"
         >
           <ArrowLeft className="size-4" aria-hidden="true" />
-          {viewerIsOwner ? "Back to the consultation" : "Back to the queue"}
+          {backLabel}
         </Link>
 
         <p
