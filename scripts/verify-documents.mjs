@@ -48,14 +48,33 @@ async function asAnon(tx, fn) {
   }
 }
 
-/** Returns the error message, or null when the statement unexpectedly succeeded. */
-async function refusal(fn) {
+/**
+ * Provoke a refusal and keep the transaction usable.
+ *
+ * EVERY probe here has to run inside a SAVEPOINT. A raised error aborts the
+ * whole transaction in Postgres, so without one the first expected refusal
+ * takes the other thirty checks with it — and the suite reports a single
+ * "aborted" line rather than the thing it was asked to prove. That is not a
+ * detail of this script; it is why a security suite that stops at the first
+ * denial silently stops testing.
+ *
+ * Returns the error, or null when the statement unexpectedly SUCCEEDED — which
+ * is always the leak.
+ */
+let TX = null;
+async function attempt(fn) {
   try {
-    await fn();
+    await TX.savepoint(() => fn());
     return null;
   } catch (e) {
-    return e.message ?? String(e);
+    return e;
   }
+}
+
+/** The message alone, for the common case. */
+async function refusal(fn) {
+  const e = await attempt(fn);
+  return e === null ? null : (e.message ?? String(e));
 }
 
 const uidA = crypto.randomUUID();
@@ -68,6 +87,8 @@ const objectB = crypto.randomUUID();
 
 try {
   await sql.begin(async (tx) => {
+    TX = tx;
+
     // ---- fixture: two doctors, reception and an admin at ONE shared hospital --
     for (const [uid, name] of [
       [uidA, "QA Dr A"],
@@ -350,11 +371,20 @@ try {
         b: (await as(tx, uidB, () =>
           tx`select name from storage.objects where bucket_id = 'patient-documents' and name = ${pathA}`,
         )).length,
-        anon: await asAnon(tx, () =>
-          refusal(
-            () => tx`select name from storage.objects where bucket_id = 'patient-documents' and name = ${pathA}`,
-          ),
-        ),
+        /**
+         * `anon` legitimately HOLDS select on `storage.objects` — that is how
+         * a public bucket serves anybody. So the safe answer here is zero rows,
+         * not an error, and asserting on the error would have passed for the
+         * wrong reason on any day Supabase changed that grant.
+         */
+        anon: await asAnon(tx, async () => {
+          const e = await attempt(async () => {
+            const rows = await tx`select name from storage.objects
+              where bucket_id = 'patient-documents' and name = ${pathA}`;
+            if (rows.length > 0) throw new Error(`RETURNED ${rows.length} ROW(S)`);
+          });
+          return e === null ? "no rows" : e.message;
+        }),
       };
       check(objectReads.a === 1, "11j. Dr A can read their own stored object");
       check(
@@ -362,7 +392,11 @@ try {
         "4b. Dr B cannot read the object EVEN GIVEN ITS EXACT PATH",
         `${objectReads.b} row(s)`,
       );
-      check(objectReads.anon !== null, "6d. Anonymous cannot read the stored object");
+      check(
+        !/RETURNED/.test(objectReads.anon),
+        "6d. Anonymous reaches the stored object not at all",
+        objectReads.anon,
+      );
     }
 
     // ---- Ownership cannot be forged, even from a privileged direct write -----
@@ -418,22 +452,25 @@ try {
      * way up the stack, and PostgREST duly retries it — one refused click
      * becomes a retry storm.
      */
-    const [{ code }] = await as(tx, uidA, async () => {
-      try {
-        await tx`select public.archive_patient_document(${created}, 'ok')`;
-        await tx`select public.archive_patient_document(${created}, 'again')`;
-        return [{ code: "none" }];
-      } catch (e) {
-        return [{ code: e.code ?? "unknown" }];
-      }
+    const code = await as(tx, uidA, async () => {
+      await tx`select public.archive_patient_document(${created}, 'QA duplicate probe')`;
+      const e = await attempt(
+        () => tx`select public.archive_patient_document(${created}, 'again')`,
+      );
+      await tx`select public.restore_patient_document(${created})`;
+      return e?.code ?? "none";
     });
-    check(code !== "40001", "Business refusals are not raised as serialization_failure", code);
+    check(
+      code !== "40001" && code !== "none",
+      "Business refusals are raised, and not as serialization_failure",
+      code,
+    );
 
     // ---- The document row and its audit row are in ONE transaction ----------
     const audit = await tx`select action, resource_type, meta
       from public.audit_events
       where resource_id = ${created} and resource_type = 'patient_document'
-      order by created_at`;
+      order by occurred_at`;
     const actions = audit.map((a) => a.action);
     check(
       actions.includes("document.uploaded"),
@@ -454,13 +491,43 @@ try {
     );
 
     // ---- Grants ------------------------------------------------------------
-    const grants = await tx`select privilege_type from information_schema.role_table_grants
-      where table_schema = 'public' and table_name = 'patient_documents' and grantee = 'authenticated'
-      order by privilege_type`;
+    /**
+     * `authenticated` must hold SELECT and no other verb that reads or changes
+     * a row.
+     *
+     * REFERENCES and TRIGGER are NOT asserted away, and that is deliberate
+     * rather than an oversight: Supabase grants both to `authenticated` on
+     * every table in `public`, `encounters` and `encounter_events` carry them
+     * today, and neither reads or writes a row. Demanding the literal string
+     * "SELECT" here would have made this table the only one in the schema that
+     * fails, and the honest comparison is against its peers.
+     */
+    const grants = (
+      await tx`select privilege_type from information_schema.role_table_grants
+        where table_schema = 'public' and table_name = 'patient_documents'
+          and grantee = 'authenticated'
+        order by privilege_type`
+    ).map((g) => g.privilege_type);
+
+    const writeVerbs = grants.filter((g) =>
+      ["INSERT", "UPDATE", "DELETE", "TRUNCATE"].includes(g),
+    );
     check(
-      grants.map((g) => g.privilege_type).join(",") === "SELECT",
-      "authenticated holds SELECT and nothing else",
-      grants.map((g) => g.privilege_type).join(",") || "none",
+      grants.includes("SELECT") && writeVerbs.length === 0,
+      "authenticated holds SELECT and no write verb",
+      grants.join(",") || "none",
+    );
+
+    const peer = (
+      await tx`select privilege_type from information_schema.role_table_grants
+        where table_schema = 'public' and table_name = 'encounters'
+          and grantee = 'authenticated'
+        order by privilege_type`
+    ).map((g) => g.privilege_type);
+    check(
+      grants.join(",") === peer.join(","),
+      "…and exactly what the other RPC-only clinical table holds",
+      `documents=${grants.join(",")} encounters=${peer.join(",")}`,
     );
 
     const anonGrants = await tx`select privilege_type from information_schema.role_table_grants
