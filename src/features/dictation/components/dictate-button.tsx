@@ -96,8 +96,10 @@ export function DictateButton({
       data-voice-provider={voiceLanguage.provider}
       data-voice-diagnostic={diagnosticCode ?? undefined}
       data-voice-mic-ready-ms={latency.micReadyMs}
+      data-voice-token-ready-ms={latency.tokenReadyMs}
       data-voice-provider-connected-ms={latency.providerConnectedMs}
       data-voice-first-audio-ms={latency.firstAudioSentMs}
+      data-voice-speech-started-ms={latency.speechStartedMs}
       data-voice-first-transcript-ms={latency.firstTranscriptMs}
       data-voice-stop-final-ms={latency.stopToFinalMs}
     >
