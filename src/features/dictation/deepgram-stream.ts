@@ -63,7 +63,7 @@ export function deepgramBearerProtocols(accessToken: string): string[] {
 }
 
 export interface DeepgramResultsMessage {
-  type: "Results";
+  type: string;
   start?: number;
   duration?: number;
   is_final?: boolean;
