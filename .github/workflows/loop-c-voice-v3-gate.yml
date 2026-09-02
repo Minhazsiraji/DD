@@ -1,0 +1,32 @@
+name: Loop C Voice V3 Gate
+
+on:
+  push:
+    branches:
+      - audit/loop-c-voice-v3-gate
+
+permissions:
+  contents: read
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Focused Voice and Rx dictation
+        run: npx vitest run src/features/dictation src/features/prescriptions/prescription-dictation.test.ts
+      - name: Prescription authority and critical security
+        run: npx vitest run src/features/prescriptions/freeze.test.ts src/features/prescriptions/finalize-outcome.test.ts src/features/prescriptions/review-bundle.test.ts src/features/prescriptions/correction.test.ts src/features/encounters/mutation-gate.test.ts src/features/security/policy.test.ts
+      - name: Full suite
+        run: npm test
+      - name: Lint
+        run: npm run lint
+      - name: Build
+        run: npm run build
+      - name: Typecheck
+        run: npm run typecheck
