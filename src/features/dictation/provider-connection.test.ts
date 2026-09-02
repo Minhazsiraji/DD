@@ -31,12 +31,12 @@ const CLIENT_DIAGNOSTICS = [
 ] as const;
 
 describe("Deepgram token-route connection boundary", () => {
-  it("keeps the permanent key server-side and asks Deepgram for a 30-second grant", async () => {
+  it("keeps the permanent key server-side and asks Deepgram for a five-minute pilot grant", async () => {
     const route = await source("src/app/api/voice/token/route.ts");
     expect(route).toContain("process.env.DEEPGRAM_API_KEY");
     expect(route).toContain('fetch("https://api.deepgram.com/v1/auth/grant"');
     expect(route).toContain("Authorization: `Token ${apiKey}`");
-    expect(route).toContain("TOKEN_TTL_SECONDS = 30");
+    expect(route).toContain("TOKEN_TTL_SECONDS = 300");
     expect(route).toContain("ttl_seconds: TOKEN_TTL_SECONDS");
     expect(route).not.toMatch(/NEXT_PUBLIC_DEEPGRAM/);
   });
@@ -79,6 +79,7 @@ describe("Deepgram browser-side connection diagnosis", () => {
     expect(new URL(buildDeepgramStreamingUrl("en-US")).searchParams.get("language")).toBe("en-US");
     expect(new URL(buildDeepgramStreamingUrl("bn")).searchParams.get("language")).toBe("bn");
     expect(() => buildDeepgramStreamingUrl("bn-BD")).toThrow();
+    expect(() => buildDeepgramStreamingUrl("multi")).toThrow();
   });
 
   it("keeps Browser Bengali fallback at bn-BD", async () => {
@@ -108,11 +109,33 @@ describe("Deepgram browser-side connection diagnosis", () => {
 
   it("keeps the architecture browser → token route → direct Deepgram WebSocket", async () => {
     const provider = codeOnly(await source("src/features/dictation/provider.ts"));
-    expect(provider).toMatch(/fetch\("\/api\/voice\/token"/);
+    const cache = codeOnly(await source("src/features/dictation/deepgram-token-cache.ts"));
+    expect(cache).toMatch(/fetchImpl\("\/api\/voice\/token"/);
     expect(provider).toMatch(/new WebSocket/);
-    expect(provider).toMatch(/socket\.send\(event\.data\)/);
+    expect(provider).toMatch(/socket\.send\(event\.data\)|ws\.send\(event\.data\)/);
     expect(provider).not.toMatch(/\/api\/voice\/transcribe|FormData|new Blob/);
     expect(provider).not.toMatch(/DEEPGRAM_API_KEY|NEXT_PUBLIC_DEEPGRAM/);
+    expect(cache).not.toMatch(/DEEPGRAM_API_KEY|NEXT_PUBLIC_DEEPGRAM/);
+  });
+
+  it("starts microphone acquisition and token acquisition concurrently", async () => {
+    const provider = await source("src/features/dictation/provider.ts");
+    const micAt = provider.indexOf("const microphonePromise");
+    const tokenAt = provider.indexOf("const tokenPromise = requestToken(false)");
+    const waitAt = provider.indexOf("Promise.all([microphonePromise, tokenPromise])");
+    expect(micAt).toBeGreaterThan(0);
+    expect(tokenAt).toBeGreaterThan(micAt);
+    expect(waitAt).toBeGreaterThan(tokenAt);
+  });
+
+  it("starts first-transcript timeout from provider SpeechStarted, not the first audio chunk", async () => {
+    const provider = await source("src/features/dictation/provider.ts");
+    const firstAudioBlock = provider.slice(
+      provider.indexOf("latency.firstAudioSentMs"),
+      provider.indexOf("recorder.onerror"),
+    );
+    expect(firstAudioBlock).not.toContain("FIRST_TRANSCRIPT_TIMEOUT");
+    expect(provider).toMatch(/message\.type === "SpeechStarted"[\s\S]*FIRST_TRANSCRIPT_TIMEOUT/);
   });
 });
 
@@ -146,6 +169,7 @@ describe("QA diagnostics are safe and draft-preserving", () => {
     for (const file of [
       "src/app/api/voice/token/route.ts",
       "src/features/dictation/provider.ts",
+      "src/features/dictation/deepgram-token-cache.ts",
       "src/features/dictation/use-dictation.ts",
       "src/features/dictation/components/dictate-button.tsx",
     ]) {
