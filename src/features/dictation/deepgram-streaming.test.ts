@@ -209,7 +209,7 @@ describe("stream transport and credential security", () => {
   it("streams MediaRecorder chunks while speaking instead of waiting for a Blob upload", async () => {
     const provider = codeOnly(await source("src/features/dictation/provider.ts"));
     expect(provider).toMatch(/recorder\.start\(DEEPGRAM_MEDIA_TIMESLICE_MS\)/);
-    expect(provider).toMatch(/ws\.send\(event\.data\)/);
+    expect(provider).toMatch(/(?:socket|ws)\.send\(event\.data\)/);
     expect(provider).toMatch(/new WebSocket/);
     expect(provider).toMatch(/deepgramBearerProtocols\(grant\.accessToken\)/);
     expect(provider).not.toMatch(/new Blob\(|new FormData\(|\/api\/voice\/transcribe/);
