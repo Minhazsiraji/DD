@@ -153,19 +153,49 @@ function preferredRecorderMimeType(): string | null {
   return null;
 }
 
-async function requestDeepgramAccessToken(signal: AbortSignal): Promise<string> {
+const TOKEN_ROUTE_TIMEOUT_MS = 6500;
+const TOKEN_QA_DIAGNOSTICS = new Set([
+  "TOKEN_ROUTE_UNAUTHORIZED",
+  "TOKEN_ROUTE_FORBIDDEN",
+  "TOKEN_RATE_LIMIT",
+  "TOKEN_CONFIG_MISSING",
+  "TOKEN_GRANT_REJECTED",
+  "TOKEN_GRANT_NETWORK",
+]);
+
+interface DeepgramTokenPayload {
+  accessToken?: string;
+  diagnostic?: string;
+  qaDiagnostics?: boolean;
+}
+
+function tokenQaDiagnostic(value: unknown): string | null {
+  return typeof value === "string" && TOKEN_QA_DIAGNOSTICS.has(value) ? value : null;
+}
+
+async function requestDeepgramAccessToken(signal: AbortSignal): Promise<{
+  accessToken: string;
+  qaDiagnostics: boolean;
+}> {
   const response = await fetch("/api/voice/token", {
     method: "POST",
     cache: "no-store",
     signal,
     headers: { Accept: "application/json" },
   });
+
+  let payload: DeepgramTokenPayload = {};
+  try {
+    payload = (await response.json()) as DeepgramTokenPayload;
+  } catch {}
+
   if (!response.ok) {
+    const diagnostic = tokenQaDiagnostic(payload.diagnostic);
+    if (diagnostic) throw new Error(diagnostic);
     throw new Error(response.status === 503 ? "provider-unavailable" : "provider-error");
   }
-  const payload = (await response.json()) as { accessToken?: string };
   if (!payload.accessToken) throw new Error("provider-error");
-  return payload.accessToken;
+  return { accessToken: payload.accessToken, qaDiagnostics: payload.qaDiagnostics === true };
 }
 
 const deepgramProvider: VoiceTranscriptionProvider = {
@@ -195,6 +225,7 @@ const deepgramProvider: VoiceTranscriptionProvider = {
     let latestTranscript = "";
     let startedAt = 0;
     let stopAt: number | null = null;
+    let qaDiagnostics = false;
     const assembler = new DeepgramTranscriptAssembler();
     const latency: VoiceLatencySnapshot = {};
 
@@ -202,6 +233,8 @@ const deepgramProvider: VoiceTranscriptionProvider = {
     const clearTimer = (timer: ReturnType<typeof setTimeout> | null) => {
       if (timer) clearTimeout(timer);
     };
+    const qaCode = (diagnostic: string, fallback: string) =>
+      qaDiagnostics ? diagnostic : fallback;
 
     const releaseTracks = () => {
       stream?.getTracks().forEach((track) => track.stop());
@@ -281,27 +314,31 @@ const deepgramProvider: VoiceTranscriptionProvider = {
 
     const startRecorder = () => {
       if (!stream || !socket || socket.readyState !== WebSocket.OPEN || cancelled || terminal) return;
-      recorder = new MediaRecorder(stream, { mimeType });
-      recorder.ondataavailable = (event) => {
-        if (cancelled || terminal || event.data.size === 0 || socket?.readyState !== WebSocket.OPEN) return;
-        if (latency.firstAudioSentMs === undefined) {
-          latency.firstAudioSentMs = elapsed(startedAt);
-          emitLatency();
-          firstTranscriptTimer = setTimeout(
-            () => fail("first-transcript-timeout"),
-            DEEPGRAM_FIRST_TRANSCRIPT_TIMEOUT_MS,
-          );
-        }
-        socket.send(event.data);
-      };
-      recorder.onerror = () => fail("audio-capture");
-      recorder.onstop = () => {
-        releaseTracks();
-        if (!cancelled && !terminal) beginFinalize();
-      };
-      recorder.start(DEEPGRAM_MEDIA_TIMESLICE_MS);
-      callbacks.onPhase("listening");
-      if (stopped && recorder.state !== "inactive") recorder.stop();
+      try {
+        recorder = new MediaRecorder(stream, { mimeType });
+        recorder.ondataavailable = (event) => {
+          if (cancelled || terminal || event.data.size === 0 || socket?.readyState !== WebSocket.OPEN) return;
+          if (latency.firstAudioSentMs === undefined) {
+            latency.firstAudioSentMs = elapsed(startedAt);
+            emitLatency();
+            firstTranscriptTimer = setTimeout(
+              () => fail(qaCode("FIRST_TRANSCRIPT_TIMEOUT", "first-transcript-timeout")),
+              DEEPGRAM_FIRST_TRANSCRIPT_TIMEOUT_MS,
+            );
+          }
+          socket.send(event.data);
+        };
+        recorder.onerror = () => fail(qaCode("AUDIO_CAPTURE", "audio-capture"));
+        recorder.onstop = () => {
+          releaseTracks();
+          if (!cancelled && !terminal) beginFinalize();
+        };
+        recorder.start(DEEPGRAM_MEDIA_TIMESLICE_MS);
+        callbacks.onPhase("listening");
+        if (stopped && recorder.state !== "inactive") recorder.stop();
+      } catch {
+        fail(qaCode("AUDIO_CAPTURE", "audio-capture"));
+      }
     };
 
     const connect = async () => {
@@ -327,11 +364,13 @@ const deepgramProvider: VoiceTranscriptionProvider = {
         tokenController = new AbortController();
         const tokenTimeout = setTimeout(
           () => tokenController?.abort(),
-          DEEPGRAM_CONNECTION_TIMEOUT_MS,
+          TOKEN_ROUTE_TIMEOUT_MS,
         );
         let accessToken: string;
         try {
-          accessToken = await requestDeepgramAccessToken(tokenController.signal);
+          const grant = await requestDeepgramAccessToken(tokenController.signal);
+          accessToken = grant.accessToken;
+          qaDiagnostics = grant.qaDiagnostics;
         } finally {
           clearTimeout(tokenTimeout);
         }
@@ -343,7 +382,7 @@ const deepgramProvider: VoiceTranscriptionProvider = {
           deepgramBearerProtocols(accessToken),
         );
         connectionTimer = setTimeout(
-          () => fail("connection-timeout"),
+          () => fail(qaCode("WS_CONNECTION", "connection-timeout")),
           DEEPGRAM_CONNECTION_TIMEOUT_MS,
         );
 
@@ -387,27 +426,35 @@ const deepgramProvider: VoiceTranscriptionProvider = {
         };
 
         socket.onerror = () => {
-          if (!cancelled && !terminal) fail("provider-error");
+          if (!cancelled && !terminal) fail(qaCode("WS_CONNECTION", "provider-error"));
         };
         socket.onclose = () => {
           if (cancelled || terminal) return;
           if (finalizing) settle();
-          else fail("network");
+          else fail(qaCode("WS_CONNECTION", "network"));
         };
       } catch (error) {
         if (cancelled || terminal) return;
         releaseTracks();
-        if (error instanceof DOMException && error.name === "NotAllowedError") {
-          fail("not-allowed");
-          return;
+        if (error instanceof DOMException) {
+          if (error.name === "NotAllowedError") {
+            fail("not-allowed");
+            return;
+          }
+          if (["NotFoundError", "NotReadableError", "OverconstrainedError"].includes(error.name)) {
+            fail(qaCode("AUDIO_CAPTURE", "audio-capture"));
+            return;
+          }
         }
         const code = error instanceof Error ? error.message : "";
         fail(
-          code === "provider-unavailable"
+          TOKEN_QA_DIAGNOSTICS.has(code)
             ? code
-            : code === "provider-error"
+            : code === "provider-unavailable"
               ? code
-              : "network",
+              : code === "provider-error"
+                ? code
+                : "network",
         );
       }
     };
