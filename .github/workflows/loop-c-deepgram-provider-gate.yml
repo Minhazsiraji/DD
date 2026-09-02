@@ -1,0 +1,32 @@
+name: Loop C Deepgram Provider Gate
+
+on:
+  push:
+    branches:
+      - audit/loop-c-deepgram-provider-connection
+
+permissions:
+  contents: read
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Focused voice and streaming tests
+        run: npx vitest run src/features/dictation src/features/prescriptions/prescription-dictation.test.ts
+      - name: Prescription authority and critical security
+        run: npx vitest run src/features/prescriptions/freeze.test.ts src/features/prescriptions/finalize-outcome.test.ts src/features/prescriptions/review-bundle.test.ts src/features/prescriptions/correction.test.ts src/features/encounters/mutation-gate.test.ts src/features/security/policy.test.ts
+      - name: Full suite
+        run: npm test
+      - name: Lint
+        run: npm run lint
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Build
+        run: npm run build
