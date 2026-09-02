@@ -9,6 +9,14 @@ const WINDOW_MS = 60_000;
 const MAX_GRANTS_PER_WINDOW = 12;
 const TOKEN_TTL_SECONDS = 30;
 
+type VoiceQaDiagnostic =
+  | "TOKEN_ROUTE_UNAUTHORIZED"
+  | "TOKEN_ROUTE_FORBIDDEN"
+  | "TOKEN_RATE_LIMIT"
+  | "TOKEN_CONFIG_MISSING"
+  | "TOKEN_GRANT_REJECTED"
+  | "TOKEN_GRANT_NETWORK";
+
 /** Pilot-only best-effort limiter. Replace with distributed quota before scale. */
 const rate = new Map<string, { startedAt: number; count: number }>();
 
@@ -23,11 +31,24 @@ function rateLimited(userId: string): boolean {
   return current.count > MAX_GRANTS_PER_WINDOW;
 }
 
-function noStore(body: Record<string, unknown>, status = 200) {
-  return NextResponse.json(body, {
-    status,
-    headers: { "Cache-Control": "private, no-store" },
-  });
+function qaDiagnosticsEnabled(): boolean {
+  return process.env.VERCEL_ENV === "preview" || process.env.NODE_ENV === "development";
+}
+
+function noStore(
+  body: Record<string, unknown>,
+  status = 200,
+  diagnostic?: VoiceQaDiagnostic,
+  qaDetails?: Record<string, unknown>,
+) {
+  const qa = qaDiagnosticsEnabled();
+  return NextResponse.json(
+    qa && diagnostic ? { ...body, diagnostic, ...qaDetails } : body,
+    {
+      status,
+      headers: { "Cache-Control": "private, no-store" },
+    },
+  );
 }
 
 /**
@@ -43,20 +64,24 @@ export async function POST(request: NextRequest) {
     const ctx = await requirePermission("update", "encounter");
     userId = ctx.user.id;
   } catch {
-    return noStore({ code: "unauthorized" }, 401);
+    return noStore({ code: "unauthorized" }, 401, "TOKEN_ROUTE_UNAUTHORIZED");
   }
 
   // Browser POSTs to this grant endpoint must be same-origin. A missing Origin
   // fails closed because there is no non-browser client in this pilot flow.
   const origin = request.headers.get("origin");
   if (origin !== request.nextUrl.origin) {
-    return noStore({ code: "forbidden" }, 403);
+    return noStore({ code: "forbidden" }, 403, "TOKEN_ROUTE_FORBIDDEN");
   }
 
-  if (rateLimited(userId)) return noStore({ code: "rate-limited" }, 429);
+  if (rateLimited(userId)) {
+    return noStore({ code: "rate-limited" }, 429, "TOKEN_RATE_LIMIT");
+  }
 
   const apiKey = process.env.DEEPGRAM_API_KEY;
-  if (!apiKey) return noStore({ code: "provider-unavailable" }, 503);
+  if (!apiKey) {
+    return noStore({ code: "provider-unavailable" }, 503, "TOKEN_CONFIG_MISSING");
+  }
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 5000);
@@ -74,18 +99,32 @@ export async function POST(request: NextRequest) {
     });
 
     if (!response.ok) {
+      const unavailable = response.status === 401 || response.status === 403;
       return noStore(
-        { code: response.status === 401 || response.status === 403 ? "provider-unavailable" : "provider-error" },
-        response.status === 401 || response.status === 403 ? 503 : 502,
+        { code: unavailable ? "provider-unavailable" : "provider-error" },
+        unavailable ? 503 : 502,
+        "TOKEN_GRANT_REJECTED",
+        { providerStatus: response.status },
       );
     }
 
     const payload = (await response.json()) as { access_token?: string; expires_in?: number };
-    if (!payload.access_token) return noStore({ code: "provider-error" }, 502);
+    if (!payload.access_token) {
+      return noStore(
+        { code: "provider-error" },
+        502,
+        "TOKEN_GRANT_REJECTED",
+        { providerStatus: response.status },
+      );
+    }
 
-    return noStore({ accessToken: payload.access_token, expiresIn: payload.expires_in ?? TOKEN_TTL_SECONDS });
+    return noStore({
+      accessToken: payload.access_token,
+      expiresIn: payload.expires_in ?? TOKEN_TTL_SECONDS,
+      ...(qaDiagnosticsEnabled() ? { qaDiagnostics: true } : {}),
+    });
   } catch {
-    return noStore({ code: "provider-error" }, 502);
+    return noStore({ code: "provider-error" }, 502, "TOKEN_GRANT_NETWORK");
   } finally {
     clearTimeout(timeout);
   }
