@@ -26,6 +26,20 @@ export type AuditAction =
   | "doctor_profile.updated"
   | "doctor_profile.signature_set"
   | "doctor_profile.signature_removed"
+  /**
+   * A doctor's own medicine library. Personal preferences, not clinical data
+   * and not patient data — so these rows carry the medicine ROW ID and never
+   * the medicine name, the dose or the schedule. `audit_events` is readable by
+   * roles that must never see a doctor's prescribing habits.
+   *
+   * There is no `medicine_reference.*` action because the catalogue cannot be
+   * written through the API at all (0043 revokes every write verb); it changes
+   * only through a reviewed seed script under the service role.
+   */
+  | "doctor_medicine.added"
+  | "doctor_medicine.defaults_updated"
+  | "doctor_medicine.archived"
+  | "doctor_medicine.restored"
   // Prescription LAYOUT only. No prescription contents exist yet.
   | "prescription_template.created"
   | "prescription_template.updated"

@@ -2174,6 +2174,277 @@ export const doctorProfileClaimEvents = pgTable(
   ],
 );
 
+// -----------------------------------------------------------------------------
+// Medicines — a REFERENCE catalogue and a doctor's PERSONAL library.
+//
+// Two layers that must never collapse into one:
+//
+//   medicine_references   what a medicine IS. Shared, curated, provenanced.
+//   doctor_medicines      what THIS doctor usually does with it. Private.
+//
+// Neither is clinical authority. The catalogue is a lookup that saves typing;
+// the personal library is the doctor's own saved habit. A prescription is still
+// written, reviewed and finalised by the doctor — nothing here prescribes.
+// -----------------------------------------------------------------------------
+
+/**
+ * How a reference row got here. Rendered to the doctor, never decorative.
+ *
+ * `LICENSED_IMPORT` does not exist yet and is deliberately declared now: the
+ * day a licensed dataset arrives it must be distinguishable from the entries a
+ * human typed, without a migration that rewrites history.
+ */
+export const medicineSourceKind = pgEnum("medicine_source_kind", [
+  /** Entered by hand in this deployment. The only kind V1 produces. */
+  "MANUAL_SEED",
+  /** A doctor's own addition, promoted from their personal library. */
+  "DOCTOR_CONTRIBUTED",
+  /** From an approved, licensed reference dataset. Not yet implemented. */
+  "LICENSED_IMPORT",
+]);
+
+/**
+ * A medicine's identity, jurisdiction-neutral by construction.
+ *
+ * NO COUNTRY IS THE DEFAULT. `country_code` is ISO 3166-1 alpha-2 and required,
+ * so "which market is this pack from?" always has an answer, and Bangladesh is
+ * one value among many rather than an assumption baked into the table. Same for
+ * `regulator_name`: DGDA is a string in a row, not a column name — a row from
+ * India names CDSCO in the identical field.
+ *
+ * CLAUDE.md: "Never generate drug facts with an LLM and store them as reference
+ * data. Every monograph field carries source_id + last_verified_at." This table
+ * holds only IDENTITY (what is on the box), not monograph facts — no
+ * indications, no contraindications, no interaction data, no dosing guidance.
+ * Those need a licensed source and are deliberately absent. What is here still
+ * carries its provenance, because "who says so" is a property of every
+ * reference row.
+ */
+export const medicineReferences = pgTable(
+  "medicine_references",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+
+    /** The molecule. Searched first, because generic-first is the safe habit. */
+    genericName: text("generic_name").notNull(),
+    /** The pack name. Optional: a generic-only entry is a complete entry. */
+    brandName: text("brand_name"),
+    /** What the unit contains — "500 mg", "125 mg/5 ml". NOT a dose. */
+    strengthText: text("strength_text"),
+    /** Tablet, Capsule, Syrup, Injection… free text, not an enum: forms differ by market. */
+    dosageForm: text("dosage_form"),
+    manufacturer: text("manufacturer"),
+
+    /**
+     * ISO 3166-1 alpha-2, uppercase. Required so that a later multi-country
+     * catalogue filters rather than guesses. Enforced by CHECK below.
+     */
+    countryCode: text("country_code").notNull(),
+    /** "DGDA", "CDSCO", "MHRA"… the authority for THIS row's market, if known. */
+    regulatorName: text("regulator_name"),
+
+    sourceKind: medicineSourceKind("source_kind").notNull().default("MANUAL_SEED"),
+    /** Free-text citation: dataset name, licence reference, or who typed it. */
+    sourceNote: text("source_note"),
+    /**
+     * When a human last confirmed this row against its source. Null means
+     * "never verified" and the UI says so rather than implying currency.
+     */
+    lastVerifiedAt: timestamp("last_verified_at", { withTimezone: true }),
+
+    /**
+     * Withdrawn or superseded rows go inactive; they are never deleted, because
+     * a finalised prescription may name one and history must stay readable.
+     */
+    isActive: boolean("is_active").notNull().default(true),
+
+    /**
+     * Search keys, DERIVED. Never accepted from a caller.
+     *
+     * Same rule as `patients.name_normalized` and `doctor_phrases`: a
+     * caller-supplied key is not a key. `\\s` not `\s` — a single backslash is
+     * eaten by the template literal and the expression then collapses runs of
+     * the letter "s" instead of whitespace.
+     */
+    genericNormalized: text("generic_normalized").generatedAlwaysAs(
+      sql`lower(btrim(regexp_replace(generic_name, '\\s+', ' ', 'g')))`,
+    ),
+    brandNormalized: text("brand_normalized").generatedAlwaysAs(
+      sql`lower(btrim(regexp_replace(coalesce(brand_name, ''), '\\s+', ' ', 'g')))`,
+    ),
+    /**
+     * One haystack for a single-box search, still derived. Holding generic,
+     * brand and strength together lets "napa 500" match without the query
+     * having to guess which field the doctor meant.
+     */
+    searchText: text("search_text").generatedAlwaysAs(
+      sql`lower(btrim(regexp_replace(
+        generic_name || ' ' || coalesce(brand_name, '') || ' ' ||
+        coalesce(strength_text, '') || ' ' || coalesce(dosage_form, ''),
+        '\\s+', ' ', 'g')))`,
+    ),
+
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    /**
+     * One row per pack per market. Two countries may legitimately sell the same
+     * brand and strength, so the country is part of the identity — without it
+     * an Indian entry would collide with a Bangladeshi one and one would be
+     * lost.
+     */
+    uniqueIndex("medicine_references_identity").on(
+      t.countryCode,
+      t.genericNormalized,
+      t.brandNormalized,
+      t.strengthText,
+      t.dosageForm,
+    ),
+    index("medicine_references_generic_idx").on(t.genericNormalized),
+    index("medicine_references_brand_idx").on(t.brandNormalized),
+    index("medicine_references_country_idx").on(t.countryCode, t.isActive),
+    check("medicine_references_generic_not_blank", sql`btrim(generic_name) <> ''`),
+    check(
+      "medicine_references_country_code",
+      sql`country_code ~ '^[A-Z]{2}$'`,
+    ),
+    check(
+      "medicine_references_lengths",
+      sql`length(generic_name) <= 200
+        and (brand_name is null or length(brand_name) <= 200)
+        and (strength_text is null or length(strength_text) <= 100)
+        and (dosage_form is null or length(dosage_form) <= 100)
+        and (manufacturer is null or length(manufacturer) <= 200)
+        and (regulator_name is null or length(regulator_name) <= 100)
+        and (source_note is null or length(source_note) <= 500)`,
+    ),
+  ],
+);
+
+/**
+ * ONE doctor's saved way of writing ONE medicine.
+ *
+ * These are DEFAULTS THE DOCTOR SAVED, and the UI must say exactly that. They
+ * are not a recommended dose, not a starting dose, and carry no clinical
+ * authority — Doctor's Diary has no opinion about what anyone should take. The
+ * whole value of the row is that this doctor typed it once and should not have
+ * to type it again.
+ *
+ * Doctor A's row can never affect Doctor B: `doctor_profile_id` is the tenancy
+ * boundary, exactly as `doctor_phrases` and `patients.owner_doctor_id` are.
+ *
+ * The default fields mirror `prescription_items` column-for-column on purpose.
+ * A later Rx integration is then a field copy into an editable draft, with no
+ * translation layer to disagree with itself — and nothing here writes to a
+ * prescription.
+ */
+export const doctorMedicines = pgTable(
+  "doctor_medicines",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    doctorProfileId: uuid("doctor_profile_id")
+      .notNull()
+      .references(() => doctorProfiles.id, { onDelete: "cascade" }),
+
+    /**
+     * The catalogue row this was saved from, if any.
+     *
+     * `set null`, not `cascade`: if a reference entry is ever removed, the
+     * doctor keeps their saved defaults and the display text below still says
+     * what the medicine was. A doctor's library must not be emptied by a
+     * catalogue edit.
+     */
+    medicineReferenceId: uuid("medicine_reference_id").references(
+      () => medicineReferences.id,
+      { onDelete: "set null" },
+    ),
+
+    /**
+     * What this row IS, denormalised on purpose.
+     *
+     * A doctor must be able to save a medicine that is not in the catalogue at
+     * all — that is the normal case in a market whose catalogue we do not have.
+     * It is also what keeps the library readable after a reference row goes
+     * inactive. `display_name` is the only required one, matching
+     * `prescription_items.display_name`.
+     */
+    displayName: text("display_name").notNull(),
+    genericName: text("generic_name"),
+    brandName: text("brand_name"),
+    strengthText: text("strength_text"),
+    dosageForm: text("dosage_form"),
+    route: text("route"),
+
+    /** The saved defaults. Every one optional — a bare favourite is valid. */
+    defaultDoseText: text("default_dose_text"),
+    defaultScheduleText: text("default_schedule_text"),
+    defaultDurationText: text("default_duration_text"),
+    defaultQuantityText: text("default_quantity_text"),
+    defaultFoodRelation: text("default_food_relation"),
+    defaultInstructions: text("default_instructions"),
+    defaultIsPrn: boolean("default_is_prn").notNull().default(false),
+
+    isFavorite: boolean("is_favorite").notNull().default(false),
+
+    /**
+     * Bookkeeping the doctor can see. Only ever incremented by an explicit
+     * "use this" action — never by a search, so an idle browse cannot reorder
+     * someone's library behind their back.
+     */
+    usageCount: integer("usage_count").notNull().default(0),
+    lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
+
+    /**
+     * Archived, not deleted. Removing a medicine from a personal library must
+     * leave every finalised prescription that named it exactly as it was —
+     * and `prescription_items` holds its own copy of the text, so there is no
+     * pointer here for an archive to break.
+     */
+    isActive: boolean("is_active").notNull().default(true),
+
+    /** Derived comparison key, as everywhere else. */
+    displayNormalized: text("display_normalized").generatedAlwaysAs(
+      sql`lower(btrim(regexp_replace(display_name, '\\s+', ' ', 'g')))`,
+    ),
+
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    /**
+     * One entry per doctor per medicine wording per strength. Strength is part
+     * of the key because "Napa 500" and "Napa 665" are different saved habits
+     * and a doctor keeps both. Derived key, so an honest name with a dishonest
+     * normalisation cannot slip a duplicate past it.
+     */
+    uniqueIndex("doctor_medicines_unique").on(
+      t.doctorProfileId,
+      t.displayNormalized,
+      t.strengthText,
+    ),
+    index("doctor_medicines_library_idx").on(t.doctorProfileId, t.isActive, t.isFavorite),
+    index("doctor_medicines_recent_idx").on(t.doctorProfileId, t.lastUsedAt),
+    check("doctor_medicines_display_not_blank", sql`btrim(display_name) <> ''`),
+    check(
+      "doctor_medicines_lengths",
+      sql`length(display_name) <= 200
+        and (generic_name is null or length(generic_name) <= 200)
+        and (brand_name is null or length(brand_name) <= 200)
+        and (strength_text is null or length(strength_text) <= 100)
+        and (dosage_form is null or length(dosage_form) <= 100)
+        and (route is null or length(route) <= 100)
+        and (default_dose_text is null or length(default_dose_text) <= 100)
+        and (default_schedule_text is null or length(default_schedule_text) <= 100)
+        and (default_duration_text is null or length(default_duration_text) <= 100)
+        and (default_quantity_text is null or length(default_quantity_text) <= 100)
+        and (default_food_relation is null or length(default_food_relation) <= 100)
+        and (default_instructions is null or length(default_instructions) <= 1000)`,
+    ),
+    check("doctor_medicines_usage_count", sql`usage_count >= 0`),
+  ],
+);
+
 export type Profile = typeof profiles.$inferSelect;
 export type DoctorProfile = typeof doctorProfiles.$inferSelect;
 export type PracticeLocation = typeof practiceLocations.$inferSelect;
@@ -2207,5 +2478,7 @@ export type SubscriptionPayment = typeof subscriptionPayments.$inferSelect;
 export type PlatformOwner = typeof platformOwners.$inferSelect;
 export type DoctorProfileClaim = typeof doctorProfileClaims.$inferSelect;
 export type DoctorProfileClaimEvent = typeof doctorProfileClaimEvents.$inferSelect;
+export type MedicineReference = typeof medicineReferences.$inferSelect;
+export type DoctorMedicine = typeof doctorMedicines.$inferSelect;
 
 

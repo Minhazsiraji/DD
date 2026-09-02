@@ -148,6 +148,13 @@
       "when": 1787836412401,
       "tag": "0020_freezing_mister_sinister",
       "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1788273352665,
+      "tag": "0022_medicines_v1",
+      "breakpoints": true
     }
   ]
 }
