@@ -10,6 +10,27 @@ export const DEEPGRAM_FINALIZE_TIMEOUT_MS = 1500;
 const ALLOWED_LANGUAGES = new Set(["bn", "en-US"]);
 
 /**
+ * Narrow Preview pilot only. Keyterms bias ASR spelling/recall; they do not
+ * create diagnosis, medicine, dose, or any other clinical authority.
+ * Keep this list deliberately small until physical mixed-language evidence exists.
+ */
+export const DEEPGRAM_BN_CLINICAL_KEYTERMS = [
+  "right knee",
+  "severe pain",
+  "swelling",
+  "blood pressure",
+  "shortness of breath",
+  "Metformin",
+  "CBC",
+  "serum creatinine",
+  "HbA1c",
+  "Napa",
+  "after food",
+  "tenderness",
+  "mg",
+] as const;
+
+/**
  * Build only the provider URL. Clinical context never enters this function.
  * MediaRecorder sends a containerized WebM/Ogg stream, so encoding/sample_rate
  * are deliberately omitted and Deepgram reads them from the container.
@@ -28,6 +49,10 @@ export function buildDeepgramStreamingUrl(language: string): string {
     punctuate: "true",
     mip_opt_out: "true",
   });
+
+  if (language === "bn") {
+    for (const keyterm of DEEPGRAM_BN_CLINICAL_KEYTERMS) params.append("keyterm", keyterm);
+  }
 
   return `${DEEPGRAM_STREAM_ENDPOINT}?${params.toString()}`;
 }
