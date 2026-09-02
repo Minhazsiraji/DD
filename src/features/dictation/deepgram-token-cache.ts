@@ -48,7 +48,7 @@ function usableCachedToken(nowMs: number): CachedDeepgramToken | null {
 
 /**
  * Preview-pilot cache only: page memory, never Web Storage/cookies/DB.
- * Page lifecycle teardown clears it; otherwise actual provider expiry bounds it.
+ * Page/security lifecycle transitions clear it; actual provider expiry bounds it.
  */
 export function clearDeepgramAccessTokenCache() {
   cachedToken = null;
@@ -59,6 +59,13 @@ function bindLifecycleClear() {
   if (lifecycleBound || typeof window === "undefined") return;
   lifecycleBound = true;
   window.addEventListener("pagehide", clearDeepgramAccessTokenCache, { passive: true });
+  document.addEventListener(
+    "visibilitychange",
+    () => {
+      if (document.visibilityState === "hidden") clearDeepgramAccessTokenCache();
+    },
+    { passive: true },
+  );
 }
 
 export function peekDeepgramTokenCache(nowMs = Date.now()): {
