@@ -7,7 +7,7 @@ export const runtime = "nodejs";
 
 const WINDOW_MS = 60_000;
 const MAX_GRANTS_PER_WINDOW = 12;
-const TOKEN_TTL_SECONDS = 30;
+const TOKEN_TTL_SECONDS = 300;
 
 type VoiceQaDiagnostic =
   | "TOKEN_ROUTE_UNAUTHORIZED"
@@ -67,8 +67,6 @@ export async function POST(request: NextRequest) {
     return noStore({ code: "unauthorized" }, 401, "TOKEN_ROUTE_UNAUTHORIZED");
   }
 
-  // Browser POSTs to this grant endpoint must be same-origin. A missing Origin
-  // fails closed because there is no non-browser client in this pilot flow.
   const origin = request.headers.get("origin");
   if (origin !== request.nextUrl.origin) {
     return noStore({ code: "forbidden" }, 403, "TOKEN_ROUTE_FORBIDDEN");
