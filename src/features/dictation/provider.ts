@@ -8,6 +8,11 @@ import {
   deepgramBearerProtocols,
   type DeepgramResultsMessage,
 } from "./deepgram-stream";
+import {
+  clearDeepgramAccessTokenCache,
+  getDeepgramAccessToken,
+  type DeepgramAccessTokenGrant,
+} from "./deepgram-token-cache";
 
 export const VOICE_TRANSCRIPTION_PROVIDER_IDS = ["browser", "deepgram"] as const;
 
@@ -16,8 +21,10 @@ export type VoiceProviderPhase = "connecting" | "listening" | "finalizing";
 
 export interface VoiceLatencySnapshot {
   micReadyMs?: number;
+  tokenReadyMs?: number;
   providerConnectedMs?: number;
   firstAudioSentMs?: number;
+  speechStartedMs?: number;
   firstTranscriptMs?: number;
   stopToFinalMs?: number;
 }
@@ -163,41 +170,6 @@ const TOKEN_QA_DIAGNOSTICS = new Set([
   "TOKEN_GRANT_NETWORK",
 ]);
 
-interface DeepgramTokenPayload {
-  accessToken?: string;
-  diagnostic?: string;
-  qaDiagnostics?: boolean;
-}
-
-function tokenQaDiagnostic(value: unknown): string | null {
-  return typeof value === "string" && TOKEN_QA_DIAGNOSTICS.has(value) ? value : null;
-}
-
-async function requestDeepgramAccessToken(signal: AbortSignal): Promise<{
-  accessToken: string;
-  qaDiagnostics: boolean;
-}> {
-  const response = await fetch("/api/voice/token", {
-    method: "POST",
-    cache: "no-store",
-    signal,
-    headers: { Accept: "application/json" },
-  });
-
-  let payload: DeepgramTokenPayload = {};
-  try {
-    payload = (await response.json()) as DeepgramTokenPayload;
-  } catch {}
-
-  if (!response.ok) {
-    const diagnostic = tokenQaDiagnostic(payload.diagnostic);
-    if (diagnostic) throw new Error(diagnostic);
-    throw new Error(response.status === 503 ? "provider-unavailable" : "provider-error");
-  }
-  if (!payload.accessToken) throw new Error("provider-error");
-  return { accessToken: payload.accessToken, qaDiagnostics: payload.qaDiagnostics === true };
-}
-
 const deepgramProvider: VoiceTranscriptionProvider = {
   id: "deepgram",
   privacyNotice:
@@ -226,6 +198,8 @@ const deepgramProvider: VoiceTranscriptionProvider = {
     let startedAt = 0;
     let stopAt: number | null = null;
     let qaDiagnostics = false;
+    let socketGeneration = 0;
+    let cachedTokenRetryUsed = false;
     const assembler = new DeepgramTranscriptAssembler();
     const latency: VoiceLatencySnapshot = {};
 
@@ -239,6 +213,22 @@ const deepgramProvider: VoiceTranscriptionProvider = {
     const releaseTracks = () => {
       stream?.getTracks().forEach((track) => track.stop());
       stream = null;
+    };
+
+    const detachAndCloseSocket = (target: WebSocket | null) => {
+      if (!target) return;
+      target.onopen = null;
+      target.onmessage = null;
+      target.onerror = null;
+      target.onclose = null;
+      if (target.readyState === WebSocket.OPEN) {
+        try {
+          target.send(JSON.stringify({ type: "CloseStream" }));
+        } catch {}
+        target.close(1000);
+      } else if (target.readyState === WebSocket.CONNECTING) {
+        target.close();
+      }
     };
 
     const cleanup = () => {
@@ -265,15 +255,7 @@ const deepgramProvider: VoiceTranscriptionProvider = {
       }
       recorder = null;
       releaseTracks();
-
-      if (socket && socket.readyState === WebSocket.OPEN) {
-        try {
-          socket.send(JSON.stringify({ type: "CloseStream" }));
-        } catch {}
-        socket.close(1000);
-      } else if (socket && socket.readyState === WebSocket.CONNECTING) {
-        socket.close();
-      }
+      detachAndCloseSocket(socket);
       socket = null;
     };
 
@@ -321,10 +303,6 @@ const deepgramProvider: VoiceTranscriptionProvider = {
           if (latency.firstAudioSentMs === undefined) {
             latency.firstAudioSentMs = elapsed(startedAt);
             emitLatency();
-            firstTranscriptTimer = setTimeout(
-              () => fail(qaCode("FIRST_TRANSCRIPT_TIMEOUT", "first-transcript-timeout")),
-              DEEPGRAM_FIRST_TRANSCRIPT_TIMEOUT_MS,
-            );
           }
           socket.send(event.data);
         };
@@ -341,121 +319,202 @@ const deepgramProvider: VoiceTranscriptionProvider = {
       }
     };
 
+    const requestToken = async (forceRefresh = false): Promise<DeepgramAccessTokenGrant> => {
+      tokenController?.abort();
+      tokenController = new AbortController();
+      const currentController = tokenController;
+      const tokenTimeout = setTimeout(() => currentController.abort(), TOKEN_ROUTE_TIMEOUT_MS);
+      try {
+        const grant = await getDeepgramAccessToken({
+          signal: currentController.signal,
+          forceRefresh,
+        });
+        latency.tokenReadyMs = elapsed(startedAt);
+        qaDiagnostics = grant.qaDiagnostics;
+        emitLatency();
+        return grant;
+      } finally {
+        clearTimeout(tokenTimeout);
+        if (tokenController === currentController) tokenController = null;
+      }
+    };
+
+    const classifyConnectError = (error: unknown) => {
+      if (error instanceof DOMException) {
+        if (error.name === "NotAllowedError") return "not-allowed";
+        if (["NotFoundError", "NotReadableError", "OverconstrainedError"].includes(error.name)) {
+          return qaCode("AUDIO_CAPTURE", "audio-capture");
+        }
+      }
+      const code = error instanceof Error ? error.message : "";
+      if (TOKEN_QA_DIAGNOSTICS.has(code)) return code;
+      if (code === "provider-unavailable" || code === "provider-error") return code;
+      return "network";
+    };
+
+    const openSocket = (grant: DeepgramAccessTokenGrant) => {
+      if (cancelled || terminal || !stream) return;
+
+      const generation = ++socketGeneration;
+      let opened = false;
+      const ws = new WebSocket(
+        buildDeepgramStreamingUrl(language),
+        deepgramBearerProtocols(grant.accessToken),
+      );
+      socket = ws;
+
+      const refreshRejectedCachedToken = async () => {
+        if (
+          cancelled ||
+          terminal ||
+          cachedTokenRetryUsed ||
+          grant.source !== "cache" ||
+          generation !== socketGeneration
+        ) {
+          return false;
+        }
+        cachedTokenRetryUsed = true;
+        clearTimer(connectionTimer);
+        connectionTimer = null;
+        detachAndCloseSocket(ws);
+        if (socket === ws) socket = null;
+        clearDeepgramAccessTokenCache();
+        try {
+          const freshGrant = await requestToken(true);
+          if (cancelled || terminal || generation !== socketGeneration) return true;
+          openSocket(freshGrant);
+          return true;
+        } catch (error) {
+          fail(classifyConnectError(error));
+          return true;
+        }
+      };
+
+      connectionTimer = setTimeout(() => {
+        if (cancelled || terminal || generation !== socketGeneration) return;
+        if (!opened && grant.source === "cache" && !cachedTokenRetryUsed) {
+          void refreshRejectedCachedToken();
+          return;
+        }
+        fail(qaCode("WS_CONNECTION", "connection-timeout"));
+      }, DEEPGRAM_CONNECTION_TIMEOUT_MS);
+
+      ws.onopen = () => {
+        if (cancelled || terminal || generation !== socketGeneration) return;
+        opened = true;
+        clearTimer(connectionTimer);
+        connectionTimer = null;
+        latency.providerConnectedMs = elapsed(startedAt);
+        emitLatency();
+        keepAlive = setInterval(() => {
+          if (socket === ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ type: "KeepAlive" }));
+          }
+        }, 3000);
+        startRecorder();
+      };
+
+      ws.onmessage = (event) => {
+        if (cancelled || terminal || generation !== socketGeneration || typeof event.data !== "string") return;
+        let message: { type?: string } & Partial<DeepgramResultsMessage>;
+        try {
+          message = JSON.parse(event.data) as { type?: string } & Partial<DeepgramResultsMessage>;
+        } catch {
+          return;
+        }
+
+        if (message.type === "SpeechStarted") {
+          if (latency.speechStartedMs === undefined) {
+            latency.speechStartedMs = elapsed(startedAt);
+            emitLatency();
+          }
+          if (latency.firstTranscriptMs === undefined && !firstTranscriptTimer) {
+            firstTranscriptTimer = setTimeout(
+              () => fail(qaCode("FIRST_TRANSCRIPT_TIMEOUT", "first-transcript-timeout")),
+              DEEPGRAM_FIRST_TRANSCRIPT_TIMEOUT_MS,
+            );
+          }
+          return;
+        }
+
+        if (message.type !== "Results") return;
+        const next = assembler.apply(message as DeepgramResultsMessage);
+        if (next?.text) {
+          latestTranscript = next.text;
+          if (latency.firstTranscriptMs === undefined) {
+            latency.firstTranscriptMs = elapsed(startedAt);
+            clearTimer(firstTranscriptTimer);
+            firstTranscriptTimer = null;
+            emitLatency();
+          }
+          callbacks.onTranscript(next);
+        }
+
+        if (finalizing && message.from_finalize === true) settle();
+      };
+
+      ws.onerror = () => {
+        if (cancelled || terminal || generation !== socketGeneration) return;
+        if (!opened && grant.source === "cache" && !cachedTokenRetryUsed) return;
+        clearDeepgramAccessTokenCache();
+        fail(qaCode("WS_CONNECTION", "provider-error"));
+      };
+
+      ws.onclose = () => {
+        if (cancelled || terminal || generation !== socketGeneration) return;
+        if (!opened && grant.source === "cache" && !cachedTokenRetryUsed) {
+          void refreshRejectedCachedToken();
+          return;
+        }
+        if (finalizing) settle();
+        else {
+          clearDeepgramAccessTokenCache();
+          fail(qaCode("WS_CONNECTION", "network"));
+        }
+      };
+    };
+
     const connect = async () => {
       callbacks.onPhase("connecting");
       startedAt = performance.now();
 
       try {
-        stream = await navigator.mediaDevices.getUserMedia({
-          audio: {
-            echoCancellation: true,
-            noiseSuppression: true,
-            autoGainControl: true,
-            channelCount: 1,
-          },
-        });
+        const microphonePromise = navigator.mediaDevices
+          .getUserMedia({
+            audio: {
+              echoCancellation: true,
+              noiseSuppression: true,
+              autoGainControl: true,
+              channelCount: 1,
+            },
+          })
+          .then((nextStream) => {
+            if (cancelled || terminal) {
+              nextStream.getTracks().forEach((track) => track.stop());
+              throw new DOMException("Dictation cancelled", "AbortError");
+            }
+            stream = nextStream;
+            latency.micReadyMs = elapsed(startedAt);
+            emitLatency();
+            return nextStream;
+          });
+
+        // Microphone permission/device startup and token acquisition are independent.
+        // Start them together so neither network grant nor getUserMedia waits on the other.
+        const tokenPromise = requestToken(false);
+        const [, grant] = await Promise.all([microphonePromise, tokenPromise]);
+
         if (cancelled || terminal) {
           releaseTracks();
           return;
         }
-        latency.micReadyMs = elapsed(startedAt);
-        emitLatency();
-
-        tokenController = new AbortController();
-        const tokenTimeout = setTimeout(
-          () => tokenController?.abort(),
-          TOKEN_ROUTE_TIMEOUT_MS,
-        );
-        let accessToken: string;
-        try {
-          const grant = await requestDeepgramAccessToken(tokenController.signal);
-          accessToken = grant.accessToken;
-          qaDiagnostics = grant.qaDiagnostics;
-        } finally {
-          clearTimeout(tokenTimeout);
-        }
-        tokenController = null;
-        if (cancelled || terminal) return;
-
-        socket = new WebSocket(
-          buildDeepgramStreamingUrl(language),
-          deepgramBearerProtocols(accessToken),
-        );
-        connectionTimer = setTimeout(
-          () => fail(qaCode("WS_CONNECTION", "connection-timeout")),
-          DEEPGRAM_CONNECTION_TIMEOUT_MS,
-        );
-
-        socket.onopen = () => {
-          if (cancelled || terminal) return;
-          clearTimer(connectionTimer);
-          connectionTimer = null;
-          latency.providerConnectedMs = elapsed(startedAt);
-          emitLatency();
-          keepAlive = setInterval(() => {
-            if (socket?.readyState === WebSocket.OPEN) {
-              socket.send(JSON.stringify({ type: "KeepAlive" }));
-            }
-          }, 3000);
-          startRecorder();
-        };
-
-        socket.onmessage = (event) => {
-          if (cancelled || terminal || typeof event.data !== "string") return;
-          let message: { type?: string } & Partial<DeepgramResultsMessage>;
-          try {
-            message = JSON.parse(event.data) as { type?: string } & Partial<DeepgramResultsMessage>;
-          } catch {
-            return;
-          }
-
-          if (message.type !== "Results") return;
-          const next = assembler.apply(message as DeepgramResultsMessage);
-          if (next?.text) {
-            latestTranscript = next.text;
-            if (latency.firstTranscriptMs === undefined) {
-              latency.firstTranscriptMs = elapsed(startedAt);
-              clearTimer(firstTranscriptTimer);
-              firstTranscriptTimer = null;
-              emitLatency();
-            }
-            callbacks.onTranscript(next);
-          }
-
-          if (finalizing && message.from_finalize === true) settle();
-        };
-
-        socket.onerror = () => {
-          if (!cancelled && !terminal) fail(qaCode("WS_CONNECTION", "provider-error"));
-        };
-        socket.onclose = () => {
-          if (cancelled || terminal) return;
-          if (finalizing) settle();
-          else fail(qaCode("WS_CONNECTION", "network"));
-        };
+        openSocket(grant);
       } catch (error) {
         if (cancelled || terminal) return;
+        tokenController?.abort();
+        tokenController = null;
         releaseTracks();
-        if (error instanceof DOMException) {
-          if (error.name === "NotAllowedError") {
-            fail("not-allowed");
-            return;
-          }
-          if (["NotFoundError", "NotReadableError", "OverconstrainedError"].includes(error.name)) {
-            fail(qaCode("AUDIO_CAPTURE", "audio-capture"));
-            return;
-          }
-        }
-        const code = error instanceof Error ? error.message : "";
-        fail(
-          TOKEN_QA_DIAGNOSTICS.has(code)
-            ? code
-            : code === "provider-unavailable"
-              ? code
-              : code === "provider-error"
-                ? code
-                : "network",
-        );
+        fail(classifyConnectError(error));
       }
     };
 
