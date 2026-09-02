@@ -16,6 +16,26 @@ interface ActiveVoiceLease {
 
 let activeVoiceLease: ActiveVoiceLease | null = null;
 
+const QA_DIAGNOSTIC_CODES = new Set([
+  "TOKEN_ROUTE_UNAUTHORIZED",
+  "TOKEN_ROUTE_FORBIDDEN",
+  "TOKEN_RATE_LIMIT",
+  "TOKEN_CONFIG_MISSING",
+  "TOKEN_GRANT_REJECTED",
+  "TOKEN_GRANT_NETWORK",
+  "WS_CONNECTION",
+  "AUDIO_CAPTURE",
+  "FIRST_TRANSCRIPT_TIMEOUT",
+]);
+
+function qaDiagnostic(code: string): string | null {
+  return QA_DIAGNOSTIC_CODES.has(code) ? code : null;
+}
+
+function providerUnavailable(code: string): boolean {
+  return ["provider-unavailable", "TOKEN_CONFIG_MISSING", "TOKEN_GRANT_REJECTED"].includes(code);
+}
+
 /**
  * TRANSCRIPTION ORCHESTRATION, AND NOTHING ELSE.
  *
@@ -27,6 +47,7 @@ export interface Dictation {
   state: DictationState;
   transcript: string;
   error: string | null;
+  diagnosticCode: string | null;
   supported: boolean;
   providerNotice: string;
   providerId: VoiceTranscriptionProviderId;
@@ -53,6 +74,7 @@ export function useDictation({
   const [rawState, setState] = React.useState<DictationState>("ready");
   const [transcript, setTranscript] = React.useState("");
   const [error, setError] = React.useState<string | null>(null);
+  const [diagnosticCode, setDiagnosticCode] = React.useState<string | null>(null);
   const [latency, setLatency] = React.useState<VoiceLatencySnapshot>({});
 
   const provider = getVoiceTranscriptionProvider(providerId);
@@ -90,6 +112,7 @@ export function useDictation({
     onCancelRef.current?.();
     setTranscript("");
     setError(null);
+    setDiagnosticCode(null);
     setLatency({});
     setState("ready");
   }, [releaseLease]);
@@ -121,6 +144,7 @@ export function useDictation({
 
     setTranscript("");
     setError(null);
+    setDiagnosticCode(null);
     setLatency({});
     setState("connecting");
 
@@ -148,8 +172,9 @@ export function useDictation({
           activeRun.current += 1;
           if (session.current === current) session.current = null;
           releaseLease();
+          setDiagnosticCode(qaDiagnostic(code));
           setError(dictationErrorMessage(code));
-          setState(code === "provider-unavailable" ? "provider-unavailable" : "error");
+          setState(providerUnavailable(code) ? "provider-unavailable" : "error");
         },
         onEnd(said) {
           if (activeRun.current !== runId || ended) return;
@@ -158,6 +183,7 @@ export function useDictation({
           if (session.current === current) session.current = null;
           releaseLease();
           setTranscript(said);
+          setDiagnosticCode(null);
           setState("ready");
           if (said !== "") onFinalRef.current?.(said);
         },
@@ -178,6 +204,7 @@ export function useDictation({
         activeRun.current += 1;
         if (session.current === current) session.current = null;
         releaseLease();
+        setDiagnosticCode(null);
         setError(dictationErrorMessage("unknown"));
         setState("error");
       }
@@ -198,6 +225,7 @@ export function useDictation({
     if (session.current) return;
     setTranscript("");
     setError(null);
+    setDiagnosticCode(null);
     setLatency({});
     setState("ready");
   }, []);
@@ -206,6 +234,7 @@ export function useDictation({
     state,
     transcript,
     error,
+    diagnosticCode,
     supported,
     providerNotice: provider?.privacyNotice ?? "",
     providerId,
