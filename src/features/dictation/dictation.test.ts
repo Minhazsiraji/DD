@@ -147,15 +147,20 @@ describe("provider privacy boundary", () => {
 
   it("Deepgram client receives only a short-lived grant from DD and then opens the provider socket", async () => {
     const provider = await code("src/features/dictation/provider.ts");
-    expect(provider).toMatch(/fetch\("\/api\/voice\/token"/);
+    const tokenCache = await code("src/features/dictation/deepgram-token-cache.ts");
+    expect(tokenCache).toMatch(/fetchImpl\("\/api\/voice\/token"/);
     expect(provider).toMatch(/new WebSocket/);
     expect(provider).not.toMatch(/DEEPGRAM_API_KEY|\/api\/voice\/transcribe/);
+    expect(tokenCache).not.toMatch(/DEEPGRAM_API_KEY|\/api\/voice\/transcribe/);
   });
 
   it("no voice client persists audio or transcript", async () => {
     const provider = await code("src/features/dictation/provider.ts");
-    for (const forbidden of ["localStorage", "sessionStorage", "indexedDB", "console.log", "supabase"]) {
-      expect(provider.includes(forbidden), forbidden).toBe(false);
+    const tokenCache = await code("src/features/dictation/deepgram-token-cache.ts");
+    for (const client of [provider, tokenCache]) {
+      for (const forbidden of ["localStorage", "sessionStorage", "indexedDB", "console.log", "supabase"]) {
+        expect(client.includes(forbidden), forbidden).toBe(false);
+      }
     }
   });
 });
