@@ -64,15 +64,26 @@ export function dictationErrorMessage(code: string): string {
     case "service-not-allowed":
       return "The microphone is blocked. Allow microphone access for this site, then try again.";
     case "audio-capture":
+    case "AUDIO_CAPTURE":
       return "No usable microphone audio was captured. Check the device and try again.";
     case "connection-timeout":
       return "The speech service took too long to connect. Your draft is preserved — retry or choose Browser fallback.";
     case "first-transcript-timeout":
+    case "FIRST_TRANSCRIPT_TIMEOUT":
       return "No transcript arrived in time. Your draft is preserved — retry or choose Browser fallback.";
     case "network":
+    case "TOKEN_GRANT_NETWORK":
+    case "WS_CONNECTION":
       return "The speech connection was interrupted. Your draft is preserved — retry, choose Browser fallback, or type normally.";
     case "provider-unavailable":
+    case "TOKEN_CONFIG_MISSING":
+    case "TOKEN_GRANT_REJECTED":
       return "The selected speech provider is unavailable. Your draft is preserved — choose Browser fallback or type normally.";
+    case "TOKEN_ROUTE_UNAUTHORIZED":
+    case "TOKEN_ROUTE_FORBIDDEN":
+      return "The speech provider could not be opened for this session. Your draft is preserved — sign in again if needed, choose Browser fallback, or type normally.";
+    case "TOKEN_RATE_LIMIT":
+      return "Voice was requested too many times in a short period. Your draft is preserved — wait briefly, then retry or choose Browser fallback.";
     case "provider-error":
       return "The speech provider could not continue this dictation. Your draft is preserved — retry, choose Browser fallback, or type normally.";
     case "no-speech":
