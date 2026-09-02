@@ -57,6 +57,7 @@ export function DictateButton({
   const {
     state,
     error,
+    diagnosticCode,
     supported,
     providerNotice,
     latency,
@@ -93,6 +94,7 @@ export function DictateButton({
     <div
       className={cn("min-w-0", className)}
       data-voice-provider={voiceLanguage.provider}
+      data-voice-diagnostic={diagnosticCode ?? undefined}
       data-voice-mic-ready-ms={latency.micReadyMs}
       data-voice-provider-connected-ms={latency.providerConnectedMs}
       data-voice-first-audio-ms={latency.firstAudioSentMs}
@@ -161,6 +163,12 @@ export function DictateButton({
         <p role="alert" className="mt-1.5 flex min-w-0 items-start gap-1.5 text-[11px] font-medium text-[#a81c1c]">
           <CircleAlert className="mt-px size-3.5 shrink-0" aria-hidden="true" />
           <span className="min-w-0 break-words">{error}</span>
+        </p>
+      )}
+
+      {failed && diagnosticCode && (
+        <p className="mt-1 text-[10px] font-mono text-ink-muted" data-voice-qa-diagnostic>
+          QA: {diagnosticCode}
         </p>
       )}
 
