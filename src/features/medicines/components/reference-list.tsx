@@ -9,6 +9,7 @@ import { addDoctorMedicine } from "../actions";
 import {
   draftFromReference,
   findSaved,
+  provenanceLines,
   type DoctorMedicine,
   type MedicineReference,
 } from "../medicine";
@@ -82,6 +83,7 @@ function ReferenceRow({
   const [error, setError] = React.useState<string | null>(null);
 
   const isSaved = Boolean(saved) || added;
+  const provenance = provenanceLines(medicine);
 
   function add() {
     setError(null);
@@ -121,18 +123,20 @@ function ReferenceRow({
             ) : null}
 
             {/*
+              FACTS ONLY, and no regulator here.
+
               Built by filtering and joining, not by prefixing each part with a
-              separator. A leading "·" is what you get when the first optional
-              field is absent — "· BD · DGDA" — and it reads as a missing value
-              rather than as a medicine with fewer facts recorded.
+              separator: a leading "·" is what you get when the first optional
+              field is absent, and it reads as a missing value rather than as a
+              medicine with fewer facts recorded.
+
+              The regulator used to sit at the end of this list — "Tablet · BD ·
+              DGDA" — which put an authority beside the facts and read as
+              attribution. It has its own line below, where it can say what it
+              actually means.
             */}
             <p className="mt-1 break-words text-xs text-ink-muted">
-              {[
-                medicine.dosageForm,
-                medicine.manufacturer,
-                medicine.countryCode,
-                medicine.regulatorName,
-              ]
+              {[medicine.dosageForm, medicine.manufacturer, medicine.countryCode]
                 .filter(Boolean)
                 .join(" · ")}
             </p>
@@ -142,14 +146,18 @@ function ReferenceRow({
               fact about this row, not a gap to paper over: an entry nobody has
               checked should not look like one somebody has.
             */}
-            <p className="mt-1 text-xs text-ink-muted" data-medicine-provenance>
-              {medicine.sourceKind === "MANUAL_SEED"
-                ? "Entered manually"
-                : medicine.sourceKind === "DOCTOR_CONTRIBUTED"
-                  ? "Added by a doctor"
-                  : "Licensed reference data"}
-              {medicine.lastVerifiedAt ? null : " · not verified against a source"}
+            <p className="mt-1 break-words text-xs text-ink-muted" data-medicine-provenance>
+              {provenance.source}
             </p>
+
+            {provenance.regulator ? (
+              <p
+                className="mt-0.5 break-words text-xs text-ink-muted"
+                data-medicine-regulator
+              >
+                {provenance.regulator}
+              </p>
+            ) : null}
           </div>
 
           <div className="min-w-0 md:w-auto">

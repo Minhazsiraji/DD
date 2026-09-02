@@ -122,6 +122,81 @@ export const MEDICINE_NORMALIZATION_VECTORS: ReadonlyArray<readonly [string, str
   ["", ""],
 ];
 
+/**
+ * WHAT A CATALOGUE ROW MAY CLAIM ABOUT ITSELF.
+ *
+ * `regulator_name` records WHICH AUTHORITY GOVERNS THE MARKET this row belongs
+ * to. It does not mean that authority supplied the row, checked the row, or
+ * has ever seen it. Printing "Tablet · BD · DGDA" in one dotted list put the
+ * regulator beside the facts and read as attribution — as though DGDA were the
+ * source. Every starter row is a hand-typed development fixture with
+ * `last_verified_at = null`, so that reading was false for all of them.
+ *
+ * Two separate statements now, each true on its own:
+ *
+ *   source     where the ENTRY came from  ("Entered manually")
+ *   regulator  which authority governs the MARKET, and explicitly whether the
+ *              entry has been checked against a regulator source
+ *
+ * Nothing here fabricates verification: the "checked" wording is reachable only
+ * when a human has set `last_verified_at`, and it still says "its recorded
+ * source" rather than naming the regulator as the verifier.
+ */
+export interface ProvenanceLines {
+  /** Where the entry came from, and its verification state when nothing else carries it. */
+  source: string;
+  /** Which authority governs this market, and whether the entry was checked. Null when unknown. */
+  regulator: string | null;
+}
+
+export function provenanceLines(m: MedicineReference): ProvenanceLines {
+  const origin =
+    m.sourceKind === "MANUAL_SEED"
+      ? "Entered manually"
+      : m.sourceKind === "DOCTOR_CONTRIBUTED"
+        ? "Added by a doctor"
+        : "Licensed reference data";
+
+  const regulator = m.regulatorName
+    ? `Market regulator: ${m.regulatorName} — ${
+        m.lastVerifiedAt
+          ? "entry checked against its recorded source"
+          : "entry not verified against regulator source"
+      }`
+    : null;
+
+  /**
+   * The verification fact must appear exactly once. When a regulator line
+   * exists it carries it; otherwise the source line has to, or an unverified
+   * row with no known regulator would silently look verified.
+   */
+  const source = regulator
+    ? origin
+    : `${origin} · ${
+        m.lastVerifiedAt ? "checked against its recorded source" : "not verified against a source"
+      }`;
+
+  return { source, regulator };
+}
+
+/**
+ * Wording that would turn "which authority governs this market" into "this
+ * authority vouches for this row". Asserted against the UI by test.
+ */
+export const FORBIDDEN_REGULATOR_PHRASES = [
+  "verified by",
+  "approved by",
+  "supplied by",
+  "sourced from",
+  "according to dgda",
+  "dgda verified",
+  "cdsco verified",
+  "dgda-verified",
+  "regulator verified",
+  "official",
+  "registered with",
+] as const;
+
 /** The minimum query length the catalogue will answer. Below it: no search. */
 export const MIN_SEARCH_LENGTH = 2;
 

@@ -3,6 +3,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   FORBIDDEN_ADVICE_PHRASES,
+  FORBIDDEN_REGULATOR_PHRASES,
   MEDICINE_NORMALIZATION_VECTORS,
   MIN_SEARCH_LENGTH,
   SAVED_DEFAULTS_LABEL,
@@ -12,6 +13,7 @@ import {
   findSaved,
   isSearchable,
   normalizeMedicineText,
+  provenanceLines,
   sortLibrary,
   toRxDraftSeed,
   type DoctorMedicine,
@@ -265,6 +267,100 @@ describe("a saved default is recall, never advice", () => {
       expect(draft[key], key).toBeNull();
     }
     expect(draft.defaultIsPrn).toBe(false);
+  });
+});
+
+describe("a regulator names a market, never a verifier", () => {
+  /**
+   * THE MISREADING THIS PREVENTS.
+   *
+   * "Tablet · BD · DGDA" put the regulator in the same dotted list as the
+   * facts, which reads as attribution — as though DGDA supplied or checked the
+   * row. Every starter row is a hand-typed development fixture with
+   * `last_verified_at = null`, so that reading was false for all of them.
+   */
+  it("says explicitly that an unverified entry was not checked against the regulator", () => {
+    const lines = provenanceLines(ref({ regulatorName: "DGDA", lastVerifiedAt: null }));
+    expect(lines.regulator).toBe(
+      "Market regulator: DGDA — entry not verified against regulator source",
+    );
+    expect(lines.source).toBe("Entered manually");
+  });
+
+  it("works the same for any regulator, with nothing hard-coded to one country", () => {
+    expect(
+      provenanceLines(ref({ regulatorName: "CDSCO", countryCode: "IN" })).regulator,
+    ).toBe("Market regulator: CDSCO — entry not verified against regulator source");
+  });
+
+  /** No regulator known: the line is omitted rather than invented. */
+  it("omits the regulator line entirely when none is recorded", () => {
+    const lines = provenanceLines(ref({ regulatorName: null }));
+    expect(lines.regulator).toBeNull();
+    // …and the verification fact moves to the source line, so an unverified
+    // row with no known regulator cannot silently look verified.
+    expect(lines.source).toBe("Entered manually · not verified against a source");
+  });
+
+  /**
+   * Verified rows still do not claim the regulator vouched for them.
+   * `last_verified_at` means a human checked the row against ITS RECORDED
+   * SOURCE, which is `source_note` — not necessarily a regulator's register.
+   */
+  it("never names the regulator as the verifier, even once checked", () => {
+    const lines = provenanceLines(
+      ref({ regulatorName: "DGDA", lastVerifiedAt: "2026-08-01T00:00:00Z" }),
+    );
+    expect(lines.regulator).toBe(
+      "Market regulator: DGDA — entry checked against its recorded source",
+    );
+    expect(lines.regulator).not.toMatch(/verified by DGDA|DGDA verified|approved/i);
+  });
+
+  it("uses no wording that implies a regulator vouched for the entry", () => {
+    const files = [
+      "src/features/medicines/components/reference-list.tsx",
+      "src/app/(app)/medicines/page.tsx",
+    ];
+    for (const file of files) {
+      const text = code(file).toLowerCase();
+      for (const phrase of FORBIDDEN_REGULATOR_PHRASES) {
+        expect(text.includes(phrase), `${file} must not say "${phrase}"`).toBe(false);
+      }
+    }
+
+    // The rendered strings themselves, across every combination.
+    for (const verified of [null, "2026-08-01T00:00:00Z"]) {
+      for (const regulator of ["DGDA", "CDSCO", null]) {
+        const lines = provenanceLines(ref({ regulatorName: regulator, lastVerifiedAt: verified }));
+        const all = `${lines.source} ${lines.regulator ?? ""}`.toLowerCase();
+        for (const phrase of FORBIDDEN_REGULATOR_PHRASES) {
+          expect(all.includes(phrase), `"${all}" must not say "${phrase}"`).toBe(false);
+        }
+      }
+    }
+  });
+
+  /**
+   * The regulator must not return to the facts list. That list is joined with
+   * "·" and carries only things printed on the box.
+   */
+  it("keeps the regulator out of the dotted facts line", () => {
+    const card = code("src/features/medicines/components/reference-list.tsx");
+    const start = card.indexOf("medicine.dosageForm,");
+    const factsList = card.slice(start, card.indexOf("join(\" · \")", start));
+    expect(factsList).toContain("medicine.dosageForm");
+    expect(factsList).toContain("medicine.countryCode");
+    expect(factsList).not.toContain("regulatorName");
+  });
+
+  /** The verification fact appears exactly once, never twice. */
+  it("states verification once, not on both lines", () => {
+    for (const regulator of ["DGDA", null]) {
+      const lines = provenanceLines(ref({ regulatorName: regulator }));
+      const all = `${lines.source} ${lines.regulator ?? ""}`;
+      expect((all.match(/not verified/g) ?? []).length, all).toBe(1);
+    }
   });
 });
 

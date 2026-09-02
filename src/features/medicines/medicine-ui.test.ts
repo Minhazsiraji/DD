@@ -32,10 +32,18 @@ describe("the two layers stay visibly separate", () => {
   it("shows the catalogue's own provenance on every row", () => {
     const card = source(CARD);
     expect(card).toContain("data-medicine-provenance");
-    // "Never verified" is a fact about the row, stated rather than left blank.
-    expect(card).toContain("not verified against a source");
+    expect(card).toContain("data-medicine-regulator");
     expect(card).toContain("countryCode");
-    expect(card).toContain("regulatorName");
+
+    /**
+     * The wording itself lives in `provenanceLines`, where it is tested against
+     * every combination of regulator and verification state. The card renders
+     * what that returns and composes no trust language of its own — a second
+     * copy here is a second place for the two to disagree.
+     */
+    expect(card).toContain("provenanceLines(medicine)");
+    expect(card).toContain("{provenance.source}");
+    expect(card).toContain("{provenance.regulator}");
   });
 
   it("keeps the archived view reachable and separate from the active one", () => {
