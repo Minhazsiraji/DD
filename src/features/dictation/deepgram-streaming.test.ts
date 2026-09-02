@@ -1,7 +1,8 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import {
+  DEEPGRAM_BN_CLINICAL_KEYTERMS,
   DEEPGRAM_CONNECTION_TIMEOUT_MS,
   DEEPGRAM_FINALIZE_TIMEOUT_MS,
   DEEPGRAM_FIRST_TRANSCRIPT_TIMEOUT_MS,
@@ -10,6 +11,12 @@ import {
   buildDeepgramStreamingUrl,
   deepgramBearerProtocols,
 } from "./deepgram-stream";
+import {
+  clearDeepgramAccessTokenCache,
+  DEEPGRAM_TOKEN_REFRESH_SKEW_MS,
+  getDeepgramAccessToken,
+  peekDeepgramTokenCache,
+} from "./deepgram-token-cache";
 
 async function source(file: string) {
   return readFile(path.resolve(file), "utf8");
@@ -95,8 +102,23 @@ describe("Deepgram live configuration", () => {
     }
   });
 
-  it("rejects arbitrary provider-language injection", () => {
+  it("keeps Bangla monolingual and adds only a bounded recognition-bias keyterm pilot", () => {
+    const url = new URL(buildDeepgramStreamingUrl("bn"));
+    expect(url.searchParams.get("language")).toBe("bn");
+    expect(url.searchParams.getAll("keyterm")).toEqual([...DEEPGRAM_BN_CLINICAL_KEYTERMS]);
+    expect(DEEPGRAM_BN_CLINICAL_KEYTERMS.length).toBeGreaterThan(0);
+    expect(DEEPGRAM_BN_CLINICAL_KEYTERMS.length).toBeLessThanOrEqual(20);
+    expect(url.searchParams.getAll("keyterm")).toContain("right knee");
+    expect(url.searchParams.getAll("keyterm")).toContain("serum creatinine");
+  });
+
+  it("does not add Bangla pilot keyterms to English", () => {
+    expect(new URL(buildDeepgramStreamingUrl("en-US")).searchParams.getAll("keyterm")).toEqual([]);
+  });
+
+  it("rejects arbitrary provider-language injection and unsupported multi mode", () => {
     expect(() => buildDeepgramStreamingUrl("bn&model=evil")).toThrow();
+    expect(() => buildDeepgramStreamingUrl("multi")).toThrow();
   });
 
   it("uses Deepgram bearer-token WebSocket subprotocols", () => {
@@ -112,14 +134,84 @@ describe("Deepgram live configuration", () => {
   });
 });
 
+describe("short-lived Deepgram token cache", () => {
+  beforeEach(() => clearDeepgramAccessTokenCache());
+
+  it("reuses a healthy token from browser memory instead of requesting another grant", async () => {
+    let now = 1_000_000;
+    const fetchImpl = vi.fn(async () =>
+      new Response(JSON.stringify({ accessToken: "ephemeral", expiresIn: 300, qaDiagnostics: true }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    ) as unknown as typeof fetch;
+
+    const first = await getDeepgramAccessToken({ fetchImpl, now: () => now });
+    expect(first.source).toBe("network");
+    now += 10_000;
+    const second = await getDeepgramAccessToken({ fetchImpl, now: () => now });
+    expect(second.source).toBe("cache");
+    expect(second.accessToken).toBe("ephemeral");
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it("refreshes before actual expiry rather than using an almost-expired token", async () => {
+    let now = 2_000_000;
+    let call = 0;
+    const fetchImpl = vi.fn(async () => {
+      call += 1;
+      return new Response(JSON.stringify({ accessToken: `ephemeral-${call}`, expiresIn: 300 }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    }) as unknown as typeof fetch;
+
+    await getDeepgramAccessToken({ fetchImpl, now: () => now });
+    now += 300_000 - DEEPGRAM_TOKEN_REFRESH_SKEW_MS + 1;
+    const refreshed = await getDeepgramAccessToken({ fetchImpl, now: () => now });
+    expect(refreshed.source).toBe("network");
+    expect(refreshed.accessToken).toBe("ephemeral-2");
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+  });
+
+  it("supports explicit cache invalidation for a rejected cached credential", async () => {
+    const fetchImpl = vi.fn(async () =>
+      new Response(JSON.stringify({ accessToken: "ephemeral", expiresIn: 300 }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    ) as unknown as typeof fetch;
+    await getDeepgramAccessToken({ fetchImpl });
+    expect(peekDeepgramTokenCache().usable).toBe(true);
+    clearDeepgramAccessTokenCache();
+    expect(peekDeepgramTokenCache().usable).toBe(false);
+  });
+
+  it("contains no persistent browser storage, cookies or logging", async () => {
+    const cache = codeOnly(await source("src/features/dictation/deepgram-token-cache.ts"));
+    for (const forbidden of [
+      "localStorage",
+      "sessionStorage",
+      "indexedDB",
+      "document.cookie",
+      "console.log",
+      "console.info",
+      "console.warn",
+      "console.error",
+    ]) {
+      expect(cache.includes(forbidden), forbidden).toBe(false);
+    }
+    expect(cache).toContain('window.addEventListener("pagehide", clearDeepgramAccessTokenCache');
+  });
+});
+
 describe("stream transport and credential security", () => {
   it("streams MediaRecorder chunks while speaking instead of waiting for a Blob upload", async () => {
     const provider = codeOnly(await source("src/features/dictation/provider.ts"));
     expect(provider).toMatch(/recorder\.start\(DEEPGRAM_MEDIA_TIMESLICE_MS\)/);
-    expect(provider).toMatch(/socket\.send\(event\.data\)/);
-    expect(provider).toMatch(
-      /new WebSocket\(\s*buildDeepgramStreamingUrl\(language\),\s*deepgramBearerProtocols\(accessToken\),?\s*\)/,
-    );
+    expect(provider).toMatch(/ws\.send\(event\.data\)/);
+    expect(provider).toMatch(/new WebSocket/);
+    expect(provider).toMatch(/deepgramBearerProtocols\(grant\.accessToken\)/);
     expect(provider).not.toMatch(/new Blob\(|new FormData\(|\/api\/voice\/transcribe/);
   });
 
@@ -134,15 +226,16 @@ describe("stream transport and credential security", () => {
   it("permanent provider key exists only in the server token route", async () => {
     const tokenRoute = await source("src/app/api/voice/token/route.ts");
     const provider = await source("src/features/dictation/provider.ts");
+    const cache = await source("src/features/dictation/deepgram-token-cache.ts");
     const button = await source("src/features/dictation/components/dictate-button.tsx");
     const language = await source("src/features/dictation/voice-language.tsx");
     expect(tokenRoute).toMatch(/process\.env\.DEEPGRAM_API_KEY/);
-    for (const client of [provider, button, language]) {
+    for (const client of [provider, cache, button, language]) {
       expect(client).not.toMatch(/DEEPGRAM_API_KEY|NEXT_PUBLIC_DEEPGRAM/);
     }
   });
 
-  it("authenticates before granting a 30-second token and fails closed on Origin", async () => {
+  it("authenticates before granting a 300-second token and fails closed on Origin", async () => {
     const raw = await source("src/app/api/voice/token/route.ts");
     const authAt = raw.indexOf('requirePermission("update", "encounter")');
     const keyAt = raw.indexOf("process.env.DEEPGRAM_API_KEY");
@@ -151,7 +244,7 @@ describe("stream transport and credential security", () => {
     expect(keyAt).toBeGreaterThan(authAt);
     expect(grantAt).toBeGreaterThan(keyAt);
     expect(raw).toMatch(/ttl_seconds: TOKEN_TTL_SECONDS/);
-    expect(raw).toMatch(/TOKEN_TTL_SECONDS = 30/);
+    expect(raw).toMatch(/TOKEN_TTL_SECONDS = 300/);
     expect(raw).toMatch(/if \(origin !== request\.nextUrl\.origin\)/);
     expect(raw).toMatch(/MAX_GRANTS_PER_WINDOW = 12/);
   });
@@ -204,8 +297,10 @@ describe("draft-only live UX and stale-run boundary", () => {
     const button = await source("src/features/dictation/components/dictate-button.tsx");
     for (const metric of [
       "data-voice-mic-ready-ms",
+      "data-voice-token-ready-ms",
       "data-voice-provider-connected-ms",
       "data-voice-first-audio-ms",
+      "data-voice-speech-started-ms",
       "data-voice-first-transcript-ms",
       "data-voice-stop-final-ms",
     ]) {
@@ -217,6 +312,7 @@ describe("draft-only live UX and stale-run boundary", () => {
   it("voice UI and streaming transport still have no clinical mutation authority", async () => {
     for (const file of [
       "src/features/dictation/provider.ts",
+      "src/features/dictation/deepgram-token-cache.ts",
       "src/features/dictation/use-dictation.ts",
       "src/features/dictation/components/dictate-button.tsx",
       "src/features/dictation/deepgram-stream.ts",
