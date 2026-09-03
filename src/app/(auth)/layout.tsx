@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { ShieldCheck } from "lucide-react";
-import { BrandMark } from "@/components/brand/brand-mark";
+import { BrandMark, BrandWordmark } from "@/components/brand/brand-mark";
 
 export default function AuthLayout({ children }: LayoutProps<"/">) {
   return (
@@ -10,15 +10,8 @@ export default function AuthLayout({ children }: LayoutProps<"/">) {
         className="dd-public-header mb-5 flex w-full max-w-[560px] items-center justify-between gap-3 px-3.5 py-2.5 focus-visible:focus-ring sm:px-4"
       >
         <span className="flex min-w-0 items-center gap-2.5">
-          <BrandMark className="size-9 sm:size-10" />
-          <span className="min-w-0">
-            <span className="block whitespace-nowrap text-[17px] leading-tight font-semibold tracking-[-0.025em] text-[#40358f] sm:text-[18px]">
-              Doctor&apos;s Diary
-            </span>
-            <span className="mt-0.5 hidden whitespace-nowrap text-[8.5px] font-medium uppercase tracking-[0.18em] text-ink-muted sm:block">
-              Care · Record · Connect
-            </span>
-          </span>
+          <BrandMark className="h-10 w-[54px] sm:h-11 sm:w-[60px]" />
+          <BrandWordmark className="text-[17px] sm:text-[18px]" tagline />
         </span>
 
         <span className="dd-secondary hidden shrink-0 items-center gap-1.5 rounded-full px-3 py-1.5 text-[10.5px] font-medium text-ink-secondary sm:inline-flex">
