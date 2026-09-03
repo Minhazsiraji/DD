@@ -1,20 +1,18 @@
+import Image from "next/image";
 import * as React from "react";
+import ddMark from "@/assets/dd-mark-exact.png";
 import { cn } from "@/lib/utils";
 
-/**
- * Exact owner-approved Doctor's Diary DD mark.
- * The mark is stored as a public SVG wrapper around the approved raster shape
- * so it renders reliably on preview and production without redrawing it.
- */
 export function BrandMark({ className }: { className?: string }) {
   return (
     <span
       className={cn("dd-brand-mark inline-flex shrink-0 items-center justify-center", className)}
       aria-hidden="true"
     >
-      <img
-        src="/brand/dd-mark-exact.svg"
+      <Image
+        src={ddMark}
         alt=""
+        priority
         draggable={false}
         className="h-full w-full object-contain"
       />
