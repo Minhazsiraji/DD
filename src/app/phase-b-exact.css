@@ -1,0 +1,349 @@
+/*
+ * Doctor's Diary — Phase B exact-reference fidelity layer.
+ * Source of truth: owner-approved liquid-glass component board (1448×1086).
+ * Presentation only. No data, routing, clinical logic, roles, security, RLS,
+ * database, or Supabase behavior is changed here.
+ *
+ * Measured reference geometry (board pixels):
+ * - top header: ~1404×110, radius ~28px
+ * - patient summary card: ~466×366, radius ~28px
+ * - large primary pill: ~170×48, full capsule
+ * - compact status pill: ~110–130×30
+ *
+ * Measured composite color samples from the approved board:
+ * - neutral canvas: #E2D9E0
+ * - header neutral centre: ~#E6DEE2
+ * - patient-card neutral/cool centre: ~#D7D3E0 → #D6D7E7
+ * - primary violet body: ~#8D6DF2 / #8971F2
+ * - confirmed: #D2E9E5
+ * - in progress: #DADEF5
+ * - pending: #F1E2D9
+ * - cancelled: #F2D7DE
+ * - no-show neutral: #E8E1E6
+ */
+
+:root {
+  --dd-b-canvas: #e2d9e0;
+  --dd-b-canvas-deep: #ddd7df;
+  --dd-b-ink: #302a58;
+  --dd-b-muted: #625d75;
+  --dd-b-edge: linear-gradient(
+    118deg,
+    rgba(255,255,255,.99) 0%,
+    rgba(255,255,255,.96) 12%,
+    rgba(221,209,249,.86) 31%,
+    rgba(192,231,245,.76) 58%,
+    rgba(239,198,229,.68) 82%,
+    rgba(255,255,255,.97) 100%
+  );
+  --dd-b-primary-violet: #8d6df2;
+  --dd-b-primary-violet-2: #8971f2;
+  --dd-b-primary-aqua: #65d1ef;
+  --dd-b-status-confirmed: #d2e9e5;
+  --dd-b-status-progress: #dadef5;
+  --dd-b-status-pending: #f1e2d9;
+  --dd-b-status-completed: #dee8e1;
+  --dd-b-status-cancelled: #f2d7de;
+  --dd-b-status-noshow: #e8e1e6;
+}
+
+/* -------------------------------------------------------------------------
+   1. HEADER — geometry/material measured from approved board.
+   ------------------------------------------------------------------------- */
+.dd-public-header,
+.dd-topbar {
+  min-height: 66px !important;
+  border-radius: 28px !important;
+  border: 1px solid transparent !important;
+  overflow: hidden;
+  isolation: isolate;
+  background:
+    radial-gradient(95% 210% at 48% -118%, rgba(255,255,255,.58) 0%, rgba(255,255,255,.12) 47%, transparent 64%),
+    radial-gradient(25% 145% at 100% 55%, rgba(104,216,242,.075), transparent 72%),
+    radial-gradient(25% 145% at 0% 45%, rgba(154,119,239,.065), transparent 72%),
+    linear-gradient(180deg, rgba(255,255,255,.24) 0%, rgba(249,245,249,.15) 48%, rgba(218,211,220,.18) 100%) padding-box,
+    var(--dd-b-edge) border-box !important;
+  -webkit-backdrop-filter: blur(20px) saturate(118%) !important;
+  backdrop-filter: blur(20px) saturate(118%) !important;
+  box-shadow:
+    0 19px 31px rgba(50,43,68,.17),
+    0 7px 13px rgba(62,54,81,.08),
+    3px 4px 12px rgba(97,213,238,.045),
+    -3px 2px 11px rgba(152,105,220,.04),
+    inset 0 2px 1px rgba(255,255,255,.98),
+    inset 0 -1px 0 rgba(127,117,143,.20) !important;
+}
+
+.dd-public-header::before,
+.dd-topbar::before {
+  content: "";
+  position: absolute;
+  z-index: 0;
+  left: 2%;
+  right: 2%;
+  top: 1px;
+  height: 2px;
+  border-radius: 999px;
+  pointer-events: none;
+  background: linear-gradient(90deg,transparent,rgba(255,255,255,.82) 10%,rgba(255,255,255,.99) 48%,rgba(255,255,255,.78) 89%,transparent);
+}
+
+.dd-public-header::after,
+.dd-topbar::after {
+  content: "";
+  position: absolute;
+  z-index: 0;
+  left: 3.2%;
+  right: 3.2%;
+  bottom: -1px;
+  height: 3px;
+  border-radius: 999px;
+  pointer-events: none;
+  background: linear-gradient(90deg,
+    transparent 0%,
+    rgba(125,98,239,.33) 16%,
+    rgba(255,255,255,.13) 39%,
+    rgba(92,216,241,.47) 67%,
+    rgba(229,143,214,.34) 88%,
+    transparent 100%);
+  filter: blur(.65px);
+}
+
+.dd-public-header > *,
+.dd-topbar > * { position: relative; z-index: 1; }
+
+/* Board header controls are compact: ~42–46px high when scaled to app chrome. */
+.dd-public-header .dd-primary,
+.dd-public-header .dd-secondary,
+.dd-topbar .dd-primary,
+.dd-topbar .dd-secondary,
+.dd-topbar .dd-icon-btn,
+.dd-topbar .dd-profile-chip,
+.dd-topbar .dd-input,
+.dd-topbar input:not([type="checkbox"]):not([type="radio"]):not([type="file"]) {
+  min-height: 40px !important;
+}
+
+/* -------------------------------------------------------------------------
+   2. TRUE TRANSPARENT PATIENT-SUMMARY / HERO GLASS.
+   Centre stays neutral. Lilac/aqua/pink exist mainly at the rim.
+   ------------------------------------------------------------------------- */
+.dd-landing-demo,
+.dd-patient-card,
+.clinical-surface.sticky {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  border: 1px solid transparent !important;
+  border-radius: 28px !important;
+  background:
+    radial-gradient(115% 80% at 15% -5%, rgba(255,255,255,.25), transparent 55%),
+    radial-gradient(34% 44% at 100% 84%, rgba(92,217,242,.07), transparent 71%),
+    radial-gradient(28% 38% at 1% 96%, rgba(140,104,238,.055), transparent 71%),
+    linear-gradient(145deg, rgba(255,255,255,.16), rgba(232,226,235,.12)) padding-box,
+    var(--dd-b-edge) border-box !important;
+  -webkit-backdrop-filter: blur(18px) saturate(116%) !important;
+  backdrop-filter: blur(18px) saturate(116%) !important;
+  box-shadow:
+    0 20px 34px rgba(54,47,71,.15),
+    0 7px 15px rgba(62,54,80,.075),
+    4px 4px 13px rgba(91,214,239,.04),
+    -3px 2px 12px rgba(151,106,220,.035),
+    inset 0 2px 1px rgba(255,255,255,.94),
+    inset 0 -1px 0 rgba(126,117,141,.14) !important;
+}
+
+.dd-landing-demo::before,
+.dd-patient-card::before,
+.clinical-surface.sticky::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(29% 18% at 11% 2%, rgba(255,255,255,.28), transparent 73%),
+    radial-gradient(16% 30% at 100% 71%, rgba(95,219,242,.12), transparent 74%),
+    radial-gradient(22% 20% at 71% 100%, rgba(231,145,216,.095), transparent 74%),
+    radial-gradient(16% 21% at 4% 96%, rgba(132,99,236,.075), transparent 75%);
+}
+
+.dd-landing-demo::after,
+.dd-patient-card::after,
+.clinical-surface.sticky::after {
+  content: "";
+  position: absolute;
+  left: 5%;
+  right: 5%;
+  bottom: -1px;
+  z-index: 0;
+  height: 3px;
+  border-radius: 999px;
+  pointer-events: none;
+  background: linear-gradient(90deg,
+    transparent,
+    rgba(126,96,239,.34) 17%,
+    rgba(255,255,255,.12) 41%,
+    rgba(91,216,241,.49) 68%,
+    rgba(231,143,215,.34) 88%,
+    transparent);
+  filter: blur(.65px);
+}
+
+.dd-landing-demo > *,
+.dd-patient-card > *,
+.clinical-surface.sticky > * { position: relative; z-index: 1; }
+
+/* Inner panel of the approved patient card is only slightly milkier than the shell. */
+.dd-landing-inner {
+  border: 1px solid rgba(255,255,255,.56) !important;
+  border-radius: 22px !important;
+  background:
+    linear-gradient(145deg, rgba(255,255,255,.19), rgba(237,232,240,.11)) !important;
+  -webkit-backdrop-filter: blur(9px) saturate(112%) !important;
+  backdrop-filter: blur(9px) saturate(112%) !important;
+  box-shadow:
+    inset 0 1.5px 1px rgba(255,255,255,.85),
+    inset 0 -1px 0 rgba(128,119,143,.08) !important;
+}
+
+/* The board's internal data/workflow cells are translucent, not opaque white. */
+.dd-landing-inner .dd-workflow-row,
+.dd-patient-tile {
+  border: 1px solid rgba(255,255,255,.62) !important;
+  background:
+    linear-gradient(180deg, rgba(255,255,255,.31), rgba(239,234,241,.18)) !important;
+  -webkit-backdrop-filter: blur(7px) saturate(108%) !important;
+  backdrop-filter: blur(7px) saturate(108%) !important;
+  box-shadow:
+    0 6px 12px rgba(58,50,76,.065),
+    inset 0 1.3px 1px rgba(255,255,255,.88),
+    inset 0 -1px 0 rgba(125,116,139,.07) !important;
+}
+
+.dd-landing-inner .dd-step,
+.dd-landing-inner .dd-chip {
+  background: linear-gradient(180deg, rgba(255,255,255,.42), rgba(239,234,241,.22)) !important;
+  border: 1px solid rgba(255,255,255,.70) !important;
+  box-shadow: 0 3px 8px rgba(61,53,78,.05), inset 0 1px 1px rgba(255,255,255,.91) !important;
+}
+
+/* -------------------------------------------------------------------------
+   3. PRIMARY + SECONDARY CTA — measured from approved button row.
+   Primary is violet for ~80% of body; aqua is concentrated at the right rim.
+   ------------------------------------------------------------------------- */
+.dd-primary,
+a.bg-brand,
+button.bg-brand {
+  border: 1px solid transparent !important;
+  border-radius: 999px !important;
+  color: #fff !important;
+  white-space: nowrap;
+  background:
+    radial-gradient(48% 90% at 18% 0%, rgba(255,255,255,.34), transparent 48%),
+    linear-gradient(100deg,
+      #8d6df2 0%,
+      #8971f2 52%,
+      #9187f1 78%,
+      #78b8ed 91%,
+      #65d1ef 100%) padding-box,
+    linear-gradient(120deg, rgba(228,216,255,.98), rgba(255,255,255,.97), rgba(170,231,246,.92), rgba(207,191,248,.92)) border-box !important;
+  box-shadow:
+    0 7px 14px rgba(84,65,181,.22),
+    0 2px 6px rgba(82,187,220,.10),
+    inset 0 1.6px 1px rgba(255,255,255,.72),
+    inset 0 -1.5px 2px rgba(61,47,145,.15) !important;
+}
+
+.dd-secondary {
+  border: 1px solid transparent !important;
+  border-radius: 999px !important;
+  background:
+    linear-gradient(180deg, rgba(255,255,255,.52), rgba(233,228,236,.34)) padding-box,
+    linear-gradient(120deg, rgba(255,255,255,.98), rgba(228,220,242,.79), rgba(197,230,240,.55), rgba(255,255,255,.96)) border-box !important;
+  box-shadow:
+    0 5px 10px rgba(64,55,82,.075),
+    inset 0 1.5px 1px rgba(255,255,255,.94),
+    inset 0 -1px 0 rgba(132,123,147,.09) !important;
+}
+
+/* -------------------------------------------------------------------------
+   4. STATUS PILLS — sampled directly from the approved board.
+   Never color-only: existing icon + text remain untouched.
+   ------------------------------------------------------------------------- */
+.bg-success-soft {
+  background: var(--dd-b-status-confirmed) !important;
+  border-color: rgba(255,255,255,.72) !important;
+  box-shadow: 0 4px 9px rgba(44,106,94,.07), inset 0 1px 1px rgba(255,255,255,.72) !important;
+}
+
+.bg-info-soft,
+.bg-brand-soft {
+  background: var(--dd-b-status-progress) !important;
+  border-color: rgba(255,255,255,.70) !important;
+  box-shadow: 0 4px 9px rgba(64,74,151,.065), inset 0 1px 1px rgba(255,255,255,.72) !important;
+}
+
+.bg-warning-soft {
+  background: var(--dd-b-status-pending) !important;
+  border-color: rgba(255,255,255,.70) !important;
+  box-shadow: 0 4px 9px rgba(143,91,40,.055), inset 0 1px 1px rgba(255,255,255,.72) !important;
+}
+
+.bg-danger-soft {
+  background: var(--dd-b-status-cancelled) !important;
+  border-color: rgba(255,255,255,.70) !important;
+  box-shadow: 0 4px 9px rgba(154,64,81,.055), inset 0 1px 1px rgba(255,255,255,.72) !important;
+}
+
+.bg-surface-muted {
+  background: var(--dd-b-status-noshow) !important;
+  border-color: rgba(255,255,255,.68) !important;
+  box-shadow: 0 4px 9px rgba(73,64,81,.045), inset 0 1px 1px rgba(255,255,255,.70) !important;
+}
+
+.text-success { color: #177d70 !important; }
+.text-info { color: #375cc4 !important; }
+.text-warning { color: #a75a14 !important; }
+.text-danger { color: #c64b5d !important; }
+
+/* Keep critical clinical warning text stronger than the decorative reference. */
+[role="alert"].bg-danger-soft,
+[data-severity="critical"] {
+  color: #991b1b !important;
+}
+
+/* -------------------------------------------------------------------------
+   Responsive: preserve the same material instead of shrinking desktop glass.
+   ------------------------------------------------------------------------- */
+@media (max-width: 767px) {
+  .dd-public-header,
+  .dd-topbar {
+    min-height: 60px !important;
+    border-radius: 24px !important;
+  }
+
+  .dd-landing-demo,
+  .dd-patient-card,
+  .clinical-surface.sticky {
+    border-radius: 24px !important;
+    -webkit-backdrop-filter: blur(16px) saturate(114%) !important;
+    backdrop-filter: blur(16px) saturate(114%) !important;
+  }
+
+  .dd-landing-inner { border-radius: 19px !important; }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .dd-public-header,
+  .dd-topbar,
+  .dd-landing-demo,
+  .dd-patient-card,
+  .clinical-surface.sticky,
+  .dd-landing-inner,
+  .dd-landing-inner .dd-workflow-row,
+  .dd-patient-tile {
+    -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
+  }
+}
