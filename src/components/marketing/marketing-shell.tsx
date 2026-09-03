@@ -1,6 +1,6 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
-import { BrandMark } from "@/components/brand/brand-mark";
+import { BrandMark, BrandWordmark } from "@/components/brand/brand-mark";
 
 const nav = [
   ["Features", "/features"],
@@ -19,15 +19,8 @@ export function MarketingShell({ children }: { children: ReactNode }) {
             href="/"
             className="flex min-w-0 items-center gap-2.5 rounded-2xl focus-visible:focus-ring"
           >
-            <BrandMark className="size-8 shrink-0 sm:size-9" />
-            <span className="min-w-0">
-              <span className="block whitespace-nowrap text-[15.5px] leading-none font-semibold tracking-[-0.025em] text-[#40358f] sm:text-[17px]">
-                Doctor&apos;s Diary
-              </span>
-              <span className="mt-1 hidden whitespace-nowrap text-[8.5px] font-medium uppercase tracking-[0.18em] text-ink-muted sm:block">
-                Care · Record · Connect
-              </span>
-            </span>
+            <BrandMark className="h-9 w-12 shrink-0 sm:h-10 sm:w-[54px]" />
+            <BrandWordmark className="text-[15.5px] sm:text-[17px]" tagline />
           </Link>
 
           <nav
@@ -68,8 +61,8 @@ export function MarketingShell({ children }: { children: ReactNode }) {
         <div className="dd-public-footer mx-auto grid max-w-7xl gap-6 px-4 py-5 text-[12.5px] text-ink-secondary sm:px-6 md:grid-cols-[1.6fr_1fr_1fr]">
           <div>
             <div className="flex items-center gap-2.5">
-              <BrandMark className="size-8" />
-              <p className="font-semibold text-[#40358f]">Doctor&apos;s Diary</p>
+              <BrandMark className="h-8 w-11" />
+              <BrandWordmark className="text-[14px]" />
             </div>
             <p className="mt-2.5 max-w-md leading-5">
               Less typing. Less searching. Less remembering. More patient.
@@ -106,7 +99,7 @@ export function MarketingPage({
     <MarketingShell>
       <section className="mx-auto max-w-7xl px-4 pb-14 pt-9 sm:px-5 sm:pt-12 lg:px-7 lg:pt-14">
         <div className="max-w-3xl">
-          <p className="dd-chip inline-flex rounded-full px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.16em] text-[#6655cf]">
+          <p className="dd-chip inline-flex rounded-full px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.16em] text-brand">
             {eyebrow}
           </p>
           <h1 className="mt-4 text-[38px] leading-[1.02] font-semibold tracking-[-0.04em] text-[#262147] sm:text-5xl">
