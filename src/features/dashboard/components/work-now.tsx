@@ -4,20 +4,11 @@ import * as React from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ListChecks, ChevronRight, Stethoscope, Clock, CircleAlert } from "lucide-react";
-import { SectionCard, SectionHeader } from "@/components/common/section-card";
+import { GlassCard } from "@/components/glass/glass-card";
 import { StartConsultation } from "@/features/queue/components/start-consultation";
 import { timeInZone } from "@/features/appointments/schema";
 import { PRIORITY_REASON_LABEL, type QueueRow } from "@/features/queue/schema";
 
-/**
- * What the doctor should do next.
- *
- * Both rows come from `get_queue()` in the order the DATABASE returned — the
- * dashboard filters to this doctor and takes the head of each group, and never
- * sorts. Re-deriving the queue's rules here would be the second copy ADR 0009
- * exists to prevent, and this panel and the queue screen would eventually
- * disagree about who is next.
- */
 export function WorkNow({
   current,
   next,
@@ -27,7 +18,6 @@ export function WorkNow({
 }: {
   current: QueueRow | null;
   next: QueueRow | null;
-  /** The queue read failed — say so; never draw this as an empty room. */
   failed: boolean;
   waitingCount: number;
   locationName: string;
@@ -36,36 +26,38 @@ export function WorkNow({
   const refresh = React.useCallback(() => router.refresh(), [router]);
 
   return (
-    <SectionCard className="overflow-hidden">
-      <SectionHeader
-        title="Work now"
-        icon={<ListChecks className="size-4" />}
-        action={
-          <Link
-            href="/queue"
-            // min-h-11: a header shortcut is still a touch target.
-            className="inline-flex min-h-11 items-center gap-1 rounded-lg px-2 text-[13px] font-semibold text-brand hover:underline focus-visible:focus-ring"
-          >
-            Live queue
-            <ChevronRight className="size-4" aria-hidden="true" />
-          </Link>
-        }
-      />
+    <GlassCard tone="strong" className="dd-dashboard-card overflow-hidden">
+      <div className="flex min-w-0 items-center justify-between gap-3 border-b border-white/65 px-4 py-3">
+        <div className="flex min-w-0 items-center gap-2.5">
+          <span className="dd-feature-icon inline-flex size-8 shrink-0 items-center justify-center rounded-full text-brand">
+            <ListChecks className="size-4" aria-hidden="true" />
+          </span>
+          <div className="min-w-0">
+            <h2 className="text-[14px] font-semibold text-ink">Work now</h2>
+            <p className="text-[10.5px] text-ink-muted">Who needs your attention next</p>
+          </div>
+        </div>
+        <Link
+          href="/queue"
+          className="dd-secondary inline-flex h-9 shrink-0 items-center gap-1 rounded-full px-3 text-[11.5px] font-semibold text-brand focus-visible:focus-ring"
+        >
+          Live queue
+          <ChevronRight className="size-3.5" aria-hidden="true" />
+        </Link>
+      </div>
 
-      <div className="space-y-3 p-4 sm:p-5">
+      <div className="space-y-2.5 p-3.5 sm:p-4">
         {failed ? (
-          <p className="flex items-start gap-2 rounded-xl bg-danger-soft px-3 py-2.5 text-[13px] font-medium text-[#a81c1c]">
+          <p className="flex items-start gap-2 rounded-[14px] bg-danger-soft px-3 py-2.5 text-[12px] font-medium text-[#a81c1c]">
             <CircleAlert className="mt-px size-4 shrink-0" aria-hidden="true" />
-            The queue could not be loaded. This is not an empty waiting room —
-            open the live queue to check.
+            The queue could not be loaded. This is not an empty waiting room — open the live queue to check.
           </p>
         ) : null}
 
         {!failed && !current && !next ? (
-          <p className="text-[13px] text-ink-secondary">
-            Nobody of yours is waiting at {locationName} right now. Patients
-            appear here once reception marks them arrived.
-          </p>
+          <div className="dd-patient-tile rounded-[16px] px-4 py-4 text-[12.5px] text-ink-secondary">
+            Nobody of yours is waiting at {locationName} right now. Patients appear here once reception marks them arrived.
+          </div>
         ) : null}
 
         {current ? (
@@ -74,7 +66,7 @@ export function WorkNow({
             label="With you now"
             tone="current"
             footer={
-              <span className="inline-flex items-center gap-1.5 rounded-lg bg-brand-soft px-2.5 py-1 text-xs font-semibold text-brand">
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-brand-soft px-2.5 py-1 text-[11px] font-semibold text-brand">
                 <Stethoscope className="size-3.5" aria-hidden="true" />
                 In consultation
               </span>
@@ -100,12 +92,10 @@ export function WorkNow({
         ) : null}
 
         {!failed && waitingCount > 1 ? (
-          <p className="text-xs text-ink-muted">
-            {waitingCount - 1} more of yours waiting.
-          </p>
+          <p className="px-1 text-[11px] text-ink-muted">{waitingCount - 1} more of yours waiting.</p>
         ) : null}
       </div>
-    </SectionCard>
+    </GlassCard>
   );
 }
 
@@ -124,56 +114,45 @@ function Row({
     <div
       className={
         tone === "current"
-          ? "rounded-xl border border-brand/40 bg-brand-soft/40 p-3.5"
-          : "rounded-xl border border-hairline p-3.5"
+          ? "dd-patient-tile overflow-hidden rounded-[17px] border-brand/30"
+          : "dd-patient-tile overflow-hidden rounded-[17px]"
       }
     >
-      <p className="text-xs font-semibold uppercase tracking-wide text-ink-muted">
-        {label}
-      </p>
+      <div className="flex min-w-0 items-stretch">
+        <div className="flex w-[74px] shrink-0 flex-col items-center justify-center border-r border-white/70 bg-[linear-gradient(180deg,rgb(226_217_252/.62),rgb(246_243_250/.34))] px-2 py-3 text-center">
+          <span className="text-[18px] leading-none font-bold text-[#5144b7] tabular-nums">#{row.tokenNumber ?? "—"}</span>
+          <span className="mt-1 text-[8.5px] font-semibold uppercase tracking-[0.12em] text-ink-muted">desk serial</span>
+        </div>
 
-      <div className="mt-1.5 flex flex-wrap items-baseline gap-x-2 gap-y-1">
-        {/*
-          The token is the LOCATION's serial for the day, shared with every
-          other doctor here — labelled so nobody reads "#3" as "your third
-          patient" and calls the wrong person in.
-        */}
-        <span className="inline-flex items-baseline gap-1 rounded-lg bg-white px-2 py-0.5 text-sm font-bold tabular-nums text-brand ring-1 ring-inset ring-hairline">
-          #{row.tokenNumber ?? "—"}
-          <span className="text-[10px] font-medium uppercase tracking-wide text-ink-muted">
-            desk serial
-          </span>
-        </span>
-        <Link
-          href={`/patients/${row.patientId}`}
-          className="-my-3 inline-flex items-center py-3 text-sm font-semibold text-ink hover:underline focus-visible:focus-ring"
-        >
-          {row.patientName}
-        </Link>
+        <div className="min-w-0 flex-1 px-3.5 py-3">
+          <p className="text-[9.5px] font-semibold uppercase tracking-[0.15em] text-[#716b87]">{label}</p>
+          <Link
+            href={`/patients/${row.patientId}`}
+            className="mt-1 block truncate text-[14px] font-semibold text-ink hover:underline focus-visible:focus-ring"
+          >
+            {row.patientName}
+          </Link>
+          <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[10.5px] text-ink-secondary">
+            <span className="tabular-nums">{row.patientNumber}</span>
+            {row.arrivedAt ? (
+              <>
+                <span aria-hidden="true">·</span>
+                <span className="inline-flex items-center gap-1">
+                  <Clock className="size-3" aria-hidden="true" />
+                  arrived {timeInZone(row.arrivedAt)}
+                </span>
+              </>
+            ) : null}
+            {row.priority > 0 && row.priorityReason ? (
+              <>
+                <span aria-hidden="true">·</span>
+                <span className="font-medium text-[#8a3f07]">{PRIORITY_REASON_LABEL[row.priorityReason]}</span>
+              </>
+            ) : null}
+          </p>
+          <div className="mt-2.5">{footer}</div>
+        </div>
       </div>
-
-      <p className="mt-0.5 flex flex-wrap items-center gap-x-2 text-xs text-ink-secondary">
-        <span className="tabular-nums">{row.patientNumber}</span>
-        {row.arrivedAt ? (
-          <>
-            <span aria-hidden="true">·</span>
-            <span className="inline-flex items-center gap-1">
-              <Clock className="size-3" aria-hidden="true" />
-              arrived {timeInZone(row.arrivedAt)}
-            </span>
-          </>
-        ) : null}
-        {row.priority > 0 && row.priorityReason ? (
-          <>
-            <span aria-hidden="true">·</span>
-            <span className="font-medium text-[#8a3f07]">
-              {PRIORITY_REASON_LABEL[row.priorityReason]}
-            </span>
-          </>
-        ) : null}
-      </p>
-
-      <div className="mt-3">{footer}</div>
     </div>
   );
 }
