@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { Inter, Noto_Sans_Bengali, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import "./liquid-glass.css";
+import "./liquid-reference-polish.css";
 
 /**
  * Self-hosted by next/font at build time — no runtime font-CDN request.
@@ -48,10 +49,9 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
-  themeColor: "#f7f9fc",
+  themeColor: "#f7f6fa",
   width: "device-width",
   initialScale: 1,
-  // Never block zoom: clinicians need to enlarge dose text.
   maximumScale: 5,
   viewportFit: "cover",
 };
