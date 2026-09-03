@@ -11,33 +11,16 @@ import { IdleLock } from "@/features/security/components/idle-lock";
 import { SHARED_DEVICE_COOKIE, requiresMfaChallenge } from "@/features/security/policy";
 import { redirect as nextRedirect } from "next/navigation";
 
-/**
- * The authenticated workspace shell.
- *
- * Desktop (≥ xl) : sidebar + workspace
- * Tablet  (lg)   : icon rail + workspace
- * Mobile  (< lg) : compact header + workspace + bottom navigation
- *
- * This redirect is convenience, not security. Every Server Action still calls
- * requireLocationContext(), and RLS still applies underneath.
- */
 export default async function AppLayout({ children }: LayoutProps<"/">) {
   const user = await requireUser();
   const supabase = await createSupabaseServerClient();
 
-  /**
-   * A password-only session must never render the workspace when the account
-   * has a verified second factor. Checked here rather than only in proxy.ts so
-   * a direct request to a nested route cannot slip past.
-   */
   const { data: aal } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
   if (requiresMfaChallenge(aal?.currentLevel ?? null, aal?.nextLevel ?? null)) {
     nextRedirect("/mfa");
   }
 
   const memberships = await getMemberships();
-
-  // Signed in but no clinic yet — finish setup first.
   if (memberships.length === 0) redirect("/onboarding");
 
   const [{ data: profile }, { data: locationRows }] = await Promise.all([
@@ -65,20 +48,9 @@ export default async function AppLayout({ children }: LayoutProps<"/">) {
   const cookieStore = await cookies();
   const sharedDevice = cookieStore.get(SHARED_DEVICE_COOKIE)?.value === "1";
   const requested = cookieStore.get(ACTIVE_LOCATION_COOKIE)?.value;
-  const activeLocationId =
-    locations.find((c) => c.id === requested)?.id ?? locations[0]!.id;
+  const activeLocationId = locations.find((c) => c.id === requested)?.id ?? locations[0]!.id;
 
-  const doctorName =
-    profile?.full_name ?? user.email?.split("@")[0] ?? "Doctor";
-
-  /**
-   * The sidebar's counts, for the ACTIVE location and today.
-   *
-   * Resolved here, per request, so switching clinic or signing in as someone
-   * else re-derives them — the numbers used to be the constants 7 and 24 and
-   * followed every doctor everywhere. Both go through the caller's own
-   * authorised reads, so a count can only describe rows they may already see.
-   */
+  const doctorName = profile?.full_name ?? user.email?.split("@")[0] ?? "Doctor";
   const navCounts = await getNavCounts(activeLocationId);
 
   return (
@@ -94,14 +66,13 @@ export default async function AppLayout({ children }: LayoutProps<"/">) {
 
         <main
           id="main"
-          className="mx-auto min-w-0 w-full max-w-[1400px] flex-1 overflow-x-clip px-4 py-5 pb-[calc(76px+env(safe-area-inset-bottom))] sm:px-6 sm:py-6 lg:pb-8"
+          className="mx-auto min-w-0 w-full max-w-[1420px] flex-1 overflow-x-clip px-3.5 py-4 pb-[calc(72px+env(safe-area-inset-bottom))] sm:px-5 sm:py-5 lg:px-4 lg:pb-6 xl:px-5"
         >
           {children}
         </main>
       </div>
 
       <MobileBottomNav />
-
       <IdleLock sharedDevice={sharedDevice} />
     </div>
   );
