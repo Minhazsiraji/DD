@@ -1,177 +1,371 @@
-/* Doctor's Diary — selected Liquid Glass visual language.
-   Phase 2 candidate tokens implemented for live product validation.
-   Rule: glass around the work; clinical content stays solid. */
+/* Doctor's Diary — selected liquid-glass visual language.
+   This file intentionally overrides the earlier candidate with the approved
+   reference look: milky glass, violet/aqua edge light, pill controls, very soft
+   shadows and solid/near-solid clinical reading areas. */
 
 :root {
   color-scheme: light;
-
-  /* Canvas + surfaces */
-  --background: #f7f9fc;
+  --background: #f7f6fa;
   --foreground: #17223b;
-  --dd-glass: rgb(255 255 255 / 0.78);
-  --dd-glass-strong: rgb(255 255 255 / 0.9);
-  --dd-glass-border: rgb(111 90 232 / 0.12);
+
+  --dd-glass: rgb(255 255 255 / 0.68);
+  --dd-glass-strong: rgb(255 255 255 / 0.82);
+  --dd-glass-border: rgb(255 255 255 / 0.88);
   --dd-surface: #ffffff;
-  --dd-surface-muted: #f5f7fb;
-  --dd-hairline: #e3e8f0;
+  --dd-surface-muted: #f6f4fb;
+  --dd-hairline: #e5e1ef;
 
-  /* Typography */
   --dd-ink: #17223b;
-  --dd-ink-secondary: #475569;
-  --dd-ink-muted: #64748b;
+  --dd-ink-secondary: #4d5870;
+  --dd-ink-muted: #737b91;
 
-  /* Brand */
   --dd-brand: #6f5ae8;
   --dd-brand-hover: #5b46d6;
   --dd-brand-soft: #eeeafe;
-  --dd-brand-vivid: #7c66ff;
-
-  /* Semantic */
-  --dd-success: #067647;
-  --dd-success-soft: #ecfdf3;
-  --dd-warning: #b54708;
-  --dd-warning-soft: #fffaeb;
-  --dd-danger: #b42318;
-  --dd-danger-soft: #fef3f2;
-  --dd-critical: #8f1d18;
-  --dd-info: #175cd3;
-  --dd-info-soft: #eff8ff;
-
-  /* Selected violet/aqua/mint light family */
+  --dd-brand-vivid: #836cff;
   --dd-aqua: #5fd7f6;
   --dd-mint: #75dec9;
   --dd-lavender: #d8d1ff;
 
-  --grad-brand: linear-gradient(145deg, #8876ff 0%, #6f5ae8 64%, #5fd7f6 145%);
-  --grad-violet: linear-gradient(145deg, #9c8cff 0%, #6f5ae8 100%);
-  --grad-success: linear-gradient(145deg, #75dec9 0%, #14966f 100%);
-  --grad-warning: linear-gradient(145deg, #ffd795 0%, #d97706 100%);
-  --grad-danger: linear-gradient(145deg, #ff9b9b 0%, #c83d36 100%);
-  --grad-info: linear-gradient(145deg, #79dcf6 0%, #407de8 100%);
+  --dd-success: #087a62;
+  --dd-success-soft: #e9fbf5;
+  --dd-warning: #b66a14;
+  --dd-warning-soft: #fff5e7;
+  --dd-danger: #c33a45;
+  --dd-danger-soft: #fff0f2;
+  --dd-critical: #991b1b;
+  --dd-info: #376ed8;
+  --dd-info-soft: #eef5ff;
+
+  --grad-brand: linear-gradient(145deg, #9d8dff 0%, #7662f0 50%, #5f7ff0 78%, #66d9f4 128%);
+  --grad-violet: linear-gradient(145deg, #b9adff 0%, #765ef0 100%);
+  --grad-success: linear-gradient(145deg, #8ae8d1 0%, #21aa83 100%);
+  --grad-warning: linear-gradient(145deg, #ffd8a2 0%, #e39237 100%);
+  --grad-danger: linear-gradient(145deg, #ffb0bd 0%, #d85261 100%);
+  --grad-info: linear-gradient(145deg, #98e7fb 0%, #4c7ce9 100%);
 
   --glow-brand: 111 90 232;
-  --glow-violet: 111 90 232;
+  --glow-violet: 126 101 255;
   --glow-success: 117 222 201;
-  --glow-warning: 217 119 6;
-  --glow-danger: 180 35 24;
+  --glow-warning: 220 139 47;
+  --glow-danger: 205 70 88;
   --glow-info: 95 215 246;
 
-  /* shadcn mapping */
   --card: #ffffff;
   --card-foreground: #17223b;
   --popover: #ffffff;
   --popover-foreground: #17223b;
   --primary: #6f5ae8;
   --primary-foreground: #ffffff;
-  --secondary: #f2f4fa;
+  --secondary: #f3f0f8;
   --secondary-foreground: #17223b;
-  --muted: #f5f7fb;
-  --muted-foreground: #64748b;
+  --muted: #f6f4fb;
+  --muted-foreground: #737b91;
   --accent: #eeeafe;
   --accent-foreground: #5b46d6;
-  --destructive: #b42318;
-  --border: #e3e8f0;
-  --input: #dbe2ec;
-  --ring: #7c66ff;
+  --destructive: #c33a45;
+  --border: #e5e1ef;
+  --input: #ddd8e8;
+  --ring: #806cff;
   --chart-1: #6f5ae8;
   --chart-2: #75dec9;
   --chart-3: #5fd7f6;
-  --chart-4: #b54708;
-  --chart-5: #175cd3;
-  --sidebar: rgb(255 255 255 / 0.8);
+  --chart-4: #b66a14;
+  --chart-5: #376ed8;
+  --sidebar: rgb(255 255 255 / 0.68);
   --sidebar-foreground: #17223b;
   --sidebar-primary: #6f5ae8;
   --sidebar-primary-foreground: #ffffff;
   --sidebar-accent: #eeeafe;
   --sidebar-accent-foreground: #5b46d6;
-  --sidebar-border: rgb(111 90 232 / 0.1);
-  --sidebar-ring: #7c66ff;
+  --sidebar-border: rgb(255 255 255 / 0.78);
+  --sidebar-ring: #806cff;
 
-  /* Flatter clinical depth; liquid light belongs to chrome. */
   --shadow-soft:
-    0 1px 2px rgb(23 34 59 / 0.03),
-    0 8px 24px rgb(23 34 59 / 0.055),
-    inset 0 1px 0 rgb(255 255 255 / 0.86);
+    0 2px 5px rgb(76 62 111 / 0.045),
+    0 14px 34px rgb(76 62 111 / 0.075),
+    inset 0 1px 0 rgb(255 255 255 / 0.95);
   --shadow-raised:
-    0 2px 4px rgb(23 34 59 / 0.04),
-    0 14px 36px rgb(23 34 59 / 0.08),
-    inset 0 1px 0 rgb(255 255 255 / 0.9);
+    0 4px 10px rgb(76 62 111 / 0.06),
+    0 22px 48px rgb(76 62 111 / 0.12),
+    inset 0 1px 0 rgb(255 255 255 / 0.98);
   --shadow-float:
-    0 8px 20px rgb(23 34 59 / 0.08),
-    0 24px 56px rgb(23 34 59 / 0.13),
-    inset 0 1px 0 rgb(255 255 255 / 0.92);
+    0 8px 18px rgb(76 62 111 / 0.08),
+    0 30px 70px rgb(76 62 111 / 0.16),
+    inset 0 1px 0 rgb(255 255 255 / 0.98);
 }
 
 body {
   font-family: var(--font-sans), var(--font-bengali), system-ui, -apple-system,
     BlinkMacSystemFont, "Segoe UI", sans-serif;
-  background-color: #f7f9fc;
+  color: var(--dd-ink);
+  background-color: var(--background);
   background-image:
-    radial-gradient(760px 420px at 98% -8%, rgb(95 215 246 / 0.11), transparent 62%),
-    radial-gradient(700px 420px at -8% 20%, rgb(111 90 232 / 0.07), transparent 64%),
-    radial-gradient(560px 360px at 90% 88%, rgb(117 222 201 / 0.055), transparent 66%),
-    linear-gradient(180deg, #fbfcfe 0%, #f7f9fc 52%, #f5f7fb 100%);
+    radial-gradient(780px 460px at 8% 4%, rgb(255 216 233 / 0.34), transparent 62%),
+    radial-gradient(760px 420px at 94% 8%, rgb(180 226 255 / 0.32), transparent 61%),
+    radial-gradient(620px 400px at 48% 18%, rgb(216 209 255 / 0.26), transparent 64%),
+    radial-gradient(700px 440px at 85% 92%, rgb(185 244 233 / 0.22), transparent 62%),
+    linear-gradient(155deg, #faf7fa 0%, #f5f3f8 45%, #f5f8fb 100%);
+  background-attachment: fixed;
 }
 
-/* Selected logo/icon language uses soft rounded-square liquid badges. */
-.icon-orb {
-  border-radius: 12px;
+/* ---------- the approved material ---------- */
+.glass,
+.glass-strong,
+.glass-flat,
+.glass-flat-strong,
+.liquid-panel,
+.liquid-glass-card,
+.liquid-clinical-card,
+.liquid-auth-card {
+  border: 1px solid transparent !important;
+  background:
+    linear-gradient(145deg, rgb(255 255 255 / 0.82), rgb(249 247 252 / 0.68)) padding-box,
+    linear-gradient(
+      135deg,
+      rgb(255 255 255 / 0.98) 0%,
+      rgb(209 199 255 / 0.72) 28%,
+      rgb(151 231 251 / 0.62) 52%,
+      rgb(244 194 230 / 0.48) 76%,
+      rgb(255 255 255 / 0.94) 100%
+    ) border-box !important;
   box-shadow:
-    0 8px 20px rgb(var(--orb-glow, var(--glow-brand)) / 0.2),
-    0 1px 2px rgb(23 34 59 / 0.08),
-    inset 0 1px 1px rgb(255 255 255 / 0.62);
+    0 1px 0 rgb(255 255 255 / 0.92) inset,
+    0 -1px 0 rgb(255 255 255 / 0.42) inset,
+    0 12px 30px rgb(66 54 99 / 0.095),
+    10px 10px 26px rgb(111 90 232 / 0.075),
+    -8px 10px 24px rgb(95 215 246 / 0.065),
+    0 0 24px rgb(238 190 229 / 0.045) !important;
 }
 
-/* High-level chrome gets the liquid edge; clinical cards do not. */
 .glass,
 .glass-strong {
-  box-shadow:
-    0 1px 0 rgb(255 255 255 / 0.9) inset,
-    0 10px 30px rgb(73 68 122 / 0.055);
+  -webkit-backdrop-filter: blur(20px) saturate(145%) !important;
+  backdrop-filter: blur(20px) saturate(145%) !important;
 }
 
-.glass-flat,
-.glass-flat-strong {
-  box-shadow: var(--shadow-soft);
-}
-
-.clinical-surface {
-  box-shadow: 0 1px 2px rgb(23 34 59 / 0.025);
-}
-
-/* A very restrained liquid highlight for selected navigation only. */
-.dd-nav-selected {
+.glass-strong {
   background:
-    linear-gradient(135deg, rgb(111 90 232 / 0.12), rgb(95 215 246 / 0.08)),
-    rgb(255 255 255 / 0.86);
-  border: 1px solid rgb(111 90 232 / 0.14);
-  box-shadow:
-    0 8px 18px rgb(111 90 232 / 0.08),
-    inset 0 1px 0 rgb(255 255 255 / 0.95);
+    linear-gradient(145deg, rgb(255 255 255 / 0.9), rgb(248 246 252 / 0.78)) padding-box,
+    linear-gradient(135deg, white, rgb(211 201 255 / 0.75), rgb(157 234 252 / 0.62), rgb(247 203 231 / 0.48), white) border-box !important;
 }
 
-/* Keep critical reading surfaces optically quiet. */
-[data-clinical],
-[data-print-root] {
-  text-shadow: none;
+/* Clinical reading remains more opaque, but keeps the exact card edge/light. */
+.clinical-surface,
+.liquid-clinical-card,
+.liquid-auth-card {
+  background:
+    linear-gradient(145deg, rgb(255 255 255 / 0.96), rgb(252 250 253 / 0.91)) padding-box,
+    linear-gradient(135deg, white, rgb(213 204 255 / 0.68), rgb(169 235 251 / 0.54), rgb(246 207 232 / 0.43), white) border-box !important;
+}
+
+.liquid-topbar,
+.liquid-sidebar {
+  box-shadow:
+    0 2px 2px rgb(255 255 255 / 0.82) inset,
+    0 18px 42px rgb(75 63 108 / 0.12),
+    12px 8px 28px rgb(111 90 232 / 0.09),
+    -10px 10px 26px rgb(95 215 246 / 0.075),
+    0 0 28px rgb(240 189 226 / 0.06) !important;
+}
+
+.liquid-topbar {
+  margin: 14px 14px 0 0;
+  border-radius: 25px !important;
+  overflow: visible;
+}
+
+.liquid-sidebar {
+  margin: 14px 0 14px 14px;
+  height: calc(100dvh - 28px) !important;
+  border-radius: 28px !important;
+  overflow: hidden;
+}
+
+/* ---------- logo / glossy tiles ---------- */
+.icon-orb {
+  border-radius: 13px !important;
+  border: 1px solid rgb(255 255 255 / 0.74);
+  box-shadow:
+    0 8px 20px rgb(var(--orb-glow, var(--glow-brand)) / 0.24),
+    0 1px 3px rgb(55 43 86 / 0.12),
+    inset 0 1px 2px rgb(255 255 255 / 0.66),
+    inset 0 -1px 1px rgb(77 57 174 / 0.12) !important;
+}
+
+/* ---------- selected navigation ---------- */
+.dd-nav-selected,
+.liquid-nav-active {
+  border: 1px solid transparent !important;
+  background:
+    linear-gradient(145deg, rgb(255 255 255 / 0.88), rgb(238 234 254 / 0.82)) padding-box,
+    linear-gradient(110deg, rgb(255 255 255 / 0.98), rgb(184 168 255 / 0.78), rgb(119 221 248 / 0.6), rgb(255 255 255 / 0.9)) border-box !important;
+  color: var(--dd-brand) !important;
+  box-shadow:
+    0 7px 18px rgb(111 90 232 / 0.13),
+    0 0 20px rgb(95 215 246 / 0.08),
+    inset 0 1px 1px white !important;
+}
+
+/* ---------- primary liquid button ---------- */
+.bg-brand,
+.liquid-primary {
+  border: 1px solid rgb(255 255 255 / 0.66) !important;
+  background-color: transparent !important;
+  background-image:
+    radial-gradient(circle at 18% 14%, rgb(255 255 255 / 0.42), transparent 27%),
+    linear-gradient(135deg, #9e8eff 0%, #795ff3 42%, #665bea 70%, #57c8ef 126%) !important;
+  color: #fff !important;
+  box-shadow:
+    0 8px 20px rgb(111 90 232 / 0.23),
+    0 0 18px rgb(95 215 246 / 0.12),
+    inset 0 1px 1px rgb(255 255 255 / 0.62),
+    inset 0 -2px 5px rgb(58 38 158 / 0.12) !important;
+}
+
+.bg-brand:hover,
+.liquid-primary:hover {
+  filter: brightness(1.025) saturate(1.03);
+  transform: translateY(-1px);
+}
+
+.bg-brand:active,
+.liquid-primary:active {
+  transform: translateY(0) scale(0.985);
+  box-shadow:
+    0 4px 12px rgb(111 90 232 / 0.2),
+    inset 0 2px 5px rgb(55 37 149 / 0.14) !important;
+}
+
+/* Secondary controls receive the milky capsule treatment from the reference. */
+.liquid-secondary,
+button[class*="border-hairline"][class*="bg-white"],
+a[class*="border-hairline"][class*="bg-white"] {
+  border: 1px solid transparent !important;
+  background:
+    linear-gradient(145deg, rgb(255 255 255 / 0.9), rgb(247 244 250 / 0.78)) padding-box,
+    linear-gradient(120deg, white, rgb(220 213 242 / 0.72), rgb(184 235 247 / 0.45), white) border-box !important;
+  box-shadow:
+    0 6px 15px rgb(74 62 103 / 0.075),
+    inset 0 1px 1px white !important;
+}
+
+/* ---------- inputs / searches ---------- */
+input:not([type="checkbox"]):not([type="radio"]),
+textarea,
+select,
+.liquid-input {
+  border: 1px solid transparent !important;
+  background:
+    linear-gradient(145deg, rgb(255 255 255 / 0.91), rgb(250 248 252 / 0.82)) padding-box,
+    linear-gradient(120deg, white, rgb(218 211 240 / 0.78), rgb(179 232 247 / 0.44), white) border-box !important;
+  box-shadow:
+    inset 0 1px 2px rgb(58 45 84 / 0.035),
+    0 5px 13px rgb(66 54 92 / 0.055) !important;
+}
+
+input[type="search"] {
+  border-radius: 999px !important;
+}
+
+input:not([type="checkbox"]):not([type="radio"]):focus,
+textarea:focus,
+select:focus {
+  box-shadow:
+    0 0 0 3px rgb(111 90 232 / 0.13),
+    0 7px 17px rgb(111 90 232 / 0.08),
+    inset 0 1px 1px white !important;
+}
+
+/* Pills/chips should feel soft, not like flat tags. */
+.rounded-full,
+.liquid-chip {
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.7);
+}
+
+/* ---------- cards ---------- */
+.liquid-glass-card,
+.liquid-clinical-card,
+.liquid-auth-card {
+  border-radius: 23px !important;
+}
+
+.liquid-stat-card {
+  min-height: 136px;
+}
+
+.liquid-stat-card .icon-orb {
+  box-shadow:
+    0 9px 22px rgb(var(--orb-glow, var(--glow-brand)) / 0.25),
+    inset 0 1px 1px rgb(255 255 255 / 0.68) !important;
+}
+
+/* Dividers are luminous hairlines, never dark rules. */
+.border-hairline,
+.border-glass-border {
+  border-color: rgb(205 199 222 / 0.48) !important;
+}
+
+/* A very light luminous footer/utility strip when used. */
+.liquid-footer-strip {
+  border-radius: 22px;
+  background: rgb(255 255 255 / 0.58);
+  box-shadow: inset 0 1px 1px white, 0 8px 22px rgb(78 63 108 / 0.07);
 }
 
 ::selection {
-  background: rgb(111 90 232 / 0.18);
+  background: rgb(111 90 232 / 0.19);
   color: #17223b;
+}
+
+@media (max-width: 1023px) {
+  .liquid-topbar {
+    margin: 8px 8px 0;
+    border-radius: 22px !important;
+  }
 }
 
 @media (max-width: 767px) {
   body {
     background-image:
-      radial-gradient(480px 260px at 110% -6%, rgb(95 215 246 / 0.09), transparent 65%),
-      radial-gradient(440px 260px at -16% 14%, rgb(111 90 232 / 0.055), transparent 68%),
-      linear-gradient(180deg, #fbfcfe 0%, #f7f9fc 100%);
+      radial-gradient(470px 280px at 2% 0%, rgb(255 214 231 / 0.28), transparent 65%),
+      radial-gradient(460px 270px at 100% 5%, rgb(174 226 252 / 0.26), transparent 64%),
+      radial-gradient(430px 270px at 45% 30%, rgb(216 209 255 / 0.2), transparent 66%),
+      linear-gradient(160deg, #faf7fa 0%, #f5f6fa 100%);
+  }
+
+  .liquid-glass-card,
+  .liquid-clinical-card,
+  .liquid-auth-card {
+    border-radius: 20px !important;
   }
 }
 
 @media (prefers-reduced-transparency: reduce) {
-  .dd-nav-selected {
-    background: #f4f1ff;
+  .glass,
+  .glass-strong,
+  .glass-flat,
+  .glass-flat-strong,
+  .liquid-panel,
+  .liquid-glass-card,
+  .liquid-clinical-card,
+  .liquid-auth-card {
+    background: #fff !important;
+    -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
+  }
+}
+
+@media print {
+  body {
+    background: #fff !important;
+  }
+  .clinical-surface,
+  .liquid-clinical-card,
+  .liquid-glass-card,
+  .liquid-auth-card {
+    background: #fff !important;
+    box-shadow: none !important;
+    border-color: #cbd5e1 !important;
   }
 }
