@@ -14,13 +14,6 @@ import { cn } from "@/lib/utils";
 import { IconOrb } from "@/components/common/icon-orb";
 import { QUICK_ACTIONS } from "./nav-config";
 
-/**
- * QuickActionMenu — the central "+" of the mobile bottom bar, and a normal
- * button on desktop.
- *
- * Rows are 56px tall: comfortably above the 44px minimum target, because this
- * is used one-handed, standing, mid-clinic.
- */
 export function QuickActionMenu({
   variant = "fab",
   className,
@@ -39,11 +32,11 @@ export function QuickActionMenu({
           aria-label="Quick actions"
           aria-haspopup="dialog"
           className={cn(
-            "icon-orb orb-brand size-14 -translate-y-4 shadow-float transition-transform active:scale-95 focus-visible:focus-ring",
+            "dd-primary flex size-13 -translate-y-3 items-center justify-center rounded-full transition-transform active:scale-95 focus-visible:focus-ring",
             className,
           )}
         >
-          <Plus className="size-6" aria-hidden="true" />
+          <Plus className="size-5" aria-hidden="true" />
         </button>
       ) : (
         <button
@@ -51,11 +44,11 @@ export function QuickActionMenu({
           onClick={() => setOpen(true)}
           aria-haspopup="dialog"
           className={cn(
-            "inline-flex h-10 items-center gap-2 rounded-full bg-[image:var(--grad-brand)] px-4 text-sm font-semibold text-white shadow-[0_6px_16px_rgb(var(--glow-brand)/0.34)] transition-transform hover:-translate-y-px active:scale-95 focus-visible:focus-ring",
+            "dd-primary inline-flex h-10 items-center gap-1.5 rounded-full px-3.5 text-[12.5px] font-semibold text-white focus-visible:focus-ring",
             className,
           )}
         >
-          <Plus className="size-4" aria-hidden="true" />
+          <Plus className="size-3.5" aria-hidden="true" />
           New
         </button>
       )}
@@ -64,7 +57,7 @@ export function QuickActionMenu({
         <SheetContent
           side="bottom"
           showCloseButton={false}
-          className="glass-strong max-h-[88dvh] rounded-t-glass-lg border-glass-border p-0 sm:inset-y-0 sm:right-0 sm:h-full sm:max-h-none sm:w-full sm:max-w-sm sm:rounded-none sm:rounded-l-glass-lg"
+          className="glass-strong max-h-[88dvh] rounded-t-[22px] border-glass-border p-0 sm:inset-y-0 sm:right-0 sm:h-full sm:max-h-none sm:w-full sm:max-w-sm sm:rounded-none sm:rounded-l-[22px]"
         >
           <div className="flex justify-center pt-2.5 sm:hidden" aria-hidden="true">
             <span className="h-1 w-10 rounded-full bg-ink-muted/30" />
@@ -78,13 +71,13 @@ export function QuickActionMenu({
           </SheetHeader>
 
           <nav className="min-h-0 flex-1 overflow-y-auto px-3 pb-[max(1rem,env(safe-area-inset-bottom))]">
-            <ul className="space-y-1">
+            <ul className="space-y-1.5">
               {QUICK_ACTIONS.map((action) => (
                 <li key={action.href}>
                   <Link
                     href={action.href}
                     onClick={() => setOpen(false)}
-                    className="flex min-h-14 items-center gap-3 rounded-xl px-3 py-2.5 transition-colors hover:bg-white/70 focus-visible:focus-ring"
+                    className="dd-quick-row flex min-h-14 items-center gap-3 rounded-[16px] px-3 py-2.5 focus-visible:focus-ring"
                   >
                     <IconOrb accent={action.accent} size="md">
                       {action.icon}
