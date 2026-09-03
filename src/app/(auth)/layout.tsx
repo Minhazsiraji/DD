@@ -1,34 +1,36 @@
 import Link from "next/link";
-import { Stethoscope } from "lucide-react";
-import { IconOrb } from "@/components/common/icon-orb";
+import { ShieldCheck } from "lucide-react";
+import { BrandMark } from "@/components/brand/brand-mark";
 
-/**
- * Shell for the signed-out routes. Deliberately minimal — no navigation, no
- * data, nothing that could render before a session exists.
- */
 export default function AuthLayout({ children }: LayoutProps<"/">) {
   return (
-    <div className="flex min-h-dvh flex-col items-center justify-center px-4 py-10">
+    <div className="flex min-h-dvh flex-col items-center justify-center px-4 py-8 sm:py-10">
       <Link
         href="/login"
-        className="mb-6 flex items-center gap-2.5 rounded-xl focus-visible:focus-ring"
+        className="dd-public-header mb-6 flex w-full max-w-[620px] items-center justify-between gap-4 px-4 py-3.5 focus-visible:focus-ring sm:px-5"
       >
-        <IconOrb accent="brand" size="lg">
-          <Stethoscope className="size-5" />
-        </IconOrb>
-        <span>
-          <span className="block text-lg leading-tight font-semibold text-ink">
-            Doctor&apos;s Diary
+        <span className="flex min-w-0 items-center gap-3">
+          <BrandMark className="size-11 sm:size-12" />
+          <span className="min-w-0">
+            <span className="block truncate text-[20px] leading-tight font-semibold tracking-[-0.025em] text-[#40358f]">
+              Doctor&apos;s Diary
+            </span>
+            <span className="mt-1 block truncate text-[10px] font-medium uppercase tracking-[0.18em] text-ink-muted">
+              Care · Record · Connect
+            </span>
           </span>
-          <span className="block text-xs text-ink-muted">Clinical workspace</span>
+        </span>
+
+        <span className="dd-secondary hidden shrink-0 items-center gap-1.5 rounded-full px-3 py-2 text-[11px] font-medium text-ink-secondary sm:inline-flex">
+          <ShieldCheck className="size-3.5 text-brand" aria-hidden="true" />
+          Secure access
         </span>
       </Link>
 
-      <main className="w-full max-w-[420px]">{children}</main>
+      <main className="w-full max-w-[430px]">{children}</main>
 
-      <p className="mt-6 max-w-[420px] text-center text-xs text-ink-muted">
-        Development build. Use fake data only — this project is not approved for
-        real patient information.
+      <p className="dd-secondary mt-6 max-w-[470px] rounded-full px-4 py-2 text-center text-[11px] leading-relaxed text-ink-muted">
+        Development build · Use fake data only · Not approved for real patient information
       </p>
     </div>
   );
