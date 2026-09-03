@@ -20,7 +20,7 @@ export function TopBar({ doctorName, locations, activeLocationId }: TopBarProps)
 
   return (
     <header data-print-hidden className="sticky top-0 z-40 px-3 pt-3 sm:px-5 sm:pt-4 lg:px-6 lg:pt-5">
-      <div className="liquid-app-header mx-auto flex min-h-[72px] max-w-[1560px] min-w-0 items-center gap-3 px-3.5 py-2.5 sm:px-4 lg:gap-4 lg:px-5">
+      <div className="liquid-app-header mx-auto flex min-h-[72px] max-w-[1560px] min-w-0 items-center gap-3 px-3.5 py-2.5 sm:px-4 lg:gap-3 xl:gap-4 lg:px-5">
         <Link
           href="/dashboard"
           className="flex shrink-0 items-center gap-2.5 rounded-2xl focus-visible:focus-ring"
@@ -37,13 +37,17 @@ export function TopBar({ doctorName, locations, activeLocationId }: TopBarProps)
           </span>
         </Link>
 
+        <div className="hidden lg:block">
+          <LocationSwitcher locations={locations} activeLocationId={activeLocationId} />
+        </div>
+
         <div className="hidden h-9 w-px shrink-0 bg-white/65 xl:block" aria-hidden="true" />
 
         <div className="hidden min-w-0 flex-1 items-center justify-center xl:flex">
           <DesktopTopNav />
         </div>
 
-        <div className="min-w-0 flex-1 xl:max-w-[340px]">
+        <div className="min-w-0 flex-1 xl:max-w-[330px]">
           <label htmlFor="global-search" className="sr-only">
             Search my patients by name, phone or patient number
           </label>
@@ -59,10 +63,6 @@ export function TopBar({ doctorName, locations, activeLocationId }: TopBarProps)
               className="liquid-input h-11 min-w-0 w-full rounded-full pr-10 pl-10 text-[13px] text-ink placeholder:text-[#8b869a] focus-visible:focus-ring sm:h-12"
             />
           </div>
-        </div>
-
-        <div className="hidden lg:block xl:hidden">
-          <LocationSwitcher locations={locations} activeLocationId={activeLocationId} />
         </div>
 
         <QuickActionMenu variant="button" className="hidden sm:inline-flex" />
