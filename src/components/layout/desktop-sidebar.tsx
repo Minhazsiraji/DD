@@ -16,24 +16,26 @@ export function DesktopSidebar({
 
   return (
     <aside
-      className="glass liquid-sidebar sticky top-0 hidden shrink-0 flex-col lg:flex lg:w-[78px] xl:w-[232px]"
+      className="glass liquid-sidebar sticky top-4 ml-4 my-4 hidden h-[calc(100dvh-2rem)] shrink-0 flex-col lg:flex lg:w-[82px] xl:w-[232px]"
       aria-label="Main navigation"
     >
       <Link
         href="/dashboard"
-        className="mx-3 mt-3.5 flex h-[66px] items-center gap-3 rounded-[20px] px-2.5 focus-visible:focus-ring xl:px-3"
+        className="mx-3 mt-3.5 flex h-[68px] items-center gap-3 rounded-[20px] px-2.5 focus-visible:focus-ring xl:px-3"
         aria-label="Doctor's Diary — Today"
       >
         <BrandMark className="size-11" />
         <span className="hidden min-w-0 xl:block">
-          <span className="block truncate text-[17px] leading-tight font-semibold tracking-[-0.025em] text-[#3f338e]">
+          <span className="block truncate text-[17px] leading-tight font-semibold tracking-[-0.025em] text-[#40358f]">
             Doctor&apos;s Diary
           </span>
-          <span className="mt-1 block truncate text-[10px] font-medium uppercase tracking-[0.18em] text-ink-muted">
-            Care · Record · Connect
+          <span className="mt-1 block truncate text-[10px] font-medium uppercase tracking-[0.18em] text-[#77708f]">
+            Clinical workspace
           </span>
         </span>
       </Link>
+
+      <div className="mx-4 mt-2 h-px bg-white/65" aria-hidden="true" />
 
       <nav className="mt-4 flex-1 overflow-y-auto px-3 pb-3">
         <ul className="space-y-2">
@@ -59,9 +61,9 @@ export function DesktopSidebar({
       ) : null}
 
       <div className="px-3 pb-4">
-        <div className="liquid-panel hidden rounded-[18px] px-3 py-3 text-[11px] leading-relaxed text-ink-muted xl:block">
-          <span className="block font-semibold text-ink-secondary">Clinical workspace</span>
-          Fast, calm and focused on the next patient.
+        <div className="liquid-sidebar-note hidden rounded-[18px] px-3 py-3 text-[11px] leading-relaxed text-ink-muted xl:block">
+          <span className="block font-semibold text-[#4c4667]">Doctor-first workspace</span>
+          Fast access to today, patients and appointments.
         </div>
       </div>
     </aside>
