@@ -4,6 +4,7 @@ import "./globals.css";
 import "./liquid-glass.css";
 import "./liquid-reference-polish.css";
 import "./liquid-reference-exact.css";
+import "./liquid-rx-exact.css";
 
 /**
  * Self-hosted by next/font at build time — no runtime font-CDN request.
