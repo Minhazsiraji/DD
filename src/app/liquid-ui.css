@@ -1,0 +1,272 @@
+/*
+ * Doctor's Diary — canonical first-pass liquid presentation layer.
+ * Scope: public/auth, shared chrome, sidebar/header, Today shared cards,
+ * Patients search/cards and common buttons/inputs/chips.
+ * Clinical workflow logic and safety behavior are untouched.
+ */
+
+:root {
+  color-scheme: light;
+  --dd-pearl: #f1ebf0;
+  --dd-pearl-2: #ecebf1;
+  --dd-ink: #28224f;
+  --dd-ink-2: #5b5670;
+  --dd-ink-3: #80798f;
+  --dd-brand: #6f5ae8;
+  --dd-brand-strong: #5b46d6;
+  --dd-aqua: #5fd7f6;
+  --dd-mint: #75dec9;
+  --dd-pink: #f3bfdf;
+  --dd-hair: rgb(207 200 219 / 0.58);
+  --dd-glass-edge: linear-gradient(125deg,#fff 0%,#d9ccff 27%,#92e7fb 55%,#f3bfdf 79%,#fff 100%);
+}
+
+body {
+  font-family: var(--font-sans), var(--font-bengali), system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  color: var(--dd-ink);
+  background-color: var(--dd-pearl);
+  background-image:
+    radial-gradient(860px 500px at 3% -4%, rgb(255 224 239 / .68), transparent 62%),
+    radial-gradient(900px 520px at 98% 3%, rgb(194 229 255 / .60), transparent 61%),
+    radial-gradient(720px 440px at 48% 12%, rgb(217 203 255 / .46), transparent 64%),
+    radial-gradient(680px 420px at 88% 88%, rgb(179 244 234 / .28), transparent 65%),
+    linear-gradient(155deg,#f5eef2 0%,#efeaef 49%,#ececf1 100%) !important;
+  background-attachment: fixed;
+}
+
+/* Shared liquid material. */
+.glass,
+.glass-strong,
+.glass-flat,
+.glass-flat-strong,
+.dd-liquid,
+.dd-public-header,
+.dd-public-footer,
+.dd-public-card,
+.dd-public-cta,
+.dd-landing-demo,
+.dd-patient-card {
+  border: 1px solid transparent !important;
+  background:
+    linear-gradient(145deg, rgb(255 255 255 / .72), rgb(244 239 246 / .52)) padding-box,
+    var(--dd-glass-edge) border-box !important;
+  -webkit-backdrop-filter: blur(22px) saturate(142%);
+  backdrop-filter: blur(22px) saturate(142%);
+  box-shadow:
+    0 18px 38px rgb(67 55 90 / .14),
+    7px 8px 22px rgb(92 220 245 / .09),
+    -6px -4px 18px rgb(143 105 255 / .08),
+    inset 0 2px 2px rgb(255 255 255 / .97),
+    inset 0 -1px 0 rgb(185 220 246 / .38) !important;
+}
+
+.glass-strong {
+  background:
+    linear-gradient(145deg, rgb(255 255 255 / .82), rgb(244 239 246 / .62)) padding-box,
+    var(--dd-glass-edge) border-box !important;
+}
+
+/* Clinical shared cards stay more opaque for readability. */
+.clinical-surface {
+  border: 1px solid transparent !important;
+  background:
+    linear-gradient(145deg, rgb(255 255 255 / .94), rgb(251 247 251 / .86)) padding-box,
+    linear-gradient(125deg,#fff 0%,rgb(220 211 247 / .72) 30%,rgb(165 233 250 / .52) 57%,rgb(246 202 230 / .44) 80%,#fff 100%) border-box !important;
+  box-shadow:
+    0 14px 30px rgb(66 55 88 / .10),
+    inset 0 1px 2px white !important;
+}
+
+/* Logo. */
+.dd-brand-mark {
+  filter: drop-shadow(0 8px 12px rgb(89 69 190 / .24)) drop-shadow(0 0 8px rgb(93 219 246 / .14));
+}
+
+/* Desktop sidebar: keep the accepted left-navigation structure. */
+.dd-sidebar {
+  margin: 16px 0 16px 16px !important;
+  height: calc(100dvh - 32px) !important;
+  border-radius: 28px !important;
+  overflow: hidden;
+  border: 1px solid transparent !important;
+  background:
+    linear-gradient(150deg, rgb(255 255 255 / .74), rgb(241 236 244 / .54)) padding-box,
+    var(--dd-glass-edge) border-box !important;
+  -webkit-backdrop-filter: blur(24px) saturate(145%) !important;
+  backdrop-filter: blur(24px) saturate(145%) !important;
+  box-shadow:
+    0 20px 42px rgb(68 56 91 / .16),
+    8px 7px 22px rgb(96 219 243 / .11),
+    -7px -5px 18px rgb(142 104 255 / .09),
+    inset 0 2px 2px white !important;
+}
+
+.dd-nav-item {
+  border: 1px solid transparent;
+  transition: transform 140ms ease, background 140ms ease, color 140ms ease, box-shadow 140ms ease;
+}
+.dd-nav-item:hover {
+  transform: translateY(-1px);
+  background: rgb(255 255 255 / .48);
+}
+.dd-nav-active {
+  color: var(--dd-brand) !important;
+  border: 1px solid transparent !important;
+  background:
+    linear-gradient(145deg, rgb(255 255 255 / .86), rgb(236 231 250 / .70)) padding-box,
+    linear-gradient(118deg,#fff,rgb(196 179 255 / .88),rgb(137 226 251 / .75),#fff) border-box !important;
+  box-shadow:
+    0 9px 20px rgb(93 72 191 / .16),
+    0 0 16px rgb(96 218 244 / .14),
+    inset 0 1px 2px white !important;
+}
+.dd-sidebar-note {
+  border: 1px solid transparent;
+  background:
+    linear-gradient(145deg, rgb(255 255 255 / .58), rgb(245 240 246 / .46)) padding-box,
+    linear-gradient(120deg,#fff,rgb(220 209 242 / .72),rgb(174 230 248 / .48),#fff) border-box;
+  box-shadow: 0 7px 16px rgb(75 63 99 / .07), inset 0 1px 1px white;
+}
+
+/* Contextual header beside sidebar. */
+.dd-topbar {
+  border-radius: 28px !important;
+  border: 1px solid transparent !important;
+  background:
+    linear-gradient(145deg, rgb(255 255 255 / .74), rgb(244 239 246 / .54)) padding-box,
+    var(--dd-glass-edge) border-box !important;
+  -webkit-backdrop-filter: blur(22px) saturate(142%);
+  backdrop-filter: blur(22px) saturate(142%);
+  box-shadow:
+    0 16px 34px rgb(68 56 91 / .13),
+    0 0 18px rgb(92 220 245 / .08),
+    inset 0 2px 2px white !important;
+}
+
+.dd-secondary,
+.dd-icon-btn,
+.dd-profile-chip,
+.dd-patient-tile,
+.dd-chip,
+.dd-workflow-row,
+.dd-step,
+.dd-feature-icon {
+  border: 1px solid transparent !important;
+  background:
+    linear-gradient(145deg, rgb(255 255 255 / .83), rgb(243 238 245 / .63)) padding-box,
+    linear-gradient(120deg,#fff,rgb(218 207 241 / .78),rgb(170 230 248 / .50),#fff) border-box !important;
+  box-shadow: 0 7px 16px rgb(73 61 98 / .08), inset 0 1px 1px rgb(255 255 255 / .98) !important;
+}
+
+/* Glossy violet-to-aqua primary. */
+.dd-primary,
+a.bg-brand,
+button.bg-brand {
+  border: 1px solid transparent !important;
+  border-radius: 999px !important;
+  color: white !important;
+  background:
+    radial-gradient(circle at 20% 12%, rgb(255 255 255 / .42), transparent 26%),
+    linear-gradient(100deg,#7658ee 0%,#8068ff 47%,#58c7f3 100%) padding-box,
+    linear-gradient(120deg,#dcd2ff,#fff,#92e8ff,#c9b8ff) border-box !important;
+  box-shadow:
+    0 10px 21px rgb(90 68 210 / .26),
+    0 4px 9px rgb(85 194 237 / .15),
+    inset 0 1px 2px rgb(255 255 255 / .74),
+    inset 0 -1px 0 rgb(59 49 156 / .18) !important;
+}
+.dd-primary:hover,
+a.bg-brand:hover,
+button.bg-brand:hover { filter: brightness(1.04); transform: translateY(-1px); }
+
+/* Inputs/search. Keep semantic error borders stronger than glass. */
+.dd-input,
+input:not([type="checkbox"]):not([type="radio"]):not([type="file"]),
+select,
+textarea {
+  border: 1px solid transparent !important;
+  background:
+    linear-gradient(145deg, rgb(255 255 255 / .82), rgb(244 239 245 / .64)) padding-box,
+    linear-gradient(120deg,#fff,rgb(220 210 239 / .80),rgb(174 230 248 / .48),#fff) border-box !important;
+  box-shadow: 0 7px 17px rgb(76 64 102 / .07), inset 0 1px 1px rgb(255 255 255 / .98) !important;
+}
+input:not([type="checkbox"]):not([type="radio"]):not([type="file"]), select { border-radius: 999px !important; }
+textarea { border-radius: 18px !important; }
+input:focus, select:focus, textarea:focus {
+  box-shadow: 0 9px 20px rgb(84 66 150 / .10), 0 0 0 3px rgb(111 90 232 / .10), inset 0 1px 1px white !important;
+}
+input[aria-invalid="true"], textarea[aria-invalid="true"], select[aria-invalid="true"] { border-color: var(--dd-danger, #b42318) !important; }
+
+/* Public / auth. */
+.dd-public-header,
+.dd-public-footer { border-radius: 28px; }
+.dd-public-card,
+.dd-public-cta,
+.dd-landing-demo { border-radius: 28px; }
+.dd-landing-inner {
+  background:
+    linear-gradient(145deg, rgb(255 255 255 / .62), rgb(236 232 244 / .46)),
+    radial-gradient(520px 250px at 0% 100%, rgb(146 231 251 / .18), transparent 60%),
+    radial-gradient(480px 240px at 100% 0%, rgb(242 186 224 / .17), transparent 60%);
+  box-shadow: inset 0 1px 2px rgb(255 255 255 / .92);
+}
+.dd-public-card { transition: transform 150ms ease, box-shadow 150ms ease; }
+.dd-public-card:hover { transform: translateY(-2px); box-shadow: 0 22px 42px rgb(67 55 90 / .16),8px 8px 22px rgb(92 220 245 / .10),inset 0 2px 2px white !important; }
+
+/* Separate patient cards. */
+.dd-patient-card {
+  border-radius: 24px;
+  background:
+    linear-gradient(145deg, rgb(255 255 255 / .70), rgb(241 236 244 / .50)) padding-box,
+    linear-gradient(125deg,#fff,rgb(207 191 255 / .90),rgb(132 231 254 / .80),rgb(247 181 226 / .72),#fff) border-box !important;
+  transition: transform 150ms ease, box-shadow 150ms ease, filter 150ms ease;
+}
+.dd-patient-card:hover {
+  transform: translateY(-2px);
+  filter: brightness(1.01);
+  box-shadow:
+    0 24px 44px rgb(65 54 88 / .18),
+    9px 9px 21px rgb(92 221 245 / .13),
+    -7px -5px 18px rgb(143 105 255 / .11),
+    inset 0 2px 2px white !important;
+}
+.dd-patient-avatar {
+  color: #6550db;
+  border: 1px solid rgb(255 255 255 / .90);
+  background: radial-gradient(circle at 28% 22%,#fff 0 8%,transparent 9%),linear-gradient(145deg,rgb(245 239 255 / .98),rgb(211 204 250 / .84));
+  box-shadow: 0 9px 18px rgb(86 68 146 / .15), inset 0 1px 2px white;
+}
+.dd-patient-tile { background: linear-gradient(145deg,rgb(255 255 255 / .54),rgb(247 243 248 / .40)) padding-box,linear-gradient(120deg,#fff,rgb(225 216 243 / .60),rgb(183 234 248 / .36),#fff) border-box !important; }
+.dd-patient-alert { color:#a13242; background:linear-gradient(145deg,rgb(255 247 248 / .90),rgb(255 235 240 / .68)) padding-box,linear-gradient(120deg,#fff,rgb(250 198 207 / .72),rgb(246 222 235 / .60),#fff) border-box !important; }
+.dd-patient-safety { color:#9f2d39; background:linear-gradient(145deg,rgb(255 249 249 / .90),rgb(255 239 242 / .68)) padding-box,linear-gradient(120deg,#fff,rgb(248 198 208 / .70),rgb(244 219 231 / .56),#fff) border-box !important; }
+
+/* Shared status/chip refinement without changing semantic meaning. */
+.bg-success-soft,.bg-warning-soft,.bg-danger-soft,.bg-info-soft,.bg-brand-soft,.bg-surface-muted {
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / .78);
+}
+.border-hairline,.border-glass-border { border-color: var(--dd-hair) !important; }
+
+@media (max-width: 1023px) {
+  .dd-topbar,.dd-public-header,.dd-public-footer { border-radius: 23px !important; }
+}
+@media (max-width: 767px) {
+  .dd-patient-card { border-radius: 21px; }
+  body {
+    background-image:
+      radial-gradient(520px 300px at 0% 0%, rgb(255 223 238 / .58), transparent 64%),
+      radial-gradient(500px 300px at 100% 4%, rgb(190 230 253 / .50), transparent 63%),
+      radial-gradient(430px 280px at 48% 34%, rgb(215 203 255 / .34), transparent 66%),
+      linear-gradient(160deg,#f4edf2 0%,#ede9ef 100%) !important;
+  }
+}
+@media (prefers-reduced-transparency: reduce) {
+  .glass,.glass-strong,.dd-liquid,.dd-public-header,.dd-public-footer,.dd-public-card,.dd-public-cta,.dd-landing-demo,.dd-patient-card,.dd-sidebar,.dd-topbar {
+    -webkit-backdrop-filter:none !important; backdrop-filter:none !important; background:#fbf8fb !important;
+  }
+}
+@media print {
+  body { background:white !important; }
+  .dd-patient-card,.dd-public-card,.dd-topbar,.dd-sidebar,.clinical-surface,.glass,.glass-strong {
+    background:white !important; border-color:#cbd5e1 !important; box-shadow:none !important; transform:none !important;
+  }
+}
