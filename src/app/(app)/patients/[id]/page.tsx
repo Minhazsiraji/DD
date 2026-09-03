@@ -2,13 +2,27 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import {
-  ArrowLeft, TriangleAlert, Droplet, Weight, Phone, Mail, MapPin,
-  Activity, Pill, ShieldAlert, Users, Pencil,
+  ArrowLeft,
+  TriangleAlert,
+  Droplet,
+  Weight,
+  Phone,
+  Mail,
+  MapPin,
+  Activity,
+  Pill,
+  ShieldAlert,
+  Users,
+  Pencil,
 } from "lucide-react";
 import { SectionCard, SectionHeader } from "@/components/common/section-card";
 import { PatientTimeline } from "@/features/patients/components/patient-timeline";
 import { getPatient } from "@/features/patients/queries";
-import { getPatientTimeline, TIMELINE_EVENT_TYPES, type TimelineEventType } from "@/features/patients/timeline";
+import {
+  getPatientTimeline,
+  TIMELINE_EVENT_TYPES,
+  type TimelineEventType,
+} from "@/features/patients/timeline";
 import { formatAge } from "@/features/patients/identity";
 import { SEX_LABEL, BLOOD_GROUP_LABEL } from "@/features/patients/schema";
 import { cn } from "@/lib/utils";
@@ -19,7 +33,6 @@ export async function generateMetadata(
 ): Promise<Metadata> {
   const { id } = await props.params;
   const patient = await getPatient(id);
-  // Never leak a name to a browser tab for a record the caller cannot open.
   return { title: patient ? patient.fullName : "Patient" };
 }
 
@@ -28,8 +41,6 @@ export default async function PatientProfilePage(props: PageProps<"/patients/[id
   const params = await props.searchParams;
 
   const patient = await getPatient(id);
-  // RLS already filtered this. A patient belonging to another doctor is
-  // indistinguishable from one that does not exist — deliberately.
   if (!patient) notFound();
 
   const rawType = typeof params.type === "string" ? params.type : "all";
@@ -49,86 +60,113 @@ export default async function PatientProfilePage(props: PageProps<"/patients/[id
     (a) => a.severity === "SERIOUS" || a.severity === "CRITICAL",
   );
 
+  const bloodGroup =
+    patient.bloodGroup !== "UNKNOWN"
+      ? BLOOD_GROUP_LABEL[patient.bloodGroup as keyof typeof BLOOD_GROUP_LABEL]
+      : "Not recorded";
+
   return (
     <div className="space-y-4 sm:space-y-5">
       <Link
         href="/patients"
-        className="inline-flex items-center gap-1.5 rounded-lg text-[13px] font-medium text-ink-secondary hover:text-ink focus-visible:focus-ring"
+        className="liquid-secondary inline-flex min-h-10 items-center gap-1.5 rounded-full px-3 text-[13px] font-medium text-ink-secondary hover:text-ink focus-visible:focus-ring"
       >
         <ArrowLeft className="size-4" aria-hidden="true" />
         Patients
       </Link>
 
-      {/* ---- SAFETY HEADER ----
-          Sticky and opaque. This is the highest-value information on the screen
-          and must stay legible while scrolling a long record. Never glass. */}
-      <div className="clinical-surface sticky top-16 z-20 overflow-hidden rounded-glass-lg border-l-4 shadow-soft"
-        style={{ borderLeftColor: hasAllergies || criticalAlerts.length ? "var(--dd-danger)" : "var(--dd-brand)" }}
+      {/* Persistent patient context, visually based on the approved patient
+          summary card while keeping allergy and serious alert content explicit. */}
+      <section
+        className={cn(
+          "liquid-patient-summary sticky top-[108px] z-20 overflow-hidden p-4 sm:p-5",
+          hasAllergies || criticalAlerts.length ? "liquid-patient-summary-danger" : "",
+        )}
       >
-        <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 px-4 pt-3 sm:px-5">
-          <h1 className="text-lg font-semibold text-ink">{patient.fullName}</h1>
-          <span className="text-sm text-ink-secondary tabular-nums">
-            {age} · {SEX_LABEL[patient.sex as keyof typeof SEX_LABEL] ?? patient.sex}
-          </span>
-          <span className="font-mono text-xs text-ink-muted">{patient.patientNumber}</span>
+        <div className="flex min-w-0 flex-wrap items-start gap-3 sm:flex-nowrap sm:items-center">
+          <div className="liquid-patient-avatar flex size-14 shrink-0 items-center justify-center rounded-full sm:size-16" aria-hidden="true">
+            <Users className="size-6 sm:size-7" />
+          </div>
+
+          <div className="min-w-0 flex-1">
+            <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+              <h1 className="truncate text-[19px] font-semibold tracking-[-0.025em] text-[#292550] sm:text-[21px]">
+                {patient.fullName}
+              </h1>
+              {criticalAlerts.length > 0 ? (
+                <ShieldAlert className="size-4 shrink-0 text-danger" aria-label="Clinical alert" />
+              ) : null}
+            </div>
+            <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[12px] text-[#6f6982]">
+              <span className="font-mono">{patient.patientNumber}</span>
+              <span aria-hidden="true">•</span>
+              <span>{age}</span>
+              <span aria-hidden="true">•</span>
+              <span>{SEX_LABEL[patient.sex as keyof typeof SEX_LABEL] ?? patient.sex}</span>
+            </p>
+          </div>
+
           <Link
             href={`/patients/${id}/edit`}
-            className="ml-auto inline-flex h-8 items-center gap-1.5 rounded-lg border border-hairline px-2.5 text-[13px] font-semibold text-ink transition-colors hover:bg-surface-muted focus-visible:focus-ring"
+            className="liquid-secondary inline-flex h-10 shrink-0 items-center gap-1.5 rounded-full px-3 text-[12px] font-semibold text-ink focus-visible:focus-ring"
           >
             <Pencil className="size-3.5" aria-hidden="true" />
             Edit
           </Link>
         </div>
 
-        <div className="px-4 pt-2 pb-3 sm:px-5">
-          {hasAllergies ? (
-            <p className="flex items-start gap-2 rounded-lg bg-danger-soft px-2.5 py-2 text-[13px] font-semibold text-[#a81c1c]">
-              <TriangleAlert className="mt-px size-4 shrink-0" aria-hidden="true" />
-              <span>
-                <span className="font-bold uppercase">Allergy:</span>{" "}
-                {patient.allergies.map((a) => a.substance).join(", ")}
-              </span>
+        <div className="mt-4 grid gap-2.5 sm:grid-cols-3">
+          <div className="liquid-patient-tile rounded-[16px] px-3 py-2.5">
+            <p className="text-[10px] font-medium text-[#7e788e]">Blood Group</p>
+            <p className="mt-1 text-[14px] font-semibold text-[#2d2857]">{bloodGroup}</p>
+          </div>
+
+          <div className={cn("liquid-patient-tile rounded-[16px] px-3 py-2.5", hasAllergies ? "liquid-patient-allergy" : "")}>
+            <p className="text-[10px] font-medium text-[#7e788e]">Allergies</p>
+            <p className={cn("mt-1 truncate text-[14px] font-semibold", hasAllergies ? "text-danger" : "text-[#2d2857]")}> 
+              {hasAllergies ? patient.allergies.map((a) => a.substance).join(", ") : "None recorded"}
             </p>
-          ) : (
-            <p className="text-[13px] text-ink-muted">No known drug allergies recorded</p>
-          )}
+          </div>
+
+          <div className="liquid-patient-tile rounded-[16px] px-3 py-2.5">
+            <p className="text-[10px] font-medium text-[#7e788e]">Weight</p>
+            <p className="mt-1 text-[14px] font-semibold text-[#2d2857] tabular-nums">
+              {patient.weightKg ? `${patient.weightKg} kg` : "Not recorded"}
+            </p>
+          </div>
         </div>
 
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-hairline px-4 py-2.5 text-[13px] sm:px-5">
-          {patient.bloodGroup !== "UNKNOWN" ? (
-            <span className="flex items-center gap-1.5 text-ink-secondary">
-              <Droplet className="size-3.5 text-ink-muted" aria-hidden="true" />
-              <strong className="font-semibold text-ink tabular-nums">
-                {BLOOD_GROUP_LABEL[patient.bloodGroup as keyof typeof BLOOD_GROUP_LABEL]}
-              </strong>
-            </span>
-          ) : null}
-          {patient.weightKg ? (
-            <span className="flex items-center gap-1.5 text-ink-secondary">
-              <Weight className="size-3.5 text-ink-muted" aria-hidden="true" />
-              <strong className="font-semibold text-ink tabular-nums">
-                {patient.weightKg} kg
-              </strong>
-            </span>
-          ) : null}
-          {patient.conditions.length > 0 ? (
-            <span className="text-ink-secondary">
-              {patient.conditions.map((c) => c.condition).join(" · ")}
-            </span>
-          ) : null}
-        </div>
+        {patient.conditions.length > 0 ? (
+          <div className="liquid-patient-tile mt-2.5 rounded-[16px] px-3 py-2.5">
+            <p className="text-[10px] font-medium text-[#7e788e]">Conditions</p>
+            <div className="mt-1.5 flex flex-wrap gap-1.5">
+              {patient.conditions.map((c) => (
+                <span key={c.id} className="liquid-secondary inline-flex min-h-7 items-center rounded-full px-2.5 text-[11px] font-medium text-[#4e477a]">
+                  {c.condition}
+                </span>
+              ))}
+            </div>
+          </div>
+        ) : null}
+
+        {hasAllergies ? (
+          <div className="mt-2.5 flex items-start gap-2 rounded-[15px] border border-danger/15 bg-danger-soft/88 px-3 py-2.5 text-[12px] font-semibold text-danger">
+            <TriangleAlert className="mt-px size-4 shrink-0" aria-hidden="true" />
+            <span>Allergy: {patient.allergies.map((a) => a.substance).join(", ")}</span>
+          </div>
+        ) : null}
 
         {criticalAlerts.length > 0 ? (
-          <ul className="divide-y divide-hairline border-t border-hairline">
+          <ul className="mt-2.5 space-y-1.5">
             {criticalAlerts.map((a) => (
-              <li key={a.id} className="flex items-center gap-2 px-4 py-2 text-[13px] text-ink sm:px-5">
+              <li key={a.id} className="flex items-center gap-2 rounded-[14px] border border-danger/12 bg-white/54 px-3 py-2 text-[12px] font-medium text-ink">
                 <ShieldAlert className="size-4 shrink-0 text-danger" aria-hidden="true" />
                 {a.message}
               </li>
             ))}
           </ul>
         ) : null}
-      </div>
+      </section>
 
       <div className="grid gap-4 sm:gap-5 xl:grid-cols-3">
         <div className="space-y-4 sm:space-y-5 xl:col-span-2">
@@ -143,9 +181,6 @@ export default async function PatientProfilePage(props: PageProps<"/patients/[id
         </div>
 
         <div className="space-y-4 sm:space-y-5">
-          {/* Editable. An allergy is usually discovered at a LATER visit, so a
-              record that can only capture it at registration will go stale in
-              exactly the field where stale is most dangerous. */}
           <SafetyList
             patientId={id}
             kind="allergy"
@@ -156,7 +191,8 @@ export default async function PatientProfilePage(props: PageProps<"/patients/[id
               id: a.id,
               primary: a.substance,
               secondary: [a.reaction, a.severity.toLowerCase().replace("_", " ")]
-                .filter(Boolean).join(" · "),
+                .filter(Boolean)
+                .join(" · "),
             }))}
             emptyText="No known drug allergies recorded"
             placeholder="e.g. Penicillin"
@@ -176,18 +212,6 @@ export default async function PatientProfilePage(props: PageProps<"/patients/[id
             placeholder="e.g. Type 2 Diabetes"
           />
 
-          {/*
-            "Current medicines" read as "what is on the latest prescription",
-            which it is not. This is the patient-level list a doctor keeps for
-            safety: what the person is on long-term, whoever prescribed it,
-            including drugs they only reported. Two different concepts, and the
-            old label let them be confused.
-
-            Deliberately NOT populated from prescriptions. Doing that
-            automatically needs a product decision about what counts as
-            stopped, and getting it wrong leaves a discontinued drug sitting on
-            a safety list.
-          */}
           <SafetyList
             patientId={id}
             kind="medication"
@@ -197,7 +221,8 @@ export default async function PatientProfilePage(props: PageProps<"/patients/[id
               id: m.id,
               primary: m.name,
               secondary: [m.dose, m.source === "REPORTED" ? "as reported" : "prescribed"]
-                .filter(Boolean).join(" · "),
+                .filter(Boolean)
+                .join(" · "),
             }))}
             emptyText="No medicines recorded"
             placeholder="e.g. Metformin 500mg"
@@ -249,7 +274,9 @@ export default async function PatientProfilePage(props: PageProps<"/patients/[id
 }
 
 function Row({
-  icon, label, value,
+  icon,
+  label,
+  value,
 }: {
   icon: React.ReactNode;
   label: string;
@@ -257,7 +284,9 @@ function Row({
 }) {
   return (
     <div className="flex items-start gap-3 px-4 py-2.5 sm:px-5">
-      <span className="mt-0.5 shrink-0 text-ink-muted" aria-hidden="true">{icon}</span>
+      <span className="mt-0.5 shrink-0 text-ink-muted" aria-hidden="true">
+        {icon}
+      </span>
       <dt className="w-24 shrink-0 text-ink-muted">{label}</dt>
       <dd className={cn("min-w-0 flex-1 break-words", value ? "text-ink" : "text-ink-muted")}>
         {value ?? "Not recorded"}
@@ -265,4 +294,3 @@ function Row({
     </div>
   );
 }
-
