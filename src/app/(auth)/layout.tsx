@@ -1,34 +1,28 @@
 import Link from "next/link";
-import { Stethoscope } from "lucide-react";
-import { IconOrb } from "@/components/common/icon-orb";
+import { BrandMark } from "@/components/brand/brand-mark";
 
-/**
- * Shell for the signed-out routes. Deliberately minimal — no navigation, no
- * data, nothing that could render before a session exists.
- */
 export default function AuthLayout({ children }: LayoutProps<"/">) {
   return (
     <div className="flex min-h-dvh flex-col items-center justify-center px-4 py-10">
       <Link
         href="/login"
-        className="mb-6 flex items-center gap-2.5 rounded-xl focus-visible:focus-ring"
+        className="mb-6 flex items-center gap-3 rounded-2xl focus-visible:focus-ring"
       >
-        <IconOrb accent="brand" size="lg">
-          <Stethoscope className="size-5" />
-        </IconOrb>
+        <BrandMark className="size-12" />
         <span>
-          <span className="block text-lg leading-tight font-semibold text-ink">
+          <span className="block text-[20px] leading-tight font-semibold tracking-[-0.025em] text-[#40348f]">
             Doctor&apos;s Diary
           </span>
-          <span className="block text-xs text-ink-muted">Clinical workspace</span>
+          <span className="mt-1 block text-[10px] font-medium uppercase tracking-[0.18em] text-ink-muted">
+            Care · Record · Connect
+          </span>
         </span>
       </Link>
 
-      <main className="w-full max-w-[420px]">{children}</main>
+      <main className="w-full max-w-[430px]">{children}</main>
 
-      <p className="mt-6 max-w-[420px] text-center text-xs text-ink-muted">
-        Development build. Use fake data only — this project is not approved for
-        real patient information.
+      <p className="mt-6 max-w-[430px] text-center text-xs leading-relaxed text-ink-muted">
+        Development build. Use fake data only — this project is not approved for real patient information.
       </p>
     </div>
   );
