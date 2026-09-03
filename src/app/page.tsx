@@ -50,7 +50,7 @@ export default function RootPage() {
           <div className="mt-5 flex flex-wrap gap-2.5">
             <Link
               href="/signup"
-              className="dd-primary inline-flex h-10 items-center gap-2 whitespace-nowrap rounded-full px-4 text-[12.5px] font-semibold text-white sm:h-11 sm:px-5 sm:text-[13px]"
+              className="dd-primary dd-primary-arrow inline-flex h-10 items-center gap-1.5 whitespace-nowrap rounded-full pl-4 text-[12.5px] font-semibold text-white sm:h-11 sm:pl-5 sm:text-[13px]"
             >
               Start free
               <ArrowRight className="size-3.5" aria-hidden="true" />
