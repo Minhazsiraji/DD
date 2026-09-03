@@ -3,6 +3,7 @@ import { Inter, Noto_Sans_Bengali, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import "./liquid-glass.css";
 import "./liquid-reference-polish.css";
+import "./liquid-reference-exact.css";
 
 /**
  * Self-hosted by next/font at build time — no runtime font-CDN request.
