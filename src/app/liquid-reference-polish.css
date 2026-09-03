@@ -19,8 +19,6 @@ body {
     linear-gradient(155deg, #f4eef2 0%, #eee9ef 48%, #ecebf1 100%) !important;
 }
 
-/* Match the reference card translucency more closely: visibly milky, not flat
-   white, with a thin chromatic glass edge. */
 .glass,
 .glass-strong,
 .glass-flat,
@@ -40,14 +38,31 @@ body {
     linear-gradient(135deg, white, rgb(210 198 255 / 0.72), rgb(153 232 251 / 0.57), rgb(246 199 230 / 0.46), white) border-box !important;
 }
 
+/* The glass material must never erase semantic clinical emphasis. */
+.clinical-surface[class*="border-l-4"] {
+  border-left-width: 4px !important;
+}
+.clinical-surface[class*="border-l-warning"] {
+  border-left-color: var(--dd-warning) !important;
+}
+.clinical-surface[class*="border-l-danger"] {
+  border-left-color: var(--dd-danger) !important;
+}
+.clinical-surface[class*="border-l-brand"] {
+  border-left-color: var(--dd-brand) !important;
+}
+input[class*="border-danger"],
+textarea[class*="border-danger"],
+select[class*="border-danger"] {
+  border-color: var(--dd-danger) !important;
+}
+
 @media (min-width: 1024px) {
   .liquid-topbar {
     margin-left: 14px;
   }
 }
 
-/* Any outlined link/button should read like the milky secondary buttons in the
-   approved board rather than a flat enterprise outline. */
 a[class*="border-hairline"],
 button[class*="border-hairline"] {
   border: 1px solid transparent !important;
