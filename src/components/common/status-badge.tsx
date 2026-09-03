@@ -21,18 +21,22 @@ import type { AppointmentStatus as LiveAppointmentStatus } from "@/features/appo
  * ACCESSIBILITY RULE: status is never communicated by colour alone. Every
  * badge carries an icon and a text label. Roughly 8% of men have red/green
  * colour deficiency; a colour-only clinical warning is not a warning.
+ *
+ * VISUAL RULE: the palette below is matched to the approved Doctor's Diary
+ * liquid-glass board: mint success, powder-blue progress, warm cream pending,
+ * soft rose cancelled, and pearl-grey no-show/neutral.
  */
 
 type Palette = "neutral" | "brand" | "success" | "warning" | "danger" | "critical" | "info";
 
 const PALETTE: Record<Palette, string> = {
-  neutral: "bg-surface-muted text-ink-secondary ring-hairline",
-  brand: "bg-brand-soft text-[#0b5f58] ring-[#a9e2da]",
-  success: "bg-success-soft text-[#07684a] ring-[#b9e7d5]",
-  warning: "bg-warning-soft text-[#8a3f07] ring-[#f2d5b0]",
-  danger: "bg-danger-soft text-[#a81c1c] ring-[#f3c2c2]",
+  neutral: "bg-[#eeebef] text-[#696574] ring-[#d9d3dc]",
+  brand: "bg-[#e9e1ff] text-[#6650d8] ring-[#cfc2fb]",
+  success: "bg-[#ddf4ea] text-[#2d9b80] ring-[#bce6d7]",
+  warning: "bg-[#faead6] text-[#c98435] ring-[#efd1aa]",
+  danger: "bg-[#f8dfe6] text-[#cf6173] ring-[#efbdc8]",
   critical: "bg-[#991b1b] text-white ring-[#7f1616]",
-  info: "bg-info-soft text-[#0a5a80] ring-[#b6ddf1]",
+  info: "bg-[#e2e9ff] text-[#4e72d7] ring-[#c4d0f7]",
 };
 
 interface BadgeShellProps {
@@ -46,7 +50,7 @@ function BadgeShell({ palette, icon, label, className }: BadgeShellProps) {
   return (
     <span
       className={cn(
-        "inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold whitespace-nowrap ring-1 ring-inset",
+        "dd-status-badge inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold whitespace-nowrap ring-1 ring-inset",
         PALETTE[palette],
         className,
       )}
@@ -67,16 +71,16 @@ const APPOINTMENT_CONFIG: Record<
 > = {
   REQUESTED: { label: "Requested", palette: "neutral", icon: <Clock className={ICON} /> },
   PENDING_CONFIRMATION: { label: "Awaiting confirmation", palette: "warning", icon: <Clock className={ICON} /> },
-  CONFIRMED: { label: "Confirmed", palette: "info", icon: <CircleCheck className={ICON} /> },
+  CONFIRMED: { label: "Confirmed", palette: "success", icon: <CircleCheck className={ICON} /> },
   PAYMENT_PENDING: { label: "Payment pending", palette: "warning", icon: <CircleDollarSign className={ICON} /> },
   READY: { label: "Ready", palette: "info", icon: <CircleCheck className={ICON} /> },
   CHECKED_IN: { label: "Checked in", palette: "success", icon: <UserCheck className={ICON} /> },
-  IN_QUEUE: { label: "In queue", palette: "brand", icon: <Clock className={ICON} /> },
-  IN_CONSULTATION: { label: "With doctor", palette: "brand", icon: <Stethoscope className={ICON} /> },
+  IN_QUEUE: { label: "In queue", palette: "info", icon: <Clock className={ICON} /> },
+  IN_CONSULTATION: { label: "With doctor", palette: "info", icon: <Stethoscope className={ICON} /> },
   COMPLETED: { label: "Completed", palette: "success", icon: <CircleCheck className={ICON} /> },
-  CANCELLED: { label: "Cancelled", palette: "neutral", icon: <CircleX className={ICON} /> },
+  CANCELLED: { label: "Cancelled", palette: "danger", icon: <CircleX className={ICON} /> },
   RESCHEDULED: { label: "Rescheduled", palette: "info", icon: <CalendarClock className={ICON} /> },
-  NO_SHOW: { label: "No show", palette: "danger", icon: <CircleX className={ICON} /> },
+  NO_SHOW: { label: "No show", palette: "neutral", icon: <CircleX className={ICON} /> },
 };
 
 export function StatusBadge({
@@ -103,12 +107,12 @@ const LIVE_APPOINTMENT_CONFIG: Record<
   { label: string; palette: Palette; icon: React.ReactNode }
 > = {
   SCHEDULED: { label: "Booked", palette: "neutral", icon: <CalendarClock className={ICON} /> },
-  CONFIRMED: { label: "Confirmed", palette: "info", icon: <CircleCheck className={ICON} /> },
+  CONFIRMED: { label: "Confirmed", palette: "success", icon: <CircleCheck className={ICON} /> },
   ARRIVED: { label: "Waiting", palette: "warning", icon: <UserCheck className={ICON} /> },
-  IN_CONSULTATION: { label: "With doctor", palette: "brand", icon: <Stethoscope className={ICON} /> },
+  IN_CONSULTATION: { label: "With doctor", palette: "info", icon: <Stethoscope className={ICON} /> },
   COMPLETED: { label: "Seen", palette: "success", icon: <CircleCheck className={ICON} /> },
-  CANCELLED: { label: "Cancelled", palette: "neutral", icon: <CircleX className={ICON} /> },
-  NO_SHOW: { label: "Did not come", palette: "danger", icon: <CircleX className={ICON} /> },
+  CANCELLED: { label: "Cancelled", palette: "danger", icon: <CircleX className={ICON} /> },
+  NO_SHOW: { label: "Did not come", palette: "neutral", icon: <CircleX className={ICON} /> },
 };
 
 export function AppointmentStatusBadge({
