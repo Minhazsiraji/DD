@@ -1,0 +1,83 @@
+/*
+ * Doctor's Diary — owner-approved logo / branding layer.
+ *
+ * Source: the approved blue + teal DD notebook logo supplied by the owner.
+ * CTA construction intentionally remains the previously approved violet→aqua
+ * liquid control; this file changes brand identity, not CTA styling.
+ */
+
+:root {
+  --dd-logo-blue: #0157d2;
+  --dd-logo-blue-deep: #02379a;
+  --dd-logo-blue-dark: #022869;
+  --dd-logo-teal: #03bbab;
+  --dd-logo-teal-deep: #049190;
+  --dd-logo-teal-bright: #07cbb8;
+
+  /* Product brand tokens now follow the approved logo. */
+  --dd-brand: var(--dd-logo-blue);
+  --dd-brand-hover: var(--dd-logo-blue-deep);
+  --dd-brand-soft: #e6efff;
+  --dd-brand-vivid: var(--dd-logo-teal);
+  --primary: var(--dd-logo-blue);
+  --ring: var(--dd-logo-blue);
+  --sidebar-primary: var(--dd-logo-blue);
+  --sidebar-ring: var(--dd-logo-blue);
+
+  --grad-brand: linear-gradient(145deg, #07cbb8 0%, #049190 100%);
+  --glow-brand: 3 187 171;
+}
+
+.dd-brand-mark {
+  filter:
+    drop-shadow(0 5px 8px rgb(2 55 154 / .18))
+    drop-shadow(0 1px 5px rgb(3 187 171 / .12)) !important;
+}
+
+.dd-wordmark {
+  font-weight: 700;
+}
+
+.dd-wordmark-doctor {
+  color: var(--dd-logo-blue-deep);
+}
+
+.dd-wordmark-diary {
+  color: var(--dd-logo-teal-deep);
+}
+
+.dd-brand-tagline {
+  color: #65758a;
+}
+
+/* Active navigation follows the new identity while keeping the approved glass. */
+.dd-nav-active {
+  color: var(--dd-logo-blue) !important;
+  background:
+    linear-gradient(145deg, rgb(255 255 255 / .91), rgb(237 244 251 / .77)) padding-box,
+    linear-gradient(118deg, #fff, rgb(169 199 247 / .82), rgb(143 226 218 / .62), #fff) border-box !important;
+  box-shadow:
+    0 6px 14px rgb(2 55 154 / .11),
+    0 0 9px rgb(3 187 171 / .07),
+    inset 0 1px 1px white !important;
+}
+
+.text-brand {
+  color: var(--dd-logo-blue) !important;
+}
+
+.hover\:text-brand:hover {
+  color: var(--dd-logo-blue-deep) !important;
+}
+
+.bg-brand-soft {
+  background-color: #e6efff !important;
+}
+
+/* Small clinical/category icon orbs may use logo teal as the secondary identity. */
+.dd-brand-teal {
+  color: var(--dd-logo-teal-deep) !important;
+}
+
+/* IMPORTANT: intentionally do NOT override .dd-primary / a.bg-brand /
+   button.bg-brand here. Their violet→aqua approved CTA remains unchanged. */
