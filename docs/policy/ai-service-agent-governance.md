@@ -56,8 +56,12 @@ is a bypass key, every other containment claim in this document is void.
 - disabling an agent must take effect **immediately**, not at its next session;
 - key rotation must not require a window in which an agent is unauthenticated.
 
-`PENDING LOOP F + C2 ARCHITECTURE ACCEPTANCE` — the credential and identity
-mechanism (C2 RT-CORR-09).
+**RESOLVED — accepted architecture Rev 4.3.2d.** Each agent holds its own
+individual credential and is admitted only to an enumerated set of operations;
+it reaches nothing else, because nothing else is granted to it. An ambient
+bypass credential is **forbidden outright**, in every environment including
+local development. Disabling an agent takes effect on its next call, not its
+next session.
 
 ---
 
@@ -113,8 +117,11 @@ service that renders a message containing one clinical field is tempted to
 acquire a broad clinical read "just to render". It must instead be authorized
 **as the recipient**, for **that message**, and reach nothing else.
 
-`PENDING LOOP F + C2 ARCHITECTURE ACCEPTANCE` — the recipient-scoped rendering
-model (C2 RT-CORR-10).
+**RESOLVED — accepted architecture Rev 4.3.2d.** Rendering is performed as the
+**recipient**, for **that message**, by machinery that holds no direct read on
+any table. A rendering defect is therefore **bounded** — it cannot reach a field
+the message type does not already declare — and adversarial disclosure tests
+prove it, rather than the design asserting a bug is impossible.
 
 ---
 

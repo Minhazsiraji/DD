@@ -11,14 +11,45 @@
 > **No platform role implies any other platform role.**
 >
 > `PLATFORM_ADMIN` ≠ `COMMUNITY_MODERATOR`
+> `PLATFORM_ADMIN` ≠ `MODERATION_SUPERVISOR`
 > `PLATFORM_ADMIN` ≠ `CREDENTIAL_VERIFIER`
 > `PLATFORM_ADMIN` ≠ `FINANCE_OPERATOR`
+> `PLATFORM_ADMIN` ≠ `SUPPORT_AGENT`
 > `PLATFORM_ADMIN` ≠ `HEALTH_ADVISORY_EDITOR`
+> `PLATFORM_ADMIN` ≠ `PUBLIC_HEALTH_SOURCE_STEWARD`
+> `PLATFORM_ADMIN` ≠ `PLATFORM_ANALYST`
+> `PLATFORM_OWNER` ≠ `PLATFORM_ADMIN`
 > `PLATFORM_OWNER` ≠ `DOCTOR`
 > `SUPPORT` ≠ `CLINICAL_ACCESS`
 >
 > One person may hold several roles. **Each must be granted separately and
 > explicitly.** Holding a senior role never confers a specialist one.
+
+### 1.1 The canonical inventory is NINE roles
+
+**Reconciled against accepted Database V2 architecture Rev 4.3.2d, §4.1.**
+
+| # | Role | Specialist authority |
+|---|---|---|
+| 1 | `PLATFORM_ADMIN` | Role governance, staff membership, platform configuration, service-agent enablement, budget limits, metric definitions |
+| 2 | `COMMUNITY_MODERATOR` | Moderation actions within risk class |
+| 3 | `MODERATION_SUPERVISOR` | Escalations and appeals |
+| 4 | `SUPPORT_AGENT` | Consented, scoped operational support |
+| 5 | `CREDENTIAL_VERIFIER` | Credential decisions |
+| 6 | `FINANCE_OPERATOR` | Invoices, payments, refunds, ledger, payouts, provider-invoice import, manual cost adjustments |
+| 7 | `HEALTH_ADVISORY_EDITOR` | **Publishes** advisories |
+| 8 | `PUBLIC_HEALTH_SOURCE_STEWARD` | **Registers sources and sets trust tier** — never publishes |
+| 9 | `PLATFORM_ANALYST` | Reads the Owner Control Center — **aggregate control-plane data only** |
+
+> **`PLATFORM_OWNER` is a designated account, NOT a tenth role.** It does not
+> appear in the role inventory and confers no authority of its own. The owner
+> holds whatever roles have been **explicitly granted**, each visible in the
+> record. `PLATFORM_OWNER ≠ PLATFORM_ADMIN`, and neither is a clinical
+> authority.
+
+**One constraint is stronger than non-nesting:** `HEALTH_ADVISORY_EDITOR` and
+`PUBLIC_HEALTH_SOURCE_STEWARD` are **mutually exclusive on the same person** —
+holding both *is* the attack (§6), so it is refused rather than merely audited.
 
 **Why this is stated as an absolute.** Role nesting is not a shortcut that saves
 a grant; it is a rule that is easy to apply in one place and forget in another.
@@ -62,14 +93,20 @@ how a security promise becomes a lie under audit.
 Every role below reaches **no clinical data**. That is not repeated per row; it
 is the standing rule of §4.
 
-### PLATFORM_OWNER
+### PLATFORM_OWNER — a designated account, not a role
 
 | | |
 |---|---|
-| **Purpose** | Ultimate accountability for the platform as a business |
-| **May** | Hold and grant roles; set commercial policy; be accountable |
-| **May NOT** | Read any clinical record; act as a doctor; override a clinical authority check; approve their own high-risk action |
-| **Notes** | **Not a clinical superuser.** No break-glass exists. Owner is a governance position, not an access level |
+| **What it is** | The account with ultimate accountability for the platform as a business. **Not an entry in the role inventory** |
+| **Confers** | **Nothing on its own.** The owner acts only through roles that have been explicitly granted, each appearing in the record before the act |
+| **May NOT** | Read any clinical record; act as a doctor; override a clinical authority check; approve their own high-risk action; inherit `PLATFORM_ADMIN` or any specialist role |
+| **Notes** | **Not a clinical superuser.** No break-glass exists. Being the owner is a governance position, not an access level |
+
+> **Why this is not a role.** If `PLATFORM_OWNER` were a tenth enum value it would
+> accumulate authority by convenience — every "the owner obviously needs to…"
+> would land on it, and the nine-role separation would quietly become one role
+> with nine aliases. Keeping it outside the inventory forces every owner action
+> to name the specific granted role that permits it.
 
 ### PLATFORM_ADMIN
 
@@ -136,7 +173,31 @@ is the standing rule of §4.
 | **May NOT** | Read clinical records; register a trusted source **or** set its trust level (§6); target an advisory using clinical data |
 | **High-risk** | Publication and withdrawal of high-severity advisories |
 
-### ADVISORY_SOURCE_STEWARD
+### PLATFORM_ANALYST
+
+| | |
+|---|---|
+| **Purpose** | Read the Owner Control Center — registered/active/paid doctors, consultation, prescription and appointment counts, feature adoption, AI and Voice usage, cost and budget |
+| **May** | Read **aggregate control-plane data only** |
+| **May NOT** | **Read any clinical record — categorically.** Set budgets or metric definitions (`PLATFORM_ADMIN`); import provider invoices or record manual cost adjustments (`FINANCE_OPERATOR`); reach a patient, encounter, prescription, clinical document or vault item by any path |
+| **High-risk** | None. This role reads; it does not act |
+
+> **The control plane reports on a clinical estate it is structurally forbidden
+> to read.** Counts of consultations and prescriptions are required; diagnosis
+> text, prescription bodies, patient identity and vault contents must never be
+> reachable — not by query, not by drill-down, not incidentally while computing
+> a statistic. The counts cross the boundary **as counts**, written on the
+> clinical side; the control plane reads counters, never rows.
+>
+> **Owner drill-down is usage and cost drill-down, never patient-record
+> browsing.** "17 documents failed to upload" is a control-plane fact; *which
+> 17* is a clinical question belonging to the doctor who owns them.
+
+`PLATFORM_ADMIN` does **not** inherit `PLATFORM_ANALYST`. The owner may grant it
+to themselves — permitted, audited, attributable, and listed in the
+self-granted-roles report (§2).
+
+### PUBLIC_HEALTH_SOURCE_STEWARD
 
 | | |
 |---|---|
@@ -241,7 +302,7 @@ a second human:
 | Decide a moderation appeal | `MODERATION_SUPERVISOR` | **Yes — approved** (distinct reviewer) |
 | Approve a payout or refund | `FINANCE_OPERATOR` | `PENDING OWNER DECISION` |
 | Publish a high-severity advisory | `HEALTH_ADVISORY_EDITOR` | `PENDING OWNER DECISION` |
-| Set or raise a source's trust tier | `ADVISORY_SOURCE_STEWARD` | `PENDING OWNER DECISION` |
+| Set or raise a source's trust tier | `PUBLIC_HEALTH_SOURCE_STEWARD` | `PENDING OWNER DECISION` |
 | Enable or re-key a service agent | `PLATFORM_ADMIN` | `PENDING OWNER DECISION` |
 | Any lawful hard deletion of clinical data | **No role today** | **Yes — required** |
 
@@ -289,6 +350,6 @@ Prohibited:
 | PRG-1 | Four-eyes scope beyond the two approved controls | Owner |
 | PRG-2 | Payout approval threshold | Owner |
 | PRG-3 | Role review cadence | Owner |
-| PRG-4 | Whether `ADVISORY_SOURCE_STEWARD` is a distinct role or a distinct grant | Owner + Loop F |
+| PRG-4 | Whether `PUBLIC_HEALTH_SOURCE_STEWARD` is a distinct role or a distinct grant | Owner + Loop F |
 | PRG-5 | Whether a lawful clinical-deletion authority is ever created, and its shape | Owner + legal/regulatory |
 | PRG-6 | Final staff role enumeration in the V2 schema | Loop F + C2 (RT-CORR-08) |

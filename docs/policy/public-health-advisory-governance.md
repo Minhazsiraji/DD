@@ -71,17 +71,25 @@ the source requirement is not a second control — it is the same control wearin
 two hats, and the trust tier is self-bootstrapping.
 
 **Therefore:**
-- source registration and trust assignment sit with a **source steward**
+- source registration and trust assignment sit with a **`PUBLIC_HEALTH_SOURCE_STEWARD`**
   authority;
-- publication sits with an **advisory editor** authority;
+- publication sits with a **`HEALTH_ADVISORY_EDITOR`** authority;
 - they are separately granted, and holding one never confers the other;
-- where one person legitimately holds both, the two acts stay separately audited
-  and separately reportable, so the combination is visible to a reviewer.
+- **the two roles are mutually exclusive on the same person.**
 
-*(This mirrors C2 RT-CORR-11, which identified the self-bootstrapping path.)*
+> **This is stronger than the general non-nesting rule, and deliberately so.**
+> Elsewhere a person may legitimately hold two roles provided each grant is
+> separately recorded. Here, holding both **is** the attack — one person who can
+> register a source, label it official, cite it and publish has defeated the
+> control entirely. So the combination is **refused**, not merely audited.
 
-`PENDING OWNER DECISION` — whether the steward authority is a distinct role or a
-distinct grant, and whether high-severity publication requires a second human.
+**Reconciled against accepted architecture Rev 4.3.2d §4.1 / §26.2a.**
+`PUBLIC_HEALTH_SOURCE_STEWARD` is role 8 of nine; the exclusivity constraint and
+the requirement that a source's approval-for-citation **predate** the draft that
+cites it are both part of the accepted design.
+
+`PENDING OWNER DECISION` — whether high-severity publication requires a second
+human beyond the steward/editor split.
 
 ---
 

@@ -1,13 +1,15 @@
 # Clinical Data Classification Standard
 
-> **STATUS: DRAFT · Loop D · 2026-09-02.** Documentation-level standard. Defines
-> categories and the rules each category carries. **It defines no table, column,
-> policy or grant.** Where a category's implementation shape depends on Database
-> V2, that is marked `PENDING LOOP F + C2`.
+> **STATUS: DRAFT · Loop D · reconciled 2026-09-03 against accepted Database V2
+> architecture Rev 4.3.2d.** Documentation-level standard. Defines categories and
+> the rules each category carries. **It defines no table, column, policy or
+> grant.** Every category below has been checked against the accepted
+> architecture; a twelfth category — **control-plane analytics** — is added
+> because the Owner Control Center is now part of the accepted design.
 
 **Why this exists.** "Sensitive" is not a category anyone can enforce. A rule
 like "staff may not see patient data" fails the first time someone must decide
-whether an appointment time is patient data. This standard names eleven
+whether an appointment time is patient data. This standard names twelve
 categories and answers the same eight questions for each, so the answer is
 looked up rather than argued.
 
@@ -299,6 +301,46 @@ separately selected feature — never a silent fallback.
 
 ---
 
+## 12. Control-plane analytics
+
+*Added 2026-09-03. The Owner Control Center is part of the accepted architecture,
+and its data is a category of its own — not a variety of clinical metadata.*
+
+Counters and rollups the owner reads: registered/active/paid doctors, counts of
+consultations, prescriptions and appointments, feature adoption, AI and
+transcription usage, cost, budget state, provider errors, system health.
+
+| | |
+|---|---|
+| **Controller** | Doctor's Diary, as operator of the platform |
+| **Allowed readers** | `PLATFORM_ANALYST` — **aggregate control-plane data only**. `PLATFORM_ADMIN` for budgets and metric definitions; `FINANCE_OPERATOR` for provider invoices and manual cost adjustments |
+| **Prohibited readers** | Anyone reading it as a route to clinical content — including the platform owner. **A dimension that identifies a patient is prohibited outright** |
+| **Export** | Not part of a doctor's or a person's export. It is the platform's operating data |
+| **Retention** | `PENDING OWNER DECISION` |
+| **Operational audit** | Yes — and **reads are audited as well as writes**, because reading the control centre is itself a privileged act |
+| **Platform staff** | Only the three roles named above, each separately granted |
+| **AI / agents** | No |
+| **Marketing** | Aggregate platform reporting only. **Never an individual doctor's clinical pattern**, and never anything derived from a patient |
+
+**The rule that makes this category safe:** its numbers are produced **on the
+clinical side of the boundary and cross as numbers**. The control plane reads
+counters, never records, and holds no permission on any clinical table — so a
+defective analytics query **fails rather than discloses**.
+
+**Reporting dimensions are an allowlist.** Doctor, date, provider, service,
+model, feature and market are dimensions. **Diagnosis, medicine, document type
+and inferred condition are not, and cannot become dimensions by configuration.**
+
+> **Why this is its own category and not "clinical metadata".** Clinical metadata
+> is *about* a clinical record and inherits its restrictions. Control-plane
+> analytics is deliberately **downstream of an aggregation** — the individual
+> record is gone before the control plane sees anything. Filing it under clinical
+> metadata would either over-restrict the owner's legitimate operating data, or —
+> far worse — invite someone to argue the reverse: that because analytics is
+> permitted, the metadata behind it is too.
+
+---
+
 ## Assignment rules
 
 1. **One category per artefact.** If two fit, take the more restrictive and
@@ -323,5 +365,5 @@ separately selected feature — never a silent fallback.
 | CDC-2 | Whether a patient-facing export includes clinical-record extracts | Owner |
 | CDC-3 | Support scope field list — exactly which operational fields | Owner + Loop F |
 | CDC-4 | Community content removal and appeal retention | Owner |
-| CDC-5 | Notification rendering authorization model | Loop F + C2 (RT-CORR-10) |
-| CDC-6 | Consent type × grantee × scope matrix | Loop F + C2 (RT-CORR-06) |
+| ~~CDC-5~~ | Notification rendering authorization model | Loop F + C2 | ✅ **CLOSED** — recipient-scoped rendering, accepted Rev 4.3.2d |
+| ~~CDC-6~~ | Consent type × grantee × scope matrix | Loop F + C2 | ✅ **CLOSED** — normative matrix, accepted Rev 4.3.2d |

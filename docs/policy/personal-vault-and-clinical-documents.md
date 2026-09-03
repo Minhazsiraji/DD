@@ -1,10 +1,10 @@
 # Personal Health Vault / Clinical Document Policy
 
-> **STATUS: DRAFT · Loop D · 2026-09-02.** Conceptual boundary and sharing
-> principles. **The grant shape, table design and policy predicates are
-> `PENDING LOOP F + C2 ARCHITECTURE ACCEPTANCE`** — C2 raised the scoped-share
-> model (RT-CORR-05) as a blocking correction, and this document deliberately
-> stops at the principle.
+> **STATUS: DRAFT · Loop D · reconciled 2026-09-03 against accepted Database V2
+> architecture Rev 4.3.2d.** Conceptual boundary and sharing principles. The
+> scoped-share model C2 once classified a blocker is **resolved in the accepted
+> architecture**; this document states the properties it delivers, and still
+> specifies no table, grant or predicate — that remains Loop F's lane.
 
 ---
 
@@ -91,18 +91,33 @@ supports three scopes:
 > than no scope at all — it is a false promise displayed at the moment of
 > greatest trust.
 
-Two rules follow, and both are principles the architecture must satisfy:
+Two rules follow, and the accepted architecture satisfies both:
 
-1. **The acting context is explicit.** Which appointment or encounter a doctor is
-   acting within must be **stated at the point of access**, not inferred from
-   session state, a recently viewed page, or the fact that an appointment exists.
-2. **Absent context fails closed.** A scoped share evaluated with no acting
+1. **The acting context is established, not claimed.** Which visit a doctor is
+   acting within is determined by a trusted operation that verifies it — never
+   inferred from session state or a recently viewed page, and **never accepted
+   simply because the caller named the right appointment.** Naming an
+   appointment proves nothing: it is a value the doctor already knows, so a
+   scope that accepted it would be a password, not a boundary.
+2. **Absent context fails closed.** A scoped share evaluated with no established
    context is **denied**, never widened to doctor-wide.
 
-`PENDING LOOP F + C2 ARCHITECTURE ACCEPTANCE` — the grant shape. C2 found
-(RT-CORR-05) that an earlier design silently converted every scoped share into a
-doctor-wide one, and classified it a blocker. **This document does not specify
-the fix**; it states the property the fix must have.
+**RESOLVED — accepted architecture Rev 4.3.2d.** An earlier design silently
+converted every scoped share into a doctor-wide one; C2 classified that a
+blocker. The accepted model delivers both properties above:
+
+- **The acting context is established by a trusted operation, not asserted.** A
+  doctor does not reach a scoped document by *naming* an appointment — a value
+  they already know. The system establishes an active clinical scope only after
+  verifying that this doctor owns that appointment or consultation **and that
+  care is actually happening in it**. A scheduled-for-next-month, cancelled or
+  no-show visit cannot establish a scope at all.
+- **The scope ends when the visit does.** Completing or cancelling the visit
+  closes it; it also expires on its own. Replaying it the next morning fails.
+
+`PENDING OWNER DECISION` — the scope lifetime and any post-visit grace window. A
+doctor writing notes twenty minutes after the patient leaves is normal; a scope
+still live the next morning is not. **No duration is asserted here.**
 
 ---
 
@@ -199,12 +214,13 @@ bucket that can be flipped public without it being a reviewable change.
 
 ## Open decisions
 
-| Ref | Decision | Owner |
-|---|---|---|
-| PV-1 | Scoped-share grant shape | Loop F + C2 (RT-CORR-05) |
-| PV-2 | Consent matrix for document shares | Loop F + C2 (RT-CORR-06) |
-| PV-3 | Who may grant care-manager access — subject only, or staff with evidence | Owner (Loop F §43 U-5) |
-| PV-4 | Whether vault contents ever appear in a patient-facing export, and in what form | Owner |
-| PV-5 | Vault retention after account closure | Owner + legal/regulatory |
-| PV-6 | Signed-link lifetime for vault objects | Loop F |
-| PV-7 | Sharing wording shown at grant time — must state the import consequence (§5.1) | Owner |
+| Ref | Decision | Owner | State |
+|---|---|---|---|
+| ~~PV-1~~ | Scoped-share grant shape | Loop F + C2 | ✅ **CLOSED** — resolved in accepted Rev 4.3.2d |
+| ~~PV-2~~ | Consent matrix for document shares | Loop F + C2 | ✅ **CLOSED** — resolved in accepted Rev 4.3.2d |
+| ~~PV-6~~ | Signed-link lifetime | Loop F | ✅ **CLOSED** — an implementation parameter within the accepted design |
+| **PV-3** | Who may grant care-manager access — subject only, or staff with evidence | Owner | Open. Architecture defers to subject-only in the baseline |
+| **PV-4** | Whether vault contents ever appear in a patient-facing export, and in what form | Owner | Open |
+| **PV-5** | Vault retention after account closure | Owner + legal/regulatory | Open |
+| **PV-7** | Sharing wording shown at grant time — must state the import consequence (§5.1) | Owner | Open. **Blocks real-patient use**, not implementation |
+| **PV-8** *(new)* | Clinical-scope lifetime and post-visit grace window (§4) | Owner | Open. Architecture supports any value |

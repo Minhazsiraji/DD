@@ -1,13 +1,14 @@
 # Architecture & Security Glossary
 
-> **STATUS: DRAFT · Loop D · 2026-09-02.** One consistent vocabulary across
-> policy, architecture, product and review.
+> **STATUS: DRAFT · Loop D · reconciled 2026-09-03 against accepted Database V2
+> architecture Rev 4.3.2d.** One consistent vocabulary across policy,
+> architecture, product and review.
 >
 > **Terminology source of truth.** Where a term names a V2 structure, this
 > glossary follows the Loop F Database V2 architecture document and **introduces
-> no alternative name**. Terms marked **[V2 PROPOSED]** are not yet accepted —
-> the V2 correction pass is incomplete. Terms marked **[V1 CURRENT]** exist in
-> the shipped system today.
+> no alternative name**. Terms marked **[V2 ACCEPTED]** are part of the finally
+> accepted architecture — **accepted as a design; no implementation exists yet.**
+> Terms marked **[V1 CURRENT]** exist in the shipped system today.
 >
 > **If Loop F changes a name, this file follows it.** This document never
 > overrides the architecture lane.
@@ -19,7 +20,7 @@
 | Marker | Meaning |
 |---|---|
 | **[V1 CURRENT]** | Exists in the shipped system today |
-| **[V2 PROPOSED]** | Proposed by Loop F; **not accepted** |
+| **[V2 ACCEPTED]** | Part of the accepted architecture (Rev 4.3.2d). **A design, not an implementation** |
 | **[CONCEPT]** | A policy/product idea, not a named structure |
 | **[PENDING]** | Named, but its shape is an open decision |
 
@@ -34,17 +35,17 @@ a guardian or a receptionist.
 
 > **A login is not a role and never implies one.**
 
-### Professional profile **[V2 PROPOSED]**
+### Professional profile **[V2 ACCEPTED]**
 The professional extension of a person: qualifications, registration,
-specialty, and the identity under which clinical records are owned. Proposed name
-for what V1 calls the doctor profile, because a medical student — and later other
+specialty, and the identity under which clinical records are owned. It replaces
+what V1 calls the doctor profile, because a medical student — and later other
 professions — need the same extension and none of them is a doctor.
 
 > **[V1 CURRENT]** the equivalent is `doctor_profiles`. The ownership column
 > stays `owner_doctor_id` in both, because it names a *role in a relationship* —
 > "the doctor who owns this clinical record" — which remains true.
 
-### Doctor capability **[V2 PROPOSED]**
+### Doctor capability **[V2 ACCEPTED]**
 The resolved answer to "may this person act clinically as a doctor, now?"
 
 Distinct from **having a professional profile** (an identity) and from **holding
@@ -56,24 +57,24 @@ claimed, and not implied by a route or a screen existing.
 > doctor profile.* It does **not** prove verified registration and is not a
 > capability system. Do not describe it as credential-gated.
 
-### Health subject **[V2 PROPOSED]**
+### Health subject **[V2 ACCEPTED]**
 A real human being as the platform knows them — so they can book, belong to a
 family, and hold their own documents.
 
 > **A health subject is not a clinical record.** It holds identity, not a chart.
 
-### Clinical patient **[V2 PROPOSED]**
+### Clinical patient **[V2 ACCEPTED]**
 **One doctor's clinical record about one person.** Owned by that doctor.
 
 The same human seen by two doctors is **two clinical patients** that share
 nothing. There is no query in the product that returns both.
 
-> **[V1 CURRENT]** the table is `patients`. **[V2 PROPOSED]**
+> **[V1 CURRENT]** the table is `patients`. **[V2 ACCEPTED]**
 > `clinical_patients` — because in V2 four different things could answer to
 > "patient" (the subject, the login, the clinical record, the booking party) and
 > the clinical table must stop claiming the bare word.
 
-### `patient_subject_link` **[V2 PROPOSED]**
+### `patient_subject_link` **[V2 ACCEPTED]**
 The record that a doctor's clinical patient refers to a particular health
 subject. It answers *who this person is* for booking and family purposes.
 
@@ -81,7 +82,7 @@ subject. It answers *who this person is* for booking and family purposes.
 > whether a doctor may read a clinical record. Joining authorization onto it is
 > exactly how one doctor's records become reachable from another's.
 
-### DD Patient Number **[V2 PROPOSED] [PENDING]**
+### DD Patient Number **[V2 ACCEPTED]**
 A durable, human-quotable identifier for a **health subject** — the person, not
 the practice's record of them.
 
@@ -92,7 +93,10 @@ the practice's record of them.
 Distinct from the per-doctor patient number **[V1 CURRENT]**, which is a
 doctor's own sequence for their own records.
 
-`PENDING` — format, checksum and entropy are under correction (C2 RT-CORR-01).
+**Format, checksum and entropy are settled** in the accepted architecture. The
+checksum is DD's own formally specified construction — deliberately **not**
+claimed as a published standard. Demonstrating its error-detection properties
+remains a technical proof gate before implementation.
 
 ### Health subject vs clinical patient — the distinction in one line
 > **The health subject is the person. The clinical patient is one doctor's record
@@ -103,7 +107,7 @@ doctor's own sequence for their own records.
 
 ## Documents
 
-### Personal health vault **[V2 PROPOSED]**
+### Personal health vault **[V2 ACCEPTED]**
 The person's own store of their own health documents. Owned by the **health
 subject**. A doctor reads an item only through an explicit, live, scoped share.
 
@@ -141,7 +145,7 @@ places.
 > locations are not facilities in an ownership sense, and staff access is scoped
 > to one.
 
-### Organization **[V2 PROPOSED]**
+### Organization **[V2 ACCEPTED]**
 A body operating one or more branches — a hospital group, a chain.
 
 > **An organization never owns clinical data.** It may administer branches, staff
@@ -202,18 +206,35 @@ provably what was issued.
 
 ## Roles and actors
 
-### Platform role **[V2 PROPOSED]**
-An explicitly granted staff authority — administration, moderation, credential
-verification, finance, support, advisory editing.
+### Platform role **[V2 ACCEPTED]**
+An explicitly granted staff authority. **There are nine:** platform admin,
+community moderator, moderation supervisor, support agent, credential verifier,
+finance operator, health advisory editor, public health source steward and
+platform analyst.
 
 > **Roles do not nest.** No role implies another. Holding a senior role never
 > confers a specialist one.
 
-> **No platform role grants clinical access.** Not one, including owner.
+> **No platform role grants clinical access.** Not one, including the owner's.
+
+### PLATFORM_OWNER **[V2 ACCEPTED]**
+The designated account with ultimate accountability for the platform.
+
+> **Not a role, and not a tenth entry in the inventory.** It confers nothing on
+> its own: the owner acts only through roles explicitly granted to them, each
+> appearing in the record first. **Not a clinical superuser** — there is no
+> break-glass.
+
+### PLATFORM_ANALYST **[V2 ACCEPTED]**
+The role that reads the Owner Control Center.
+
+> **Aggregate control-plane data only.** It reads counters and cost, never
+> clinical records. Owner drill-down is usage and cost drill-down — never
+> patient-record browsing.
 
 See [Platform Role Governance](policy/platform-role-governance.md).
 
-### Service agent **[V2 PROPOSED]**
+### Service agent **[V2 ACCEPTED]**
 An automated actor — a classifier, a support assistant, a drafter.
 
 > **Not a user and not staff.** It holds no human account and no staff role, so
@@ -246,7 +267,7 @@ Append-only. Not editable by anyone, including the owner.
 
 ## Permission
 
-### Consent **[V2 PROPOSED] [PENDING]**
+### Consent **[V2 ACCEPTED]**
 A recorded agreement: **who granted it, on behalf of whom, under what authority,
 for what purpose, at which version of the text they were shown.**
 
@@ -256,16 +277,23 @@ for what purpose, at which version of the text they were shown.**
 > **Revocation is prospective.** It stops future access; it does not reverse what
 > was lawfully done while it was live.
 
-`PENDING` — the consent type × grantee × scope matrix (C2 RT-CORR-06).
+A **normative type × grantee × scope contract** is part of the accepted
+architecture; combinations outside it are refused at the write boundary.
 
-### Access grant **[V2 PROPOSED] [PENDING]**
+> **Recording consent is a separate domain.** A doctor, interpreter or observer
+> consents to being recorded **in their own right** — never through the
+> patient's authority.
+
+### Access grant **[V2 ACCEPTED]**
 The live, revocable, scoped permission that actually admits a read — the thing
 consent authorises the creation of.
 
 > **A grant is evaluated live, at the moment of access.** Not cached, not implied
 > by an earlier grant, not inferred from a relationship.
 
-`PENDING` — scoped-share grant shape (C2 RT-CORR-05).
+A grant scoped to one visit is satisfied only inside an **established clinical
+scope** — a context the system verifies, never one the caller asserts by naming
+an appointment. It closes when the visit ends.
 
 ### Storage path **[V1 CURRENT]**
 Where a stored file lives.

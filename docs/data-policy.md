@@ -14,10 +14,30 @@
 > question, not a commitment.** Nothing in this document invents a retention
 > period, asserts a statutory obligation, or claims a certification.
 >
-> **This document does not decide architecture.** Where a promise depends on a
-> structure Loop F is still designing, it is marked
-> `PENDING LOOP F + C2 ARCHITECTURE ACCEPTANCE` and states the *principle* the
-> architecture must satisfy, not the mechanism.
+> **This document does not decide architecture.** It states the *principle* the
+> architecture must satisfy, never the mechanism.
+>
+> ### RECONCILED AGAINST ACCEPTED ARCHITECTURE — 2026-09-03
+>
+> Database V2 architecture **Rev 4.3.2d** is independently and finally accepted:
+> **C2 FINAL — A. ✅ ARCHITECTURE ACCEPTED FOR ISOLATED V2 IMPLEMENTATION.**
+>
+> Every promise below has been checked against it. The dependencies this document
+> previously carried as `PENDING LOOP F + C2 ARCHITECTURE ACCEPTANCE` are
+> **resolved** and are now stated as commitments the architecture supports.
+>
+> **Three things acceptance does NOT change, and this document does not imply
+> otherwise:**
+>
+> | | |
+> |---|---|
+> | **Architecture acceptance ≠ implementation** | It authorizes **isolated V2 implementation**. No schema exists yet |
+> | **Architecture acceptance ≠ destructive authorization** | **G-3 = FAIL (G3-C).** Reset, cleanup, auth deletion and storage deletion **remain prohibited** |
+> | **Architecture acceptance ≠ real-patient authorization** | Retention, closure, correction, jurisdiction and the data contact remain open. See [Pilot Operations](policy/pilot-operations.md) |
+>
+> **The current clinical estate is development/test only**, by owner attestation.
+> **No clinical-data migration is required.** The one identity that must survive
+> is the owner's control-plane account.
 
 **Related:** [Clinical Data Classification](policy/clinical-data-classification.md) ·
 [Platform Role Governance](policy/platform-role-governance.md) ·
@@ -152,8 +172,11 @@ does not create an account for the person.
 authorization path.** It answers "who is this person, for booking and family
 purposes"; it never answers "may this doctor read this record".
 
-`PENDING LOOP F + C2 ARCHITECTURE ACCEPTANCE` — the exact tables and grant shapes
-implementing these distinctions.
+**RESOLVED by accepted architecture Rev 4.3.2d.** The four concepts are separate
+structures: an auth user and profile carry no persona; a professional identity is
+a distinct row; a clinical record is owned by that professional identity, never
+by the login; and `patient_subject_links` records who a person is **without ever
+appearing in a clinical authorization rule**.
 
 ---
 
@@ -202,9 +225,12 @@ correction (§11).
 and whether it varies by jurisdiction.** No age is asserted anywhere in this
 policy. *(Loop F §43 U-4.)*
 
-`PENDING LOOP F + C2 ARCHITECTURE ACCEPTANCE` — guardian-expiry evaluation.
-*(C2 RT-CORR-04 requires that one guardian's expiry must not lock the whole
-subject.)*
+**RESOLVED — accepted architecture Rev 4.3.2d.** Access is evaluated from **all
+live authority relationships at the moment of the request**, each on its own
+terms. One guardian's expiry does not lock the subject and does not revoke
+another guardian's authority. A relationship is live only when it has begun, has
+not expired and has not been revoked — all three, evaluated at read time, never
+materialised by a job.
 
 ---
 
@@ -226,8 +252,27 @@ subject.)*
   notifications.** A person who opts out of promotions still gets told their
   password changed and their appointment moved.
 
-`PENDING LOOP F + C2 ARCHITECTURE ACCEPTANCE` — the consent type × grantee ×
-scope matrix. *(C2 RT-CORR-06.)*
+**RESOLVED — accepted architecture Rev 4.3.2d.** Consent is one recorded thing
+with a normative type × grantee × scope contract; combinations outside it are
+refused at the write boundary rather than merely discouraged.
+
+### 7.1 Recording consent belongs to each participant
+
+**Every participant in a recorded consultation consents in their own right — the
+patient, the doctor, an interpreter, an observer.**
+
+- A doctor consenting to being recorded is **not** acting on behalf of the
+  patient, and their consent is never expressed through the patient's authority.
+  Recording consent is a **separate domain** from subject-authority consent,
+  precisely so that it cannot be.
+- **Recording requires everyone.** It starts only when every current participant
+  has agreed, and **any participant withdrawing stops it immediately**.
+- The patient's own consent still flows through their own authority, so a
+  guardian consents for a child correctly.
+
+> This is stated because getting it wrong is an audit trap, not just a modelling
+> error: routing a doctor's consent through the patient's authority would make
+> the record appear to say the **patient** consented on the doctor's behalf.
 
 ---
 
@@ -240,7 +285,8 @@ scope matrix. *(C2 RT-CORR-06.)*
 | **Reception / location admin** | Operational only — scheduling, queue, contact details. Never notes, conditions, medications, documents or prescriptive content. Enforced at the database, not by hiding buttons. |
 | **Medical students** | No independent clinical authority. |
 | **Platform owner** | **Nothing.** See §8.1. |
-| **Platform staff (support, moderation, finance, verification)** | **Nothing**, by virtue of role. See §8.1. |
+| **Platform staff** — all nine roles: admin, moderator, moderation supervisor, support, credential verifier, finance operator, advisory editor, source steward, **platform analyst** | **Nothing**, by virtue of role. See §8.1. |
+| **Owner Control Center** | **Nothing.** It reports counts and cost from the control plane; it holds no read on any clinical record. See §8.2. |
 | **AI / service agents** | **Nothing** by default. See [AI Governance](policy/ai-service-agent-governance.md). |
 | **The person themselves** | Their own subject identity, their own vault, and whatever a doctor has shared with them. Not the doctor's private clinical notes by default. |
 
@@ -269,6 +315,31 @@ patient is themselves a doctor is not visible from the clinical record.
 
 See [Platform Role Governance](policy/platform-role-governance.md) for the full
 role model, including the rule that **roles do not nest**.
+
+### 8.2 The Owner Control Center reports without reading
+
+Doctor's Diary runs a private control centre for the owner: how many doctors are
+registered and active, how many consultations, prescriptions and appointments
+happened, which features are used, what AI and transcription cost, and whether
+the platform is healthy.
+
+> **It reports on a clinical estate it is structurally forbidden to read.**
+
+- Counts cross the boundary **as counts**, produced on the clinical side. The
+  control plane reads counters, never records. "Fewer columns" is not the
+  control — a party that can count rows can filter rows, and a filter is an
+  oracle.
+- **Owner drill-down is usage and cost drill-down.** It is never patient-record
+  browsing, and there is no path from a number to the people behind it.
+- Reporting dimensions are an **allowlist**. No clinical value — no diagnosis,
+  medicine, document type or inferred condition — is ever a dimension.
+- A defective control-centre query **fails rather than discloses**, because the
+  machinery behind it holds no permission on any clinical table to begin with.
+
+**This is a standing architectural invariant in the accepted design, not a
+configuration choice**, and it applies to the owner exactly as it applies to
+everyone else. Analytics is not an exception to §8.1; it is the case §8.1 is
+most often asked to bend for.
 
 ---
 
@@ -307,6 +378,45 @@ period before any restriction, and how long read/export access persists.
 `PENDING OWNER + LEGAL/REGULATORY DECISION` — what is deleted on closure, what is
 retained, for how long, and under what lawful basis. **No retention period is
 asserted here.**
+
+### 10.1 The current environment, and what happens to it
+
+Stated plainly because this policy would otherwise imply obligations that do not
+apply to the data that exists today.
+
+| | |
+|---|---|
+| **What exists now** | Development/test records only — doctors, patients, encounters, prescriptions, appointments, chambers and assets, all created for testing, by owner attestation |
+| **Preservation required** | **None of it.** No clinical history in the current environment is real patient history, so **no clinical-data migration is required** |
+| **What must survive** | **The owner's control-plane identity**, and only that. Its authentication account and profile are preserved or re-established; its **test doctor profile and entire clinical subtree are not** |
+| **What the owner identity becomes** | The designated `PLATFORM_OWNER` account — a **control-plane** authority that confers **no clinical access** (§8.1) |
+
+> **Identity survives; clinical state does not.** This is a deliberate,
+> selective cut, and it is only expressible because a login and a professional
+> identity are separate structures (§4): discarding the professional identity
+> discards its clinical subtree by construction, while the login is untouched
+> because nothing clinical ever pointed at it.
+
+### 10.2 Nothing may be destroyed yet
+
+> ⛔ **Reset, cleanup, authentication deletion and storage deletion are
+> PROHIBITED.**
+
+Removing the test estate is a **destructive operation**, and destructive
+operations are gated on a rehearsed, restorable backup. **That gate has been
+attempted and it FAILED (G-3 / G3-C):** no restorable database dump was
+produced, **storage byte backup was 0 of 40 objects**, no isolated restore target
+was available, and — most directly — **restoring the owner's authentication
+identity could not be proven.**
+
+**The determination in §10.1 does not relieve that gate.** "Nothing needs
+preserving, so why back up?" is the wrong question. A backup makes the
+*operation* reversible: a half-completed cleanup leaves an environment that is
+neither the old shape nor the new one, and the failed rehearsal could not
+demonstrate recovering **precisely the one identity §10.1 requires to survive.**
+
+Architecture acceptance does not lift this. Neither does owner attestation. Only
+a rehearsed restore that actually worked does.
 
 ---
 
@@ -369,8 +479,11 @@ quoted back as a commitment. *(Loop F §43 U-6 records the same dependency.)*
   subscription or of a currently-valid credential.** A doctor whose registration
   has expired still owns the history they created — what expires is the authority
   to make *new* clinical entries, not the ability to read and export the old ones.
-  *(This distinction is the subject of C2 RT-CORR-03 and its architectural shape
-  is `PENDING LOOP F + C2 ARCHITECTURE ACCEPTANCE`.)*
+  **This is settled in the accepted architecture (Rev 4.3.2d):** custodial
+  authority — "are these your records?" — is durable and survives suspension and
+  credential expiry; practice authority — "may you practise right now?" — is
+  required only for new and mutating clinical acts. A clinical read of one's own
+  records is never capability-gated.
 
 `PENDING OWNER DECISION` — export format, delivery mechanism, completeness
 guarantee, and whether a patient-facing export of their own vault is offered in
@@ -388,19 +501,45 @@ is never itself permission to read.
 
 ### 13.1 Hosting jurisdiction
 
-`PENDING TECHNICAL VERIFICATION` — **no hosting jurisdiction is claimed in this
-policy.**
+`PENDING TECHNICAL VERIFICATION AND DEPLOYMENT DECISION` — **no hosting
+jurisdiction is claimed in this policy.**
 
-Observed evidence, recorded so the claim can be settled rather than guessed: the
+Two separate reasons, and both must be closed before any claim is made:
+
+**1. The environment observed is not the environment that will hold real data.**
+The only project that exists today is the **development/test** one. The accepted
+architecture calls for V2 to be stood up in an **isolated project**, and which
+region that project is created in is a **deployment decision that has not been
+made**. A statement about today's endpoint would therefore describe an
+environment that real patient data will never live in.
+
+**2. What was observed is an endpoint, not a residency fact.** The development
 project's database connection endpoint resolves to
 `aws-0-ap-northeast-2.pooler.supabase.com`, and `ap-northeast-2` is AWS's Seoul
-region. **That is an observation about a connection endpoint, not a verified
-statement about where clinical data resides**, and it must be confirmed against
-the Supabase project's own region setting and any replication or backup
-locations before it is stated to any doctor or patient.
+region. That is an observation about where a **connection** terminates. It is
+not a verified statement about where data resides, and it says nothing about
+replicas or backups.
 
-Until that verification is recorded, this policy states no country, no region and
-no data-residency guarantee.
+Until an isolated V2 project exists **and** its region, replication and backup
+locations are confirmed from the project's own configuration, this policy states
+no country, no region and no data-residency guarantee.
+
+### 13.1a Geography is configuration, not architecture
+
+Doctor's Diary is **not architecturally a Bangladeshi product**. Country, region
+hierarchy, timezone, currency, phone format and the applicable regulator are
+**configuration values resolved per market**, not assumptions baked into the
+system.
+
+Bangladesh, BMDC, DGDA and BDT are **seed data** — the first market's values —
+and the accepted architecture verifies that none of them is hardcoded anywhere.
+A doctor practising in another country is a configuration question, not a
+redesign.
+
+**Why this belongs in a data policy.** A hardcoded timezone silently misfiles
+which clinical *day* an event belongs to, and a hardcoded regulator implies a
+credential means something it does not. Both are accuracy problems in a clinical
+record before they are internationalisation problems.
 
 ### 13.2 No unsupported legal or regulatory claims
 

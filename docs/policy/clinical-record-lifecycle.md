@@ -141,9 +141,19 @@ Read and export authority over records a doctor **already created** is durable.
 It attaches to the fact that they created them, not to a currently valid
 subscription or credential.
 
-`PENDING LOOP F + C2 ARCHITECTURE ACCEPTANCE` — the mechanism separating durable
-owner read/export authority from current verified mutation authority.
-*(C2 RT-CORR-03 identifies this as a required correction.)*
+**RESOLVED — accepted architecture Rev 4.3.2d.** The two authorities are
+separate by construction:
+
+| | **Custodial authority** | **Practice authority** |
+|---|---|---|
+| Answers | "Are these your records?" | "May you practise right now?" |
+| Survives suspension or credential expiry | **Yes** | **No** |
+| Grants | read own records · export own records · continue an already-finalised record's lifecycle | create patients · open and complete consultations · finalise prescriptions · issue new documents · accept new bookings |
+
+**A clinical read of one's own records is never capability-gated.** Locking a
+clinician out of their own history over a late renewal would convert an
+administrative lapse into a records-availability incident. Ownership is
+custodial and durable; the licence governs practice, not custody.
 
 ### 4.1 Doctor account closure
 
@@ -215,8 +225,13 @@ Consents granted under a guardianship **remain attributable to that guardianship
 after it ends — a consent must not become anonymous because the authority behind
 it lapsed.
 
-`PENDING LOOP F + C2 ARCHITECTURE ACCEPTANCE` — expiry evaluation (RT-CORR-04).
-`PENDING OWNER + LEGAL/REGULATORY DECISION` — age of majority.
+**RESOLVED — accepted architecture Rev 4.3.2d.** Access is computed from **all
+live authority relationships at the moment of the request**. One guardian's
+expiry neither locks the subject nor revokes another guardian's authority, and
+no scheduled job is load-bearing for it.
+
+`PENDING OWNER + LEGAL/REGULATORY DECISION` — **age of majority**, which is a
+jurisdictional question the architecture deliberately leaves configurable.
 
 ### 4.6 Practice closure
 

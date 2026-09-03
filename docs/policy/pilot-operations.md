@@ -5,19 +5,38 @@
 > **Documentation readiness ≠ launch authorization.** This document being complete
 > means the *paperwork* exists. It does not mean a pilot may start.
 >
-> **Real-patient use is NOT authorized.** As of 2026-09-02:
-> - the Database V2 implementation gate is **CLOSED**;
-> - the V2 architecture correction pass is **incomplete** and has not passed C2
->   re-review;
-> - `docs/data-policy.md` is a **draft**, with retention, account closure,
->   correction process, hosting jurisdiction and the published data contact all
->   unresolved;
+> **Real-patient use is NOT authorized.** Updated 2026-09-03.
+>
+> **What changed:** the Database V2 architecture is now independently and finally
+> accepted — **Rev 4.3.2d · C2 FINAL: A. ✅ ARCHITECTURE ACCEPTED FOR ISOLATED V2
+> IMPLEMENTATION.** The correction pass is complete and has passed C2 re-review.
+>
+> **What that does NOT change — three separate gates, and only the first has
+> moved:**
+>
+> | Gate | State |
+> |---|---|
+> | **Architecture accepted** | ✅ **YES** — for **isolated** V2 implementation |
+> | **Destructive operations** (reset, cleanup, auth or storage deletion) | ⛔ **PROHIBITED.** G-3 = **FAIL (G3-C)**: no restorable backup, storage byte backup **0 of 40**, and owner-identity restore **unproven** |
+> | **Real-patient use** | ⛔ **NOT AUTHORIZED** |
+>
+> Still unresolved for real-patient use:
+> - **no V2 implementation exists yet** — acceptance authorizes building it, and
+>   nothing has been built;
+> - `docs/data-policy.md` remains a **draft**: retention, account closure,
+>   correction process, hosting jurisdiction and the published data contact are
+>   all open;
 > - the platform runs on **free development infrastructure not approved for real
 >   patient data or commercial clinical use**;
 > - there is **no signed data-processing agreement**.
 >
 > **Until the owner records an explicit launch authorization, pilot activity is
 > limited to fake data.** See §2.
+>
+> > **The specific misreading this block exists to prevent:** *"the architecture
+> > is accepted, so we can start with real patients."* Architecture acceptance is
+> > a statement that the **design** is sound. It is not an implementation, not a
+> > backup, not a data policy, and not a clinical-safety approval.
 
 ---
 
@@ -57,7 +76,8 @@ The following must be true first, and each is currently unmet:
 - [ ] Owner records an explicit, dated launch authorization naming the doctor
 - [ ] Data policy finalised — retention, closure, correction, jurisdiction,
       contact all resolved
-- [ ] Database V2 gate open, architecture accepted by C2
+- [x] **Database V2 architecture accepted by C2** — Rev 4.3.2d, 2026-09-03 ✅
+- [ ] V2 **implemented** in an isolated environment and its verification suite green
 - [ ] Infrastructure approved for real clinical data
 - [ ] Consent wording (§3) reviewed by someone qualified in Bangladeshi practice
 - [ ] Export verified to actually work, end to end
@@ -236,8 +256,9 @@ was affected, and the owner's recorded decision. Not "it seems fine now."
 |---|---|
 | Owner's recorded launch authorization | **Not given** |
 | Data policy finalised | **Draft** — 12 open decisions |
-| Database V2 architecture accepted | **Correction pass incomplete** |
-| Implementation gate open | **Closed** |
+| Database V2 architecture accepted | ✅ **YES** — Rev 4.3.2d, C2 FINAL A (2026-09-03) |
+| V2 implemented in an isolated environment, suite green | **Not started.** Acceptance authorizes building it; nothing is built |
+| Destructive operations permitted | ⛔ **NO — G-3 FAIL (G3-C).** Not required for a pilot, and listed so the two are never conflated |
 | Infrastructure approved for real clinical data | **Not approved** |
 | Consent wording reviewed | **Not reviewed** |
 | Export verified end to end | `PENDING VERIFICATION` |
