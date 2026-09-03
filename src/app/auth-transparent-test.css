@@ -1,0 +1,73 @@
+/*
+ * Doctor's Diary — transparent auth-card visual test.
+ * Scope: auth form card only. Header, CTA, inputs, typography and all behavior remain unchanged.
+ * Reference direction: clear refractive glass — almost no body fill, light concentrated at rim/highlights.
+ */
+
+.dd-auth-shell main .dd-liquid {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  border: 1px solid transparent !important;
+  background:
+    linear-gradient(145deg, rgba(255,255,255,.035), rgba(255,255,255,.012)) padding-box,
+    linear-gradient(118deg,
+      rgba(255,255,255,.99) 0%,
+      rgba(255,255,255,.96) 12%,
+      rgba(218,205,249,.88) 30%,
+      rgba(178,231,246,.84) 58%,
+      rgba(239,194,228,.76) 82%,
+      rgba(255,255,255,.98) 100%) border-box !important;
+  -webkit-backdrop-filter: blur(10px) saturate(112%) !important;
+  backdrop-filter: blur(10px) saturate(112%) !important;
+  box-shadow:
+    0 22px 36px rgba(48,42,65,.17),
+    0 7px 15px rgba(62,54,81,.085),
+    4px 5px 14px rgba(90,214,239,.045),
+    -3px 2px 12px rgba(151,106,220,.04),
+    inset 0 2px 1px rgba(255,255,255,.96),
+    inset 0 -1px 0 rgba(127,117,143,.12) !important;
+}
+
+.dd-auth-shell main .dd-liquid::before {
+  content: "";
+  position: absolute;
+  z-index: 0;
+  left: 4%;
+  right: 4%;
+  top: 1px;
+  height: 2px;
+  border-radius: 999px;
+  pointer-events: none;
+  background: linear-gradient(90deg,
+    transparent,
+    rgba(255,255,255,.86) 12%,
+    rgba(255,255,255,1) 48%,
+    rgba(255,255,255,.80) 88%,
+    transparent);
+}
+
+.dd-auth-shell main .dd-liquid::after {
+  content: "";
+  position: absolute;
+  z-index: 0;
+  left: 5%;
+  right: 5%;
+  bottom: -1px;
+  height: 3px;
+  border-radius: 999px;
+  pointer-events: none;
+  background: linear-gradient(90deg,
+    transparent 0%,
+    rgba(126,96,239,.33) 17%,
+    rgba(255,255,255,.10) 40%,
+    rgba(91,216,241,.50) 67%,
+    rgba(231,143,215,.36) 88%,
+    transparent 100%);
+  filter: blur(.6px);
+}
+
+.dd-auth-shell main .dd-liquid > * {
+  position: relative;
+  z-index: 1;
+}
