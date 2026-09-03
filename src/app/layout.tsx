@@ -6,6 +6,7 @@ import "./clinical-liquid-ui.css";
 import "./reference-fidelity.css";
 import "./reference-exact-match.css";
 import "./reference-content-match.css";
+import "./branding-logo.css";
 
 const fontSans = Inter({
   variable: "--font-sans",
