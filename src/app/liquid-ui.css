@@ -1,24 +1,27 @@
 /*
- * Doctor's Diary — canonical first-pass liquid presentation layer.
+ * Doctor's Diary — canonical liquid presentation layer.
  * Visual source of truth: the approved liquid-glass component board.
- * Scope stays limited to public/auth, app chrome, Today shared surfaces,
- * Patients search/cards and common controls. Clinical workflow logic is untouched.
+ * This file changes presentation only. Clinical logic, security and data flow
+ * remain in their existing components.
  */
 
 :root {
   color-scheme: light;
-  --dd-pearl: #f0edef;
+  --dd-pearl: #f2eff1;
   --dd-pearl-2: #ecebed;
-  --dd-ink: #29234f;
-  --dd-ink-2: #5b5670;
-  --dd-ink-3: #817b8e;
+  --dd-ink: #28224f;
+  --dd-ink-2: #5c5870;
+  --dd-ink-3: #817c8e;
   --dd-brand: #6f5ae8;
   --dd-brand-strong: #5b46d6;
   --dd-aqua: #5fd7f6;
   --dd-mint: #75dec9;
-  --dd-pink: #efc4de;
-  --dd-hair: rgb(208 202 218 / .55);
-  --dd-glass-edge: linear-gradient(128deg,#fff 0%,#ddd4f6 28%,#b6e8f5 53%,#efd2e3 77%,#fff 100%);
+  --dd-pink: #efc7df;
+  --dd-danger: #b42318;
+  --dd-hair: rgb(207 202 217 / .56);
+  --dd-edge: linear-gradient(126deg,#ffffff 0%,#e6def8 27%,#bdebf7 54%,#f1d5e5 78%,#ffffff 100%);
+  --dd-glass: linear-gradient(145deg,rgb(255 255 255 / .78),rgb(247 244 247 / .61));
+  --dd-glass-strong: linear-gradient(145deg,rgb(255 255 255 / .87),rgb(248 245 248 / .70));
 }
 
 body {
@@ -26,14 +29,14 @@ body {
   color: var(--dd-ink);
   background-color: var(--dd-pearl);
   background-image:
-    radial-gradient(720px 400px at 2% -6%, rgb(247 221 233 / .34), transparent 64%),
-    radial-gradient(760px 410px at 100% 2%, rgb(203 229 244 / .30), transparent 63%),
-    radial-gradient(620px 360px at 50% 8%, rgb(220 213 243 / .20), transparent 66%),
-    linear-gradient(155deg,#f4f0f2 0%,#efedef 48%,#edeef0 100%) !important;
+    radial-gradient(620px 330px at 0% 0%, rgb(244 220 232 / .20), transparent 66%),
+    radial-gradient(650px 340px at 100% 0%, rgb(201 229 242 / .18), transparent 66%),
+    radial-gradient(500px 280px at 50% 5%, rgb(221 215 241 / .13), transparent 68%),
+    linear-gradient(155deg,#f5f2f3 0%,#f0edef 52%,#edefef 100%) !important;
   background-attachment: fixed;
 }
 
-/* ---------- shared liquid material ---------- */
+/* ---------- the approved glass material ---------- */
 .glass,
 .glass-strong,
 .glass-flat,
@@ -44,111 +47,93 @@ body {
 .dd-public-card,
 .dd-public-cta,
 .dd-landing-demo,
-.dd-patient-card {
+.dd-patient-card,
+.dd-dashboard-card {
   border: 1px solid transparent !important;
-  background:
-    linear-gradient(145deg, rgb(255 255 255 / .70), rgb(246 243 247 / .54)) padding-box,
-    var(--dd-glass-edge) border-box !important;
-  -webkit-backdrop-filter: blur(18px) saturate(132%);
-  backdrop-filter: blur(18px) saturate(132%);
+  background: var(--dd-glass) padding-box, var(--dd-edge) border-box !important;
+  -webkit-backdrop-filter: blur(16px) saturate(126%);
+  backdrop-filter: blur(16px) saturate(126%);
   box-shadow:
-    0 10px 26px rgb(62 53 82 / .105),
-    4px 7px 16px rgb(93 216 239 / .060),
-    -4px -2px 14px rgb(125 99 219 / .055),
-    inset 0 1.5px 1px rgb(255 255 255 / .95),
-    inset 0 -1px 0 rgb(194 220 237 / .24) !important;
+    0 9px 22px rgb(59 51 78 / .085),
+    3px 5px 13px rgb(91 209 233 / .045),
+    -3px -2px 11px rgb(123 98 211 / .04),
+    inset 0 1.5px 1px rgb(255 255 255 / .98),
+    inset 0 -1px 0 rgb(193 219 236 / .20) !important;
 }
 
 .glass-strong,
 .glass-flat-strong {
-  background:
-    linear-gradient(145deg, rgb(255 255 255 / .80), rgb(246 243 247 / .62)) padding-box,
-    var(--dd-glass-edge) border-box !important;
+  background: var(--dd-glass-strong) padding-box, var(--dd-edge) border-box !important;
 }
 
-/* Clinical shared surfaces remain much more opaque for reading. */
+/* Dense clinical reading surfaces deliberately stay close to solid white. */
 .clinical-surface {
   border: 1px solid transparent !important;
   background:
-    linear-gradient(145deg, rgb(255 255 255 / .965), rgb(251 249 251 / .91)) padding-box,
-    linear-gradient(128deg,#fff 0%,rgb(225 218 244 / .68) 30%,rgb(190 231 241 / .46) 58%,rgb(239 214 230 / .40) 82%,#fff 100%) border-box !important;
-  box-shadow:
-    0 9px 23px rgb(64 55 84 / .075),
-    inset 0 1px 1px white !important;
+    linear-gradient(145deg,rgb(255 255 255 / .98),rgb(251 250 251 / .94)) padding-box,
+    linear-gradient(126deg,#fff 0%,rgb(229 223 244 / .64) 31%,rgb(196 232 241 / .40) 59%,rgb(241 220 232 / .35) 82%,#fff 100%) border-box !important;
+  box-shadow: 0 7px 18px rgb(61 53 80 / .06), inset 0 1px 1px white !important;
 }
 
-/* ---------- brand ---------- */
 .dd-brand-mark {
-  filter:
-    drop-shadow(0 6px 10px rgb(86 68 178 / .20))
-    drop-shadow(0 0 6px rgb(95 215 246 / .10));
+  filter: drop-shadow(0 5px 8px rgb(84 67 175 / .18)) drop-shadow(0 0 5px rgb(94 215 246 / .08));
 }
 
-/* ---------- desktop sidebar ---------- */
+/* ---------- app shell ---------- */
 .dd-sidebar {
-  margin: 14px 0 14px 14px !important;
-  height: calc(100dvh - 28px) !important;
-  border-radius: 25px !important;
+  margin: 12px 0 12px 12px !important;
+  height: calc(100dvh - 24px) !important;
   overflow: hidden;
   border: 1px solid transparent !important;
-  background:
-    linear-gradient(150deg, rgb(255 255 255 / .74), rgb(244 240 245 / .57)) padding-box,
-    var(--dd-glass-edge) border-box !important;
-  -webkit-backdrop-filter: blur(20px) saturate(136%) !important;
-  backdrop-filter: blur(20px) saturate(136%) !important;
+  border-radius: 23px !important;
+  background: var(--dd-glass) padding-box, var(--dd-edge) border-box !important;
+  -webkit-backdrop-filter: blur(18px) saturate(130%) !important;
+  backdrop-filter: blur(18px) saturate(130%) !important;
   box-shadow:
-    0 14px 32px rgb(63 53 82 / .12),
-    5px 6px 17px rgb(95 216 239 / .07),
-    -4px -3px 15px rgb(128 102 220 / .06),
+    0 11px 26px rgb(60 51 80 / .10),
+    4px 5px 14px rgb(92 213 236 / .055),
     inset 0 1.5px 1px white !important;
 }
 
 .dd-nav-item {
   border: 1px solid transparent;
-  transition: transform 140ms ease, background 140ms ease, color 140ms ease, box-shadow 140ms ease;
+  transition: transform 120ms ease, background 120ms ease, color 120ms ease, box-shadow 120ms ease;
 }
 
 .dd-nav-item:hover {
   transform: translateY(-1px);
-  background: rgb(255 255 255 / .44);
+  background: rgb(255 255 255 / .43);
 }
 
 .dd-nav-active {
   color: var(--dd-brand) !important;
-  border: 1px solid transparent !important;
   background:
-    linear-gradient(145deg, rgb(255 255 255 / .86), rgb(239 235 249 / .73)) padding-box,
-    linear-gradient(118deg,#fff,rgb(202 190 244 / .80),rgb(166 226 241 / .60),#fff) border-box !important;
+    linear-gradient(145deg,rgb(255 255 255 / .90),rgb(240 236 249 / .74)) padding-box,
+    linear-gradient(119deg,#fff,rgb(205 193 246 / .82),rgb(168 227 242 / .64),#fff) border-box !important;
   box-shadow:
-    0 7px 16px rgb(91 72 174 / .13),
-    0 0 11px rgb(96 218 244 / .08),
+    0 6px 14px rgb(89 71 168 / .12),
+    0 0 9px rgb(93 215 241 / .07),
     inset 0 1px 1px white !important;
 }
 
 .dd-sidebar-note {
   border: 1px solid transparent;
   background:
-    linear-gradient(145deg, rgb(255 255 255 / .58), rgb(246 243 247 / .49)) padding-box,
-    linear-gradient(120deg,#fff,rgb(225 218 241 / .66),rgb(191 230 241 / .42),#fff) border-box;
-  box-shadow: 0 5px 13px rgb(72 62 92 / .055), inset 0 1px 1px white;
+    linear-gradient(145deg,rgb(255 255 255 / .62),rgb(247 244 247 / .51)) padding-box,
+    linear-gradient(120deg,#fff,rgb(228 222 242 / .60),rgb(196 232 241 / .36),#fff) border-box;
+  box-shadow: 0 4px 10px rgb(69 60 88 / .045), inset 0 1px 1px white;
 }
 
-/* ---------- contextual top bar ---------- */
 .dd-topbar {
-  border-radius: 25px !important;
   border: 1px solid transparent !important;
-  background:
-    linear-gradient(145deg, rgb(255 255 255 / .75), rgb(245 242 246 / .57)) padding-box,
-    var(--dd-glass-edge) border-box !important;
-  -webkit-backdrop-filter: blur(18px) saturate(132%);
-  backdrop-filter: blur(18px) saturate(132%);
-  box-shadow:
-    0 10px 24px rgb(65 55 84 / .095),
-    0 0 12px rgb(92 220 245 / .05),
-    inset 0 1.5px 1px white !important;
+  border-radius: 23px !important;
+  background: var(--dd-glass) padding-box, var(--dd-edge) border-box !important;
+  -webkit-backdrop-filter: blur(16px) saturate(126%);
+  backdrop-filter: blur(16px) saturate(126%);
+  box-shadow: 0 8px 19px rgb(61 52 80 / .075), inset 0 1.5px 1px white !important;
 }
 
-/* ---------- milky controls ---------- */
+/* ---------- milky secondary controls ---------- */
 .dd-secondary,
 .dd-icon-btn,
 .dd-profile-chip,
@@ -156,58 +141,59 @@ body {
 .dd-chip,
 .dd-workflow-row,
 .dd-step,
-.dd-feature-icon {
+.dd-feature-icon,
+.dd-quick-row {
   border: 1px solid transparent !important;
   background:
-    linear-gradient(145deg, rgb(255 255 255 / .86), rgb(246 243 247 / .67)) padding-box,
-    linear-gradient(120deg,#fff,rgb(224 218 239 / .72),rgb(192 229 240 / .42),#fff) border-box !important;
-  box-shadow:
-    0 5px 12px rgb(71 61 91 / .065),
-    inset 0 1px 1px rgb(255 255 255 / .98) !important;
+    linear-gradient(145deg,rgb(255 255 255 / .90),rgb(247 244 247 / .72)) padding-box,
+    linear-gradient(120deg,#fff,rgb(228 221 242 / .70),rgb(196 231 240 / .40),#fff) border-box !important;
+  box-shadow: 0 4px 10px rgb(68 59 87 / .055), inset 0 1px 1px white !important;
 }
 
-.dd-secondary {
-  transition: transform 140ms ease, filter 140ms ease, box-shadow 140ms ease;
+.dd-secondary,
+.dd-icon-btn,
+.dd-quick-row {
+  transition: transform 120ms ease, filter 120ms ease, box-shadow 120ms ease;
 }
 
-.dd-secondary:hover {
+.dd-secondary:hover,
+.dd-icon-btn:hover,
+.dd-quick-row:hover {
   transform: translateY(-1px);
-  filter: brightness(1.015);
-  box-shadow:
-    0 7px 14px rgb(71 61 91 / .08),
-    inset 0 1px 1px white !important;
+  filter: brightness(1.012);
 }
 
-/* ---------- glossy violet to aqua primary ---------- */
+/* ---------- glossy primary, kept compact like the board ---------- */
 .dd-primary,
 a.bg-brand,
 button.bg-brand {
   border: 1px solid transparent !important;
   border-radius: 999px !important;
-  color: white !important;
+  color: #fff !important;
+  white-space: nowrap;
   background:
-    radial-gradient(circle at 20% 12%, rgb(255 255 255 / .36), transparent 25%),
-    linear-gradient(100deg,#7559ee 0%,#7d67f8 51%,#62c5ea 100%) padding-box,
-    linear-gradient(120deg,#ddd4fb,#fff,#a7e5f4,#cabcf2) border-box !important;
+    radial-gradient(circle at 18% 10%,rgb(255 255 255 / .38),transparent 25%),
+    linear-gradient(100deg,#7659ee 0%,#8068f6 49%,#61c5eb 100%) padding-box,
+    linear-gradient(120deg,#dfd6fc,#fff,#a9e7f5,#cec1f4) border-box !important;
   box-shadow:
-    0 7px 16px rgb(89 70 195 / .21),
-    0 3px 7px rgb(84 185 220 / .10),
-    inset 0 1px 1px rgb(255 255 255 / .70),
-    inset 0 -1px 0 rgb(62 49 150 / .15) !important;
-  transition: transform 140ms ease, filter 140ms ease, box-shadow 140ms ease;
+    0 6px 14px rgb(88 70 190 / .20),
+    0 2px 6px rgb(82 183 219 / .09),
+    inset 0 1px 1px rgb(255 255 255 / .72),
+    inset 0 -1px 0 rgb(61 48 148 / .14) !important;
+  transition: transform 120ms ease, filter 120ms ease;
 }
 
 .dd-primary:hover,
 a.bg-brand:hover,
 button.bg-brand:hover {
-  filter: brightness(1.025);
+  filter: brightness(1.02);
   transform: translateY(-1px);
 }
 
 .dd-primary:active,
 a.bg-brand:active,
 button.bg-brand:active {
-  transform: translateY(0) scale(.985);
+  transform: scale(.985);
 }
 
 /* ---------- inputs / search ---------- */
@@ -217,193 +203,153 @@ select,
 textarea {
   border: 1px solid transparent !important;
   background:
-    linear-gradient(145deg, rgb(255 255 255 / .88), rgb(247 244 247 / .72)) padding-box,
-    linear-gradient(120deg,#fff,rgb(225 219 239 / .76),rgb(194 230 240 / .42),#fff) border-box !important;
-  box-shadow:
-    0 4px 11px rgb(72 62 94 / .05),
-    inset 0 1px 1px rgb(255 255 255 / .98) !important;
+    linear-gradient(145deg,rgb(255 255 255 / .92),rgb(248 246 248 / .77)) padding-box,
+    linear-gradient(120deg,#fff,rgb(229 223 241 / .72),rgb(198 232 240 / .39),#fff) border-box !important;
+  box-shadow: 0 3px 9px rgb(69 60 90 / .045), inset 0 1px 1px white !important;
 }
 
 input:not([type="checkbox"]):not([type="radio"]):not([type="file"]),
-select {
-  border-radius: 999px !important;
-}
-
-textarea {
-  border-radius: 16px !important;
-}
+select { border-radius: 999px !important; }
+textarea { border-radius: 16px !important; }
 
 input:focus,
 select:focus,
 textarea:focus {
-  box-shadow:
-    0 6px 14px rgb(84 66 150 / .075),
-    0 0 0 3px rgb(111 90 232 / .085),
-    inset 0 1px 1px white !important;
+  box-shadow: 0 4px 10px rgb(84 66 150 / .065), 0 0 0 3px rgb(111 90 232 / .08), inset 0 1px 1px white !important;
 }
 
 input[aria-invalid="true"],
 textarea[aria-invalid="true"],
 select[aria-invalid="true"] {
-  border-color: var(--dd-danger, #b42318) !important;
+  border-color: var(--dd-danger) !important;
 }
 
-/* ---------- public / auth ---------- */
+/* ---------- public/auth ---------- */
 .dd-public-header,
-.dd-public-footer {
-  border-radius: 24px;
-}
-
-.dd-public-header {
-  box-shadow:
-    0 9px 22px rgb(66 55 88 / .10),
-    0 2px 8px rgb(95 215 246 / .045),
-    inset 0 1.5px 1px white !important;
-}
-
+.dd-public-footer { border-radius: 22px; }
 .dd-public-card,
 .dd-public-cta,
-.dd-landing-demo {
-  border-radius: 22px;
+.dd-landing-demo { border-radius: 21px; }
+
+.dd-public-header {
+  box-shadow: 0 8px 19px rgb(61 52 80 / .08), inset 0 1.5px 1px white !important;
 }
 
 .dd-landing-inner {
   background:
-    linear-gradient(145deg, rgb(255 255 255 / .64), rgb(241 238 244 / .50)),
-    radial-gradient(430px 210px at 0% 100%, rgb(146 231 251 / .11), transparent 62%),
-    radial-gradient(420px 210px at 100% 0%, rgb(242 186 224 / .10), transparent 62%);
-  box-shadow: inset 0 1px 1px rgb(255 255 255 / .94);
+    linear-gradient(145deg,rgb(255 255 255 / .70),rgb(242 239 244 / .54)),
+    radial-gradient(380px 180px at 0% 100%,rgb(146 231 251 / .08),transparent 64%),
+    radial-gradient(380px 180px at 100% 0%,rgb(242 186 224 / .07),transparent 64%);
+  box-shadow: inset 0 1px 1px white;
 }
 
-.dd-workflow-row {
-  box-shadow:
-    0 4px 10px rgb(70 60 90 / .055),
-    inset 0 1px 1px white !important;
-}
+.dd-workflow-row { box-shadow: 0 3px 8px rgb(68 59 87 / .045), inset 0 1px 1px white !important; }
+.dd-step { color: #6554d0; }
 
-.dd-step {
-  color: #6554d0;
-}
-
-.dd-public-card {
-  transition: transform 150ms ease, box-shadow 150ms ease;
-}
-
-.dd-public-card:hover {
-  transform: translateY(-2px);
-  box-shadow:
-    0 14px 28px rgb(67 55 90 / .12),
-    5px 6px 15px rgb(92 220 245 / .07),
-    inset 0 1.5px 1px white !important;
-}
+.dd-public-card { transition: transform 140ms ease, box-shadow 140ms ease; }
+.dd-public-card:hover { transform: translateY(-2px); box-shadow: 0 11px 23px rgb(63 53 82 / .09), inset 0 1.5px 1px white !important; }
 
 /* ---------- patient cards ---------- */
 .dd-patient-card {
-  border-radius: 22px;
+  border-radius: 20px;
   background:
-    linear-gradient(145deg, rgb(255 255 255 / .72), rgb(244 240 245 / .54)) padding-box,
-    linear-gradient(128deg,#fff,rgb(213 202 247 / .80),rgb(164 228 243 / .64),rgb(239 204 226 / .56),#fff) border-box !important;
-  transition: transform 150ms ease, box-shadow 150ms ease, filter 150ms ease;
+    linear-gradient(145deg,rgb(255 255 255 / .79),rgb(246 242 246 / .60)) padding-box,
+    linear-gradient(126deg,#fff,rgb(216 205 247 / .74),rgb(173 229 242 / .56),rgb(241 211 229 / .49),#fff) border-box !important;
+  transition: transform 130ms ease, box-shadow 130ms ease, filter 130ms ease;
 }
 
 .dd-patient-card:hover {
   transform: translateY(-2px);
-  filter: brightness(1.01);
-  box-shadow:
-    0 15px 30px rgb(65 54 88 / .13),
-    6px 7px 16px rgb(92 221 245 / .085),
-    -4px -3px 13px rgb(143 105 255 / .07),
-    inset 0 1.5px 1px white !important;
+  filter: brightness(1.008);
+  box-shadow: 0 12px 25px rgb(61 52 82 / .10), 4px 5px 13px rgb(92 216 239 / .06), inset 0 1.5px 1px white !important;
 }
 
 .dd-patient-avatar {
   color: #6550db;
-  border: 1px solid rgb(255 255 255 / .90);
-  background:
-    radial-gradient(circle at 28% 22%,#fff 0 8%,transparent 9%),
-    linear-gradient(145deg,rgb(245 239 255 / .98),rgb(216 209 248 / .86));
-  box-shadow:
-    0 7px 15px rgb(86 68 146 / .12),
-    inset 0 1px 1px white;
+  border: 1px solid rgb(255 255 255 / .92);
+  background: radial-gradient(circle at 27% 20%,#fff 0 8%,transparent 9%),linear-gradient(145deg,#f6f1ff,#ddd5f8);
+  box-shadow: 0 5px 12px rgb(83 67 141 / .10), inset 0 1px 1px white;
 }
 
 .dd-patient-tile {
   background:
-    linear-gradient(145deg,rgb(255 255 255 / .58),rgb(247 244 248 / .44)) padding-box,
-    linear-gradient(120deg,#fff,rgb(226 219 242 / .58),rgb(191 231 242 / .32),#fff) border-box !important;
+    linear-gradient(145deg,rgb(255 255 255 / .66),rgb(248 245 248 / .50)) padding-box,
+    linear-gradient(120deg,#fff,rgb(229 223 242 / .54),rgb(198 232 241 / .29),#fff) border-box !important;
 }
 
 .dd-patient-alert {
   color: #a13242;
   background:
-    linear-gradient(145deg,rgb(255 249 249 / .92),rgb(255 239 242 / .72)) padding-box,
-    linear-gradient(120deg,#fff,rgb(249 204 212 / .67),rgb(244 223 233 / .54),#fff) border-box !important;
+    linear-gradient(145deg,rgb(255 250 250 / .96),rgb(255 241 244 / .78)) padding-box,
+    linear-gradient(120deg,#fff,rgb(249 207 214 / .64),rgb(245 225 234 / .52),#fff) border-box !important;
 }
 
 .dd-patient-safety {
   color: #9f2d39;
-  background:
-    linear-gradient(145deg,rgb(255 250 250 / .94),rgb(255 241 244 / .74)) padding-box,
-    linear-gradient(120deg,#fff,rgb(248 202 211 / .66),rgb(244 222 232 / .52),#fff) border-box !important;
+  border: 1px solid rgb(244 198 207 / .66);
+  background: rgb(255 247 248 / .94);
+  box-shadow: inset 0 1px 0 white;
 }
 
-/* ---------- shared status / dividers ---------- */
+/* ---------- compact dashboard material ---------- */
+.dd-dashboard-card {
+  border-radius: 20px;
+}
+
+.dd-quick-row {
+  min-height: 42px;
+  border-radius: 999px;
+}
+
 .bg-success-soft,
 .bg-warning-soft,
 .bg-danger-soft,
 .bg-info-soft,
 .bg-brand-soft,
-.bg-surface-muted {
-  box-shadow: inset 0 1px 0 rgb(255 255 255 / .78);
-}
+.bg-surface-muted { box-shadow: inset 0 1px 0 rgb(255 255 255 / .76); }
 
 .border-hairline,
-.border-glass-border {
-  border-color: var(--dd-hair) !important;
-}
+.border-glass-border { border-color: var(--dd-hair) !important; }
 
+/* ---------- mobile fidelity ---------- */
 @media (max-width: 1023px) {
   .dd-topbar,
   .dd-public-header,
-  .dd-public-footer {
-    border-radius: 22px !important;
-  }
+  .dd-public-footer { border-radius: 21px !important; }
 }
 
 @media (max-width: 767px) {
   body {
     background-image:
-      radial-gradient(440px 260px at -5% -2%, rgb(247 220 233 / .28), transparent 66%),
-      radial-gradient(460px 260px at 105% 1%, rgb(202 229 244 / .26), transparent 65%),
-      linear-gradient(160deg,#f3eff1 0%,#eeecef 100%) !important;
+      radial-gradient(430px 250px at 0% 0%,rgb(245 220 232 / .17),transparent 67%),
+      radial-gradient(430px 250px at 100% 1%,rgb(200 229 242 / .16),transparent 67%),
+      linear-gradient(160deg,#f4f1f2 0%,#efedef 100%) !important;
   }
 
-  .dd-public-header {
-    border-radius: 21px !important;
-    box-shadow:
-      0 8px 20px rgb(66 55 88 / .095),
-      0 2px 7px rgb(95 215 246 / .04),
-      inset 0 1.5px 1px white !important;
-  }
+  .dd-public-header,
+  .dd-topbar { border-radius: 20px !important; }
+  .dd-patient-card { border-radius: 19px; }
 
+  .dd-primary,
+  a.bg-brand,
+  button.bg-brand { box-shadow: 0 5px 12px rgb(88 70 190 / .18), inset 0 1px 1px rgb(255 255 255 / .70) !important; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dd-nav-item,
+  .dd-secondary,
+  .dd-icon-btn,
+  .dd-primary,
   .dd-public-card,
-  .dd-public-cta,
-  .dd-landing-demo,
-  .dd-patient-card {
-    border-radius: 20px;
-  }
-
-  .dd-primary {
-    box-shadow:
-      0 6px 14px rgb(89 70 195 / .18),
-      0 2px 6px rgb(84 185 220 / .08),
-      inset 0 1px 1px rgb(255 255 255 / .70) !important;
-  }
+  .dd-patient-card,
+  .dd-quick-row { transition: none !important; transform: none !important; }
 }
 
 @media (prefers-reduced-transparency: reduce) {
   .glass,
   .glass-strong,
+  .glass-flat,
+  .glass-flat-strong,
   .dd-liquid,
   .dd-public-header,
   .dd-public-footer,
@@ -411,21 +357,11 @@ select[aria-invalid="true"] {
   .dd-public-cta,
   .dd-landing-demo,
   .dd-patient-card,
+  .dd-dashboard-card,
   .dd-sidebar,
   .dd-topbar {
     -webkit-backdrop-filter: none !important;
     backdrop-filter: none !important;
-    background-color: #faf8fa !important;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .dd-nav-item,
-  .dd-primary,
-  .dd-secondary,
-  .dd-public-card,
-  .dd-patient-card {
-    transition: none !important;
-    transform: none !important;
+    background: #fbf9fb !important;
   }
 }
