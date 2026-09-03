@@ -21,7 +21,7 @@ export function MarketingShell({ children }: { children: ReactNode }) {
               <span className="block whitespace-nowrap text-[16px] leading-none font-semibold tracking-[-0.025em] text-[#40358f] sm:text-[18px]">
                 Doctor&apos;s Diary
               </span>
-              <span className="mt-1 hidden whitespace-nowrap text-[8.5px] font-medium uppercase tracking-[0.18em] text-ink-muted xs:block sm:text-[9.5px]">
+              <span className="mt-1 hidden whitespace-nowrap text-[9.5px] font-medium uppercase tracking-[0.18em] text-ink-muted sm:block">
                 Care · Record · Connect
               </span>
             </span>
