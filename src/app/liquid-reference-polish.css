@@ -11,6 +11,7 @@
 a[class*="border-hairline"],
 button[class*="border-hairline"] {
   border: 1px solid transparent !important;
+  border-radius: 999px !important;
   background:
     linear-gradient(145deg, rgb(255 255 255 / 0.88), rgb(247 244 250 / 0.76)) padding-box,
     linear-gradient(120deg, white, rgb(218 210 242 / 0.7), rgb(175 231 248 / 0.42), white) border-box !important;
@@ -22,6 +23,7 @@ button[class*="border-hairline"] {
 a[class*="border-hairline"]:hover,
 button[class*="border-hairline"]:hover {
   filter: brightness(1.02);
+  transform: translateY(-1px);
 }
 
 /* Compact chip/status surfaces get the same soft material without blur. */
@@ -50,12 +52,10 @@ a[class*="bg-white/"] {
     inset 0 1px 0 rgb(255 255 255 / 0.9);
 }
 
-/* Slightly warmer content gutters make the iridescent edge light visible. */
 main#main {
   position: relative;
 }
 
-/* Keep clinical print absolutely plain. */
 @media print {
   a[class*="border-hairline"],
   button[class*="border-hairline"],
@@ -63,5 +63,6 @@ main#main {
   a.bg-brand {
     background: #fff !important;
     box-shadow: none !important;
+    transform: none !important;
   }
 }
