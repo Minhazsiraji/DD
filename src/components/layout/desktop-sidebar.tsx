@@ -16,29 +16,29 @@ export function DesktopSidebar({
 
   return (
     <aside
-      className="dd-sidebar sticky top-4 ml-4 my-4 hidden h-[calc(100dvh-2rem)] shrink-0 flex-col lg:flex lg:w-[82px] xl:w-[232px]"
+      className="dd-sidebar sticky top-3 hidden h-[calc(100dvh-1.5rem)] shrink-0 flex-col lg:flex lg:w-[74px] xl:w-[220px]"
       aria-label="Main navigation"
     >
       <Link
         href="/dashboard"
-        className="mx-3 mt-3.5 flex h-[68px] items-center gap-3 rounded-[20px] px-2.5 focus-visible:focus-ring xl:px-3"
+        className="mx-2.5 mt-2.5 flex h-[60px] items-center gap-2.5 rounded-[18px] px-2.5 focus-visible:focus-ring xl:px-3"
         aria-label="Doctor's Diary — Today"
       >
-        <BrandMark className="size-11" />
+        <BrandMark className="size-9 shrink-0" />
         <span className="hidden min-w-0 xl:block">
-          <span className="block truncate text-[17px] leading-tight font-semibold tracking-[-0.025em] text-[#40358f]">
+          <span className="block truncate text-[16px] leading-tight font-semibold tracking-[-0.025em] text-[#40358f]">
             Doctor&apos;s Diary
           </span>
-          <span className="mt-1 block truncate text-[10px] font-medium uppercase tracking-[0.18em] text-[#77708f]">
-            Clinical workspace
+          <span className="mt-0.5 block truncate text-[8.5px] font-medium uppercase tracking-[0.18em] text-[#77708f]">
+            Care · Record · Connect
           </span>
         </span>
       </Link>
 
-      <div className="mx-4 mt-2 h-px bg-white/65" aria-hidden="true" />
+      <div className="mx-3.5 mt-1 h-px bg-white/65" aria-hidden="true" />
 
-      <nav className="mt-4 flex-1 overflow-y-auto px-3 pb-3">
-        <ul className="space-y-2">
+      <nav className="mt-3 flex-1 overflow-y-auto px-2.5 pb-3">
+        <ul className="space-y-1.5">
           {PRIMARY_NAV.map((item) => (
             <SidebarLink
               key={item.href}
@@ -51,7 +51,7 @@ export function DesktopSidebar({
       </nav>
 
       {SECONDARY_NAV.length > 0 ? (
-        <div className="border-t border-white/60 px-3 py-3">
+        <div className="border-t border-white/60 px-2.5 py-2.5">
           <ul className="space-y-1.5">
             {SECONDARY_NAV.map((item) => (
               <SidebarLink key={item.href} item={item} pathname={pathname} />
@@ -59,13 +59,6 @@ export function DesktopSidebar({
           </ul>
         </div>
       ) : null}
-
-      <div className="px-3 pb-4">
-        <div className="dd-sidebar-note hidden rounded-[18px] px-3 py-3 text-[11px] leading-relaxed text-ink-muted xl:block">
-          <span className="block font-semibold text-[#4c4667]">Doctor-first workspace</span>
-          Fast access to today, patients and appointments.
-        </div>
-      </div>
     </aside>
   );
 }
@@ -88,7 +81,7 @@ function SidebarLink({
         aria-current={active ? "page" : undefined}
         title={item.label}
         className={cn(
-          "dd-nav-item flex min-h-12 items-center gap-3 rounded-[16px] px-3 py-2.5 text-[14px] font-medium focus-visible:focus-ring",
+          "dd-nav-item flex min-h-11 items-center gap-2.5 rounded-[15px] px-3 py-2 text-[13px] font-medium focus-visible:focus-ring",
           "lg:justify-center xl:justify-start",
           active ? "dd-nav-active text-brand" : "text-ink-secondary hover:text-ink",
         )}
@@ -96,7 +89,7 @@ function SidebarLink({
         <span className="shrink-0" aria-hidden="true">{item.icon}</span>
         <span className="hidden flex-1 truncate xl:block">{item.label}</span>
         {typeof count === "number" && count > 0 ? (
-          <span className="hidden shrink-0 rounded-full border border-white/70 bg-white/72 px-1.5 py-0.5 text-[11px] font-semibold text-brand shadow-[inset_0_1px_0_white] tabular-nums xl:inline-block">
+          <span className="hidden shrink-0 rounded-full border border-white/70 bg-white/72 px-1.5 py-0.5 text-[10.5px] font-semibold text-brand shadow-[inset_0_1px_0_white] tabular-nums xl:inline-block">
             {count}
           </span>
         ) : null}
