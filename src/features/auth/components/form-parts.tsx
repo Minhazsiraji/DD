@@ -32,7 +32,7 @@ export function Field({
 
   return (
     <div className="space-y-1.5">
-      <label htmlFor={id} className="block text-[13px] font-medium text-ink">{label}</label>
+      <label htmlFor={id} className="block text-[12.5px] font-medium text-ink">{label}</label>
       <input
         id={id}
         name={name}
@@ -43,13 +43,13 @@ export function Field({
         aria-invalid={hasError || undefined}
         aria-describedby={[hasError ? errorId : null, hint ? hintId : null].filter(Boolean).join(" ") || undefined}
         className={cn(
-          "dd-input h-12 w-full rounded-full px-4 text-sm text-ink placeholder:text-ink-muted focus-visible:focus-ring",
+          "dd-input h-11 w-full rounded-full px-4 text-[13px] text-ink placeholder:text-ink-muted focus-visible:focus-ring",
           hasError ? "border-danger" : "",
         )}
       />
-      {hint ? <p id={hintId} className="text-xs text-ink-muted">{hint}</p> : null}
+      {hint ? <p id={hintId} className="text-[11.5px] text-ink-muted">{hint}</p> : null}
       {hasError ? (
-        <p id={errorId} className="flex items-start gap-1.5 text-xs font-medium text-danger">
+        <p id={errorId} className="flex items-start gap-1.5 text-[11.5px] font-medium text-danger">
           <CircleAlert className="mt-px size-3.5 shrink-0" aria-hidden="true" />
           {errors![0]}
         </p>
@@ -65,11 +65,11 @@ export function SubmitButton({ children }: { children: React.ReactNode }) {
     <button
       type="submit"
       disabled={pending}
-      className="dd-primary inline-flex h-12 w-full items-center justify-center gap-2 rounded-full px-5 text-sm font-semibold text-white transition-[transform,filter] duration-150 disabled:cursor-not-allowed disabled:opacity-60 focus-visible:focus-ring"
+      className="dd-primary inline-flex h-11 w-full items-center justify-center gap-2 rounded-full px-5 text-[13px] font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60 focus-visible:focus-ring"
     >
       {pending ? (
         <>
-          <Loader className="size-4 animate-spin" aria-hidden="true" />
+          <Loader className="size-3.5 animate-spin" aria-hidden="true" />
           Working…
         </>
       ) : children}
@@ -84,7 +84,7 @@ export function FormMessage({ state }: { state: ActionState }) {
     <p
       role="status"
       className={cn(
-        "flex items-start gap-2 rounded-[16px] px-3 py-2.5 text-[13px] font-medium",
+        "flex items-start gap-2 rounded-[14px] px-3 py-2.5 text-[12px] font-medium",
         state.ok ? "bg-success-soft text-[#07684a]" : "bg-danger-soft text-[#a81c1c]",
       )}
     >
@@ -106,12 +106,12 @@ export function AuthCard({
   footer?: React.ReactNode;
 }) {
   return (
-    <div className="dd-liquid rounded-[25px] p-6 sm:p-7">
-      <h1 className="text-[22px] font-semibold tracking-[-0.025em] text-ink">{title}</h1>
-      {subtitle ? <p className="mt-1.5 text-sm text-ink-secondary">{subtitle}</p> : null}
-      <div className="mt-6">{children}</div>
+    <div className="dd-liquid rounded-[22px] p-5 sm:p-6">
+      <h1 className="text-[20px] font-semibold tracking-[-0.025em] text-ink">{title}</h1>
+      {subtitle ? <p className="mt-1 text-[13px] text-ink-secondary">{subtitle}</p> : null}
+      <div className="mt-5">{children}</div>
       {footer ? (
-        <div className="mt-5 border-t border-white/65 pt-4 text-center text-[13px] text-ink-secondary">{footer}</div>
+        <div className="mt-5 border-t border-white/65 pt-4 text-center text-[12px] text-ink-secondary">{footer}</div>
       ) : null}
     </div>
   );
