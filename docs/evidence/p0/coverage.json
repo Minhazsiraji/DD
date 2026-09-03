@@ -1,0 +1,37 @@
+{
+  "phase": "P0",
+  "architecture_sha256": "fb28a7985702d3a8975ad5dd3804e6072b9775f67e5b9315603bbe2586d88514",
+  "track": "A",
+  "status": "IN_PROGRESS",
+  "executed": {
+    "manifest_replay": true,
+    "dd_chk_31": true,
+    "forced_rls_boundary": true,
+    "p1_plus_exclusion": true,
+    "audit_foundation": true,
+    "domain_l_clinical_fk_exclusion": true,
+    "verified_doctor_write": true,
+    "prescription_immutability": true,
+    "queue_token_allocation": true,
+    "golden_dump_comparison": true,
+    "lint": true,
+    "typecheck": true,
+    "tests": true,
+    "build": true
+  },
+  "outstanding": [
+    "full 25-proof matrix",
+    "21 applicable Set-A runtime assets",
+    "verify-doctor-isolation.mjs P0 extension",
+    "verify-rx-immutability.mjs P0 extension",
+    "complete P0 RPC and policy coverage",
+    "adversarial multi-role RLS suite",
+    "Storage API object-path runtime suite",
+    "D-12 concurrent contention and rollback suite",
+    "credential-state negative matrix",
+    "composite-FK negative matrix",
+    "no-exclusion/search_path/anon surface verifiers",
+    "final evidence logs for every proof"
+  ],
+  "track_b_contact_or_write": 0
+}
