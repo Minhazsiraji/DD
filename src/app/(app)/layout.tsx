@@ -1,6 +1,8 @@
 import { redirect } from "next/navigation";
+import { DesktopSidebar } from "@/components/layout/desktop-sidebar";
 import { MobileBottomNav } from "@/components/layout/mobile-bottom-nav";
 import { TopBar } from "@/components/layout/top-bar";
+import { getNavCounts } from "@/features/queue/nav-counts";
 import type { LocationOption, LocationType } from "@/components/layout/location-switcher";
 import { requireUser, getMemberships, ACTIVE_LOCATION_COOKIE } from "@/lib/auth/session";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
@@ -9,7 +11,14 @@ import { IdleLock } from "@/features/security/components/idle-lock";
 import { SHARED_DEVICE_COOKIE, requiresMfaChallenge } from "@/features/security/policy";
 import { redirect as nextRedirect } from "next/navigation";
 
-/** Authenticated workspace shell. Desktop uses the approved floating top header. */
+/**
+ * Authenticated workspace shell.
+ *
+ * Desktop keeps the locked Pilot left navigation (Today · Patients ·
+ * Appointments · More) inside the selected liquid-glass shell. The top bar is
+ * contextual only: chamber, patient search, quick action, notifications and
+ * profile. Mobile keeps the accepted bottom navigation.
+ */
 export default async function AppLayout({ children }: LayoutProps<"/">) {
   const user = await requireUser();
   const supabase = await createSupabaseServerClient();
@@ -51,17 +60,26 @@ export default async function AppLayout({ children }: LayoutProps<"/">) {
     locations.find((c) => c.id === requested)?.id ?? locations[0]!.id;
 
   const doctorName = profile?.full_name ?? user.email?.split("@")[0] ?? "Doctor";
+  const navCounts = await getNavCounts(activeLocationId);
 
   return (
-    <div className="min-h-dvh min-w-0 overflow-x-clip">
-      <TopBar doctorName={doctorName} locations={locations} activeLocationId={activeLocationId} />
+    <div className="flex min-h-dvh min-w-0 overflow-x-clip">
+      <DesktopSidebar counts={navCounts} />
 
-      <main
-        id="main"
-        className="mx-auto min-w-0 w-full max-w-[1560px] overflow-x-clip px-4 py-4 pb-[calc(76px+env(safe-area-inset-bottom))] sm:px-6 sm:py-5 lg:px-7 lg:pb-8"
-      >
-        {children}
-      </main>
+      <div className="flex min-w-0 flex-1 flex-col">
+        <TopBar
+          doctorName={doctorName}
+          locations={locations}
+          activeLocationId={activeLocationId}
+        />
+
+        <main
+          id="main"
+          className="mx-auto min-w-0 w-full max-w-[1480px] flex-1 overflow-x-clip px-4 py-4 pb-[calc(76px+env(safe-area-inset-bottom))] sm:px-6 sm:py-5 lg:px-6 lg:pb-8 xl:px-7"
+        >
+          {children}
+        </main>
+      </div>
 
       <MobileBottomNav />
       <IdleLock sharedDevice={sharedDevice} />
