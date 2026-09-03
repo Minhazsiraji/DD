@@ -4,7 +4,7 @@ import * as React from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
-import { BrandMark } from "@/components/brand/brand-mark";
+import { BrandMark, BrandWordmark } from "@/components/brand/brand-mark";
 import { PRIMARY_NAV, SECONDARY_NAV, type NavItem } from "./nav-config";
 
 export function DesktopSidebar({
@@ -21,18 +21,11 @@ export function DesktopSidebar({
     >
       <Link
         href="/dashboard"
-        className="mx-2.5 mt-2.5 flex h-[60px] items-center gap-2.5 rounded-[18px] px-2.5 focus-visible:focus-ring xl:px-3"
+        className="mx-2.5 mt-2.5 flex h-[60px] items-center gap-2 rounded-[18px] px-2 focus-visible:focus-ring xl:px-2.5"
         aria-label="Doctor's Diary — Today"
       >
-        <BrandMark className="size-9 shrink-0" />
-        <span className="hidden min-w-0 xl:block">
-          <span className="block truncate text-[16px] leading-tight font-semibold tracking-[-0.025em] text-[#40358f]">
-            Doctor&apos;s Diary
-          </span>
-          <span className="mt-0.5 block truncate text-[8.5px] font-medium uppercase tracking-[0.18em] text-[#77708f]">
-            Care · Record · Connect
-          </span>
-        </span>
+        <BrandMark className="h-9 w-11 shrink-0" />
+        <BrandWordmark className="hidden min-w-0 text-[15.5px] xl:block" tagline />
       </Link>
 
       <div className="mx-3.5 mt-1 h-px bg-white/65" aria-hidden="true" />
