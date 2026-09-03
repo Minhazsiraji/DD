@@ -3,6 +3,7 @@ import { Inter, Noto_Sans_Bengali, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import "./liquid-ui.css";
 import "./clinical-liquid-ui.css";
+import "./reference-fidelity.css";
 
 const fontSans = Inter({
   variable: "--font-sans",
@@ -44,7 +45,7 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
-  themeColor: "#f2eff1",
+  themeColor: "#e9e1e5",
   width: "device-width",
   initialScale: 1,
   maximumScale: 5,
