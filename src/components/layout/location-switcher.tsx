@@ -24,11 +24,11 @@ export interface LocationOption {
 }
 
 const TYPE_ICON: Record<LocationType, React.ReactNode> = {
-  PERSONAL_CHAMBER: <Building2 className="size-4" />,
-  CLINIC: <Hospital className="size-4" />,
-  HOSPITAL: <Hospital className="size-4" />,
-  TELEMEDICINE: <Video className="size-4" />,
-  OTHER: <Building2 className="size-4" />,
+  PERSONAL_CHAMBER: <Building2 className="size-3.5" />,
+  CLINIC: <Hospital className="size-3.5" />,
+  HOSPITAL: <Hospital className="size-3.5" />,
+  TELEMEDICINE: <Video className="size-3.5" />,
+  OTHER: <Building2 className="size-3.5" />,
 };
 
 const TYPE_LABEL: Record<LocationType, string> = {
@@ -86,7 +86,7 @@ export function LocationSwitcher({
             disabled={pending}
             aria-label={`Location: ${active.name}. Change location.`}
             className={cn(
-              "dd-secondary inline-flex h-11 max-w-[240px] items-center gap-2 rounded-full px-3 text-left disabled:opacity-60 focus-visible:focus-ring",
+              "dd-secondary inline-flex h-10 max-w-[220px] items-center gap-1.5 rounded-full px-2.5 text-left disabled:opacity-60 focus-visible:focus-ring",
               className,
             )}
           />
@@ -96,25 +96,25 @@ export function LocationSwitcher({
           {TYPE_ICON[active.type]}
         </span>
         <span className="hidden min-w-0 sm:block">
-          <span className="block truncate text-[13px] leading-tight font-semibold text-ink">{active.name}</span>
-          <span className="block truncate text-[11px] text-ink-muted">{roleSummary || TYPE_LABEL[active.type]}</span>
+          <span className="block truncate text-[11.5px] leading-tight font-semibold text-ink">{active.name}</span>
+          <span className="block truncate text-[9.5px] text-ink-muted">{roleSummary || TYPE_LABEL[active.type]}</span>
         </span>
-        <ChevronsUpDown className="size-3.5 shrink-0 text-ink-muted" aria-hidden="true" />
+        <ChevronsUpDown className="size-3 shrink-0 text-ink-muted" aria-hidden="true" />
       </DropdownMenuTrigger>
 
-      <DropdownMenuContent align="start" className="dd-liquid w-72 rounded-[20px] border-0 p-1.5">
+      <DropdownMenuContent align="start" className="dd-liquid w-72 rounded-[18px] border-0 p-1.5">
         <DropdownMenuGroup>
           <DropdownMenuLabel>Where are you working?</DropdownMenuLabel>
           {locations.map((c) => (
             <DropdownMenuItem
               key={c.id}
               onClick={() => select(c.id)}
-              className="items-start gap-2.5 rounded-[14px] py-2.5"
+              className="items-start gap-2.5 rounded-[13px] py-2.5"
             >
               <span className="mt-0.5 shrink-0 text-brand" aria-hidden="true">{TYPE_ICON[c.type]}</span>
               <span className="min-w-0 flex-1">
-                <span className="block truncate text-[13px] font-semibold text-ink">{c.name}</span>
-                <span className="block truncate text-[11px] text-ink-muted">
+                <span className="block truncate text-[12.5px] font-semibold text-ink">{c.name}</span>
+                <span className="block truncate text-[10.5px] text-ink-muted">
                   {TYPE_LABEL[c.type]}
                   {c.roles.length ? ` · ${c.roles.map((r) => ROLE_LABEL[r] ?? r).join(" · ")}` : ""}
                 </span>
@@ -124,7 +124,7 @@ export function LocationSwitcher({
           ))}
         </DropdownMenuGroup>
 
-        <p className="border-t border-white/60 px-2 pt-2 pb-1 text-[11px] leading-snug text-ink-muted">
+        <p className="border-t border-white/60 px-2 pt-2 pb-1 text-[10.5px] leading-snug text-ink-muted">
           Switching changes your schedule, queue and staff. Your own patient records stay the same everywhere.
         </p>
       </DropdownMenuContent>
