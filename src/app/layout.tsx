@@ -2,9 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { Inter, Noto_Sans_Bengali, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import "./liquid-glass.css";
-import "./liquid-reference-polish.css";
-import "./liquid-reference-exact.css";
-import "./liquid-rx-exact.css";
+import "./liquid-common-shell.css";
 
 /**
  * Self-hosted by next/font at build time — no runtime font-CDN request.
@@ -51,7 +49,7 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
-  themeColor: "#f7f6fa",
+  themeColor: "#f1ebf0",
   width: "device-width",
   initialScale: 1,
   maximumScale: 5,
