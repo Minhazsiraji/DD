@@ -6,12 +6,11 @@ import { IconOrb, type OrbAccent } from "@/components/common/icon-orb";
 
 const ACCENT_TEXT: Record<OrbAccent, string> = {
   brand: "text-brand",
-  // (teal — see --dd-brand; deep enough to carry text at 5.5:1 on white)
-  violet: "text-[#6b35d6]",
-  success: "text-[#07684a]",
-  warning: "text-[#8a3f07]",
-  danger: "text-[#a81c1c]",
-  info: "text-[#0a5a80]",
+  violet: "text-[#6550db]",
+  success: "text-[#087a62]",
+  warning: "text-[#a65d0f]",
+  danger: "text-[#b63745]",
+  info: "text-[#376ed8]",
 };
 
 interface StatCardProps {
@@ -24,10 +23,6 @@ interface StatCardProps {
   className?: string;
 }
 
-/**
- * StatCard — a summary tile. Summary content, so the glass material is fine.
- * The value uses tabular numerals so a row of tiles stays optically aligned.
- */
 export function StatCard({
   label,
   value,
@@ -40,32 +35,25 @@ export function StatCard({
   const body = (
     <>
       <div className="flex items-start justify-between gap-3">
-        <IconOrb accent={accent} size="lg">
-          {icon}
-        </IconOrb>
-        <span className="text-[28px] leading-none font-bold text-ink tabular-nums sm:text-[32px]">
+        <IconOrb accent={accent} size="lg">{icon}</IconOrb>
+        <span className="text-[28px] leading-none font-bold tracking-[-0.035em] text-ink tabular-nums sm:text-[32px]">
           {value}
         </span>
       </div>
       <div className="mt-4">
-        <p className={cn("text-sm font-semibold", ACCENT_TEXT[accent])}>{label}</p>
-        {hint ? <p className="mt-0.5 text-xs text-ink-muted">{hint}</p> : null}
+        <p className={cn("text-sm font-semibold tracking-[-0.01em]", ACCENT_TEXT[accent])}>{label}</p>
+        {hint ? <p className="mt-0.5 text-xs leading-relaxed text-ink-muted">{hint}</p> : null}
       </div>
     </>
   );
 
   if (href) {
     return (
-      <GlassCard
-        interactive
-        className={cn("focus-within:focus-ring p-5", className)}
-      >
-        <Link href={href} className="block outline-none">
-          {body}
-        </Link>
+      <GlassCard interactive className={cn("liquid-stat-card focus-within:focus-ring p-5", className)}>
+        <Link href={href} className="block outline-none">{body}</Link>
       </GlassCard>
     );
   }
 
-  return <GlassCard className={cn("p-5", className)}>{body}</GlassCard>;
+  return <GlassCard className={cn("liquid-stat-card p-5", className)}>{body}</GlassCard>;
 }
