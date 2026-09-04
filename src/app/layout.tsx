@@ -14,6 +14,7 @@ import "./reference-skin-test.css";
 import "./layered-liquid-study.css";
 import "./approved-liquid-material.css";
 import "./global-background-test.css";
+import "./full-liquid-pass.css";
 
 const fontSans = Inter({
   variable: "--font-sans",
