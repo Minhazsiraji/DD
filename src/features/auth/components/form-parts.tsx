@@ -43,7 +43,7 @@ export function Field({
         aria-invalid={hasError || undefined}
         aria-describedby={[hasError ? errorId : null, hint ? hintId : null].filter(Boolean).join(" ") || undefined}
         className={cn(
-          "dd-input h-11 w-full rounded-full px-4 text-[13px] text-ink placeholder:text-ink-muted focus-visible:focus-ring",
+          "dd-input dd-auth-input h-11 w-full rounded-full px-4 text-[13px] text-ink placeholder:text-ink-muted focus-visible:focus-ring",
           hasError ? "border-danger" : "",
         )}
       />
@@ -106,13 +106,20 @@ export function AuthCard({
   footer?: React.ReactNode;
 }) {
   return (
-    <div className="dd-liquid rounded-[22px] p-5 sm:p-6">
-      <h1 className="text-[20px] font-semibold tracking-[-0.025em] text-ink">{title}</h1>
-      {subtitle ? <p className="mt-1 text-[13px] text-ink-secondary">{subtitle}</p> : null}
-      <div className="mt-5">{children}</div>
-      {footer ? (
-        <div className="mt-5 border-t border-white/65 pt-4 text-center text-[12px] text-ink-secondary">{footer}</div>
-      ) : null}
+    <div className="dd-approved-stage dd-auth-card-stage">
+      <span className="dd-approved-light" aria-hidden />
+      <div className="dd-auth-card dd-approved-slab p-5 sm:p-6">
+        <span className="dd-approved-glows" aria-hidden />
+        <span className="dd-approved-contour" aria-hidden />
+        <div className="dd-approved-content">
+          <h1 className="text-[20px] font-semibold tracking-[-0.025em] text-ink">{title}</h1>
+          {subtitle ? <p className="mt-1 text-[13px] text-ink-secondary">{subtitle}</p> : null}
+          <div className="mt-5">{children}</div>
+          {footer ? (
+            <div className="mt-5 border-t border-white/65 pt-4 text-center text-[12px] text-ink-secondary">{footer}</div>
+          ) : null}
+        </div>
+      </div>
     </div>
   );
 }
