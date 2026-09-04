@@ -1,24 +1,19 @@
 /*
  * Doctor's Diary — canonical brand/action lock.
- *
- * Owner-approved sources:
- * 1) violet liquid action button marked in the supplied UI reference;
- * 2) blue + teal glossy DD notebook logo supplied by the owner.
- *
- * Use the violet/blue liquid treatment for primary actions and active choices.
- * Keep success/warning/danger clinical semantics unchanged.
+ * Owner-approved: glossy blue+teal DD logo + violet liquid primary button.
+ * Semantic clinical status colours remain untouched.
  */
 
 :root {
-  --dd-action-violet-hi: #8a70f3;
-  --dd-action-violet-mid: #7d65eb;
-  --dd-action-violet-deep: #6b55d8;
-  --dd-action-blue-reflect: #70a7ee;
-  --dd-action-cyan-rim: #9de8f8;
-  --dd-action-focus: #745de1;
+  --dd-action-violet-hi: #8d72f7;
+  --dd-action-violet-mid: #7a5feb;
+  --dd-action-violet-deep: #654bd6;
+  --dd-action-blue-reflect: #5ca9ee;
+  --dd-action-cyan-rim: #8fe8f7;
+  --dd-action-focus: #7359e2;
 }
 
-/* Canonical primary action — matched to the red-tick reference button. */
+/* Exact primary-action family from the approved red-tick reference. */
 .dd-primary,
 a.bg-brand,
 button.bg-brand,
@@ -29,26 +24,28 @@ button.bg-primary,
   border-radius: 999px !important;
   color: #fff !important;
   background:
-    radial-gradient(88% 115% at 26% -18%, rgba(255,255,255,.66) 0%, rgba(255,255,255,.18) 28%, transparent 54%),
-    radial-gradient(62% 150% at 104% 50%, rgba(112,167,238,.56) 0%, rgba(112,167,238,.22) 30%, transparent 58%),
-    linear-gradient(100deg,
-      var(--dd-action-violet-hi) 0%,
-      var(--dd-action-violet-mid) 38%,
-      #745ce3 68%,
-      var(--dd-action-violet-deep) 100%) padding-box,
+    radial-gradient(95% 120% at 24% -18%, rgba(255,255,255,.74) 0%, rgba(255,255,255,.21) 29%, transparent 54%),
+    radial-gradient(72% 165% at 106% 52%, rgba(77,184,239,.84) 0%, rgba(78,169,236,.42) 34%, transparent 62%),
+    linear-gradient(98deg,
+      #8d72f7 0%,
+      #8165f0 24%,
+      #775de8 48%,
+      #6f58e1 66%,
+      #5ea9ec 100%) padding-box,
     linear-gradient(118deg,
-      rgba(235,225,255,.99) 0%,
+      rgba(241,233,255,.99) 0%,
       #fff 24%,
-      rgba(174,227,247,.98) 69%,
-      rgba(211,193,255,.97) 100%) border-box !important;
+      rgba(166,231,248,.99) 69%,
+      rgba(207,191,255,.98) 100%) border-box !important;
   box-shadow:
-    0 0 0 1px rgba(255,255,255,.52),
-    0 0 11px rgba(120,91,244,.24),
-    0 8px 17px rgba(83,62,172,.26),
-    0 3px 9px rgba(82,181,229,.16),
-    inset 0 2px 1px rgba(255,255,255,.86),
-    inset 0 -2px 4px rgba(55,40,134,.19) !important;
-  text-shadow: 0 1px 1px rgba(44,29,111,.18);
+    0 0 0 1px rgba(255,255,255,.68),
+    0 0 13px rgba(116,86,240,.42),
+    0 0 14px rgba(82,203,241,.18),
+    0 8px 17px rgba(80,58,172,.28),
+    0 3px 9px rgba(73,171,229,.20),
+    inset 0 2px 1px rgba(255,255,255,.91),
+    inset 0 -2px 4px rgba(48,35,128,.23) !important;
+  text-shadow: 0 1px 1px rgba(40,27,106,.22);
 }
 
 .dd-primary:hover,
@@ -57,7 +54,7 @@ button.bg-brand:hover,
 a.bg-primary:hover,
 button.bg-primary:hover,
 .bg-primary:hover {
-  filter: brightness(1.025) saturate(1.035);
+  filter: brightness(1.035) saturate(1.06);
   transform: translateY(-1px);
 }
 
@@ -67,24 +64,22 @@ button.bg-brand:active,
 a.bg-primary:active,
 button.bg-primary:active,
 .bg-primary:active {
-  filter: brightness(.985) saturate(.995);
+  filter: brightness(.985) saturate(1.01);
   transform: translateY(0) scale(.988);
 }
 
-/* The right arrow bubble gets the same cool-blue reflection as the reference. */
 .dd-primary-arrow svg {
   color: #fff !important;
   background:
-    radial-gradient(circle at 28% 18%, rgba(255,255,255,.48), transparent 42%),
-    linear-gradient(145deg, rgba(151,126,245,.54), rgba(91,157,232,.56)) !important;
+    radial-gradient(circle at 28% 18%, rgba(255,255,255,.56), transparent 42%),
+    linear-gradient(145deg, rgba(139,111,244,.58), rgba(74,174,235,.70)) !important;
   box-shadow:
-    inset 0 1px 1px rgba(255,255,255,.62),
-    0 0 0 1px rgba(225,236,255,.34),
-    0 2px 7px rgba(66,57,168,.18) !important;
+    inset 0 1px 1px rgba(255,255,255,.70),
+    0 0 0 1px rgba(226,240,255,.42),
+    0 2px 7px rgba(64,54,165,.22) !important;
 }
 
-/* Active navigation / tabs / selected filters use the same action family.
-   Semantic status controls are intentionally excluded. */
+/* Active navigation / selected tabs use the same approved action colour family. */
 .dd-nav-active,
 .dd-sidebar a[aria-current="page"],
 .dd-topbar a[aria-current="page"],
@@ -93,17 +88,16 @@ button.bg-primary:active,
   color: #fff !important;
   border: 1px solid transparent !important;
   background:
-    radial-gradient(92% 120% at 24% -16%, rgba(255,255,255,.58) 0%, rgba(255,255,255,.15) 28%, transparent 52%),
-    radial-gradient(65% 160% at 104% 55%, rgba(112,167,238,.48) 0%, transparent 60%),
-    linear-gradient(100deg, #876df1 0%, #7b63e9 45%, #6b56d9 100%) padding-box,
-    linear-gradient(118deg, rgba(235,225,255,.98), #fff 24%, rgba(174,227,247,.94) 70%, rgba(211,193,255,.93)) border-box !important;
+    radial-gradient(95% 120% at 24% -16%, rgba(255,255,255,.66) 0%, rgba(255,255,255,.16) 29%, transparent 53%),
+    radial-gradient(68% 165% at 106% 52%, rgba(77,184,239,.70) 0%, transparent 62%),
+    linear-gradient(98deg, #896ef4 0%, #7a60eb 45%, #6b51dc 72%, #5fa7e9 100%) padding-box,
+    linear-gradient(118deg, rgba(240,232,255,.99), #fff 24%, rgba(165,230,247,.98) 70%, rgba(208,191,255,.96)) border-box !important;
   box-shadow:
-    0 0 9px rgba(119,92,237,.18),
-    0 6px 14px rgba(83,62,172,.22),
-    inset 0 1.7px 1px rgba(255,255,255,.82) !important;
+    0 0 10px rgba(116,86,240,.32),
+    0 6px 14px rgba(80,58,172,.24),
+    inset 0 1.8px 1px rgba(255,255,255,.86) !important;
 }
 
-/* Brand action focus + native selections. */
 .dd-primary:focus-visible,
 a.bg-brand:focus-visible,
 button.bg-brand:focus-visible,
@@ -111,22 +105,25 @@ a.bg-primary:focus-visible,
 button.bg-primary:focus-visible,
 .dd-nav-active:focus-visible,
 [role="tab"][aria-selected="true"]:focus-visible {
-  outline: 2px solid rgba(116,93,225,.72) !important;
+  outline: 2px solid rgba(115,89,226,.76) !important;
   outline-offset: 2px !important;
 }
 
 input[type="checkbox"],
-input[type="radio"] {
-  accent-color: var(--dd-action-focus);
-}
+input[type="radio"] { accent-color: var(--dd-action-focus); }
 
-/* The supplied DD artwork is now the canonical mark used by BrandMark. */
+/* Canonical owner-supplied glossy DD mark. */
 .dd-brand-mark {
   overflow: hidden;
   border-radius: 12px;
+  background: transparent !important;
 }
 
 .dd-brand-mark img {
+  display: block !important;
+  width: 100% !important;
+  height: 100% !important;
+  object-fit: contain !important;
   mix-blend-mode: multiply;
   transform: scale(1.035);
 }
@@ -139,12 +136,12 @@ input[type="radio"] {
   button.bg-primary,
   .bg-primary {
     box-shadow:
-      0 0 0 1px rgba(255,255,255,.46),
-      0 0 9px rgba(120,91,244,.20),
-      0 7px 14px rgba(83,62,172,.23),
-      0 2px 7px rgba(82,181,229,.13),
-      inset 0 1.7px 1px rgba(255,255,255,.84),
-      inset 0 -1.5px 3px rgba(55,40,134,.17) !important;
+      0 0 0 1px rgba(255,255,255,.60),
+      0 0 10px rgba(116,86,240,.35),
+      0 7px 14px rgba(80,58,172,.25),
+      0 2px 7px rgba(73,171,229,.16),
+      inset 0 1.7px 1px rgba(255,255,255,.88),
+      inset 0 -1.5px 3px rgba(48,35,128,.19) !important;
   }
 }
 
