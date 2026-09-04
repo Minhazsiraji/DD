@@ -107,32 +107,46 @@ export default function RootPage() {
       <section className="mx-auto max-w-7xl px-4 py-6 sm:px-5 sm:py-7 lg:px-7 lg:py-8">
         <div className="grid gap-3 md:grid-cols-3">
           {benefits.map((benefit) => (
-            <article key={benefit.title} className="dd-public-card p-4 sm:p-5">
-              <span className="dd-feature-icon inline-flex size-9 items-center justify-center rounded-[13px] text-[#6655cf]">
-                {benefit.icon}
-              </span>
-              <h2 className="mt-3 text-[15.5px] font-semibold tracking-[-0.02em] text-[#302a59] sm:text-[16.5px]">{benefit.title}</h2>
-              <p className="mt-1.5 text-[12.5px] leading-5.5 text-ink-secondary sm:text-[13px] sm:leading-6">{benefit.body}</p>
-            </article>
+            <div key={benefit.title} className="dd-approved-stage dd-lower-card-stage">
+              <span className="dd-approved-light" aria-hidden />
+              <article className="dd-public-card dd-approved-slab dd-lower-approved p-4 sm:p-5">
+                <span className="dd-approved-glows" aria-hidden />
+                <span className="dd-approved-contour" aria-hidden />
+                <div className="dd-approved-content">
+                  <span className="dd-feature-icon inline-flex size-9 items-center justify-center rounded-[13px] text-[#6655cf]">
+                    {benefit.icon}
+                  </span>
+                  <h2 className="mt-3 text-[15.5px] font-semibold tracking-[-0.02em] text-[#302a59] sm:text-[16.5px]">{benefit.title}</h2>
+                  <p className="mt-1.5 text-[12.5px] leading-5.5 text-ink-secondary sm:text-[13px] sm:leading-6">{benefit.body}</p>
+                </div>
+              </article>
+            </div>
           ))}
         </div>
       </section>
 
       <section className="mx-auto max-w-7xl px-4 py-9 sm:px-5 sm:py-11 lg:px-7 lg:py-12">
-        <div className="dd-public-cta px-5 py-6 sm:px-7 lg:flex lg:items-center lg:justify-between lg:px-8">
-          <div>
-            <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[#6554d0]">Founding doctors</p>
-            <h2 className="mt-2.5 text-[24px] leading-tight font-semibold tracking-[-0.035em] text-[#2b254f] sm:text-[28px]">Help shape the workflow before wider launch.</h2>
-            <p className="mt-2.5 max-w-2xl text-[13px] leading-6 text-ink-secondary sm:text-[13.5px]">
-              Early doctors get high-touch onboarding and an early-user commercial plan while pilot evidence is completed.
-            </p>
+        <div className="dd-approved-stage dd-lower-wide-stage">
+          <span className="dd-approved-light" aria-hidden />
+          <div className="dd-public-cta dd-approved-slab dd-lower-approved">
+            <span className="dd-approved-glows" aria-hidden />
+            <span className="dd-approved-contour" aria-hidden />
+            <div className="dd-approved-content px-5 py-6 sm:px-7 lg:flex lg:items-center lg:justify-between lg:px-8">
+              <div>
+                <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[#6554d0]">Founding doctors</p>
+                <h2 className="mt-2.5 text-[24px] leading-tight font-semibold tracking-[-0.035em] text-[#2b254f] sm:text-[28px]">Help shape the workflow before wider launch.</h2>
+                <p className="mt-2.5 max-w-2xl text-[13px] leading-6 text-ink-secondary sm:text-[13.5px]">
+                  Early doctors get high-touch onboarding and an early-user commercial plan while pilot evidence is completed.
+                </p>
+              </div>
+              <Link
+                href="/pricing"
+                className="dd-secondary mt-5 inline-flex h-10 items-center whitespace-nowrap rounded-full px-4 text-[12.5px] font-semibold text-ink-secondary lg:mt-0"
+              >
+                View the plan
+              </Link>
+            </div>
           </div>
-          <Link
-            href="/pricing"
-            className="dd-secondary mt-5 inline-flex h-10 items-center whitespace-nowrap rounded-full px-4 text-[12.5px] font-semibold text-ink-secondary lg:mt-0"
-          >
-            View the plan
-          </Link>
         </div>
       </section>
     </MarketingShell>
