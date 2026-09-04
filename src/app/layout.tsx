@@ -18,6 +18,7 @@ import "./approved-liquid-material.css";
 import "./global-background-test.css";
 import "./organ-bg-polish.css";
 import "./lower-header-rim-exact.css";
+import "./canonical-brand.css";
 
 const fontSans = Inter({
   variable: "--font-sans",

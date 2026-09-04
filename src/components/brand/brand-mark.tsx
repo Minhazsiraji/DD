@@ -7,10 +7,10 @@ export function BrandMark({ className }: { className?: string }) {
       className={cn("dd-brand-mark inline-flex shrink-0 items-center justify-center", className)}
       aria-hidden="true"
     >
-      {/* Browser-safe owner-approved DD mark. */}
+      {/* Canonical owner-supplied DD logo mark. */}
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
-        src="/brand/dd-mark-safe.png"
+        src="/brand/dd-logo-mark-canonical.webp"
         alt=""
         draggable={false}
         className="h-full w-full object-contain"
