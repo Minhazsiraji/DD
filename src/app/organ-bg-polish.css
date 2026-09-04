@@ -1,0 +1,242 @@
+/* Doctor's Diary — organ-background preview polish.
+   Purpose: keep the approved organ canvas, increase text contrast, and make the
+   lower landing cards + auth surfaces use the SAME refractive rim language as
+   the approved header. Presentation only. */
+
+:root {
+  --dd-preview-ink: #211b4a;
+  --dd-preview-body: #3f4968;
+  --dd-preview-muted: #59637d;
+}
+
+/* ---------------- text contrast over the organ artwork ---------------- */
+body {
+  color: var(--dd-preview-ink) !important;
+}
+
+.text-ink-secondary {
+  color: var(--dd-preview-body) !important;
+}
+
+.text-ink-muted {
+  color: var(--dd-preview-muted) !important;
+}
+
+.dd-public-header-content,
+.dd-public-card,
+.dd-public-cta,
+.dd-public-footer,
+.dd-liquid,
+.dd-auth-shell {
+  color: var(--dd-preview-ink) !important;
+}
+
+.dd-public-card h2,
+.dd-public-cta h2,
+.dd-liquid h1,
+.dd-landing-demo p,
+.dd-public-header nav a {
+  color: var(--dd-preview-ink) !important;
+}
+
+.dd-public-card p,
+.dd-public-cta p,
+.dd-public-footer p,
+.dd-public-footer a,
+.dd-liquid p,
+.dd-auth-shell label {
+  color: var(--dd-preview-body) !important;
+}
+
+/* Keep free-standing hero copy readable over the organ image without adding
+   another opaque panel. */
+main > section:first-of-type h1,
+main > section:first-of-type > div:first-child > p:not(.dd-chip) {
+  text-shadow:
+    0 1px 0 rgba(255,255,255,.82),
+    0 0 14px rgba(255,255,255,.46);
+}
+
+/* ----------------------------------------------------------------------
+   SAME MATERIAL AS THE APPROVED HEADER
+   Applied to lower landing cards, CTA, footer, and auth card.
+   ---------------------------------------------------------------------- */
+.dd-public-card,
+.dd-public-cta,
+.dd-public-footer,
+.dd-liquid,
+.dd-auth-shell .dd-public-header {
+  position: relative !important;
+  isolation: isolate;
+  overflow: hidden;
+  border: 0 !important;
+  background: rgba(255,255,255,.012) !important;
+  -webkit-backdrop-filter: blur(20px) !important;
+  backdrop-filter: blur(20px) !important;
+  box-shadow:
+    inset 0 0 0 1px rgba(255,255,255,.95),
+    inset 0 2px 1px -1px rgba(255,255,255,1),
+    inset 0 6px 10px -5px rgba(255,255,255,1),
+    inset 3px 0 7px -4px rgba(255,255,255,.90),
+    inset 0 -9px 16px -8px rgba(104,88,152,.50),
+    inset -3px 0 7px -4px rgba(104,88,152,.30),
+    inset -1px -2px 3px -2px rgba(104,88,152,.45),
+    inset 0 -1.5px 0 rgba(255,255,255,.75),
+    inset 0 0 9px rgba(255,255,255,.90),
+    0 0 0 1px rgba(255,255,255,.85),
+    0 0 12px rgba(255,255,255,.50),
+    0 0 26px 2px rgba(255,255,255,.22),
+    0 10px 22px -12px rgba(78,64,128,.22),
+    0 26px 48px -30px rgba(110,92,172,.30) !important;
+}
+
+.dd-public-card { border-radius: 30px !important; }
+.dd-public-cta { border-radius: 32px !important; }
+.dd-public-footer { border-radius: 30px !important; }
+.dd-liquid { border-radius: 30px !important; }
+.dd-auth-shell .dd-public-header { border-radius: 32px !important; }
+
+/* Rim iridescence + wet specular streak. Colour remains at the perimeter. */
+.dd-public-card::before,
+.dd-public-cta::before,
+.dd-public-footer::before,
+.dd-liquid::before,
+.dd-auth-shell .dd-public-header::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  border-radius: inherit;
+  background:
+    radial-gradient(5% 30% at 0% 62%, rgba(126,226,236,.75) 0%, transparent 70%),
+    radial-gradient(9% 20% at 78% 100%, rgba(134,230,232,.68) 0%, transparent 70%),
+    radial-gradient(4.5% 22% at 100% 46%, rgba(150,238,208,.62) 0%, transparent 70%),
+    radial-gradient(7% 22% at 93% 0%, rgba(238,150,216,.60) 0%, transparent 70%),
+    radial-gradient(7% 20% at 5% 100%, rgba(240,158,216,.55) 0%, transparent 70%),
+    radial-gradient(5% 20% at 0% 16%, rgba(178,166,248,.50) 0%, transparent 70%),
+    radial-gradient(6% 16% at 44% 0%, rgba(176,172,250,.42) 0%, transparent 70%),
+    linear-gradient(
+      116deg,
+      transparent 0%,
+      transparent 18%,
+      rgba(255,255,255,.10) 22%,
+      rgba(255,255,255,.55) 26%,
+      rgba(255,255,255,.78) 29%,
+      rgba(255,255,255,.40) 32%,
+      rgba(255,255,255,.08) 36%,
+      transparent 41%,
+      transparent 100%
+    );
+}
+
+/* Engraved inner contour — same 7px inset language as the header. */
+.dd-public-card::after,
+.dd-public-cta::after,
+.dd-public-footer::after,
+.dd-liquid::after,
+.dd-auth-shell .dd-public-header::after {
+  content: "";
+  position: absolute;
+  inset: 7px;
+  z-index: 1;
+  pointer-events: none;
+  border-radius: 23px;
+  box-shadow:
+    0 0 0 1px rgba(255,255,255,.95),
+    0 1px 2px rgba(112,96,158,.26),
+    inset 0 1px 0 rgba(112,96,158,.14),
+    inset 0 -1px 0 rgba(255,255,255,.70);
+}
+
+.dd-public-cta::after,
+.dd-auth-shell .dd-public-header::after { border-radius: 25px; }
+
+.dd-public-card > *,
+.dd-public-cta > *,
+.dd-public-footer > *,
+.dd-liquid > *,
+.dd-auth-shell .dd-public-header > * {
+  position: relative;
+  z-index: 3;
+}
+
+/* Smaller feature cards use the same material but a little less visual weight. */
+.dd-public-card {
+  -webkit-backdrop-filter: blur(18px) !important;
+  backdrop-filter: blur(18px) !important;
+}
+
+/* ---------------- auth/login: same family as public header ---------------- */
+.dd-auth-shell {
+  color: var(--dd-preview-ink) !important;
+}
+
+.dd-auth-shell main {
+  position: relative;
+  z-index: 2;
+}
+
+.dd-auth-shell .dd-liquid {
+  background: rgba(255,255,255,.025) !important;
+}
+
+.dd-auth-shell .dd-input,
+.dd-auth-shell input:not([type="checkbox"]):not([type="radio"]):not([type="file"]) {
+  color: #211b4a !important;
+  background:
+    linear-gradient(145deg, rgba(255,255,255,.58), rgba(247,244,250,.36)) padding-box,
+    linear-gradient(120deg, #fff, rgba(228,221,242,.86), rgba(196,231,240,.64), #fff) border-box !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,.96),
+    0 4px 12px rgba(69,60,90,.08) !important;
+}
+
+.dd-auth-shell input::placeholder {
+  color: #737b91 !important;
+}
+
+.dd-auth-shell .bg-surface-muted {
+  color: #2c2851 !important;
+  background: rgba(255,255,255,.40) !important;
+  border: 1px solid rgba(255,255,255,.76) !important;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.82) !important;
+}
+
+.dd-auth-shell .bg-surface-muted .text-ink-muted {
+  color: #59637d !important;
+}
+
+.dd-auth-shell .dd-secondary {
+  color: #323653 !important;
+}
+
+/* Header/nav contrast on image canvas. */
+.dd-public-header nav a,
+.dd-public-header .dd-secondary {
+  color: #303854 !important;
+}
+
+.dd-public-footer a:hover,
+.dd-public-header nav a:hover {
+  color: #211b4a !important;
+}
+
+@media (max-width: 767px) {
+  .dd-public-card,
+  .dd-public-cta,
+  .dd-public-footer,
+  .dd-liquid,
+  .dd-auth-shell .dd-public-header {
+    border-radius: 26px !important;
+  }
+
+  .dd-public-card::after,
+  .dd-public-cta::after,
+  .dd-public-footer::after,
+  .dd-liquid::after,
+  .dd-auth-shell .dd-public-header::after {
+    inset: 6px;
+    border-radius: 20px;
+  }
+}

@@ -7,11 +7,10 @@ export function BrandMark({ className }: { className?: string }) {
       className={cn("dd-brand-mark inline-flex shrink-0 items-center justify-center", className)}
       aria-hidden="true"
     >
-      {/* Browser-safe owner-approved DD mark. The previous PNG was structurally
-          corrupted (CRC) and could not be decoded reliably by Next or browsers. */}
+      {/* Browser-safe owner-approved DD mark. */}
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
-        src="/brand/dd-mark-exact-fixed.svg"
+        src="/brand/dd-mark-safe.png"
         alt=""
         draggable={false}
         className="h-full w-full object-contain"
