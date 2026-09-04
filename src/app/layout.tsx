@@ -1,5 +1,7 @@
 import type { Metadata, Viewport } from "next";
+import type { CSSProperties } from "react";
 import { Inter, Noto_Sans_Bengali, Geist_Mono } from "next/font/google";
+import { organBackgroundDataUri } from "@/lib/organ-background";
 import "./globals.css";
 import "./liquid-ui.css";
 import "./clinical-liquid-ui.css";
@@ -63,12 +65,18 @@ export const viewport: Viewport = {
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
+  const organBackgroundStyle = {
+    "--dd-organ-bg": `url("${organBackgroundDataUri}")`,
+  } as CSSProperties;
+
   return (
     <html
       lang="en"
       className={`${fontSans.variable} ${fontBengali.variable} ${fontMono.variable} h-full antialiased`}
     >
-      <body className="min-h-full">{children}</body>
+      <body className="min-h-full" style={organBackgroundStyle}>
+        {children}
+      </body>
     </html>
   );
 }
