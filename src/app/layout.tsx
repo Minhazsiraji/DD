@@ -13,6 +13,7 @@ import "./auth-transparent-test.css";
 import "./reference-skin-test.css";
 import "./layered-liquid-study.css";
 import "./approved-liquid-material.css";
+import "./global-background-test.css";
 
 const fontSans = Inter({
   variable: "--font-sans",
