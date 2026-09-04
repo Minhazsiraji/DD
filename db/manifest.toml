@@ -17,7 +17,7 @@ sha256 = "0c095c4678c2aee235b7f7153d1b390ebc0a7aad82e7a2369b38271b10388a74"
 id = "0002"
 kind = "functions"
 file = "db/functions/0002_p0_core.sql"
-sha256 = "d4c6ff61ffca96cb2298bd959441c6673d0ac977048474c4451d62c2d0c33669"
+sha256 = "9a62873d4febee942d5430fffcae478ce5e5e36a680dd07ebe5730f2126606c6"
 
 [[step]]
 id = "0003"

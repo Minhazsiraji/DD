@@ -972,12 +972,12 @@ begin
   for attempt in 1..8 loop
     data := '';
     while length(data) < 9 loop
-      byte := get_byte(gen_random_bytes(1), 0);
+      byte := get_byte(extensions.gen_random_bytes(1), 0);
       if byte < 248 then data := data || substr(alphabet, (byte % 31) + 1, 1); end if;
     end loop;
     candidate := data || public.dd_check_symbol(data);
     begin
-      insert into dd_number_allocations(dd_patient_number) values (candidate);
+      insert into public.dd_number_allocations(dd_patient_number) values (candidate);
       return candidate;
     exception when unique_violation then null;
     end;
@@ -998,14 +998,14 @@ declare doctor uuid; token integer;
 begin
   doctor := public.current_doctor_id();
   if doctor is null or not public.has_capability(public.current_profile_id(), 'DOCTOR') then raise exception 'PRACTICE_AUTHORITY_REQUIRED' using errcode='42501'; end if;
-  if not exists (select 1 from appointments a where a.id=appointment_key and a.doctor_chamber_id=chamber_key and a.owner_doctor_id=doctor and a.session_date=queue_date and a.status in ('ARRIVED','IN_CONSULTATION')) then
+  if not exists (select 1 from public.appointments a where a.id=appointment_key and a.doctor_chamber_id=chamber_key and a.owner_doctor_id=doctor and a.session_date=queue_date and a.status in ('ARRIVED','IN_CONSULTATION')) then
     raise exception 'QUEUE_APPOINTMENT_CONTEXT_INVALID' using errcode='P0001';
   end if;
-  insert into queue_token_counters(doctor_chamber_id, session_date, next_token) values (chamber_key, queue_date, 2)
-  on conflict (doctor_chamber_id, session_date) do update set next_token=queue_token_counters.next_token+1
+  insert into public.queue_token_counters as qtc(doctor_chamber_id, session_date, next_token) values (chamber_key, queue_date, 2)
+  on conflict (doctor_chamber_id, session_date) do update set next_token=qtc.next_token+1
   returning next_token-1 into token;
-  insert into queue_entries(appointment_id, doctor_chamber_id, practice_location_id, session_date, queue_token)
-  select appointment_key, a.doctor_chamber_id, a.practice_location_id, queue_date, token from appointments a where a.id=appointment_key;
+  insert into public.queue_entries(appointment_id, doctor_chamber_id, practice_location_id, session_date, queue_token)
+  select appointment_key, a.doctor_chamber_id, a.practice_location_id, queue_date, token from public.appointments a where a.id=appointment_key;
   return token;
 exception when unique_violation then
   raise exception 'QUEUE_TOKEN_ALREADY_ALLOCATED' using errcode='P0001';
@@ -1024,9 +1024,9 @@ declare doctor uuid; result uuid; next_number integer; prefix text;
 begin
   doctor := public.current_doctor_id();
   if doctor is null or not public.has_capability(public.current_profile_id(), 'DOCTOR') then raise exception 'PRACTICE_AUTHORITY_REQUIRED' using errcode='42501'; end if;
-  select patient_number_seq, patient_number_prefix into next_number, prefix from professional_profiles where id=doctor for update;
-  update professional_profiles set patient_number_seq=next_number+1 where id=doctor;
-  insert into clinical_patients(owner_doctor_id, patient_number, full_name) values (doctor, prefix || '-' || lpad(next_number::text, 6, '0'), patient_name) returning id into result;
+  select patient_number_seq, patient_number_prefix into next_number, prefix from public.professional_profiles where id=doctor for update;
+  update public.professional_profiles set patient_number_seq=next_number+1 where id=doctor;
+  insert into public.clinical_patients(owner_doctor_id, patient_number, full_name) values (doctor, prefix || '-' || lpad(next_number::text, 6, '0'), patient_name) returning id into result;
   return result;
 end $$;
 
@@ -1043,13 +1043,13 @@ declare result uuid; number text;
 begin
   if public.current_profile_id() is null then raise exception 'AUTHENTICATION_REQUIRED' using errcode='42501'; end if;
   number := public.allocate_dd_patient_number();
-  insert into health_subjects(dd_patient_number, kind, claimed_profile_id, full_name, sex)
+  insert into public.health_subjects(dd_patient_number, kind, claimed_profile_id, full_name, sex)
   values (number, subject_kind, case when subject_kind='SELF' then public.current_profile_id() end, subject_name, subject_sex)
   returning id into result;
-  update dd_number_allocations set health_subject_id=result where dd_patient_number=number;
-  insert into health_subject_origins(health_subject_id, origin_type, registration_channel, registered_by_profile_id, registered_by_actor_kind)
+  update public.dd_number_allocations set health_subject_id=result where dd_patient_number=number;
+  insert into public.health_subject_origins(health_subject_id, origin_type, registration_channel, registered_by_profile_id, registered_by_actor_kind)
   values (result, 'SELF_REGISTRATION', 'API', public.current_profile_id(), 'USER');
-  insert into health_subject_access(health_subject_id, profile_id, authority) values (result, public.current_profile_id(), case when subject_kind='SELF' then 'SELF' else 'GUARDIAN' end);
+  insert into public.health_subject_access(health_subject_id, profile_id, authority) values (result, public.current_profile_id(), case when subject_kind='SELF' then 'SELF' else 'GUARDIAN' end);
   return result;
 end $$;
 
@@ -1065,7 +1065,7 @@ CREATE FUNCTION public.create_professional_profile(display_name text, profession
 declare result uuid;
 begin
   if public.current_profile_id() is null then raise exception 'AUTHENTICATION_REQUIRED' using errcode='42501'; end if;
-  insert into professional_profiles(profile_id, display_name, profession) values (public.current_profile_id(), display_name, profession)
+  insert into public.professional_profiles(profile_id, display_name, profession) values (public.current_profile_id(), display_name, profession)
   returning id into result;
   return result;
 end $$;
@@ -1079,7 +1079,7 @@ CREATE FUNCTION public.current_doctor_id() RETURNS uuid
     LANGUAGE sql STABLE SECURITY DEFINER
     SET search_path TO 'public', 'pg_temp'
     AS $$
-  select pp.id from professional_profiles pp where pp.profile_id = public.current_profile_id() and pp.profession = 'DOCTOR'
+  select pp.id from public.professional_profiles pp where pp.profile_id = public.current_profile_id() and pp.profession = 'DOCTOR'
 $$;
 
 
@@ -1130,7 +1130,7 @@ begin
   if action_code !~ '^[A-Z][A-Z0-9_.-]{1,63}$' or resource_kind !~ '^[a-z][a-z0-9_.-]{1,63}$' then
     raise exception 'AUDIT_CODE_INVALID' using errcode='P0001';
   end if;
-  insert into audit_events(actor_kind, actor_id, action, resource_type, resource_id, correlation_id)
+  insert into public.audit_events(actor_kind, actor_id, action, resource_type, resource_id, correlation_id)
   values ('USER', public.current_profile_id(), action_code, resource_kind, resource_key, correlation_key)
   returning id into result;
   return result;
@@ -1149,7 +1149,7 @@ declare doctor uuid;
 begin
   doctor := public.current_doctor_id();
   if doctor is null or not public.has_capability(public.current_profile_id(), 'DOCTOR') then raise exception 'PRACTICE_AUTHORITY_REQUIRED' using errcode='42501'; end if;
-  update prescriptions
+  update public.prescriptions
   set status='FINALIZED', version=version+1, review_bundle_snapshot=approved_bundle, review_digest=approved_digest, signature_asset_path=frozen_signature_path, snapshot_schema_version='P0', finalized_at=clock_timestamp()
   where id=prescription_key and owner_doctor_id=doctor and status='DRAFT' and version=expected_version;
   if not found then raise exception 'PRESCRIPTION_VERSION_OR_STATE_CONFLICT' using errcode='P0001'; end if;
@@ -1167,7 +1167,7 @@ CREATE FUNCTION public.has_capability(subject_profile_id uuid, requested public.
     SET search_path TO 'public', 'pg_temp'
     AS $$
   select exists (
-    select 1 from profile_capabilities pc
+    select 1 from public.profile_capabilities pc
     where pc.profile_id = subject_profile_id and pc.capability = requested
       and pc.effective_from <= clock_timestamp()
       and (pc.effective_until is null or pc.effective_until > clock_timestamp())
@@ -1227,7 +1227,7 @@ declare doctor uuid; result uuid;
 begin
   doctor := public.current_doctor_id();
   if doctor is null or not public.has_capability(public.current_profile_id(), 'DOCTOR') then raise exception 'PRACTICE_AUTHORITY_REQUIRED' using errcode='42501'; end if;
-  insert into encounters(owner_doctor_id, clinical_patient_id, practice_location_id) values (doctor, patient_id, location_id) returning id into result;
+  insert into public.encounters(owner_doctor_id, clinical_patient_id, practice_location_id) values (doctor, patient_id, location_id) returning id into result;
   return result;
 end $$;
 
@@ -1244,9 +1244,9 @@ declare doctor uuid; result uuid; patient uuid; location uuid;
 begin
   doctor := public.current_doctor_id();
   if doctor is null or not public.has_capability(public.current_profile_id(), 'DOCTOR') then raise exception 'PRACTICE_AUTHORITY_REQUIRED' using errcode='42501'; end if;
-  select clinical_patient_id, practice_location_id into patient, location from encounters where id=encounter_key and owner_doctor_id=doctor;
+  select clinical_patient_id, practice_location_id into patient, location from public.encounters where id=encounter_key and owner_doctor_id=doctor;
   if patient is null then raise exception 'ENCOUNTER_NOT_FOUND' using errcode='P0001'; end if;
-  insert into prescriptions(encounter_id, owner_doctor_id, clinical_patient_id, practice_location_id) values (encounter_key, doctor, patient, location) returning id into result;
+  insert into public.prescriptions(encounter_id, owner_doctor_id, clinical_patient_id, practice_location_id) values (encounter_key, doctor, patient, location) returning id into result;
   return result;
 end $$;
 
@@ -1313,7 +1313,7 @@ CREATE FUNCTION public.refresh_capability_trigger() RETURNS trigger
     SET search_path TO 'public', 'pg_temp'
     AS $$
 begin
-  perform public.refresh_profile_capabilities((select profile_id from professional_profiles where id = coalesce(new.professional_profile_id, old.professional_profile_id)));
+  perform public.refresh_profile_capabilities((select profile_id from public.professional_profiles where id = coalesce(new.professional_profile_id, old.professional_profile_id)));
   return new;
 end $$;
 
@@ -1327,14 +1327,14 @@ CREATE FUNCTION public.refresh_profile_capabilities(subject_profile_id uuid) RET
     SET search_path TO 'public', 'pg_temp'
     AS $$
 begin
-  delete from profile_capabilities where profile_id = subject_profile_id;
-  insert into profile_capabilities(profile_id, capability, granted_by_kind, source_row_id, professional_profile_id, effective_from, effective_until)
+  delete from public.profile_capabilities where profile_id = subject_profile_id;
+  insert into public.profile_capabilities(profile_id, capability, granted_by_kind, source_row_id, professional_profile_id, effective_from, effective_until)
   select pp.profile_id, 'DOCTOR', 'CREDENTIAL', pc.id, pp.id, coalesce(pc.verified_at, clock_timestamp()), pc.expires_at
-  from professional_credentials pc
-  join professional_profiles pp on pp.id = pc.professional_profile_id and pp.profession = 'DOCTOR'
+  from public.professional_credentials pc
+  join public.professional_profiles pp on pp.id = pc.professional_profile_id and pp.profession = 'DOCTOR'
   where pp.profile_id = subject_profile_id and pc.profession = 'DOCTOR' and pc.verification_status = 'VERIFIED'
   order by pc.verified_at desc nulls last limit 1;
-  insert into profile_capabilities(profile_id, capability, granted_by_kind, effective_from)
+  insert into public.profile_capabilities(profile_id, capability, granted_by_kind, effective_from)
   values (subject_profile_id, 'PUBLIC', 'BASELINE', clock_timestamp());
 end $$;
 

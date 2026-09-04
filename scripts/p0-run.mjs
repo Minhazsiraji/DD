@@ -43,6 +43,12 @@ const P0_SCRIPTS = new Set([
   "scripts/deploy-fresh.mjs",
   "scripts/verify-p0.mjs",
   "scripts/verify-deployment-determinism.mjs",
+  "scripts/verify-credential-integrity.mjs",
+  "scripts/verify-custodial-vs-practice-authority.mjs",
+  "scripts/verify-definer-grants.mjs",
+  "scripts/verify-definer-search-path-trust.mjs",
+  "scripts/verify-anon-surface.mjs",
+  "scripts/verify-capability-projection.mjs",
 ]);
 
 const [script, ...args] = process.argv.slice(2);
@@ -69,6 +75,9 @@ const databaseUrl = requireLocalP0DatabaseUrl();
  *   deploy-fresh.mjs   --database-url <url>   -> argv[2]="--database-url", argv[3]=url
  *   verify-p0.mjs      <url>                  -> argv[2]=url
  *   verify-deployment-determinism.mjs <url>   -> argv[2]=url
+ *
+ * Sprint-1 B2 verifiers consume the same validated target through
+ * DD_V2_LOCAL_DATABASE_URL and ignore the appended positional URL.
  */
 process.env.DD_V2_LOCAL_DATABASE_URL = databaseUrl;
 process.argv = [process.argv[0], script, ...args, databaseUrl];

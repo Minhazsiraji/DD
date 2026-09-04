@@ -50,7 +50,13 @@
     "qa:status": "node --env-file=.env.local scripts/qa-fixture.mjs status",
     "db:deploy:fresh": "node scripts/p0-run.mjs scripts/deploy-fresh.mjs --database-url",
     "db:verify:p0": "node scripts/p0-run.mjs scripts/verify-p0.mjs",
-    "db:verify:determinism": "node scripts/p0-run.mjs scripts/verify-deployment-determinism.mjs"
+    "db:verify:determinism": "node scripts/p0-run.mjs scripts/verify-deployment-determinism.mjs",
+    "db:verify:credential-integrity": "node scripts/p0-run.mjs scripts/verify-credential-integrity.mjs",
+    "db:verify:custodial-vs-practice-authority": "node scripts/p0-run.mjs scripts/verify-custodial-vs-practice-authority.mjs",
+    "db:verify:definer-grants": "node scripts/p0-run.mjs scripts/verify-definer-grants.mjs",
+    "db:verify:definer-search-path-trust": "node scripts/p0-run.mjs scripts/verify-definer-search-path-trust.mjs",
+    "db:verify:anon-surface": "node scripts/p0-run.mjs scripts/verify-anon-surface.mjs",
+    "db:verify:capability-projection": "node scripts/p0-run.mjs scripts/verify-capability-projection.mjs"
   },
   "dependencies": {
     "@base-ui/react": "^1.7.0",
