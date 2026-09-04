@@ -1,0 +1,283 @@
+/* Doctor's Diary — owner-approved continuation pass.
+   Scope: landing page below the hero + auth/login surfaces only.
+   The already-approved hero/header geometry is intentionally untouched. */
+
+:root {
+  --dd-rim-cyan: rgba(117, 229, 239, .74);
+  --dd-rim-mint: rgba(142, 235, 214, .58);
+  --dd-rim-pink: rgba(239, 151, 216, .58);
+  --dd-rim-violet: rgba(176, 166, 248, .54);
+  --dd-glass-shadow: rgba(83, 70, 128, .31);
+}
+
+/* --------------------------------------------------------------------------
+   SECOND LANDING PAGE / BELOW-HERO SURFACES
+   Match the accepted clear glass: almost no body fill, bright wet rim,
+   engraved inner contour, local cyan/pink/violet reflections and depth.
+   -------------------------------------------------------------------------- */
+
+.dd-public-card,
+.dd-public-cta,
+.dd-public-footer {
+  position: relative !important;
+  isolation: isolate !important;
+  overflow: hidden !important;
+  border: 0 !important;
+  background: rgba(255,255,255,.008) !important;
+  -webkit-backdrop-filter: blur(20px) !important;
+  backdrop-filter: blur(20px) !important;
+  box-shadow:
+    inset 0 0 0 1px rgba(255,255,255,.96),
+    inset 0 2px 1px -1px #fff,
+    inset 0 7px 11px -6px rgba(255,255,255,.98),
+    inset 3px 0 8px -5px rgba(255,255,255,.90),
+    inset 0 -9px 16px -8px rgba(104,88,152,.46),
+    inset -3px 0 8px -5px rgba(104,88,152,.28),
+    inset 0 -1.5px 0 rgba(255,255,255,.72),
+    inset 0 0 9px rgba(255,255,255,.82),
+    0 0 0 1px rgba(255,255,255,.78),
+    0 0 12px rgba(255,255,255,.42),
+    0 0 25px rgba(255,255,255,.19),
+    0 12px 24px -13px rgba(74,60,119,.27),
+    0 28px 52px -31px var(--dd-glass-shadow) !important;
+}
+
+.dd-public-card { border-radius: 28px !important; }
+.dd-public-cta { border-radius: 30px !important; }
+.dd-public-footer { border-radius: 30px !important; }
+
+/* Wet gloss + concentrated rim colour. */
+.dd-public-card::before,
+.dd-public-cta::before,
+.dd-public-footer::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  border-radius: inherit;
+  background:
+    radial-gradient(8% 36% at 0% 61%, var(--dd-rim-cyan) 0%, transparent 72%),
+    radial-gradient(11% 28% at 76% 100%, rgba(122,225,237,.62) 0%, transparent 72%),
+    radial-gradient(7% 28% at 100% 43%, var(--dd-rim-mint) 0%, transparent 72%),
+    radial-gradient(10% 26% at 94% 0%, var(--dd-rim-pink) 0%, transparent 72%),
+    radial-gradient(9% 26% at 6% 100%, rgba(239,155,215,.49) 0%, transparent 72%),
+    radial-gradient(8% 24% at 1% 13%, var(--dd-rim-violet) 0%, transparent 72%),
+    linear-gradient(116deg,
+      transparent 0%, transparent 18%,
+      rgba(255,255,255,.12) 22%,
+      rgba(255,255,255,.62) 27%,
+      rgba(255,255,255,.82) 29%,
+      rgba(255,255,255,.38) 32%,
+      rgba(255,255,255,.08) 36%,
+      transparent 42%, transparent 100%);
+}
+
+/* Engraved inner contour — same 7px geometry as the approved hero. */
+.dd-public-card::after,
+.dd-public-cta::after,
+.dd-public-footer::after {
+  content: "";
+  position: absolute;
+  inset: 7px;
+  z-index: 1;
+  pointer-events: none;
+  border-radius: 22px;
+  box-shadow:
+    0 0 0 1px rgba(255,255,255,.94),
+    0 1px 2px rgba(112,96,158,.24),
+    inset 0 1px 0 rgba(112,96,158,.13),
+    inset 0 -1px 0 rgba(255,255,255,.70);
+}
+
+.dd-public-card > *,
+.dd-public-cta > *,
+.dd-public-footer > * {
+  position: relative;
+  z-index: 3;
+}
+
+/* Remove previous broad colored body fills. Colour belongs at the rim only. */
+.dd-public-card,
+.dd-public-cta,
+.dd-public-footer {
+  background-image: none !important;
+}
+
+.dd-feature-icon {
+  border: 1px solid rgba(255,255,255,.76) !important;
+  background: rgba(255,255,255,.035) !important;
+  -webkit-backdrop-filter: blur(12px) !important;
+  backdrop-filter: blur(12px) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,.96),
+    inset 0 -1px 0 rgba(99,83,150,.10),
+    0 5px 13px -8px rgba(70,55,120,.30),
+    0 0 10px rgba(117,229,239,.10) !important;
+}
+
+/* --------------------------------------------------------------------------
+   AUTH / LOGIN — same material, narrower geometry.
+   -------------------------------------------------------------------------- */
+
+.dd-auth-shell > a.dd-public-header,
+.dd-auth-shell main .dd-liquid,
+.dd-auth-shell > p.dd-secondary {
+  position: relative !important;
+  isolation: isolate !important;
+  overflow: hidden !important;
+  border: 0 !important;
+  background: rgba(255,255,255,.008) !important;
+  -webkit-backdrop-filter: blur(20px) !important;
+  backdrop-filter: blur(20px) !important;
+  box-shadow:
+    inset 0 0 0 1px rgba(255,255,255,.96),
+    inset 0 2px 1px -1px #fff,
+    inset 0 7px 11px -6px rgba(255,255,255,.98),
+    inset 3px 0 8px -5px rgba(255,255,255,.90),
+    inset 0 -9px 16px -8px rgba(104,88,152,.46),
+    inset -3px 0 8px -5px rgba(104,88,152,.28),
+    inset 0 -1.5px 0 rgba(255,255,255,.74),
+    inset 0 0 9px rgba(255,255,255,.84),
+    0 0 0 1px rgba(255,255,255,.80),
+    0 0 12px rgba(255,255,255,.44),
+    0 0 25px rgba(255,255,255,.18),
+    0 13px 25px -13px rgba(72,58,118,.28),
+    0 28px 50px -31px rgba(87,71,132,.31) !important;
+}
+
+.dd-auth-shell > a.dd-public-header { border-radius: 30px !important; }
+.dd-auth-shell main .dd-liquid { border-radius: 30px !important; }
+.dd-auth-shell > p.dd-secondary { border-radius: 999px !important; }
+
+.dd-auth-shell > a.dd-public-header::before,
+.dd-auth-shell main .dd-liquid::before,
+.dd-auth-shell > p.dd-secondary::before {
+  content: "" !important;
+  position: absolute !important;
+  inset: 0 !important;
+  z-index: 1 !important;
+  pointer-events: none !important;
+  border-radius: inherit !important;
+  height: auto !important;
+  left: 0 !important;
+  right: 0 !important;
+  top: 0 !important;
+  background:
+    radial-gradient(8% 32% at 0% 62%, var(--dd-rim-cyan) 0%, transparent 72%),
+    radial-gradient(11% 24% at 76% 100%, rgba(122,225,237,.61) 0%, transparent 72%),
+    radial-gradient(7% 26% at 100% 43%, var(--dd-rim-mint) 0%, transparent 72%),
+    radial-gradient(10% 24% at 94% 0%, var(--dd-rim-pink) 0%, transparent 72%),
+    radial-gradient(9% 24% at 6% 100%, rgba(239,155,215,.49) 0%, transparent 72%),
+    radial-gradient(8% 22% at 1% 14%, var(--dd-rim-violet) 0%, transparent 72%),
+    linear-gradient(116deg,
+      transparent 0%, transparent 17%,
+      rgba(255,255,255,.12) 21%,
+      rgba(255,255,255,.64) 26%,
+      rgba(255,255,255,.84) 29%,
+      rgba(255,255,255,.39) 32%,
+      rgba(255,255,255,.08) 36%,
+      transparent 42%, transparent 100%) !important;
+  filter: none !important;
+}
+
+.dd-auth-shell > a.dd-public-header::after,
+.dd-auth-shell main .dd-liquid::after,
+.dd-auth-shell > p.dd-secondary::after {
+  content: "" !important;
+  position: absolute !important;
+  inset: 7px !important;
+  z-index: 1 !important;
+  pointer-events: none !important;
+  border-radius: 23px !important;
+  height: auto !important;
+  left: 7px !important;
+  right: 7px !important;
+  top: 7px !important;
+  bottom: 7px !important;
+  background: transparent !important;
+  filter: none !important;
+  box-shadow:
+    0 0 0 1px rgba(255,255,255,.94),
+    0 1px 2px rgba(112,96,158,.24),
+    inset 0 1px 0 rgba(112,96,158,.13),
+    inset 0 -1px 0 rgba(255,255,255,.70) !important;
+}
+
+.dd-auth-shell > a.dd-public-header > *,
+.dd-auth-shell main .dd-liquid > *,
+.dd-auth-shell > p.dd-secondary {
+  position: relative;
+  z-index: 3;
+}
+
+/* Inputs stay milky for legibility, but use the same liquid rim rather than flat white. */
+.dd-auth-shell .dd-input {
+  border: 1px solid rgba(255,255,255,.80) !important;
+  background:
+    linear-gradient(145deg, rgba(255,255,255,.20), rgba(255,255,255,.055)) padding-box,
+    linear-gradient(118deg,
+      rgba(255,255,255,.98),
+      rgba(214,202,248,.72),
+      rgba(169,228,241,.62),
+      rgba(238,188,226,.54),
+      rgba(255,255,255,.96)) border-box !important;
+  -webkit-backdrop-filter: blur(13px) !important;
+  backdrop-filter: blur(13px) !important;
+  box-shadow:
+    inset 0 2px 1px rgba(255,255,255,.94),
+    inset 0 -5px 10px -8px rgba(95,80,145,.32),
+    0 5px 14px -9px rgba(67,54,103,.26),
+    0 0 8px rgba(117,229,239,.08) !important;
+}
+
+/* Shared/public-device strip becomes glass too, without changing behavior. */
+.dd-auth-shell main .dd-liquid form > label {
+  border: 1px solid rgba(255,255,255,.76) !important;
+  background: rgba(255,255,255,.05) !important;
+  -webkit-backdrop-filter: blur(12px) !important;
+  backdrop-filter: blur(12px) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,.90),
+    inset 0 -1px 0 rgba(98,81,145,.11),
+    0 5px 13px -9px rgba(69,55,111,.20) !important;
+}
+
+/* Keep the approved CTA untouched. */
+.dd-auth-shell .dd-primary {
+  background: linear-gradient(105deg, #7652ee 0%, #7652ee 42%, #5d8de9 74%, #53bee4 100%) !important;
+}
+
+@media (max-width: 767px) {
+  .dd-public-card { border-radius: 25px !important; }
+  .dd-public-cta,
+  .dd-public-footer,
+  .dd-auth-shell > a.dd-public-header,
+  .dd-auth-shell main .dd-liquid { border-radius: 27px !important; }
+
+  .dd-public-card::after,
+  .dd-public-cta::after,
+  .dd-public-footer::after,
+  .dd-auth-shell > a.dd-public-header::after,
+  .dd-auth-shell main .dd-liquid::after {
+    inset: 6px !important;
+    left: 6px !important;
+    right: 6px !important;
+    top: 6px !important;
+    bottom: 6px !important;
+    border-radius: 20px !important;
+  }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .dd-public-card,
+  .dd-public-cta,
+  .dd-public-footer,
+  .dd-auth-shell > a.dd-public-header,
+  .dd-auth-shell main .dd-liquid,
+  .dd-auth-shell > p.dd-secondary {
+    background: rgba(249,248,252,.90) !important;
+    -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
+  }
+}
