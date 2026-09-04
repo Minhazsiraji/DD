@@ -1,0 +1,84 @@
+/* Doctor's Diary — ambient white bubble-light continuation.
+   Scope: landing page below-hero sections + footer only.
+   Adds the missing soft white light pools behind the already-approved glass cards.
+   No component geometry, typography, CTA, content, or behavior changes. */
+
+main > section:has(.dd-public-card),
+main > section:has(.dd-public-cta),
+footer:has(.dd-public-footer) {
+  position: relative;
+  isolation: isolate;
+  overflow: visible;
+}
+
+main > section:has(.dd-public-card) > *,
+main > section:has(.dd-public-cta) > *,
+footer:has(.dd-public-footer) > * {
+  position: relative;
+  z-index: 2;
+}
+
+/* Feature-card band: multiple soft white pools, like the approved reference canvas. */
+main > section:has(.dd-public-card)::before {
+  content: "";
+  position: absolute;
+  z-index: 0;
+  pointer-events: none;
+  inset: -92px -120px -105px;
+  background:
+    radial-gradient(250px 180px at 7% 22%, rgba(255,255,255,.97) 0%, rgba(255,255,255,.58) 34%, rgba(255,255,255,.19) 57%, transparent 76%),
+    radial-gradient(230px 170px at 38% 10%, rgba(255,255,255,.90) 0%, rgba(255,255,255,.46) 38%, rgba(255,255,255,.14) 60%, transparent 78%),
+    radial-gradient(270px 190px at 73% 20%, rgba(255,255,255,.96) 0%, rgba(255,255,255,.50) 37%, rgba(255,255,255,.16) 60%, transparent 79%),
+    radial-gradient(210px 165px at 97% 36%, rgba(255,255,255,.88) 0%, rgba(255,255,255,.42) 38%, rgba(255,255,255,.12) 61%, transparent 80%),
+    radial-gradient(250px 185px at 19% 91%, rgba(255,255,255,.91) 0%, rgba(255,255,255,.46) 37%, rgba(255,255,255,.14) 60%, transparent 79%),
+    radial-gradient(290px 200px at 61% 88%, rgba(255,255,255,.98) 0%, rgba(255,255,255,.54) 36%, rgba(255,255,255,.16) 59%, transparent 78%);
+  filter: blur(9px);
+  opacity: .96;
+}
+
+/* Founding-doctors band: broad centre bubble plus left/right spill. */
+main > section:has(.dd-public-cta)::before {
+  content: "";
+  position: absolute;
+  z-index: 0;
+  pointer-events: none;
+  inset: -135px -150px -120px;
+  background:
+    radial-gradient(360px 230px at 50% 45%, rgba(255,255,255,.99) 0%, rgba(255,255,255,.60) 34%, rgba(255,255,255,.20) 58%, transparent 79%),
+    radial-gradient(250px 190px at 8% 42%, rgba(255,255,255,.89) 0%, rgba(255,255,255,.43) 38%, rgba(255,255,255,.12) 61%, transparent 80%),
+    radial-gradient(260px 190px at 94% 40%, rgba(255,255,255,.93) 0%, rgba(255,255,255,.46) 37%, rgba(255,255,255,.13) 60%, transparent 79%),
+    radial-gradient(220px 160px at 28% 100%, rgba(255,255,255,.80) 0%, rgba(255,255,255,.34) 42%, transparent 76%),
+    radial-gradient(220px 160px at 78% 100%, rgba(255,255,255,.84) 0%, rgba(255,255,255,.35) 42%, transparent 76%);
+  filter: blur(12px);
+  opacity: .98;
+}
+
+/* Footer halo: lower soft bubbles so the footer floats instead of sitting on flat lavender. */
+footer:has(.dd-public-footer)::before {
+  content: "";
+  position: absolute;
+  z-index: 0;
+  pointer-events: none;
+  inset: -110px -120px -55px;
+  background:
+    radial-gradient(330px 190px at 18% 54%, rgba(255,255,255,.94) 0%, rgba(255,255,255,.49) 38%, rgba(255,255,255,.15) 61%, transparent 79%),
+    radial-gradient(380px 205px at 52% 44%, rgba(255,255,255,.96) 0%, rgba(255,255,255,.51) 37%, rgba(255,255,255,.15) 60%, transparent 79%),
+    radial-gradient(310px 190px at 88% 55%, rgba(255,255,255,.91) 0%, rgba(255,255,255,.45) 39%, rgba(255,255,255,.13) 61%, transparent 80%);
+  filter: blur(11px);
+  opacity: .94;
+}
+
+@media (max-width: 767px) {
+  main > section:has(.dd-public-card)::before {
+    inset: -60px -42px -75px;
+    background:
+      radial-gradient(220px 165px at 18% 16%, rgba(255,255,255,.95) 0%, rgba(255,255,255,.52) 36%, rgba(255,255,255,.14) 60%, transparent 78%),
+      radial-gradient(240px 180px at 82% 44%, rgba(255,255,255,.96) 0%, rgba(255,255,255,.52) 37%, rgba(255,255,255,.15) 60%, transparent 79%),
+      radial-gradient(230px 175px at 35% 92%, rgba(255,255,255,.91) 0%, rgba(255,255,255,.45) 39%, transparent 78%);
+  }
+
+  main > section:has(.dd-public-cta)::before,
+  footer:has(.dd-public-footer)::before {
+    inset: -75px -42px -65px;
+  }
+}
