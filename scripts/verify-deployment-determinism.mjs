@@ -98,10 +98,70 @@ for (const marker of ["supabase/.temp/project-ref", "supabase/.temp/pooler-url"]
   }
 }
 
-const { stdout: cliVersion } = await exec("supabase", ["--version"]).catch(() => {
-  throw new Error("supabase CLI not found on PATH. The determinism proof runs on the Codespace host.");
-});
-line(`supabase CLI: ${cliVersion.trim()}`);
+/**
+ * THE CLI IS PINNED, AND THE PIN IS CHECKED — before any reset.
+ *
+ * The determinism claim is "this manifest produces this schema". A different
+ * CLI version can ship a different platform substrate — different `auth` and
+ * `storage` DDL, different extension defaults — and the schema dump would
+ * differ for a reason that has nothing to do with the manifest. An unpinned
+ * CLI would make the proof measure the toolchain as much as the artefact.
+ *
+ * `supabase` is an exact devDependency, so running through npm puts
+ * `node_modules/.bin` on PATH and this resolves the project's own copy. It is
+ * deliberately NOT a global install: a global CLI is whatever that machine
+ * happens to have, which is the opposite of reproducible.
+ */
+const REQUIRED_CLI_VERSION = "2.116.0";
+
+/**
+ * Invoke the PINNED copy directly, never a name on PATH.
+ *
+ * The npm package's bin is `dist/supabase.js` — a Node script — so running it
+ * with the current `process.execPath` reaches exactly the version in
+ * `node_modules` on every platform, with no dependence on whether the caller
+ * happened to go through npm.
+ *
+ * `execFile("supabase", …)` was the previous form and it failed on the
+ * Codespace with `supabase CLI not found on PATH`. Depending on ambient PATH
+ * is the very reproducibility weakness this correction exists to remove: it
+ * resolves to whatever that shell can see, which on one machine is nothing and
+ * on another could be a different version entirely.
+ */
+const PINNED_CLI = path.join(root, "node_modules/supabase/dist/supabase.js");
+try {
+  await fs.access(PINNED_CLI);
+} catch {
+  throw new Error(
+    `pinned Supabase CLI not installed at ${path.relative(root, PINNED_CLI)}. ` +
+      `It is an exact devDependency (supabase ${REQUIRED_CLI_VERSION}) — run \`npm ci\`. ` +
+      "Do not install it globally: a global CLI is whatever that machine happens to have, " +
+      "which is the opposite of reproducible.",
+  );
+}
+
+/** Every CLI call in this file goes through here, so none can drift to PATH. */
+const supabaseCli = (args, options = {}) =>
+  exec(process.execPath, [PINNED_CLI, ...args], { cwd: root, ...options });
+
+const { stdout: cliVersionRaw } = await supabaseCli(["--version"]);
+
+/**
+ * Extract the semver rather than string-matching the whole output: the CLI
+ * prints the bare version on some platforms and adds a line on others, and a
+ * formatting change must not be mistaken for a version mismatch.
+ */
+const detectedCliVersion = (cliVersionRaw.match(/\d+\.\d+\.\d+/) ?? [])[0];
+if (detectedCliVersion !== REQUIRED_CLI_VERSION) {
+  throw new Error(
+    `supabase CLI version mismatch — refusing to reset anything.\n` +
+      `  expected CLI: ${REQUIRED_CLI_VERSION}\n` +
+      `  actual CLI:   ${detectedCliVersion ?? `unparseable (${cliVersionRaw.trim()})`}\n` +
+      "  A different CLI can ship a different platform substrate, which would change the\n" +
+      "  schema dump for reasons unrelated to the manifest. Run `npm ci`.",
+  );
+}
+line(`supabase CLI: ${detectedCliVersion} (pinned, exact)`);
 
 // ---------------------------------------------------------------------------
 // 1. Manifest integrity — order, hashes, and no executable SQL outside it.
@@ -176,8 +236,7 @@ async function freshSubstrate(round) {
   // supabase/seed.sql out of the substrate: a seed row is not part of the
   // manifest and would make the dump depend on something unhashed.
   line("supabase db reset --local --no-seed");
-  await exec("supabase", ["db", "reset", "--local", "--no-seed"], {
-    cwd: root,
+  await supabaseCli(["db", "reset", "--local", "--no-seed"], {
     maxBuffer: 64 * 1024 * 1024,
   });
 

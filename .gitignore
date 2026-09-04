@@ -50,3 +50,9 @@ next-env.d.ts
 # QA fixture provenance — throwaway ids on one developer's machine.
 # `qa:destroy` deletes storage only under ids this file proves it created.
 .qa-fixture-uids.json
+
+# Supabase CLI runtime state. Created by `supabase db reset` / `start`, and
+# `supabase/` is a tracked directory here — so without this, CLI residue is
+# offered for commit on every P0 run. `.temp/project-ref` in particular records
+# a REMOTE project link, which the determinism harness refuses to run beside.
+supabase/.temp/

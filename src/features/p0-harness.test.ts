@@ -74,6 +74,67 @@ describe("determinism harness — local reset only", () => {
   });
 });
 
+describe("determinism harness — the CLI is pinned and the pin is enforced", () => {
+  const pkg = JSON.parse(source("package.json")) as {
+    dependencies?: Record<string, string>;
+    devDependencies?: Record<string, string>;
+  };
+
+  /**
+   * A different CLI version can ship a different platform substrate, and the
+   * schema dump would then differ for a reason having nothing to do with the
+   * manifest — the proof would be measuring the toolchain.
+   */
+  it("pins supabase as an exact devDependency", () => {
+    expect(pkg.devDependencies?.supabase).toBe("2.116.0");
+    // A dev tool, never shipped in the application bundle.
+    expect(pkg.dependencies?.supabase).toBeUndefined();
+  });
+
+  it("accepts no range, tag or wildcard for that pin", () => {
+    const pin = pkg.devDependencies?.supabase ?? "";
+    for (const loose of ["^", "~", ">", "<", "*", "x", "latest", "next", " ||", "-"]) {
+      expect(pin.includes(loose), `pin must not contain "${loose}"`).toBe(false);
+    }
+    expect(pin).toMatch(/^\d+\.\d+\.\d+$/);
+  });
+
+  it("is installed from the lockfile at that exact version", () => {
+    const lock = JSON.parse(source("package-lock.json")) as {
+      packages: Record<string, { version?: string; dev?: boolean }>;
+    };
+    expect(lock.packages["node_modules/supabase"]?.version).toBe("2.116.0");
+    expect(lock.packages["node_modules/supabase"]?.dev).toBe(true);
+  });
+
+  it("requires the detected CLI version to be exactly the pin", () => {
+    const text = code(DETERMINISM);
+    expect(text).toContain('const REQUIRED_CLI_VERSION = "2.116.0"');
+    expect(text).toContain("detectedCliVersion !== REQUIRED_CLI_VERSION");
+    expect(text).toMatch(/expected CLI/);
+    expect(text).toMatch(/actual CLI/);
+  });
+
+  /**
+   * ORDER IS THE POINT. A version check after the first reset would have
+   * already rebuilt the substrate with the wrong toolchain.
+   */
+  it("checks the version BEFORE the first reset", () => {
+    const text = code(DETERMINISM);
+    const check = text.indexOf("detectedCliVersion !== REQUIRED_CLI_VERSION");
+    const reset = text.indexOf('"db", "reset"');
+    expect(check).toBeGreaterThan(-1);
+    expect(reset).toBeGreaterThan(-1);
+    expect(check).toBeLessThan(reset);
+  });
+
+  it("does not require or suggest a global CLI install", () => {
+    const text = code(DETERMINISM);
+    expect(text).not.toMatch(/npm i(nstall)? -g|npm install --global|brew install supabase/);
+    expect(text).toContain("node_modules/supabase/dist/supabase.js");
+  });
+});
+
 describe("determinism harness — the substrate is Supabase, not raw Postgres", () => {
   /**
    * The previous harness built raw databases with CREATE DATABASE. The P0
