@@ -12,7 +12,9 @@ const nav = [
 
 export function MarketingShell({ children }: { children: ReactNode }) {
   return (
-    <div className="min-h-screen text-ink">
+    <div className="dd-public-stage min-h-screen text-ink">
+      <span className="dd-public-stage-light" aria-hidden />
+
       <header className="sticky top-0 z-40 px-2.5 pt-2.5 sm:px-4 sm:pt-3 lg:px-6">
         <div className="dd-public-header dd-layered-slab mx-auto max-w-7xl">
           <span className="dd-glass-light" aria-hidden />
