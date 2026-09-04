@@ -1,0 +1,172 @@
+/* Doctor's Diary — exact rim bridge.
+   Purpose: lower landing cards/CTA/footer now use the exact same material stack
+   as the already-approved header/hero: same clear slab, wet gloss, specular,
+   iridescent rim span, engraved contour and light-pool stage.
+   No layout/content/function changes. */
+
+.dd-lower-glass-stage,
+.dd-footer-glass-stage {
+  position: relative;
+  isolation: isolate;
+  overflow: visible;
+}
+
+.dd-lower-glass-stage .dd-approved-light,
+.dd-footer-glass-stage .dd-approved-light {
+  inset: -72px;
+  opacity: .78;
+  transform: scale(.98);
+}
+
+.dd-lower-glass-stage .dd-approved-slab,
+.dd-footer-glass-stage .dd-approved-slab {
+  position: relative !important;
+  isolation: isolate !important;
+  overflow: hidden !important;
+  border: 0 !important;
+  border-radius: 32px !important;
+  background: rgba(255,255,255,.01) !important;
+  background-image: none !important;
+  -webkit-backdrop-filter: blur(20px) !important;
+  backdrop-filter: blur(20px) !important;
+  box-shadow:
+    inset 0 0 0 1px rgba(255,255,255,.95),
+    inset 0 2px 1px -1px rgba(255,255,255,1),
+    inset 0 6px 10px -5px rgba(255,255,255,1),
+    inset 3px 0 7px -4px rgba(255,255,255,.9),
+    inset 0 -9px 16px -8px rgba(104,88,152,.50),
+    inset -3px 0 7px -4px rgba(104,88,152,.30),
+    inset -1px -2px 3px -2px rgba(104,88,152,.45),
+    inset 0 -1.5px 0 0 rgba(255,255,255,.75),
+    inset 0 0 9px 0 rgba(255,255,255,.90),
+    0 0 0 1px rgba(255,255,255,.85),
+    0 0 12px 0 rgba(255,255,255,.50),
+    0 0 26px 2px rgba(255,255,255,.22),
+    0 10px 22px -12px rgba(78,64,128,.22),
+    0 26px 48px -30px rgba(110,92,172,.30) !important;
+}
+
+/* Match header broad gloss exactly. */
+.dd-lower-glass-stage .dd-approved-slab::after,
+.dd-footer-glass-stage .dd-approved-slab::after {
+  content: "" !important;
+  position: absolute !important;
+  inset: 0 !important;
+  z-index: 2 !important;
+  border-radius: inherit !important;
+  pointer-events: none !important;
+  background: linear-gradient(
+    148deg,
+    rgba(255,255,255,.98) 0%,
+    rgba(255,255,255,.52) 5%,
+    rgba(255,255,255,.18) 11%,
+    rgba(255,255,255,.04) 17%,
+    rgba(255,255,255,0) 24%,
+    rgba(255,255,255,0) 76%,
+    rgba(255,255,255,.16) 94%,
+    rgba(255,255,255,.30) 100%
+  ) !important;
+  box-shadow: none !important;
+}
+
+/* Match header wet specular exactly. */
+.dd-lower-glass-stage .dd-approved-slab::before,
+.dd-footer-glass-stage .dd-approved-slab::before {
+  content: "" !important;
+  position: absolute !important;
+  inset: 0 !important;
+  z-index: 2 !important;
+  border-radius: inherit !important;
+  pointer-events: none !important;
+  background: linear-gradient(
+    116deg,
+    transparent 0%,
+    transparent 18%,
+    rgba(255,255,255,.10) 22%,
+    rgba(255,255,255,.55) 26%,
+    rgba(255,255,255,.78) 29%,
+    rgba(255,255,255,.40) 32%,
+    rgba(255,255,255,.08) 36%,
+    transparent 41%,
+    transparent 100%
+  ) !important;
+  filter: none !important;
+}
+
+/* The real colour rim comes from the same explicit span used in the header. */
+.dd-lower-glass-stage .dd-approved-glows,
+.dd-footer-glass-stage .dd-approved-glows {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  border-radius: inherit;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.dd-lower-glass-stage .dd-approved-glows::before,
+.dd-footer-glass-stage .dd-approved-glows::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(5% 30% at 0% 62%, rgba(126,226,236,.75) 0%, transparent 70%),
+    radial-gradient(9% 20% at 78% 100%, rgba(134,230,232,.68) 0%, transparent 70%),
+    radial-gradient(4.5% 22% at 100% 46%, rgba(150,238,208,.62) 0%, transparent 70%),
+    radial-gradient(7% 22% at 93% 0%, rgba(238,150,216,.60) 0%, transparent 70%),
+    radial-gradient(7% 20% at 5% 100%, rgba(240,158,216,.55) 0%, transparent 70%),
+    radial-gradient(5% 20% at 0% 16%, rgba(178,166,248,.50) 0%, transparent 70%),
+    radial-gradient(6% 16% at 44% 0%, rgba(176,172,250,.42) 0%, transparent 70%);
+}
+
+.dd-lower-glass-stage .dd-approved-contour,
+.dd-footer-glass-stage .dd-approved-contour {
+  position: absolute;
+  inset: 7px;
+  z-index: 1;
+  pointer-events: none;
+  border-radius: 25px;
+  box-shadow:
+    0 0 0 1px rgba(255,255,255,.95),
+    0 1px 2px 0 rgba(112,96,158,.26),
+    inset 0 1px 0 0 rgba(112,96,158,.14),
+    inset 0 -1px 0 0 rgba(255,255,255,.70);
+}
+
+.dd-lower-glass-stage .dd-approved-content,
+.dd-footer-glass-stage .dd-approved-content {
+  position: relative;
+  z-index: 3;
+}
+
+/* Neutralize the older continuation pseudo layers now that the exact header
+   material is represented with explicit DOM spans. */
+.dd-public-card.dd-approved-slab,
+.dd-public-cta.dd-approved-slab,
+.dd-public-footer.dd-approved-slab {
+  border-radius: 32px !important;
+}
+
+.dd-feature-icon {
+  position: relative;
+  z-index: 4;
+}
+
+@media (max-width: 767px) {
+  .dd-lower-glass-stage .dd-approved-light,
+  .dd-footer-glass-stage .dd-approved-light {
+    inset: -54px;
+    opacity: .72;
+  }
+
+  .dd-lower-glass-stage .dd-approved-slab,
+  .dd-footer-glass-stage .dd-approved-slab {
+    border-radius: 27px !important;
+  }
+
+  .dd-lower-glass-stage .dd-approved-contour,
+  .dd-footer-glass-stage .dd-approved-contour {
+    inset: 6px;
+    border-radius: 21px;
+  }
+}
