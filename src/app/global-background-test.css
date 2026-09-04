@@ -1,6 +1,7 @@
 /* Doctor's Diary — isolated organ-image background preview.
-   Same liquid/glass component system as the approved 90% pass; only the global
-   canvas changes to the owner's supplied organ artwork for A/B comparison. */
+   Same liquid/glass component system as the approved 90% pass.
+   The organ artwork is now softened behind the live UI so it supports the
+   glass material without competing with clinical/marketing text. */
 
 html,
 body {
@@ -9,13 +10,35 @@ body {
 }
 
 body {
+  position: relative;
+  isolation: isolate;
+  background-image: none !important;
+}
+
+/* Background image lives on its own layer so only the artwork is blurred —
+   never the cards, typography, buttons or interactive UI. 8px gives roughly
+   a 50% visual softening versus the current sharp preview. */
+body::before {
+  content: "";
+  position: fixed;
+  inset: -18px;
+  z-index: 0;
+  pointer-events: none;
   background-image:
     linear-gradient(rgb(246 243 250 / 0.28), rgb(246 243 250 / 0.28)),
-    var(--dd-organ-bg) !important;
-  background-size: cover !important;
-  background-position: center center !important;
-  background-repeat: no-repeat !important;
-  background-attachment: fixed !important;
+    var(--dd-organ-bg);
+  background-size: cover;
+  background-position: center center;
+  background-repeat: no-repeat;
+  filter: blur(8px);
+  transform: scale(1.02);
+  transform-origin: center;
+}
+
+/* Keep every real app surface above the blurred background layer. */
+body > * {
+  position: relative;
+  z-index: 1;
 }
 
 .dd-public-stage,
@@ -31,8 +54,9 @@ body > main[class*="min-h-dvh"] {
 }
 
 @media (max-width: 767px) {
-  body {
-    background-attachment: scroll !important;
-    background-position: center top !important;
+  body::before {
+    background-position: center top;
+    filter: blur(7px);
+    transform: scale(1.035);
   }
 }
