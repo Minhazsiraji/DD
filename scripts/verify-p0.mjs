@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import crypto from "node:crypto";
 import postgres from "postgres";
+import { requireLocalP0DatabaseUrl } from "./p0-target.mjs";
 
 const root = process.cwd();
 const manifestText = await fs.readFile(path.join(root, "db/manifest.toml"), "utf8");
@@ -49,7 +50,7 @@ for (let seed = 0; seed < 1000000; seed += 1) {
 console.log("P0 static manifest and DD-CHK-31 exhaustive properties: PASS");
 
 if (process.argv[2]) {
-  const sql = postgres(process.argv[2], { max: 1 });
+  const sql = postgres(requireLocalP0DatabaseUrl(process.argv[2]), { max: 1 });
   try {
     const tables = await sql`select tablename, rowsecurity, relforcerowsecurity from pg_tables join pg_class on pg_class.relname=tablename where schemaname='public' order by tablename`;
     if (tables.some((item) => !item.rowsecurity || !item.relforcerowsecurity)) throw new Error("public table is not forced RLS");

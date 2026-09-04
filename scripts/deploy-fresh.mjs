@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import crypto from "node:crypto";
 import postgres from "postgres";
+import { requireLocalP0DatabaseUrl } from "./p0-target.mjs";
 
 const root = process.cwd();
 const manifestText = await fs.readFile(path.join(root, "db/manifest.toml"), "utf8");
@@ -14,7 +15,7 @@ for (const line of manifestText.split(/\r?\n/)) {
 }
 if (manifest.step.length !== 6) throw new Error("manifest must contain six deployment steps");
 if (process.argv[2] !== "--database-url") throw new Error("usage: deploy-fresh.mjs --database-url URL");
-const sql = postgres(process.argv[3], { max: 1 });
+const sql = postgres(requireLocalP0DatabaseUrl(process.argv[3]), { max: 1 });
 try {
   for (const step of manifest.step) {
     const file = path.join(root, step.file);
