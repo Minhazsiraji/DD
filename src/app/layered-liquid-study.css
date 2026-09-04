@@ -1,0 +1,262 @@
+/* Doctor's Diary — layered liquid-glass material study
+   Based on the explicit material stack supplied by the user:
+   slab -> light -> glows -> contour -> live content.
+   This file intentionally loads last and overrides older visual experiments.
+   Scope: public header + landing workspace demo + its workflow rows only. */
+
+.dd-layered-slab {
+  --dd-rim-white: rgba(255,255,255,.98);
+  --dd-rim-lilac: rgba(184,158,255,.78);
+  --dd-rim-aqua: rgba(104,224,244,.82);
+  --dd-rim-pink: rgba(245,191,229,.72);
+  position: relative !important;
+  isolation: isolate;
+  overflow: hidden;
+  border: 0 !important;
+  background: rgba(255,255,255,.055) !important;
+  -webkit-backdrop-filter: blur(18px) saturate(135%) !important;
+  backdrop-filter: blur(18px) saturate(135%) !important;
+}
+
+.dd-glass-light,
+.dd-glass-glows,
+.dd-glass-contour,
+.dd-inner-light,
+.dd-inner-contour,
+.dd-row-light,
+.dd-row-glows,
+.dd-row-contour {
+  position: absolute;
+  pointer-events: none;
+}
+
+/* Soft refracted light inside the slab. The centre stays neutral; colour lives mostly at the perimeter. */
+.dd-glass-light {
+  inset: -22%;
+  z-index: 0;
+  background:
+    radial-gradient(33% 24% at 18% 16%, rgba(255,255,255,.42), transparent 72%),
+    radial-gradient(28% 22% at 97% 79%, rgba(89,222,244,.22), transparent 74%),
+    radial-gradient(24% 20% at 7% 91%, rgba(151,113,240,.13), transparent 74%),
+    radial-gradient(24% 18% at 84% 4%, rgba(243,174,221,.11), transparent 74%);
+  filter: blur(18px);
+  opacity: .92;
+}
+
+/* Prismatic rim — true border-only layer, not a coloured fill. */
+.dd-glass-glows {
+  inset: 0;
+  z-index: 1;
+  border-radius: inherit;
+  padding: 1.5px;
+  background: linear-gradient(
+    118deg,
+    var(--dd-rim-white) 0%,
+    rgba(255,255,255,.92) 20%,
+    var(--dd-rim-lilac) 43%,
+    rgba(255,255,255,.93) 56%,
+    var(--dd-rim-aqua) 74%,
+    var(--dd-rim-pink) 89%,
+    rgba(255,255,255,.96) 100%
+  );
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  filter: drop-shadow(0 0 4px rgba(255,255,255,.35));
+  opacity: .96;
+}
+
+/* Inner optical contour / bevel. */
+.dd-glass-contour {
+  inset: 2px;
+  z-index: 1;
+  border-radius: calc(inherit - 2px);
+  border: 1px solid rgba(255,255,255,.55);
+  box-shadow:
+    inset 0 2px 1px rgba(255,255,255,.88),
+    inset 1px 0 0 rgba(255,255,255,.35),
+    inset 0 -1px 0 rgba(98,88,118,.10);
+}
+
+.dd-public-header.dd-layered-slab {
+  border-radius: 28px !important;
+  box-shadow:
+    0 19px 34px rgba(53,46,70,.16),
+    0 7px 14px rgba(65,56,84,.09),
+    0 1px 0 rgba(255,255,255,.78) !important;
+}
+
+.dd-public-header .dd-glass-light {
+  background:
+    radial-gradient(38% 80% at 12% 10%, rgba(255,255,255,.38), transparent 72%),
+    radial-gradient(22% 95% at 78% 100%, rgba(85,222,244,.14), transparent 72%),
+    radial-gradient(18% 90% at 96% 90%, rgba(236,171,222,.13), transparent 72%),
+    radial-gradient(20% 95% at 30% 100%, rgba(142,109,237,.09), transparent 76%);
+  filter: blur(16px);
+}
+
+.dd-public-header-content,
+.dd-landing-content {
+  position: relative;
+  z-index: 4;
+}
+
+/* Main landing workspace slab — clear refractive glass, not milky/frosted. */
+.dd-landing-demo.dd-layered-slab {
+  border-radius: 28px !important;
+  background: rgba(255,255,255,.035) !important;
+  -webkit-backdrop-filter: blur(14px) saturate(138%) !important;
+  backdrop-filter: blur(14px) saturate(138%) !important;
+  box-shadow:
+    0 27px 38px rgba(50,43,68,.17),
+    0 10px 17px rgba(59,51,77,.09),
+    0 1px 0 rgba(255,255,255,.76) !important;
+}
+
+.dd-landing-demo > .dd-glass-light {
+  inset: -15%;
+  background:
+    radial-gradient(40% 27% at 13% 6%, rgba(255,255,255,.28), transparent 74%),
+    radial-gradient(28% 27% at 100% 85%, rgba(78,221,244,.18), transparent 73%),
+    radial-gradient(23% 22% at 4% 90%, rgba(139,102,238,.10), transparent 74%),
+    radial-gradient(27% 22% at 82% 3%, rgba(242,167,220,.08), transparent 75%);
+  filter: blur(22px);
+}
+
+/* Inner glass plane: another optical surface rather than a white panel. */
+.dd-landing-inner.dd-layered-inner {
+  position: relative !important;
+  isolation: isolate;
+  overflow: hidden !important;
+  border: 0 !important;
+  background: rgba(255,255,255,.025) !important;
+  -webkit-backdrop-filter: blur(6px) saturate(120%) !important;
+  backdrop-filter: blur(6px) saturate(120%) !important;
+  box-shadow: none !important;
+}
+
+.dd-inner-light {
+  inset: -18%;
+  z-index: 0;
+  background:
+    radial-gradient(34% 28% at 8% 4%, rgba(255,255,255,.20), transparent 72%),
+    radial-gradient(28% 24% at 96% 92%, rgba(91,221,244,.10), transparent 73%),
+    radial-gradient(24% 20% at 1% 94%, rgba(145,108,239,.06), transparent 74%);
+  filter: blur(15px);
+}
+
+.dd-inner-contour {
+  inset: 0;
+  z-index: 1;
+  border-radius: inherit;
+  border: 1px solid rgba(255,255,255,.66);
+  box-shadow:
+    inset 0 1.5px 1px rgba(255,255,255,.84),
+    inset 0 -1px 0 rgba(106,96,126,.08);
+}
+
+.dd-landing-content {
+  position: relative;
+  z-index: 3;
+}
+
+/* Workflow rows use the same layered model at a lower intensity. */
+.dd-workflow-row.dd-layered-row {
+  position: relative !important;
+  isolation: isolate;
+  overflow: hidden;
+  border: 0 !important;
+  background: rgba(255,255,255,.055) !important;
+  -webkit-backdrop-filter: blur(10px) saturate(128%) !important;
+  backdrop-filter: blur(10px) saturate(128%) !important;
+  box-shadow:
+    0 8px 13px rgba(56,48,73,.075),
+    0 1px 0 rgba(255,255,255,.56) !important;
+}
+
+.dd-row-light {
+  inset: -28%;
+  z-index: 0;
+  background:
+    radial-gradient(44% 42% at 12% 18%, rgba(255,255,255,.25), transparent 72%),
+    radial-gradient(26% 46% at 98% 86%, rgba(89,222,244,.08), transparent 72%),
+    radial-gradient(20% 40% at 86% 8%, rgba(239,177,223,.055), transparent 74%);
+  filter: blur(12px);
+}
+
+.dd-row-glows {
+  inset: 0;
+  z-index: 1;
+  border-radius: inherit;
+  padding: 1px;
+  background: linear-gradient(
+    120deg,
+    rgba(255,255,255,.92) 0%,
+    rgba(255,255,255,.75) 34%,
+    rgba(173,156,244,.34) 53%,
+    rgba(117,223,242,.39) 76%,
+    rgba(241,190,226,.34) 92%,
+    rgba(255,255,255,.82) 100%
+  );
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+}
+
+.dd-row-contour {
+  inset: 1.5px;
+  z-index: 1;
+  border-radius: inherit;
+  border: 1px solid rgba(255,255,255,.38);
+  box-shadow: inset 0 1.5px 1px rgba(255,255,255,.78);
+}
+
+.dd-workflow-row > :not(.dd-row-light):not(.dd-row-glows):not(.dd-row-contour) {
+  position: relative;
+  z-index: 3;
+}
+
+.dd-workflow-row .dd-step {
+  background: rgba(255,255,255,.10) !important;
+  border: 1px solid rgba(255,255,255,.72) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,.92),
+    0 3px 7px rgba(59,51,77,.06) !important;
+  -webkit-backdrop-filter: blur(7px) saturate(120%) !important;
+  backdrop-filter: blur(7px) saturate(120%) !important;
+}
+
+/* Keep existing approved CTA visual language untouched. */
+.dd-primary,
+.dd-primary:hover,
+.dd-primary:focus-visible {
+  isolation: isolate;
+}
+
+@media (max-width: 767px) {
+  .dd-public-header.dd-layered-slab,
+  .dd-landing-demo.dd-layered-slab {
+    border-radius: 25px !important;
+  }
+
+  .dd-public-header.dd-layered-slab {
+    -webkit-backdrop-filter: blur(15px) saturate(132%) !important;
+    backdrop-filter: blur(15px) saturate(132%) !important;
+  }
+
+  .dd-landing-demo.dd-layered-slab {
+    -webkit-backdrop-filter: blur(12px) saturate(134%) !important;
+    backdrop-filter: blur(12px) saturate(134%) !important;
+  }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .dd-public-header.dd-layered-slab,
+  .dd-landing-demo.dd-layered-slab,
+  .dd-landing-inner.dd-layered-inner,
+  .dd-workflow-row.dd-layered-row {
+    background: rgba(250,249,252,.86) !important;
+    -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
+  }
+}
