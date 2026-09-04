@@ -11,6 +11,7 @@ import "./landing-glass-final.css";
 import "./phase-b-exact.css";
 import "./auth-transparent-test.css";
 import "./reference-skin-test.css";
+import "./layered-liquid-study.css";
 
 const fontSans = Inter({
   variable: "--font-sans",
