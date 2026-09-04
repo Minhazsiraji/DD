@@ -15,7 +15,7 @@ import "./layered-liquid-study.css";
 import "./approved-liquid-material.css";
 import "./global-background-test.css";
 import "./full-liquid-pass.css";
-import "./ambient-bubble-light.css";
+import "./exact-rim-bridge.css";
 
 const fontSans = Inter({
   variable: "--font-sans",
