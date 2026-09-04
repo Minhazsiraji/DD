@@ -1,6 +1,4 @@
-import Image from "next/image";
 import * as React from "react";
-import ddMark from "@/assets/dd-mark-exact.png";
 import { cn } from "@/lib/utils";
 
 export function BrandMark({ className }: { className?: string }) {
@@ -9,10 +7,12 @@ export function BrandMark({ className }: { className?: string }) {
       className={cn("dd-brand-mark inline-flex shrink-0 items-center justify-center", className)}
       aria-hidden="true"
     >
-      <Image
-        src={ddMark}
+      {/* The exact DD mark is served from public/brand to avoid Next static-image
+          processing in the isolated preview build. */}
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src="/brand/dd-mark-exact.png"
         alt=""
-        priority
         draggable={false}
         className="h-full w-full object-contain"
       />
