@@ -48,8 +48,9 @@
     "qa:create": "node --env-file=.env.local scripts/qa-fixture.mjs create",
     "qa:destroy": "node --env-file=.env.local scripts/qa-fixture.mjs destroy",
     "qa:status": "node --env-file=.env.local scripts/qa-fixture.mjs status",
-    "db:deploy:fresh": "node scripts/deploy-fresh.mjs --database-url",
-    "db:verify:p0": "node scripts/verify-p0.mjs"
+    "db:deploy:fresh": "node scripts/p0-run.mjs scripts/deploy-fresh.mjs --database-url",
+    "db:verify:p0": "node scripts/p0-run.mjs scripts/verify-p0.mjs",
+    "db:verify:determinism": "node scripts/p0-run.mjs scripts/verify-deployment-determinism.mjs"
   },
   "dependencies": {
     "@base-ui/react": "^1.7.0",

@@ -1,0 +1,34 @@
+# THE P0 DEPLOYMENT LANE IS HASHED BY BYTE, SO ITS BYTES MUST NOT VARY.
+#
+# `db/manifest.toml` pins a SHA-256 over each deployment file's contents, and
+# `deploy-fresh.mjs` refuses to run when a hash does not match. Those pins are
+# the LF bytes stored in git.
+#
+# This repository is developed on Windows with `core.autocrlf=true`, which
+# rewrites LF to CRLF at checkout. That changes every byte-count and every
+# hash: `db/schema/0001_p0_baseline.sql` pins 0c095c46… (the git blob) and
+# hashed db440b4d… on a Windows working tree, so `npm run db:verify:p0` failed
+# on Windows while passing in the Codespace.
+#
+# The consequence is worse than a failing check. If the manifest were ever
+# regenerated from a Windows tree the pins would become CRLF hashes, the
+# Codespace replay would then fail instead, and which platform is authoritative
+# would depend on who last touched it. Pinning the line endings makes the
+# deployment lane byte-identical everywhere and the hashes platform-invariant.
+#
+# Scoped deliberately to the P0 lane rather than applied repo-wide: other
+# branches are in flight, and renormalising every file would collide with them.
+
+db/**/*.sql       text eol=lf
+db/manifest.toml  text eol=lf
+
+# The runners that read and hash those files, kept in the same regime.
+scripts/p0-target.mjs                     text eol=lf
+scripts/p0-run.mjs                        text eol=lf
+scripts/deploy-fresh.mjs                  text eol=lf
+scripts/verify-p0.mjs                     text eol=lf
+scripts/verify-deployment-determinism.mjs text eol=lf
+
+# Evidence is compared and quoted; keep it stable too.
+docs/evidence/p0/*.json text eol=lf
+docs/evidence/p0/*.md   text eol=lf
