@@ -80,3 +80,48 @@ Two findings came out of writing those tests rather than reading the code:
 stripped, or every IPv6 target is rejected), and `postgres:` is a non-special
 scheme so WHATWG does **not** lower-case the host (`LOCALHOST` arrives
 unchanged). Both are now handled explicitly and pinned by test.
+
+## Runtime harness substrate
+
+The determinism proof runs against **two fresh local Supabase substrates**, not
+two raw PostgreSQL databases. The earlier harness used `CREATE DATABASE`, and
+the P0 manifest — which references `auth` and `storage` — failed on it with
+`schema "auth" does not exist`. That was a defect in the harness, not the
+manifest: a raw database is not a Doctor's Diary deployment target.
+
+Each round issues `supabase db reset --local --no-seed` and then asserts, before
+deploying anything:
+
+- `auth` and `storage` schemas exist;
+- no P0 table is already present in `public`;
+- and it reports any non-P0 table found in `public`, because that is precisely
+  what makes the forced-RLS check fail later.
+
+`--linked` and `--db-url` are never emitted. `--linked` would reset the linked
+**remote** project, which is the one command in this repository that could
+destroy Track B; a test asserts neither string appears in the harness. The run
+also refuses to start if `supabase/.temp/project-ref` exists, and refuses unless
+`supabase/config.toml` sets `[db.migrations] enabled = false` — without that,
+`supabase db reset` replays the V1 migration lane into the substrate and the
+replay is no longer manifest-only.
+
+Deployment goes through `scripts/deploy-fresh.mjs` as a child process rather
+than a second copy of the manifest loop, so the proof measures the path that
+actually ships.
+
+## Forced-RLS check
+
+The invariant is unchanged — every table in `public` must have both
+`relrowsecurity` and `relforcerowsecurity`. The **query** was wrong: it joined
+`pg_tables` to `pg_class` on `relname` alone, with `schemaname='public'`
+filtering only the `pg_tables` side. It therefore compared a public table
+against every same-named relation in every schema — `auth`, `storage`,
+`realtime`, `extensions` — and against indexes, sequences and views. A platform
+relation's `relforcerowsecurity` is `false`, so the check could fail for a
+reason unrelated to P0. On a raw PostgreSQL database nothing collides, which is
+why it passed where the golden dump was produced and failed on a real Supabase
+substrate.
+
+It now joins on the relation's own oid with the namespace pinned and
+`relkind in ('r','p')`, and on failure prints every offending table with both
+flag values before throwing.

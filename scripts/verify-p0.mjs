@@ -52,8 +52,68 @@ console.log("P0 static manifest and DD-CHK-31 exhaustive properties: PASS");
 if (process.argv[2]) {
   const sql = postgres(requireLocalP0DatabaseUrl(process.argv[2]), { max: 1 });
   try {
-    const tables = await sql`select tablename, rowsecurity, relforcerowsecurity from pg_tables join pg_class on pg_class.relname=tablename where schemaname='public' order by tablename`;
-    if (tables.some((item) => !item.rowsecurity || !item.relforcerowsecurity)) throw new Error("public table is not forced RLS");
+    /**
+     * FORCED RLS ON EVERY PUBLIC TABLE.
+     *
+     * The rule is unchanged and not weakened. The QUERY was wrong.
+     *
+     * It read:
+     *   from pg_tables join pg_class on pg_class.relname = tablename
+     *   where schemaname = 'public'
+     *
+     * `schemaname` filters pg_tables; it does not filter pg_class. So the join
+     * matched a public table against EVERY relation of that name in EVERY
+     * schema — auth, storage, realtime, extensions, pg_catalog — and against
+     * indexes, sequences and views as well as tables. One same-named relation
+     * anywhere in the cluster contributes its own `relforcerowsecurity`, which
+     * for a platform table is false, and the check fails for a reason that has
+     * nothing to do with P0.
+     *
+     * On a raw PostgreSQL database there is nothing else to collide with, which
+     * is why this passed where the golden dump was produced and failed on a
+     * real Supabase substrate.
+     *
+     * Corrected: join on the relation's own oid with the namespace pinned, and
+     * restrict to ordinary and partitioned tables. `pg_class.relrowsecurity` is
+     * the same column `pg_tables.rowsecurity` exposes, so pg_tables is no
+     * longer needed at all.
+     */
+    const tables = await sql`
+      select c.relname as tablename,
+             c.relrowsecurity as rowsecurity,
+             c.relforcerowsecurity as relforcerowsecurity
+      from pg_class c
+      join pg_namespace n on n.oid = c.relnamespace
+      where n.nspname = 'public' and c.relkind in ('r', 'p')
+      order by c.relname`;
+
+    if (tables.length === 0) {
+      throw new Error("no public tables found: the manifest was not deployed to this target");
+    }
+
+    const unforced = tables.filter((item) => !item.rowsecurity || !item.relforcerowsecurity);
+    if (unforced.length) {
+      /**
+       * Name EVERY offender and both flags. "a public table is not forced RLS"
+       * says a rule was broken without saying by what, which turns a one-line
+       * fix into an investigation — and it cannot distinguish a genuine P0 gap
+       * from a stray table the substrate put in `public`.
+       */
+      console.error(`\nFORCED-RLS FAILURE — ${unforced.length} of ${tables.length} public tables:`);
+      console.error("  table                                   rowsecurity  forcerowsecurity");
+      for (const item of unforced) {
+        console.error(
+          `  ${item.tablename.padEnd(38)} ${String(item.rowsecurity).padEnd(12)} ${item.relforcerowsecurity}`,
+        );
+      }
+      console.error(
+        "\nEvery table in `public` must have BOTH. If a name above is not a P0 table, " +
+          "something outside the manifest created it in `public` and the substrate was not clean.\n",
+      );
+      throw new Error(
+        `public table is not forced RLS: ${unforced.map((i) => i.tablename).join(", ")}`,
+      );
+    }
     const forbidden = await sql`select tablename from pg_tables where schemaname='public' and tablename in ('platform_staff','platform_staff_roles','student_enrollments','medical_student_profiles','clinical_documents','patient_subject_links','personal_health_documents','service_usage_events','medicine_references','plans')`;
     if (forbidden.length) throw new Error(`P1+ table present: ${forbidden[0].tablename}`);
     const audit = await sql`select column_name from information_schema.columns where table_schema='public' and table_name='audit_events'`;
