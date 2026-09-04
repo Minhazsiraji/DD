@@ -1,0 +1,37 @@
+/* Doctor's Diary — global background image test
+   Temporary visual experiment requested by the owner.
+   Keep component/card styling unchanged; only replace the page canvas. */
+
+html,
+body {
+  min-height: 100%;
+  background-color: #ddd8ea !important;
+}
+
+body {
+  background-image: url('/dd-global-bg.webp') !important;
+  background-size: cover !important;
+  background-position: center center !important;
+  background-repeat: no-repeat !important;
+  background-attachment: fixed !important;
+}
+
+/* Let the global image remain visible behind public/auth/app content. */
+.dd-public-stage,
+.dd-auth-shell {
+  background: transparent !important;
+  background-image: none !important;
+}
+
+/* Disable the previous full-page ambient wash during this test so the supplied
+   background image is what we actually judge. */
+.dd-public-stage-light {
+  display: none !important;
+}
+
+@media (max-width: 767px) {
+  body {
+    background-attachment: scroll !important;
+    background-position: center top !important;
+  }
+}
