@@ -19,7 +19,7 @@ export function LoginForm({ next }: { next?: string }) {
           New here?{" "}
           <Link
             href="/signup"
-            className="font-semibold text-brand hover:underline focus-visible:focus-ring rounded"
+            className="rounded font-semibold text-brand hover:underline focus-visible:focus-ring"
           >
             Create an account
           </Link>
@@ -44,9 +44,7 @@ export function LoginForm({ next }: { next?: string }) {
           errors={state.fieldErrors?.password}
         />
 
-        {/* Shortens the idle lock on machines the doctor does not control —
-            a clinic front desk or a hospital workstation. */}
-        <label className="flex items-start gap-2.5 rounded-xl bg-surface-muted px-3 py-2.5 text-[13px] text-ink">
+        <label className="dd-auth-subpanel flex items-start gap-2.5 rounded-[16px] px-3 py-2.5 text-[13px] text-ink">
           <input
             type="checkbox"
             name="sharedDevice"
