@@ -12,52 +12,52 @@ const nav = [
 
 export function MarketingShell({ children }: { children: ReactNode }) {
   return (
-    <div className="dd-public-stage min-h-screen text-ink">
-      <span className="dd-public-stage-light" aria-hidden />
-
+    <div className="min-h-screen text-ink">
       <header className="sticky top-0 z-40 px-2.5 pt-2.5 sm:px-4 sm:pt-3 lg:px-6">
-        <div className="dd-public-header dd-layered-slab mx-auto max-w-7xl">
-          <span className="dd-glass-light" aria-hidden />
-          <span className="dd-glass-glows" aria-hidden />
-          <span className="dd-glass-contour" aria-hidden />
+        <div className="dd-approved-stage dd-header-stage">
+          <span className="dd-approved-light" aria-hidden />
+          <div className="dd-public-header dd-approved-slab mx-auto max-w-7xl">
+            <span className="dd-approved-glows" aria-hidden />
+            <span className="dd-approved-contour" aria-hidden />
 
-          <div className="dd-public-header-content flex min-h-[56px] items-center justify-between gap-2.5 px-3 py-2 sm:min-h-[60px] sm:px-4">
-            <Link
-              href="/"
-              className="flex min-w-0 items-center gap-2.5 rounded-2xl focus-visible:focus-ring"
-            >
-              <BrandMark className="h-9 w-12 shrink-0 sm:h-10 sm:w-[54px]" />
-              <BrandWordmark className="text-[15.5px] sm:text-[17px]" tagline />
-            </Link>
+            <div className="dd-public-header-content dd-approved-content flex min-h-[56px] items-center justify-between gap-2.5 px-3 py-2 sm:min-h-[60px] sm:px-4">
+              <Link
+                href="/"
+                className="flex min-w-0 items-center gap-2.5 rounded-2xl focus-visible:focus-ring"
+              >
+                <BrandMark className="h-9 w-12 shrink-0 sm:h-10 sm:w-[54px]" />
+                <BrandWordmark className="text-[15.5px] sm:text-[17px]" tagline />
+              </Link>
 
-            <nav
-              className="hidden items-center gap-1 text-[12px] text-ink-secondary lg:flex"
-              aria-label="Main navigation"
-            >
-              {nav.map(([label, href]) => (
+              <nav
+                className="hidden items-center gap-1 text-[12px] text-ink-secondary lg:flex"
+                aria-label="Main navigation"
+              >
+                {nav.map(([label, href]) => (
+                  <Link
+                    key={href}
+                    href={href}
+                    className="rounded-full px-3 py-2 font-medium transition hover:bg-white/48 hover:text-ink focus-visible:focus-ring"
+                  >
+                    {label}
+                  </Link>
+                ))}
+              </nav>
+
+              <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">
                 <Link
-                  key={href}
-                  href={href}
-                  className="rounded-full px-3 py-2 font-medium transition hover:bg-white/48 hover:text-ink focus-visible:focus-ring"
+                  href="/login"
+                  className="dd-secondary hidden h-9 items-center rounded-full px-3.5 text-[12px] font-semibold text-ink-secondary sm:inline-flex"
                 >
-                  {label}
+                  Sign in
                 </Link>
-              ))}
-            </nav>
-
-            <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">
-              <Link
-                href="/login"
-                className="dd-secondary hidden h-9 items-center rounded-full px-3.5 text-[12px] font-semibold text-ink-secondary sm:inline-flex"
-              >
-                Sign in
-              </Link>
-              <Link
-                href="/signup"
-                className="dd-primary inline-flex h-9 items-center whitespace-nowrap rounded-full px-3.5 text-[12px] font-semibold text-white sm:h-10 sm:px-4 sm:text-[12.5px]"
-              >
-                Start free
-              </Link>
+                <Link
+                  href="/signup"
+                  className="dd-primary inline-flex h-9 items-center whitespace-nowrap rounded-full px-3.5 text-[12px] font-semibold text-white sm:h-10 sm:px-4 sm:text-[12.5px]"
+                >
+                  Start free
+                </Link>
+              </div>
             </div>
           </div>
         </div>
