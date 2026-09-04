@@ -7,11 +7,11 @@ export function BrandMark({ className }: { className?: string }) {
       className={cn("dd-brand-mark inline-flex shrink-0 items-center justify-center", className)}
       aria-hidden="true"
     >
-      {/* The exact DD mark is served from public/brand to avoid Next static-image
-          processing in the isolated preview build. */}
+      {/* Browser-safe owner-approved DD mark. The previous PNG was structurally
+          corrupted (CRC) and could not be decoded reliably by Next or browsers. */}
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
-        src="/brand/dd-mark-exact.png"
+        src="/brand/dd-mark-exact-fixed.svg"
         alt=""
         draggable={false}
         className="h-full w-full object-contain"
