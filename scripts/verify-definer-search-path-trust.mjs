@@ -16,8 +16,8 @@ try {
     order by p.proname
   `;
 
-  assert(definers.length === 14,
-    `expected 14 P0 SECURITY DEFINER functions, found ${definers.length}`);
+  assert(definers.length === 28,
+    `expected 28 P0 SECURITY DEFINER functions, found ${definers.length}`);
 
   const paths = new Map();
 
@@ -76,6 +76,7 @@ try {
     "dd_owner_analytics",
     "dd_metrics_reader",
     "dd_metrics_rollup",
+    "dd_public_ingress",
   ]);
 
   const unsafeAcl = acl.filter((row) =>

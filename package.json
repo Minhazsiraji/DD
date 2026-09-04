@@ -56,7 +56,12 @@
     "db:verify:definer-grants": "node scripts/p0-run.mjs scripts/verify-definer-grants.mjs",
     "db:verify:definer-search-path-trust": "node scripts/p0-run.mjs scripts/verify-definer-search-path-trust.mjs",
     "db:verify:anon-surface": "node scripts/p0-run.mjs scripts/verify-anon-surface.mjs",
-    "db:verify:capability-projection": "node scripts/p0-run.mjs scripts/verify-capability-projection.mjs"
+    "db:verify:capability-projection": "node scripts/p0-run.mjs scripts/verify-capability-projection.mjs",
+    "db:verify:public-booking-representability": "node scripts/p0-run.mjs scripts/verify-public-booking-representability.mjs",
+    "db:verify:anon-operational-controls": "node scripts/p0-run.mjs scripts/verify-anon-operational-controls.mjs",
+    "db:verify:audit-no-clinical-payload": "node scripts/p0-run.mjs scripts/verify-audit-no-clinical-payload.mjs",
+    "db:verify:phone-canonicalization": "node scripts/p0-run.mjs scripts/verify-phone-canonicalization.mjs",
+    "db:verify:appointments-p0": "node scripts/p0-run.mjs scripts/verify-appointments-p0.mjs"
   },
   "dependencies": {
     "@base-ui/react": "^1.7.0",

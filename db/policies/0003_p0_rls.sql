@@ -1,5 +1,5 @@
 revoke create on schema public from public;
-revoke create on schema public from authenticated, anon, dd_owner_analytics, dd_metrics_reader, dd_metrics_rollup;
+revoke create on schema public from authenticated, anon, dd_owner_analytics, dd_metrics_reader, dd_metrics_rollup, dd_public_ingress;
 
 do $$ declare item record; begin
   for item in select tablename from pg_tables where schemaname='public' loop
@@ -27,6 +27,16 @@ create policy practice_locations_member_read on practice_locations for select us
 );
 create policy practice_memberships_self_read on practice_memberships for select using (profile_id = public.current_profile_id());
 create policy appointments_owner_read on appointments for select using (owner_doctor_id = public.current_doctor_id());
+
+create policy public_booking_contacts_operational_read
+on public_booking_contacts
+for select
+using (
+  public.can_read_public_booking_contact(
+    public_booking_contacts.appointment_id
+  )
+);
+
 create policy appointment_events_owner_read on appointment_events for select using (
   exists (select 1 from appointments a where a.id = appointment_events.appointment_id and a.owner_doctor_id = public.current_doctor_id())
 );
@@ -47,5 +57,5 @@ create policy consent_subject_read on consent_records for select using (
 create policy audit_events_actor_read on audit_events for select using (actor_id = public.current_profile_id());
 create policy metric_rollups_no_direct_read on metric_rollups for select using (false);
 
-revoke all on all tables in schema public from anon, authenticated;
-revoke all on all sequences in schema public from anon, authenticated;
+revoke all on all tables in schema public from anon, authenticated, dd_public_ingress;
+revoke all on all sequences in schema public from anon, authenticated, dd_public_ingress;

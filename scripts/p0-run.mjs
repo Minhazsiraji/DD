@@ -49,6 +49,11 @@ const P0_SCRIPTS = new Set([
   "scripts/verify-definer-search-path-trust.mjs",
   "scripts/verify-anon-surface.mjs",
   "scripts/verify-capability-projection.mjs",
+  "scripts/verify-public-booking-representability.mjs",
+  "scripts/verify-anon-operational-controls.mjs",
+  "scripts/verify-audit-no-clinical-payload.mjs",
+  "scripts/verify-phone-canonicalization.mjs",
+  "scripts/verify-appointments-p0.mjs",
 ]);
 
 const [script, ...args] = process.argv.slice(2);

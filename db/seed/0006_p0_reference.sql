@@ -10,3 +10,51 @@ on conflict (metric_code) do nothing;
 insert into metric_classification_registry(classification_code)
 values ('STANDARD'), ('CORRECTION')
 on conflict do nothing;
+
+
+-- P0 anonymous operational-control configuration.
+--
+-- One-minute windows make the relative policy easy to inspect:
+--   availability = least restrictive;
+--   status       = stricter;
+--   booking      = most restrictive.
+--
+-- Network budgets are intentionally four times session budgets to tolerate
+-- legitimate shared-NAT traffic without weakening per-session enforcement.
+-- Resource budgets are half of the corresponding global budget.
+--
+-- Version and timestamps are fixed configuration, not runtime-generated,
+-- preserving deterministic replay/golden output.
+
+insert into anon_rate_limit_policies(
+  rpc_code,
+  bucket_kind,
+  window_seconds,
+  max_requests,
+  enabled,
+  policy_version,
+  effective_from,
+  updated_at
+)
+values
+  ('PUBLIC_CHAMBER_AVAILABILITY','SESSION_GLOBAL',    60,  60, true, 'P0-2026-09-04-V1', '2026-09-04 00:00:00+00', '2026-09-04 00:00:00+00'),
+  ('PUBLIC_CHAMBER_AVAILABILITY','NETWORK_GLOBAL',    60, 240, true, 'P0-2026-09-04-V1', '2026-09-04 00:00:00+00', '2026-09-04 00:00:00+00'),
+  ('PUBLIC_CHAMBER_AVAILABILITY','SESSION_RESOURCE',  60,  30, true, 'P0-2026-09-04-V1', '2026-09-04 00:00:00+00', '2026-09-04 00:00:00+00'),
+  ('PUBLIC_CHAMBER_AVAILABILITY','NETWORK_RESOURCE',  60, 120, true, 'P0-2026-09-04-V1', '2026-09-04 00:00:00+00', '2026-09-04 00:00:00+00'),
+
+  ('PUBLIC_BOOKING_STATUS','SESSION_GLOBAL',          60,  30, true, 'P0-2026-09-04-V1', '2026-09-04 00:00:00+00', '2026-09-04 00:00:00+00'),
+  ('PUBLIC_BOOKING_STATUS','NETWORK_GLOBAL',          60, 120, true, 'P0-2026-09-04-V1', '2026-09-04 00:00:00+00', '2026-09-04 00:00:00+00'),
+  ('PUBLIC_BOOKING_STATUS','SESSION_RESOURCE',        60,  15, true, 'P0-2026-09-04-V1', '2026-09-04 00:00:00+00', '2026-09-04 00:00:00+00'),
+  ('PUBLIC_BOOKING_STATUS','NETWORK_RESOURCE',        60,  60, true, 'P0-2026-09-04-V1', '2026-09-04 00:00:00+00', '2026-09-04 00:00:00+00'),
+
+  ('CREATE_PUBLIC_BOOKING','SESSION_GLOBAL',          60,   6, true, 'P0-2026-09-04-V1', '2026-09-04 00:00:00+00', '2026-09-04 00:00:00+00'),
+  ('CREATE_PUBLIC_BOOKING','NETWORK_GLOBAL',          60,  24, true, 'P0-2026-09-04-V1', '2026-09-04 00:00:00+00', '2026-09-04 00:00:00+00'),
+  ('CREATE_PUBLIC_BOOKING','SESSION_RESOURCE',        60,   3, true, 'P0-2026-09-04-V1', '2026-09-04 00:00:00+00', '2026-09-04 00:00:00+00'),
+  ('CREATE_PUBLIC_BOOKING','NETWORK_RESOURCE',        60,  12, true, 'P0-2026-09-04-V1', '2026-09-04 00:00:00+00', '2026-09-04 00:00:00+00')
+on conflict (rpc_code, bucket_kind, policy_version)
+do update set
+  window_seconds = excluded.window_seconds,
+  max_requests = excluded.max_requests,
+  enabled = excluded.enabled,
+  effective_from = excluded.effective_from,
+  updated_at = excluded.updated_at;

@@ -17,6 +17,22 @@ const expected = new Map([
   ["open_prescription(uuid)", new Set(["authenticated"])],
   ["finalize_prescription(uuid,integer,jsonb,text,text)", new Set(["authenticated"])],
   ["allocate_queue_token(uuid,date,uuid)", new Set(["authenticated"])],
+
+  ["consume_anon_rate_limit(text)", new Set()],
+  ["emit_anon_audit_event(text,text,text,uuid)", new Set()],
+  ["record_public_ingress_failure(text,uuid,uuid)", new Set(["dd_public_ingress"])],
+  ["public_chamber_is_eligible(uuid)", new Set()],
+  ["public_slot_is_open(uuid,timestampwithtimezone,timestampwithtimezone)", new Set()],
+  ["lock_public_booking_chamber(uuid)", new Set()],
+  ["public_chamber_availability(uuid,date,date)", new Set(["anon", "dd_public_ingress"])],
+  ["create_public_booking(uuid,timestampwithtimezone,text,text,text,text)", new Set(["anon", "dd_public_ingress"])],
+  ["public_booking_status(uuid)", new Set(["anon", "dd_public_ingress"])],
+
+  ["can_read_public_booking_contact(uuid)", new Set(["authenticated"])],
+  ["correct_public_booking_contact(uuid,text,text,text,text)", new Set(["authenticated"])],
+  ["search_public_booking_patient_candidates(uuid,text,text)", new Set(["authenticated"])],
+  ["resolve_public_booking_patient(uuid,uuid)", new Set(["authenticated"])],
+  ["register_public_booking_patient(uuid,text,text,text)", new Set(["authenticated"])],
 ]);
 
 try {
@@ -35,8 +51,8 @@ try {
   `;
 
   assert(
-    definers.length === 14,
-    `expected 14 P0 SECURITY DEFINER functions, found ${definers.length}`,
+    definers.length === expected.size,
+    `expected ${expected.size} P0 SECURITY DEFINER functions, found ${definers.length}`,
   );
 
   const observedKeys = new Set();
@@ -91,28 +107,27 @@ try {
       `${key}: PUBLIC has EXECUTE`,
     );
 
+    const wanted = expected.get(key);
+
+    if (!wanted.has("anon")) {
+      assert(
+        !actual.has("anon"),
+        `${key}: undeclared anon EXECUTE`,
+      );
+    }
+
     assert(
-      !actual.has("anon"),
-      `${key}: anon has EXECUTE`,
+      !actual.has("service_role"),
+      `${key}: service_role has undeclared EXECUTE`,
     );
 
     /*
-     * Supabase's exact built-in service_role is substrate infrastructure.
-     * The local pinned substrate grants it EXECUTE through postgres-owned
-     * default ACLs. It is not a Doctor's Diary application/service-agent role.
-     *
-     * Keep PUBLIC/anon checks against the raw catalog surface above, and
-     * exclude only this exact substrate role from the DD declared-grantee
-     * comparison. DD service-agent roles are checked separately below.
+     * Compare the REAL catalog ACL against the exact declared allowlist.
+     * service_role is intentionally NOT filtered: Central requires any
+     * undeclared service_role EXECUTE on a DD-owned definer to fail.
      */
-    const applicationActual = new Set(
-      [...actual].filter((role) => role !== "service_role"),
-    );
-
-    const wanted = expected.get(key);
-
-    const extras = [...applicationActual].filter((r) => !wanted.has(r));
-    const missing = [...wanted].filter((r) => !applicationActual.has(r));
+    const extras = [...actual].filter((r) => !wanted.has(r));
+    const missing = [...wanted].filter((r) => !actual.has(r));
 
     assert(
       extras.length === 0,

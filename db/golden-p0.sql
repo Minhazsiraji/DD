@@ -1013,6 +1013,348 @@ end $$;
 
 
 --
+-- Name: can_read_public_booking_contact(uuid); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.can_read_public_booking_contact(appointment_key uuid) RETURNS boolean
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+  select exists (
+    select 1
+    from public.appointments a
+    where a.id = appointment_key
+      and (
+        a.owner_doctor_id = public.current_doctor_id()
+        or exists (
+          select 1
+          from public.practice_memberships pm
+          where pm.practice_location_id =
+                  a.practice_location_id
+            and pm.profile_id =
+                  public.current_profile_id()
+            and pm.status = 'ACTIVE'
+            and pm.role in (
+              'RECEPTIONIST',
+              'LOCATION_ADMIN'
+            )
+        )
+      )
+  )
+$$;
+
+
+--
+-- Name: consume_anon_rate_limit(text); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.consume_anon_rate_limit(target_rpc text) RETURNS boolean
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+declare
+  bucket_order constant text[] := array[
+    'SESSION_GLOBAL',
+    'NETWORK_GLOBAL',
+    'SESSION_RESOURCE',
+    'NETWORK_RESOURCE'
+  ];
+  bucket_name text;
+  policy record;
+  bucket_key bytea;
+  now_at timestamptz := clock_timestamp();
+  window_start timestamptz;
+  expiry_at timestamptz;
+  observed_count integer;
+  allowed boolean := true;
+begin
+  perform public.require_public_ingress_context();
+
+  if target_rpc not in (
+    'PUBLIC_CHAMBER_AVAILABILITY',
+    'CREATE_PUBLIC_BOOKING',
+    'PUBLIC_BOOKING_STATUS'
+  ) then
+    raise exception 'ANON_RPC_CODE_INVALID' using errcode='22023';
+  end if;
+
+  foreach bucket_name in array bucket_order loop
+    select
+      p.rpc_code,
+      p.bucket_kind,
+      p.window_seconds,
+      p.max_requests,
+      p.policy_version
+    into policy
+    from public.anon_rate_limit_policies p
+    where p.rpc_code = target_rpc
+      and p.bucket_kind = bucket_name
+      and p.enabled
+      and p.effective_from <= now_at
+    order by p.effective_from desc
+    limit 1;
+
+    if not found then
+      raise exception 'ANON_RATE_POLICY_MISSING' using errcode='P0001';
+    end if;
+
+    bucket_key := case bucket_name
+      when 'SESSION_GLOBAL'
+        then decode(current_setting('dd.anon_session_digest'), 'hex')
+      when 'NETWORK_GLOBAL'
+        then decode(current_setting('dd.network_digest'), 'hex')
+      when 'SESSION_RESOURCE'
+        then extensions.digest(
+          decode(current_setting('dd.anon_session_digest'), 'hex')
+          || decode(current_setting('dd.resource_digest'), 'hex'),
+          'sha256'
+        )
+      when 'NETWORK_RESOURCE'
+        then extensions.digest(
+          decode(current_setting('dd.network_digest'), 'hex')
+          || decode(current_setting('dd.resource_digest'), 'hex'),
+          'sha256'
+        )
+    end;
+
+    window_start :=
+      to_timestamp(
+        floor(extract(epoch from now_at) / policy.window_seconds)
+        * policy.window_seconds
+      );
+
+    expiry_at :=
+      window_start
+      + pg_catalog.make_interval(secs => policy.window_seconds * 2);
+
+    observed_count := null;
+
+    insert into public.anon_rate_limit_buckets as b(
+      rpc_code,
+      bucket_kind,
+      policy_version,
+      key_digest,
+      window_started_at,
+      request_count,
+      last_seen_at,
+      expires_at
+    )
+    values (
+      target_rpc,
+      bucket_name,
+      policy.policy_version,
+      bucket_key,
+      window_start,
+      1,
+      now_at,
+      expiry_at
+    )
+    on conflict (rpc_code, bucket_kind, key_digest, window_started_at)
+    do update
+      set request_count = b.request_count + 1,
+          policy_version = excluded.policy_version,
+          last_seen_at = excluded.last_seen_at,
+          expires_at = greatest(b.expires_at, excluded.expires_at)
+      where b.request_count < policy.max_requests
+    returning request_count into observed_count;
+
+    if observed_count is null then
+      allowed := false;
+    end if;
+  end loop;
+
+  return allowed;
+end $$;
+
+
+--
+-- Name: correct_public_booking_contact(uuid, text, text, text, text); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.correct_public_booking_contact(appointment_key uuid, new_contact_name text, new_phone_raw text DEFAULT NULL::text, new_email text DEFAULT NULL::text, new_locale text DEFAULT NULL::text) RETURNS uuid
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public', 'pg_temp'
+    AS $_$
+declare
+  actor_profile uuid;
+  actor_doctor uuid;
+  owner_doctor uuid;
+  location_key uuid;
+  lifecycle text;
+  old_name text;
+  old_phone text;
+  old_email text;
+  old_locale text;
+  normalized_name text;
+  normalized_phone text;
+  normalized_phone_e164 text;
+  normalized_email text;
+  normalized_locale text;
+  country_hint text;
+  authorized boolean := false;
+  changed_any boolean := false;
+begin
+  actor_profile := public.current_profile_id();
+
+  if actor_profile is null then
+    raise exception 'AUTHENTICATION_REQUIRED' using errcode='42501';
+  end if;
+
+  select
+    a.owner_doctor_id,
+    a.practice_location_id,
+    c.lifecycle_status,
+    c.contact_name,
+    c.phone_raw,
+    c.email,
+    c.locale
+  into
+    owner_doctor,
+    location_key,
+    lifecycle,
+    old_name,
+    old_phone,
+    old_email,
+    old_locale
+  from public.appointments a
+  join public.public_booking_contacts c
+    on c.appointment_id = a.id
+  where a.id = appointment_key
+    and a.source_channel in ('PUBLIC_WEB','PUBLIC_APP')
+  for update of c;
+
+  if not found then
+    raise exception 'PUBLIC_BOOKING_NOT_FOUND' using errcode='P0001';
+  end if;
+
+  actor_doctor := public.current_doctor_id();
+
+  authorized :=
+    actor_doctor = owner_doctor
+    or exists (
+      select 1
+      from public.practice_memberships pm
+      where pm.practice_location_id = location_key
+        and pm.profile_id = actor_profile
+        and pm.status = 'ACTIVE'
+        and pm.role in ('RECEPTIONIST','LOCATION_ADMIN')
+    );
+
+  if not authorized then
+    raise exception 'PUBLIC_BOOKING_CONTACT_AUTHORITY_REQUIRED'
+      using errcode='42501';
+  end if;
+
+  if lifecycle in ('RESOLVED','PURGE_ELIGIBLE') then
+    raise exception 'PUBLIC_BOOKING_CONTACT_FROZEN'
+      using errcode='P0001';
+  end if;
+
+  normalized_name := nullif(btrim(new_contact_name), '');
+  normalized_phone := nullif(btrim(new_phone_raw), '');
+  normalized_email := nullif(lower(btrim(new_email)), '');
+  normalized_locale := nullif(btrim(new_locale), '');
+
+  if normalized_name is null
+     or length(normalized_name) > 200
+     or (normalized_phone is null and normalized_email is null)
+     or (
+       normalized_phone is not null
+       and length(normalized_phone) > 64
+     )
+     or (
+       normalized_email is not null
+       and length(normalized_email) not between 3 and 320
+     )
+     or (
+       normalized_locale is not null
+       and length(normalized_locale) > 32
+     ) then
+    raise exception 'PUBLIC_BOOKING_CONTACT_INVALID'
+      using errcode='22023';
+  end if;
+
+  normalized_phone_e164 :=
+    case
+      when normalized_phone ~ '^\+[1-9][0-9]{1,14}$'
+        then normalized_phone
+      else null
+    end;
+
+  select
+    case
+      when normalized_phone is not null then pl.country_code
+      else null
+    end
+  into country_hint
+  from public.practice_locations pl
+  where pl.id = location_key;
+
+  if normalized_name is distinct from old_name then
+    changed_any := true;
+    perform public.emit_audit_event(
+      'PUBLIC_BOOKING_CONTACT.NAME_CHANGED',
+      'public_booking_contacts',
+      appointment_key,
+      null
+    );
+  end if;
+
+  if normalized_phone is distinct from old_phone then
+    changed_any := true;
+    perform public.emit_audit_event(
+      'PUBLIC_BOOKING_CONTACT.PHONE_CHANGED',
+      'public_booking_contacts',
+      appointment_key,
+      null
+    );
+  end if;
+
+  if normalized_email is distinct from old_email then
+    changed_any := true;
+    perform public.emit_audit_event(
+      'PUBLIC_BOOKING_CONTACT.EMAIL_CHANGED',
+      'public_booking_contacts',
+      appointment_key,
+      null
+    );
+  end if;
+
+  if normalized_locale is distinct from old_locale then
+    changed_any := true;
+    perform public.emit_audit_event(
+      'PUBLIC_BOOKING_CONTACT.LOCALE_CHANGED',
+      'public_booking_contacts',
+      appointment_key,
+      null
+    );
+  end if;
+
+  update public.public_booking_contacts
+  set
+    contact_name = normalized_name,
+    phone_raw = normalized_phone,
+    phone_e164 = normalized_phone_e164,
+    phone_country_hint = country_hint,
+    email = normalized_email,
+    locale = normalized_locale,
+    updated_at = clock_timestamp()
+  where appointment_id = appointment_key;
+
+  if not changed_any then
+    perform public.emit_audit_event(
+      'PUBLIC_BOOKING_CONTACT.NO_CHANGE',
+      'public_booking_contacts',
+      appointment_key,
+      null
+    );
+  end if;
+
+  return appointment_key;
+end $_$;
+
+
+--
 -- Name: create_clinical_patient(text, uuid); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -1072,6 +1414,214 @@ end $$;
 
 
 --
+-- Name: create_public_booking(uuid, timestamp with time zone, text, text, text, text); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.create_public_booking(chamber_id uuid, requested_slot timestamp with time zone, contact_name text, phone_raw text DEFAULT NULL::text, email text DEFAULT NULL::text, locale text DEFAULT NULL::text) RETURNS TABLE(public_booking_ref uuid)
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public', 'pg_temp'
+    AS $_$
+declare
+  chamber_context record;
+  generated_ref uuid;
+  appointment_key uuid;
+  source_value public.appointment_source;
+  normalized_phone_raw text;
+  normalized_phone_e164 text;
+  normalized_email text;
+  normalized_locale text;
+  collision_constraint text;
+begin
+  perform public.require_public_ingress_context();
+
+  if not public.consume_anon_rate_limit(
+    'CREATE_PUBLIC_BOOKING'
+  ) then
+    perform public.emit_anon_audit_event(
+      'CREATE_PUBLIC_BOOKING',
+      'RATE_LIMITED',
+      'doctor_chamber',
+      chamber_id
+    );
+    return;
+  end if;
+
+  normalized_phone_raw := nullif(btrim(phone_raw), '');
+  normalized_email := nullif(lower(btrim(email)), '');
+  normalized_locale := nullif(btrim(locale), '');
+
+  if chamber_id is null
+     or requested_slot is null
+     or contact_name is null
+     or length(btrim(contact_name)) not between 1 and 200
+     or (
+       normalized_phone_raw is null
+       and normalized_email is null
+     )
+     or (
+       normalized_phone_raw is not null
+       and length(normalized_phone_raw) > 64
+     )
+     or (
+       normalized_email is not null
+       and length(normalized_email) not between 3 and 320
+     )
+     or (
+       normalized_locale is not null
+       and length(normalized_locale) > 32
+     ) then
+    perform public.emit_anon_audit_event(
+      'CREATE_PUBLIC_BOOKING',
+      'VALIDATION_FAILURE',
+      'doctor_chamber',
+      chamber_id
+    );
+    return;
+  end if;
+
+  source_value :=
+    current_setting('dd.public_source_channel')::public.appointment_source;
+
+  select *
+  into chamber_context
+  from public.lock_public_booking_chamber(chamber_id);
+
+  if chamber_context.owner_doctor_id is null then
+    perform public.emit_anon_audit_event(
+      'CREATE_PUBLIC_BOOKING',
+      'NOT_FOUND',
+      'doctor_chamber',
+      chamber_id
+    );
+    return;
+  end if;
+
+  -- Recheck the exact requested slot AFTER chamber serialization.
+  if not public.public_slot_is_open(
+    chamber_id,
+    requested_slot,
+    clock_timestamp()
+  ) then
+    perform public.emit_anon_audit_event(
+      'CREATE_PUBLIC_BOOKING',
+      'VALIDATION_FAILURE',
+      'doctor_chamber',
+      chamber_id
+    );
+    return;
+  end if;
+
+  -- Only a caller-supplied already-canonical international number is copied
+  -- into phone_e164. Local numbers are not guessed or digits-normalized.
+  normalized_phone_e164 :=
+    case
+      when normalized_phone_raw ~ '^\+[1-9][0-9]{1,14}$'
+        then normalized_phone_raw
+      else null
+    end;
+
+  appointment_key := null;
+  generated_ref := null;
+
+  for attempt in 1..3 loop
+    generated_ref := pg_catalog.gen_random_uuid();
+
+    begin
+      insert into public.appointments(
+        owner_doctor_id,
+        owner_profession,
+        practice_location_id,
+        doctor_chamber_id,
+        clinical_patient_id,
+        health_subject_id,
+        booked_by_profile_id,
+        scheduled_at,
+        session_date,
+        duration_minutes,
+        visit_type,
+        mode,
+        source_channel,
+        status,
+        public_booking_ref
+      )
+      values (
+        chamber_context.owner_doctor_id,
+        'DOCTOR',
+        chamber_context.practice_location_id,
+        chamber_id,
+        null,
+        null,
+        null,
+        requested_slot,
+        (requested_slot at time zone chamber_context.timezone_name)::date,
+        30,
+        'GENERAL_CONSULTATION',
+        'IN_PERSON',
+        source_value,
+        'SCHEDULED',
+        generated_ref
+      )
+      returning id into appointment_key;
+
+      exit;
+
+    exception
+      when unique_violation then
+        get stacked diagnostics
+          collision_constraint = CONSTRAINT_NAME;
+
+        if collision_constraint <> 'appointments_public_booking_ref_key' then
+          raise;
+        end if;
+
+        appointment_key := null;
+        generated_ref := null;
+    end;
+  end loop;
+
+  if appointment_key is null or generated_ref is null then
+    raise exception 'PUBLIC_BOOKING_REFERENCE_ALLOCATION_FAILED'
+      using errcode='P0001';
+  end if;
+
+  insert into public.public_booking_contacts(
+    appointment_id,
+    contact_name,
+    phone_raw,
+    phone_e164,
+    phone_country_hint,
+    email,
+    locale,
+    lifecycle_status
+  )
+  values (
+    appointment_key,
+    btrim(contact_name),
+    normalized_phone_raw,
+    normalized_phone_e164,
+    case
+      when normalized_phone_raw is not null
+        then chamber_context.country_code
+      else null
+    end,
+    normalized_email,
+    normalized_locale,
+    'ACTIVE'
+  );
+
+  perform public.emit_anon_audit_event(
+    'CREATE_PUBLIC_BOOKING',
+    'SUCCESS',
+    'public_booking',
+    null
+  );
+
+  public_booking_ref := generated_ref;
+  return next;
+end $_$;
+
+
+--
 -- Name: current_doctor_id(); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -1118,6 +1668,81 @@ end $$;
 
 
 --
+-- Name: emit_anon_audit_event(text, text, text, uuid); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.emit_anon_audit_event(target_rpc text, outcome_code text, resource_kind text, resource_key uuid DEFAULT NULL::uuid) RETURNS uuid
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+declare
+  result uuid;
+  action_code text;
+begin
+  perform public.require_public_ingress_context();
+
+  if target_rpc not in (
+    'PUBLIC_CHAMBER_AVAILABILITY',
+    'CREATE_PUBLIC_BOOKING',
+    'PUBLIC_BOOKING_STATUS'
+  ) then
+    raise exception 'ANON_AUDIT_RPC_INVALID' using errcode='22023';
+  end if;
+
+  if outcome_code not in (
+    'SUCCESS',
+    'VALIDATION_FAILURE',
+    'NOT_FOUND',
+    'RATE_LIMITED',
+    'INTERNAL_FAILURE'
+  ) then
+    raise exception 'ANON_AUDIT_OUTCOME_INVALID' using errcode='22023';
+  end if;
+
+  if resource_kind not in (
+    'doctor_chamber',
+    'public_booking',
+    'anon_request'
+  ) then
+    raise exception 'ANON_AUDIT_RESOURCE_INVALID' using errcode='22023';
+  end if;
+
+  -- A raw public booking reference is prohibited in anonymous audit rows.
+  if target_rpc = 'PUBLIC_BOOKING_STATUS' and resource_key is not null then
+    raise exception 'RAW_BOOKING_REF_AUDIT_FORBIDDEN' using errcode='22023';
+  end if;
+
+  action_code := 'ANON.' || target_rpc || '.' || outcome_code;
+
+  insert into public.audit_events(
+    actor_kind,
+    actor_id,
+    action,
+    resource_type,
+    resource_id,
+    request_id,
+    anon_session_ref,
+    ip,
+    user_agent
+  )
+  values (
+    'SYSTEM',
+    null,
+    action_code,
+    resource_kind,
+    resource_key,
+    current_setting('dd.public_request_id')::uuid,
+    current_setting('dd.anon_session_ref')::uuid,
+    null,
+    null
+  )
+  returning id into result;
+
+  return result;
+end $$;
+
+
+--
 -- Name: emit_audit_event(text, text, uuid, uuid); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -1135,6 +1760,68 @@ begin
   returning id into result;
   return result;
 end $_$;
+
+
+--
+-- Name: enforce_public_appointment_invariants(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.enforce_public_appointment_invariants() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+begin
+  if tg_op = 'INSERT'
+     and new.source_channel in ('PUBLIC_WEB','PUBLIC_APP') then
+
+    if new.public_booking_ref is null
+       or new.doctor_chamber_id is null
+       or new.clinical_patient_id is not null
+       or new.health_subject_id is not null
+       or new.booked_by_profile_id is not null
+       or new.duration_minutes <> 30
+       or new.visit_type <> 'GENERAL_CONSULTATION'
+       or new.mode <> 'IN_PERSON'
+       or new.status <> 'SCHEDULED' then
+      raise exception 'PUBLIC_BOOKING_CREATION_INVALID'
+        using errcode='23514';
+    end if;
+  end if;
+
+  if tg_op = 'UPDATE'
+     and new.source_channel in ('PUBLIC_WEB','PUBLIC_APP')
+     and old.source_channel not in ('PUBLIC_WEB','PUBLIC_APP') then
+    raise exception 'PUBLIC_BOOKING_SOURCE_IMMUTABLE'
+      using errcode='23514';
+  end if;
+
+  if tg_op = 'UPDATE'
+     and old.source_channel in ('PUBLIC_WEB','PUBLIC_APP') then
+
+    if new.source_channel is distinct from old.source_channel then
+      raise exception 'PUBLIC_BOOKING_SOURCE_IMMUTABLE'
+        using errcode='23514';
+    end if;
+
+    if new.public_booking_ref is distinct from old.public_booking_ref then
+      raise exception 'PUBLIC_BOOKING_REF_IMMUTABLE'
+        using errcode='23514';
+    end if;
+
+    if new.doctor_chamber_id is distinct from old.doctor_chamber_id
+       or new.owner_doctor_id is distinct from old.owner_doctor_id
+       or new.practice_location_id is distinct from old.practice_location_id then
+      raise exception 'PUBLIC_BOOKING_CHAMBER_CONTEXT_IMMUTABLE'
+        using errcode='23514';
+    end if;
+
+    if new.booked_by_profile_id is not null then
+      raise exception 'PUBLIC_BOOKING_PROFILE_PROVENANCE_INVALID'
+        using errcode='23514';
+    end if;
+  end if;
+
+  return new;
+end $$;
 
 
 --
@@ -1184,6 +1871,47 @@ CREATE FUNCTION public.is_live_edge(effective_from timestamp with time zone, exp
     AS $$
   select effective_from <= clock_timestamp() and (expires_at is null or expires_at > clock_timestamp()) and revoked_at is null
 $$;
+
+
+--
+-- Name: lock_public_booking_chamber(uuid); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.lock_public_booking_chamber(chamber_key uuid) RETURNS TABLE(owner_doctor_id uuid, practice_location_id uuid, timezone_name text, country_code text)
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+begin
+  if chamber_key is null then
+    return;
+  end if;
+
+  -- Canonical concurrency anchor: exact doctor_chambers row.
+  perform 1
+  from public.doctor_chambers dc
+  where dc.id = chamber_key
+  for update;
+
+  if not found then
+    return;
+  end if;
+
+  -- Recheck public eligibility after lock acquisition.
+  if not public.public_chamber_is_eligible(chamber_key) then
+    return;
+  end if;
+
+  return query
+  select
+    dc.doctor_id,
+    dc.practice_location_id,
+    pl.timezone,
+    pl.country_code
+  from public.doctor_chambers dc
+  join public.practice_locations pl
+    on pl.id = dc.practice_location_id
+  where dc.id = chamber_key;
+end $$;
 
 
 --
@@ -1305,6 +2033,418 @@ end $$;
 
 
 --
+-- Name: public_booking_status(uuid); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.public_booking_status(booking_reference uuid) RETURNS TABLE(status public.appointment_status, scheduled_for timestamp with time zone, location_name text)
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+declare
+  result_status public.appointment_status;
+  result_scheduled_at timestamptz;
+  result_location_name text;
+begin
+  perform public.require_public_ingress_context();
+
+  if not public.consume_anon_rate_limit(
+    'PUBLIC_BOOKING_STATUS'
+  ) then
+    perform public.emit_anon_audit_event(
+      'PUBLIC_BOOKING_STATUS',
+      'RATE_LIMITED',
+      'public_booking',
+      null
+    );
+    return;
+  end if;
+
+  if booking_reference is null then
+    perform public.emit_anon_audit_event(
+      'PUBLIC_BOOKING_STATUS',
+      'VALIDATION_FAILURE',
+      'public_booking',
+      null
+    );
+    return;
+  end if;
+
+  select
+    a.status,
+    a.scheduled_at,
+    pl.name
+  into
+    result_status,
+    result_scheduled_at,
+    result_location_name
+  from public.appointments a
+  join public.practice_locations pl
+    on pl.id = a.practice_location_id
+  where a.public_booking_ref = booking_reference
+    and a.source_channel in ('PUBLIC_WEB','PUBLIC_APP');
+
+  if not found then
+    perform public.emit_anon_audit_event(
+      'PUBLIC_BOOKING_STATUS',
+      'NOT_FOUND',
+      'public_booking',
+      null
+    );
+    return;
+  end if;
+
+  perform public.emit_anon_audit_event(
+    'PUBLIC_BOOKING_STATUS',
+    'SUCCESS',
+    'public_booking',
+    null
+  );
+
+  status := result_status;
+  scheduled_for := result_scheduled_at;
+  location_name := result_location_name;
+  return next;
+end $$;
+
+
+--
+-- Name: public_chamber_availability(uuid, date, date); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.public_chamber_availability(chamber_id uuid, local_start_date date, local_end_date date) RETURNS TABLE(starts_at timestamp with time zone, ends_at timestamp with time zone, remaining_capacity integer)
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+declare
+  evaluation_at timestamptz := clock_timestamp();
+begin
+  perform public.require_public_ingress_context();
+
+  if not public.consume_anon_rate_limit(
+    'PUBLIC_CHAMBER_AVAILABILITY'
+  ) then
+    perform public.emit_anon_audit_event(
+      'PUBLIC_CHAMBER_AVAILABILITY',
+      'RATE_LIMITED',
+      'doctor_chamber',
+      chamber_id
+    );
+    return;
+  end if;
+
+  if chamber_id is null
+     or local_start_date is null
+     or local_end_date is null
+     or local_end_date < local_start_date
+     or (local_end_date - local_start_date) > 30 then
+    perform public.emit_anon_audit_event(
+      'PUBLIC_CHAMBER_AVAILABILITY',
+      'VALIDATION_FAILURE',
+      'doctor_chamber',
+      chamber_id
+    );
+    return;
+  end if;
+
+  if not public.public_chamber_is_eligible(chamber_id) then
+    perform public.emit_anon_audit_event(
+      'PUBLIC_CHAMBER_AVAILABILITY',
+      'NOT_FOUND',
+      'doctor_chamber',
+      chamber_id
+    );
+    return;
+  end if;
+
+  return query
+  with chamber_context as (
+    select pl.timezone
+    from public.doctor_chambers dc
+    join public.practice_locations pl
+      on pl.id = dc.practice_location_id
+    where dc.id = chamber_id
+  ),
+  local_days as (
+    select d::date as local_day
+    from pg_catalog.generate_series(
+      local_start_date::timestamp,
+      local_end_date::timestamp,
+      interval '1 day'
+    ) d
+  ),
+  local_candidates as (
+    select distinct
+      (
+        ld.local_day::timestamp
+        + h.start_time
+        + (step.n * interval '30 minutes')
+      ) as local_start,
+      cc.timezone
+    from local_days ld
+    cross join chamber_context cc
+    join public.doctor_chamber_hours h
+      on h.doctor_chamber_id = chamber_id
+     and h.weekday = extract(dow from ld.local_day)::integer
+    cross join lateral (
+      select gs as n
+      from pg_catalog.generate_series(
+        0,
+        greatest(
+          -1,
+          floor(
+            extract(epoch from (h.end_time - h.start_time))
+            / 1800
+          )::integer - 1
+        )
+      ) gs
+    ) step
+    where
+      ld.local_day::timestamp
+        + h.start_time
+        + (step.n * interval '30 minutes')
+        + interval '30 minutes'
+      <= ld.local_day::timestamp + h.end_time
+  ),
+  resolved as (
+    select distinct
+      public.resolve_public_local_instant(
+        lc.local_start,
+        lc.timezone
+      ) as slot_start
+    from local_candidates lc
+  )
+  select
+    r.slot_start as starts_at,
+    r.slot_start + interval '30 minutes' as ends_at,
+    1::integer as remaining_capacity
+  from resolved r
+  where r.slot_start is not null
+    and public.public_slot_is_open(
+      chamber_id,
+      r.slot_start,
+      evaluation_at
+    )
+  order by r.slot_start;
+
+  perform public.emit_anon_audit_event(
+    'PUBLIC_CHAMBER_AVAILABILITY',
+    'SUCCESS',
+    'doctor_chamber',
+    chamber_id
+  );
+end $$;
+
+
+--
+-- Name: public_chamber_is_eligible(uuid); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.public_chamber_is_eligible(chamber_key uuid) RETURNS boolean
+    LANGUAGE sql SECURITY DEFINER
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+  select exists (
+    select 1
+    from public.doctor_chambers dc
+    join public.practice_locations pl
+      on pl.id = dc.practice_location_id
+    join public.professional_profiles pp
+      on pp.id = dc.doctor_id
+     and pp.profession = 'DOCTOR'
+    where dc.id = chamber_key
+      and pl.is_active = true
+      and pl.is_bookable = true
+      and exists (
+        select 1
+        from pg_catalog.pg_timezone_names tz
+        where tz.name = pl.timezone
+      )
+      and pp.profile_visibility = 'PUBLIC'
+      and public.has_capability(pp.profile_id, 'DOCTOR')
+      and exists (
+        select 1
+        from public.professional_credentials pc
+        where pc.professional_profile_id = pp.id
+          and pc.profession = 'DOCTOR'
+          and pc.verification_status = 'VERIFIED'
+          and pc.verified_at is not null
+          and pc.verified_at <= clock_timestamp()
+          and (pc.expires_at is null or pc.expires_at > clock_timestamp())
+      )
+      and exists (
+        select 1
+        from public.practice_memberships pm
+        where pm.practice_location_id = dc.practice_location_id
+          and pm.profile_id = pp.profile_id
+          and pm.role = 'DOCTOR'
+          and pm.status = 'ACTIVE'
+      )
+  )
+$$;
+
+
+--
+-- Name: public_slot_is_open(uuid, timestamp with time zone, timestamp with time zone); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.public_slot_is_open(chamber_key uuid, slot_start timestamp with time zone, evaluation_at timestamp with time zone DEFAULT clock_timestamp()) RETURNS boolean
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+declare
+  timezone_name text;
+  local_start timestamp without time zone;
+  local_end timestamp without time zone;
+  resolved timestamptz;
+  resolved_end timestamptz;
+  has_hours boolean;
+  has_overlap boolean;
+begin
+  if chamber_key is null
+     or slot_start is null
+     or evaluation_at is null
+     or slot_start <= evaluation_at then
+    return false;
+  end if;
+
+  if not public.public_chamber_is_eligible(chamber_key) then
+    return false;
+  end if;
+
+  select pl.timezone
+  into timezone_name
+  from public.doctor_chambers dc
+  join public.practice_locations pl
+    on pl.id = dc.practice_location_id
+  where dc.id = chamber_key;
+
+  if timezone_name is null then
+    return false;
+  end if;
+
+  local_start := slot_start at time zone timezone_name;
+  local_end := local_start + interval '30 minutes';
+
+  resolved := public.resolve_public_local_instant(
+    local_start,
+    timezone_name
+  );
+
+  resolved_end := public.resolve_public_local_instant(
+    local_end,
+    timezone_name
+  );
+
+  -- Both wall-clock endpoints must be uniquely representable, and the
+  -- resolved elapsed interval must remain exactly 30 minutes.
+  if resolved is null
+     or resolved_end is null
+     or resolved is distinct from slot_start
+     or resolved_end - resolved <> interval '30 minutes' then
+    return false;
+  end if;
+
+  select exists (
+    select 1
+    from public.doctor_chamber_hours h
+    where h.doctor_chamber_id = chamber_key
+      and h.weekday = extract(dow from local_start)::integer
+      and local_start::time >= h.start_time
+      and local_end::date = local_start::date
+      and local_end::time <= h.end_time
+      and mod(
+        extract(
+          epoch from (local_start::time - h.start_time)
+        )::bigint,
+        1800
+      ) = 0
+  )
+  into has_hours;
+
+  if not has_hours then
+    return false;
+  end if;
+
+  -- One shared chamber capacity. Every status except CANCELLED / NO_SHOW
+  -- consumes capacity, irrespective of appointment source.
+  select exists (
+    select 1
+    from public.appointments a
+    where a.doctor_chamber_id = chamber_key
+      and a.status not in ('CANCELLED','NO_SHOW')
+      and a.scheduled_at < slot_start + interval '30 minutes'
+      and (
+        a.scheduled_at
+        + pg_catalog.make_interval(mins => a.duration_minutes)
+      ) > slot_start
+  )
+  into has_overlap;
+
+  return not has_overlap;
+end $$;
+
+
+--
+-- Name: record_public_ingress_failure(text, uuid, uuid); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.record_public_ingress_failure(target_rpc text, session_ref uuid, request_key uuid) RETURNS uuid
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public', 'pg_temp'
+    AS $_$
+declare
+  result uuid;
+begin
+  if session_user <> 'dd_public_ingress' then
+    raise exception 'TRUSTED_PUBLIC_INGRESS_REQUIRED' using errcode='42501';
+  end if;
+
+  if session_ref is null or request_key is null then
+    raise exception 'PUBLIC_FAILURE_AUDIT_ID_INVALID' using errcode='22023';
+  end if;
+
+  if target_rpc not in (
+    'PUBLIC_CHAMBER_AVAILABILITY',
+    'CREATE_PUBLIC_BOOKING',
+    'PUBLIC_BOOKING_STATUS'
+  ) then
+    raise exception 'ANON_AUDIT_RPC_INVALID' using errcode='22023';
+  end if;
+
+  if session_ref::text !~* '^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
+     or request_key::text !~* '^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$' then
+    raise exception 'PUBLIC_FAILURE_AUDIT_ID_INVALID' using errcode='22023';
+  end if;
+
+  insert into public.audit_events(
+    actor_kind,
+    actor_id,
+    action,
+    resource_type,
+    resource_id,
+    request_id,
+    anon_session_ref,
+    ip,
+    user_agent
+  )
+  values (
+    'SYSTEM',
+    null,
+    'ANON.' || target_rpc || '.INTERNAL_FAILURE',
+    'anon_request',
+    null,
+    request_key,
+    session_ref,
+    null,
+    null
+  )
+  returning id into result;
+
+  return result;
+end $_$;
+
+
+--
 -- Name: refresh_capability_trigger(); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -1329,14 +2469,641 @@ CREATE FUNCTION public.refresh_profile_capabilities(subject_profile_id uuid) RET
 begin
   delete from public.profile_capabilities where profile_id = subject_profile_id;
   insert into public.profile_capabilities(profile_id, capability, granted_by_kind, source_row_id, professional_profile_id, effective_from, effective_until)
-  select pp.profile_id, 'DOCTOR', 'CREDENTIAL', pc.id, pp.id, coalesce(pc.verified_at, clock_timestamp()), pc.expires_at
+  select
+    pp.profile_id,
+    'DOCTOR',
+    'CREDENTIAL',
+    pc.id,
+    pp.id,
+    pc.verified_at,
+    pc.expires_at
   from public.professional_credentials pc
-  join public.professional_profiles pp on pp.id = pc.professional_profile_id and pp.profession = 'DOCTOR'
-  where pp.profile_id = subject_profile_id and pc.profession = 'DOCTOR' and pc.verification_status = 'VERIFIED'
-  order by pc.verified_at desc nulls last limit 1;
+  join public.professional_profiles pp
+    on pp.id = pc.professional_profile_id
+   and pp.profession = 'DOCTOR'
+  where pp.profile_id = subject_profile_id
+    and pc.profession = 'DOCTOR'
+    and pc.verification_status = 'VERIFIED'
+    and pc.verified_at is not null
+    and pc.verified_at <= clock_timestamp()
+    and (
+      pc.expires_at is null
+      or pc.expires_at > clock_timestamp()
+    )
+  order by
+    pc.verified_at desc,
+    pc.id asc
+  limit 1;
   insert into public.profile_capabilities(profile_id, capability, granted_by_kind, effective_from)
   values (subject_profile_id, 'PUBLIC', 'BASELINE', clock_timestamp());
 end $$;
+
+
+--
+-- Name: register_public_booking_patient(uuid, text, text, text); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.register_public_booking_patient(appointment_key uuid, patient_name text, confirmed_phone_raw text DEFAULT NULL::text, confirmed_email text DEFAULT NULL::text) RETURNS uuid
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public', 'pg_temp'
+    AS $_$
+declare
+  actor_profile uuid;
+  actor_doctor uuid;
+  owner_doctor uuid;
+  owner_profile uuid;
+  location_key uuid;
+  existing_patient uuid;
+  lifecycle text;
+  appointment_state public.appointment_status;
+  authorized boolean := false;
+  normalized_name text;
+  normalized_phone text;
+  normalized_phone_e164 text;
+  normalized_email text;
+  country_hint text;
+  next_number integer;
+  prefix text;
+  patient_number text;
+  result uuid;
+begin
+  actor_profile := public.current_profile_id();
+
+  if actor_profile is null then
+    raise exception 'AUTHENTICATION_REQUIRED' using errcode='42501';
+  end if;
+
+  select
+    a.owner_doctor_id,
+    pp.profile_id,
+    a.practice_location_id,
+    a.clinical_patient_id,
+    a.status,
+    c.lifecycle_status
+  into
+    owner_doctor,
+    owner_profile,
+    location_key,
+    existing_patient,
+    appointment_state,
+    lifecycle
+  from public.appointments a
+  join public.professional_profiles pp
+    on pp.id = a.owner_doctor_id
+   and pp.profession = 'DOCTOR'
+  join public.public_booking_contacts c
+    on c.appointment_id = a.id
+  where a.id = appointment_key
+    and a.source_channel in ('PUBLIC_WEB','PUBLIC_APP')
+  for update of a, c;
+
+  if not found then
+    raise exception 'PUBLIC_BOOKING_NOT_FOUND' using errcode='P0001';
+  end if;
+
+  actor_doctor := public.current_doctor_id();
+
+  authorized :=
+    coalesce(actor_doctor = owner_doctor, false)
+    or exists (
+      select 1
+      from public.practice_memberships pm
+      where pm.practice_location_id = location_key
+        and pm.profile_id = actor_profile
+        and pm.status = 'ACTIVE'
+        and pm.role = 'RECEPTIONIST'
+    );
+
+  if not authorized then
+    raise exception 'PUBLIC_BOOKING_PATIENT_AUTHORITY_REQUIRED'
+      using errcode='42501';
+  end if;
+
+  if not public.has_capability(owner_profile, 'DOCTOR') then
+    raise exception 'PRACTICE_AUTHORITY_REQUIRED'
+      using errcode='42501';
+  end if;
+
+  if appointment_state in ('CANCELLED','NO_SHOW')
+     or existing_patient is not null
+     or lifecycle in ('RESOLVED','PURGE_ELIGIBLE') then
+    raise exception 'PUBLIC_BOOKING_NOT_REGISTRABLE'
+      using errcode='P0001';
+  end if;
+
+  normalized_name := nullif(btrim(patient_name), '');
+  normalized_phone := nullif(btrim(confirmed_phone_raw), '');
+  normalized_email := nullif(lower(btrim(confirmed_email)), '');
+
+  if normalized_name is null
+     or length(normalized_name) > 200
+     or (
+       normalized_phone is not null
+       and length(normalized_phone) > 64
+     )
+     or (
+       normalized_email is not null
+       and length(normalized_email) not between 3 and 320
+     ) then
+    raise exception 'CLINICAL_PATIENT_INPUT_INVALID'
+      using errcode='22023';
+  end if;
+
+  normalized_phone_e164 :=
+    case
+      when normalized_phone ~ '^\+[1-9][0-9]{1,14}$'
+        then normalized_phone
+      else null
+    end;
+
+  select
+    case
+      when normalized_phone is not null then pl.country_code
+      else null
+    end
+  into country_hint
+  from public.practice_locations pl
+  where pl.id = location_key;
+
+  select
+    pp.patient_number_seq,
+    pp.patient_number_prefix
+  into
+    next_number,
+    prefix
+  from public.professional_profiles pp
+  where pp.id = owner_doctor
+  for update;
+
+  if not found then
+    raise exception 'PRACTICE_DOCTOR_NOT_FOUND'
+      using errcode='P0001';
+  end if;
+
+  patient_number :=
+    prefix || '-' || lpad(next_number::text, 6, '0');
+
+  update public.professional_profiles
+  set patient_number_seq = next_number + 1
+  where id = owner_doctor;
+
+  insert into public.clinical_patients(
+    owner_doctor_id,
+    patient_number,
+    full_name,
+    phone_raw,
+    phone_e164,
+    email
+  )
+  values (
+    owner_doctor,
+    patient_number,
+    normalized_name,
+    normalized_phone,
+    normalized_phone_e164,
+    normalized_email
+  )
+  returning id into result;
+
+  update public.appointments
+  set clinical_patient_id = result
+  where id = appointment_key;
+
+  update public.public_booking_contacts
+  set
+    lifecycle_status = 'RESOLVED',
+    resolved_at = clock_timestamp(),
+    updated_at = clock_timestamp()
+  where appointment_id = appointment_key;
+
+  perform public.emit_audit_event(
+    'PUBLIC_BOOKING_PATIENT.REGISTERED',
+    'appointments',
+    appointment_key,
+    null
+  );
+
+  return result;
+end $_$;
+
+
+--
+-- Name: require_public_ingress_context(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.require_public_ingress_context() RETURNS void
+    LANGUAGE plpgsql
+    SET search_path TO 'pg_catalog', 'pg_temp'
+    AS $_$
+declare
+  session_ref text;
+  session_started text;
+  session_digest text;
+  network_digest text;
+  resource_digest text;
+  public_source text;
+  request_key text;
+begin
+  if session_user <> 'dd_public_ingress' then
+    raise exception 'TRUSTED_PUBLIC_INGRESS_REQUIRED' using errcode='42501';
+  end if;
+
+  if current_setting('dd.public_ingress_ready', true) is distinct from '1' then
+    raise exception 'TRUSTED_PUBLIC_CONTEXT_REQUIRED' using errcode='42501';
+  end if;
+
+  session_ref := current_setting('dd.anon_session_ref', true);
+  session_started := current_setting('dd.anon_session_started_at', true);
+  session_digest := current_setting('dd.anon_session_digest', true);
+  network_digest := current_setting('dd.network_digest', true);
+  resource_digest := current_setting('dd.resource_digest', true);
+  public_source := current_setting('dd.public_source_channel', true);
+  request_key := current_setting('dd.public_request_id', true);
+
+  if session_ref is null
+     or session_started is null
+     or session_digest is null
+     or network_digest is null
+     or resource_digest is null
+     or public_source is null
+     or request_key is null then
+    raise exception 'TRUSTED_PUBLIC_CONTEXT_INCOMPLETE' using errcode='42501';
+  end if;
+
+  if session_ref !~* '^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
+     or request_key !~* '^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
+     or session_started::timestamptz > clock_timestamp()
+     or session_started::timestamptz <= clock_timestamp() - interval '24 hours'
+     or length(session_digest) <> 64
+     or length(network_digest) <> 64
+     or length(resource_digest) <> 64
+     or public_source not in ('PUBLIC_WEB','PUBLIC_APP') then
+    raise exception 'TRUSTED_PUBLIC_CONTEXT_INVALID' using errcode='42501';
+  end if;
+end $_$;
+
+
+--
+-- Name: resolve_public_booking_patient(uuid, uuid); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.resolve_public_booking_patient(appointment_key uuid, patient_key uuid) RETURNS uuid
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+declare
+  actor_profile uuid;
+  actor_doctor uuid;
+  owner_doctor uuid;
+  owner_profile uuid;
+  location_key uuid;
+  existing_patient uuid;
+  lifecycle text;
+  appointment_state public.appointment_status;
+  authorized boolean := false;
+begin
+  actor_profile := public.current_profile_id();
+
+  if actor_profile is null then
+    raise exception 'AUTHENTICATION_REQUIRED' using errcode='42501';
+  end if;
+
+  select
+    a.owner_doctor_id,
+    pp.profile_id,
+    a.practice_location_id,
+    a.clinical_patient_id,
+    a.status,
+    c.lifecycle_status
+  into
+    owner_doctor,
+    owner_profile,
+    location_key,
+    existing_patient,
+    appointment_state,
+    lifecycle
+  from public.appointments a
+  join public.professional_profiles pp
+    on pp.id = a.owner_doctor_id
+   and pp.profession = 'DOCTOR'
+  join public.public_booking_contacts c
+    on c.appointment_id = a.id
+  where a.id = appointment_key
+    and a.source_channel in ('PUBLIC_WEB','PUBLIC_APP')
+  for update of a, c;
+
+  if not found then
+    raise exception 'PUBLIC_BOOKING_NOT_FOUND' using errcode='P0001';
+  end if;
+
+  actor_doctor := public.current_doctor_id();
+
+  authorized :=
+    coalesce(actor_doctor = owner_doctor, false)
+    or exists (
+      select 1
+      from public.practice_memberships pm
+      where pm.practice_location_id = location_key
+        and pm.profile_id = actor_profile
+        and pm.status = 'ACTIVE'
+        and pm.role = 'RECEPTIONIST'
+    );
+
+  if not authorized then
+    raise exception 'PUBLIC_BOOKING_PATIENT_AUTHORITY_REQUIRED'
+      using errcode='42501';
+  end if;
+
+  if not public.has_capability(owner_profile, 'DOCTOR') then
+    raise exception 'PRACTICE_AUTHORITY_REQUIRED'
+      using errcode='42501';
+  end if;
+
+  if appointment_state in ('CANCELLED','NO_SHOW') then
+    raise exception 'PUBLIC_BOOKING_NOT_RESOLVABLE'
+      using errcode='P0001';
+  end if;
+
+  if not exists (
+    select 1
+    from public.clinical_patients cp
+    where cp.id = patient_key
+      and cp.owner_doctor_id = owner_doctor
+      and cp.deleted_at is null
+  ) then
+    raise exception 'CLINICAL_PATIENT_NOT_FOUND'
+      using errcode='P0001';
+  end if;
+
+  if existing_patient is not null
+     and existing_patient is distinct from patient_key then
+    raise exception 'PUBLIC_BOOKING_ALREADY_RESOLVED'
+      using errcode='P0001';
+  end if;
+
+  update public.appointments
+  set clinical_patient_id = patient_key
+  where id = appointment_key
+    and clinical_patient_id is null;
+
+  update public.public_booking_contacts
+  set
+    lifecycle_status = 'RESOLVED',
+    resolved_at = coalesce(resolved_at, clock_timestamp()),
+    updated_at = clock_timestamp()
+  where appointment_id = appointment_key
+    and lifecycle_status <> 'PURGE_ELIGIBLE';
+
+  perform public.emit_audit_event(
+    'PUBLIC_BOOKING_PATIENT.RESOLVED',
+    'appointments',
+    appointment_key,
+    null
+  );
+
+  return patient_key;
+end $$;
+
+
+--
+-- Name: resolve_public_local_instant(timestamp without time zone, text); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.resolve_public_local_instant(local_value timestamp without time zone, timezone_name text) RETURNS timestamp with time zone
+    LANGUAGE plpgsql STABLE
+    SET search_path TO 'pg_catalog', 'pg_temp'
+    AS $$
+declare
+  resolved timestamptz;
+  matching_instants integer;
+begin
+  if local_value is null or timezone_name is null then
+    return null;
+  end if;
+
+  if not exists (
+    select 1
+    from pg_catalog.pg_timezone_names tz
+    where tz.name = timezone_name
+  ) then
+    return null;
+  end if;
+
+  resolved := local_value at time zone timezone_name;
+
+  -- Nonexistent local wall-clock value: PostgreSQL normalises it.
+  if (resolved at time zone timezone_name) is distinct from local_value then
+    return null;
+  end if;
+
+  -- Ambiguous local wall-clock value: more than one nearby UTC instant maps
+  -- back to the same local timestamp. Search a deliberately wide ±26h window
+  -- so this is not hard-coded to a one-hour DST transition.
+  select count(*)
+  into matching_instants
+  from pg_catalog.generate_series(
+    resolved - interval '26 hours',
+    resolved + interval '26 hours',
+    interval '1 minute'
+  ) candidate
+  where (candidate at time zone timezone_name) = local_value;
+
+  if matching_instants <> 1 then
+    return null;
+  end if;
+
+  return resolved;
+end $$;
+
+
+--
+-- Name: search_public_booking_patient_candidates(uuid, text, text); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.search_public_booking_patient_candidates(appointment_key uuid, exact_phone_e164 text DEFAULT NULL::text, exact_name text DEFAULT NULL::text) RETURNS TABLE(clinical_patient_id uuid, patient_number text, full_name text, phone_e164 text)
+    LANGUAGE plpgsql STABLE SECURITY DEFINER
+    SET search_path TO 'public', 'pg_temp'
+    AS $_$
+declare
+  actor_profile uuid;
+  actor_doctor uuid;
+  owner_doctor uuid;
+  owner_profile uuid;
+  location_key uuid;
+  appointment_state public.appointment_status;
+  lifecycle text;
+  phone_key text;
+  name_key text;
+  authorized boolean := false;
+begin
+  actor_profile := public.current_profile_id();
+
+  if actor_profile is null then
+    raise exception 'AUTHENTICATION_REQUIRED'
+      using errcode='42501';
+  end if;
+
+  select
+    a.owner_doctor_id,
+    pp.profile_id,
+    a.practice_location_id,
+    a.status,
+    c.lifecycle_status
+  into
+    owner_doctor,
+    owner_profile,
+    location_key,
+    appointment_state,
+    lifecycle
+  from public.appointments a
+  join public.professional_profiles pp
+    on pp.id = a.owner_doctor_id
+   and pp.profession = 'DOCTOR'
+  join public.public_booking_contacts c
+    on c.appointment_id = a.id
+  where a.id = appointment_key
+    and a.source_channel in ('PUBLIC_WEB','PUBLIC_APP');
+
+  if not found then
+    raise exception 'PUBLIC_BOOKING_NOT_FOUND'
+      using errcode='P0001';
+  end if;
+
+  actor_doctor := public.current_doctor_id();
+
+  authorized :=
+    coalesce(actor_doctor = owner_doctor, false)
+    or exists (
+      select 1
+      from public.practice_memberships pm
+      where pm.practice_location_id = location_key
+        and pm.profile_id = actor_profile
+        and pm.status = 'ACTIVE'
+        and pm.role = 'RECEPTIONIST'
+    );
+
+  if not authorized then
+    raise exception 'PUBLIC_BOOKING_PATIENT_AUTHORITY_REQUIRED'
+      using errcode='42501';
+  end if;
+
+  if not public.has_capability(owner_profile, 'DOCTOR') then
+    raise exception 'PRACTICE_AUTHORITY_REQUIRED'
+      using errcode='42501';
+  end if;
+
+  if appointment_state in ('CANCELLED','NO_SHOW')
+     or lifecycle <> 'ACTIVE' then
+    raise exception 'PUBLIC_BOOKING_NOT_SEARCHABLE'
+      using errcode='P0001';
+  end if;
+
+  phone_key := nullif(btrim(exact_phone_e164), '');
+
+  name_key :=
+    nullif(
+      lower(
+        btrim(
+          regexp_replace(
+            exact_name,
+            '\s+',
+            ' ',
+            'g'
+          )
+        )
+      ),
+      ''
+    );
+
+  if phone_key is null and name_key is null then
+    raise exception 'PATIENT_SEARCH_CRITERIA_REQUIRED'
+      using errcode='22023';
+  end if;
+
+  if phone_key is not null
+     and phone_key !~ '^\+[1-9][0-9]{1,14}$' then
+    raise exception 'PATIENT_PHONE_E164_REQUIRED'
+      using errcode='22023';
+  end if;
+
+  return query
+  select
+    cp.id,
+    cp.patient_number,
+    cp.full_name,
+    cp.phone_e164
+  from public.clinical_patients cp
+  where cp.owner_doctor_id = owner_doctor
+    and cp.deleted_at is null
+    and cp.merged_into_id is null
+    and (
+      phone_key is null
+      or cp.phone_e164 = phone_key
+    )
+    and (
+      name_key is null
+      or cp.name_normalized = name_key
+    )
+  order by cp.patient_number
+  limit 20;
+end $_$;
+
+
+--
+-- Name: set_public_ingress_context(uuid, timestamp with time zone, bytea, bytea, bytea, public.appointment_source, uuid); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.set_public_ingress_context(session_ref uuid, session_started_at timestamp with time zone, session_digest bytea, network_digest bytea, resource_digest bytea, public_source public.appointment_source, request_key uuid) RETURNS void
+    LANGUAGE plpgsql
+    SET search_path TO 'pg_catalog', 'pg_temp'
+    AS $_$
+begin
+  if session_user <> 'dd_public_ingress' then
+    raise exception 'TRUSTED_PUBLIC_INGRESS_REQUIRED' using errcode='42501';
+  end if;
+
+  if session_ref is null
+     or session_started_at is null
+     or session_digest is null
+     or network_digest is null
+     or resource_digest is null
+     or public_source is null
+     or request_key is null then
+    raise exception 'TRUSTED_PUBLIC_CONTEXT_INCOMPLETE' using errcode='42501';
+  end if;
+
+  if session_ref::text !~* '^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$' then
+    raise exception 'ANON_SESSION_REF_INVALID' using errcode='22023';
+  end if;
+
+  if request_key::text !~* '^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$' then
+    raise exception 'PUBLIC_REQUEST_ID_INVALID' using errcode='22023';
+  end if;
+
+  if session_started_at > clock_timestamp()
+     or session_started_at <= clock_timestamp() - interval '24 hours' then
+    raise exception 'ANON_SESSION_EXPIRED_OR_INVALID' using errcode='22023';
+  end if;
+
+  if octet_length(session_digest) <> 32
+     or octet_length(network_digest) <> 32
+     or octet_length(resource_digest) <> 32 then
+    raise exception 'PUBLIC_RATE_DIGEST_INVALID' using errcode='22023';
+  end if;
+
+  if public_source not in ('PUBLIC_WEB','PUBLIC_APP') then
+    raise exception 'PUBLIC_SOURCE_INVALID' using errcode='22023';
+  end if;
+
+  perform pg_catalog.set_config('dd.anon_session_ref', session_ref::text, true);
+  perform pg_catalog.set_config('dd.anon_session_started_at', session_started_at::text, true);
+  perform pg_catalog.set_config('dd.anon_session_digest', encode(session_digest, 'hex'), true);
+  perform pg_catalog.set_config('dd.network_digest', encode(network_digest, 'hex'), true);
+  perform pg_catalog.set_config('dd.resource_digest', encode(resource_digest, 'hex'), true);
+  perform pg_catalog.set_config('dd.public_source_channel', public_source::text, true);
+  perform pg_catalog.set_config('dd.public_request_id', request_key::text, true);
+  perform pg_catalog.set_config('dd.public_ingress_ready', '1', true);
+end $_$;
 
 
 --
@@ -3949,6 +5716,51 @@ CREATE TABLE auth.webauthn_credentials (
 
 
 --
+-- Name: anon_rate_limit_buckets; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.anon_rate_limit_buckets (
+    rpc_code text NOT NULL,
+    bucket_kind text NOT NULL,
+    policy_version text NOT NULL,
+    key_digest bytea NOT NULL,
+    window_started_at timestamp with time zone NOT NULL,
+    request_count integer NOT NULL,
+    last_seen_at timestamp with time zone NOT NULL,
+    expires_at timestamp with time zone NOT NULL,
+    CONSTRAINT anon_rate_limit_buckets_check CHECK ((last_seen_at >= window_started_at)),
+    CONSTRAINT anon_rate_limit_buckets_check1 CHECK ((expires_at > window_started_at)),
+    CONSTRAINT anon_rate_limit_buckets_key_digest_check CHECK ((octet_length(key_digest) = 32)),
+    CONSTRAINT anon_rate_limit_buckets_request_count_check CHECK ((request_count >= 1))
+);
+
+ALTER TABLE ONLY public.anon_rate_limit_buckets FORCE ROW LEVEL SECURITY;
+
+
+--
+-- Name: anon_rate_limit_policies; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.anon_rate_limit_policies (
+    rpc_code text NOT NULL,
+    bucket_kind text NOT NULL,
+    window_seconds integer NOT NULL,
+    max_requests integer NOT NULL,
+    enabled boolean DEFAULT true NOT NULL,
+    policy_version text NOT NULL,
+    effective_from timestamp with time zone NOT NULL,
+    updated_at timestamp with time zone DEFAULT clock_timestamp() NOT NULL,
+    CONSTRAINT anon_rate_limit_policies_bucket_kind_check CHECK ((bucket_kind = ANY (ARRAY['SESSION_GLOBAL'::text, 'NETWORK_GLOBAL'::text, 'SESSION_RESOURCE'::text, 'NETWORK_RESOURCE'::text]))),
+    CONSTRAINT anon_rate_limit_policies_max_requests_check CHECK (((max_requests >= 1) AND (max_requests <= 100000))),
+    CONSTRAINT anon_rate_limit_policies_policy_version_check CHECK (((length(btrim(policy_version)) >= 1) AND (length(btrim(policy_version)) <= 64))),
+    CONSTRAINT anon_rate_limit_policies_rpc_code_check CHECK ((rpc_code = ANY (ARRAY['PUBLIC_CHAMBER_AVAILABILITY'::text, 'CREATE_PUBLIC_BOOKING'::text, 'PUBLIC_BOOKING_STATUS'::text]))),
+    CONSTRAINT anon_rate_limit_policies_window_seconds_check CHECK (((window_seconds >= 1) AND (window_seconds <= 86400)))
+);
+
+ALTER TABLE ONLY public.anon_rate_limit_policies FORCE ROW LEVEL SECURITY;
+
+
+--
 -- Name: appointment_events; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -4010,7 +5822,7 @@ CREATE TABLE public.appointments (
     currency_code text,
     public_booking_ref uuid,
     created_at timestamp with time zone DEFAULT clock_timestamp() NOT NULL,
-    CONSTRAINT appointments_check CHECK (((clinical_patient_id IS NOT NULL) OR (health_subject_id IS NOT NULL) OR (source_channel = 'WALK_IN'::public.appointment_source))),
+    CONSTRAINT appointments_check CHECK ((((source_channel = 'INTERNAL'::public.appointment_source) AND (public_booking_ref IS NULL) AND ((clinical_patient_id IS NOT NULL) OR (health_subject_id IS NOT NULL))) OR ((source_channel = ANY (ARRAY['DOCTOR'::public.appointment_source, 'RECEPTIONIST'::public.appointment_source, 'ASSISTANT'::public.appointment_source])) AND (public_booking_ref IS NULL) AND (booked_by_profile_id IS NOT NULL) AND ((clinical_patient_id IS NOT NULL) OR (health_subject_id IS NOT NULL))) OR ((source_channel = 'WALK_IN'::public.appointment_source) AND (public_booking_ref IS NULL) AND (clinical_patient_id IS NOT NULL)) OR ((source_channel = ANY (ARRAY['PUBLIC_WEB'::public.appointment_source, 'PUBLIC_APP'::public.appointment_source])) AND (public_booking_ref IS NOT NULL) AND (doctor_chamber_id IS NOT NULL) AND (booked_by_profile_id IS NULL)))),
     CONSTRAINT appointments_owner_profession_check CHECK ((owner_profession = 'DOCTOR'::public.profession))
 );
 
@@ -4033,11 +5845,13 @@ CREATE TABLE public.audit_events (
     correlation_id uuid,
     request_id uuid,
     practice_location_id uuid,
+    anon_session_ref uuid,
     ip inet,
     user_agent text,
     occurred_at timestamp with time zone DEFAULT clock_timestamp() NOT NULL,
     seq bigint NOT NULL,
     CONSTRAINT audit_events_action_check CHECK ((action ~ '^[A-Z][A-Z0-9_.-]{1,63}$'::text)),
+    CONSTRAINT audit_events_check CHECK (((anon_session_ref IS NULL) OR ((actor_kind = 'SYSTEM'::public.actor_kind) AND (actor_id IS NULL) AND (ip IS NULL) AND (user_agent IS NULL)))),
     CONSTRAINT audit_events_resource_type_check CHECK ((resource_type ~ '^[a-z][a-z0-9_.-]{1,63}$'::text))
 );
 
@@ -4788,10 +6602,47 @@ CREATE TABLE public.profiles (
     updated_at timestamp with time zone DEFAULT clock_timestamp() NOT NULL,
     CONSTRAINT profiles_full_name_check CHECK (((length(full_name) >= 1) AND (length(full_name) <= 200))),
     CONSTRAINT profiles_phone_country_hint_check CHECK (((phone_country_hint IS NULL) OR (phone_country_hint ~ '^[A-Z]{2}$'::text))),
-    CONSTRAINT profiles_phone_e164_check CHECK (((phone_e164 IS NULL) OR (phone_e164 ~ '^\\+[1-9][0-9]{1,14}$'::text)))
+    CONSTRAINT profiles_phone_e164_check CHECK (((phone_e164 IS NULL) OR (phone_e164 ~ '^[+][1-9][0-9]{1,14}$'::text)))
 );
 
 ALTER TABLE ONLY public.profiles FORCE ROW LEVEL SECURITY;
+
+
+--
+-- Name: public_booking_contacts; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.public_booking_contacts (
+    appointment_id uuid NOT NULL,
+    contact_name text NOT NULL,
+    phone_raw text,
+    phone_e164 text,
+    phone_country_hint text,
+    email text,
+    locale text,
+    lifecycle_status text DEFAULT 'ACTIVE'::text NOT NULL,
+    resolved_at timestamp with time zone,
+    cancelled_at timestamp with time zone,
+    purge_eligible_at timestamp with time zone,
+    created_at timestamp with time zone DEFAULT clock_timestamp() NOT NULL,
+    updated_at timestamp with time zone DEFAULT clock_timestamp() NOT NULL,
+    CONSTRAINT public_booking_contacts_check CHECK (((phone_raw IS NOT NULL) OR (email IS NOT NULL))),
+    CONSTRAINT public_booking_contacts_check1 CHECK (((resolved_at IS NULL) OR (lifecycle_status = ANY (ARRAY['RESOLVED'::text, 'PURGE_ELIGIBLE'::text])))),
+    CONSTRAINT public_booking_contacts_check2 CHECK (((cancelled_at IS NULL) OR (lifecycle_status = ANY (ARRAY['CANCELLED'::text, 'PURGE_ELIGIBLE'::text])))),
+    CONSTRAINT public_booking_contacts_check3 CHECK (((purge_eligible_at IS NULL) OR (lifecycle_status = 'PURGE_ELIGIBLE'::text))),
+    CONSTRAINT public_booking_contacts_check4 CHECK (((lifecycle_status <> 'RESOLVED'::text) OR (resolved_at IS NOT NULL))),
+    CONSTRAINT public_booking_contacts_check5 CHECK (((lifecycle_status <> 'CANCELLED'::text) OR (cancelled_at IS NOT NULL))),
+    CONSTRAINT public_booking_contacts_check6 CHECK (((lifecycle_status <> 'PURGE_ELIGIBLE'::text) OR (purge_eligible_at IS NOT NULL))),
+    CONSTRAINT public_booking_contacts_contact_name_check CHECK (((length(btrim(contact_name)) >= 1) AND (length(btrim(contact_name)) <= 200))),
+    CONSTRAINT public_booking_contacts_email_check CHECK (((email IS NULL) OR ((length(btrim(email)) >= 3) AND (length(btrim(email)) <= 320)))),
+    CONSTRAINT public_booking_contacts_lifecycle_status_check CHECK ((lifecycle_status = ANY (ARRAY['ACTIVE'::text, 'RESOLVED'::text, 'CANCELLED'::text, 'PURGE_ELIGIBLE'::text]))),
+    CONSTRAINT public_booking_contacts_locale_check CHECK (((locale IS NULL) OR ((length(btrim(locale)) >= 1) AND (length(btrim(locale)) <= 32)))),
+    CONSTRAINT public_booking_contacts_phone_country_hint_check CHECK (((phone_country_hint IS NULL) OR (phone_country_hint ~ '^[A-Z]{2}$'::text))),
+    CONSTRAINT public_booking_contacts_phone_e164_check CHECK (((phone_e164 IS NULL) OR (phone_e164 ~ '^[+][1-9][0-9]{1,14}$'::text))),
+    CONSTRAINT public_booking_contacts_phone_raw_check CHECK (((phone_raw IS NULL) OR ((length(btrim(phone_raw)) >= 1) AND (length(btrim(phone_raw)) <= 64))))
+);
+
+ALTER TABLE ONLY public.public_booking_contacts FORCE ROW LEVEL SECURITY;
 
 
 --
@@ -5682,6 +7533,22 @@ ALTER TABLE ONLY auth.webauthn_credentials
 
 
 --
+-- Name: anon_rate_limit_buckets anon_rate_limit_buckets_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.anon_rate_limit_buckets
+    ADD CONSTRAINT anon_rate_limit_buckets_pkey PRIMARY KEY (rpc_code, bucket_kind, key_digest, window_started_at);
+
+
+--
+-- Name: anon_rate_limit_policies anon_rate_limit_policies_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.anon_rate_limit_policies
+    ADD CONSTRAINT anon_rate_limit_policies_pkey PRIMARY KEY (rpc_code, bucket_kind, policy_version);
+
+
+--
 -- Name: appointment_events appointment_events_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -6143,6 +8010,14 @@ ALTER TABLE ONLY public.profile_capabilities
 
 ALTER TABLE ONLY public.profiles
     ADD CONSTRAINT profiles_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: public_booking_contacts public_booking_contacts_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.public_booking_contacts
+    ADD CONSTRAINT public_booking_contacts_pkey PRIMARY KEY (appointment_id);
 
 
 --
@@ -6822,6 +8697,20 @@ CREATE INDEX webauthn_credentials_user_id_idx ON auth.webauthn_credentials USING
 
 
 --
+-- Name: anon_rate_limit_buckets_expiry_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX anon_rate_limit_buckets_expiry_idx ON public.anon_rate_limit_buckets USING btree (expires_at);
+
+
+--
+-- Name: anon_rate_limit_policies_one_active; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX anon_rate_limit_policies_one_active ON public.anon_rate_limit_policies USING btree (rpc_code, bucket_kind) WHERE enabled;
+
+
+--
 -- Name: health_subject_access_live_key; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -7074,6 +8963,13 @@ ALTER INDEX realtime.messages_pkey ATTACH PARTITION realtime.messages_2026_09_07
 
 
 --
+-- Name: appointments appointments_public_invariants; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER appointments_public_invariants BEFORE INSERT OR UPDATE ON public.appointments FOR EACH ROW EXECUTE FUNCTION public.enforce_public_appointment_invariants();
+
+
+--
 -- Name: audit_events audit_events_append_only; Type: TRIGGER; Schema: public; Owner: -
 --
 
@@ -7300,6 +9196,14 @@ ALTER TABLE ONLY auth.webauthn_challenges
 
 ALTER TABLE ONLY auth.webauthn_credentials
     ADD CONSTRAINT webauthn_credentials_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE;
+
+
+--
+-- Name: anon_rate_limit_buckets anon_rate_limit_buckets_rpc_code_bucket_kind_policy_versio_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.anon_rate_limit_buckets
+    ADD CONSTRAINT anon_rate_limit_buckets_rpc_code_bucket_kind_policy_versio_fkey FOREIGN KEY (rpc_code, bucket_kind, policy_version) REFERENCES public.anon_rate_limit_policies(rpc_code, bucket_kind, policy_version) ON DELETE RESTRICT;
 
 
 --
@@ -7831,6 +9735,14 @@ ALTER TABLE ONLY public.profiles
 
 
 --
+-- Name: public_booking_contacts public_booking_contacts_appointment_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.public_booking_contacts
+    ADD CONSTRAINT public_booking_contacts_appointment_id_fkey FOREIGN KEY (appointment_id) REFERENCES public.appointments(id) ON DELETE RESTRICT;
+
+
+--
 -- Name: queue_entries queue_entries_appointment_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -8045,6 +9957,18 @@ ALTER TABLE auth.sso_providers ENABLE ROW LEVEL SECURITY;
 --
 
 ALTER TABLE auth.users ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: anon_rate_limit_buckets; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.anon_rate_limit_buckets ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: anon_rate_limit_policies; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.anon_rate_limit_policies ENABLE ROW LEVEL SECURITY;
 
 --
 -- Name: appointment_events; Type: ROW SECURITY; Schema: public; Owner: -
@@ -8409,6 +10333,19 @@ ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
 --
 
 CREATE POLICY profiles_self_read ON public.profiles FOR SELECT USING ((id = public.current_profile_id()));
+
+
+--
+-- Name: public_booking_contacts; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.public_booking_contacts ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: public_booking_contacts public_booking_contacts_operational_read; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY public_booking_contacts_operational_read ON public.public_booking_contacts FOR SELECT USING (public.can_read_public_booking_contact(appointment_id));
 
 
 --

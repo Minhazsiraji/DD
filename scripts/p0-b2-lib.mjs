@@ -21,6 +21,30 @@ export function openLocalDatabase() {
   });
 }
 
+/*
+ * Runtime-verifier-only local Supabase administrator connection.
+ *
+ * The target still comes exclusively from DD_V2_LOCAL_DATABASE_URL through
+ * requireLocalP0DatabaseUrl(). We replace only the username with the
+ * local Supabase superuser so runtime tests can establish an exact
+ * SESSION AUTHORIZATION identity without weakening application roles.
+ */
+export function localAdminDatabaseUrl() {
+  const value = new URL(localDatabaseUrl());
+
+  value.username = "supabase_admin";
+
+  return value.toString();
+}
+
+export function openLocalAdminDatabase() {
+  return postgres(localAdminDatabaseUrl(), {
+    max: 1,
+    prepare: false,
+    onnotice: () => {},
+  });
+}
+
 export async function expectFailure(label, action, expectedCodes = []) {
   try {
     await action();

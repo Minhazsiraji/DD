@@ -24,7 +24,7 @@ create type metric_period_kind as enum ('DAY','MONTH');
 create table profiles (
   id uuid primary key references auth.users(id) on delete cascade,
   full_name text not null check (length(full_name) between 1 and 200),
-  phone_raw text, phone_e164 text check (phone_e164 is null or phone_e164 ~ '^\\+[1-9][0-9]{1,14}$'),
+  phone_raw text, phone_e164 text check (phone_e164 is null or phone_e164 ~ '^[+][1-9][0-9]{1,14}$'),
   phone_country_hint text check (phone_country_hint is null or phone_country_hint ~ '^[A-Z]{2}$'),
   locale text not null default 'en', primary_language text, timezone text,
   avatar_path text, onboarded_at timestamptz, deactivated_at timestamptz,
@@ -133,8 +133,13 @@ create table consent_events (
 create table audit_events (
   id uuid primary key default gen_random_uuid(), actor_kind actor_kind not null, actor_id uuid, acted_as text,
   on_behalf_of uuid, action text not null, resource_type text not null, resource_id uuid, correlation_id uuid,
-  request_id uuid, practice_location_id uuid, ip inet, user_agent text, occurred_at timestamptz not null default clock_timestamp(), seq bigserial unique,
-  check (action ~ '^[A-Z][A-Z0-9_.-]{1,63}$'), check (resource_type ~ '^[a-z][a-z0-9_.-]{1,63}$')
+  request_id uuid, practice_location_id uuid, anon_session_ref uuid, ip inet, user_agent text,
+  occurred_at timestamptz not null default clock_timestamp(), seq bigserial unique,
+  check (action ~ '^[A-Z][A-Z0-9_.-]{1,63}$'), check (resource_type ~ '^[a-z][a-z0-9_.-]{1,63}$'),
+  check (
+    anon_session_ref is null
+    or (actor_kind='SYSTEM' and actor_id is null and ip is null and user_agent is null)
+  )
 );
 
 create table healthcare_organizations (
@@ -227,12 +232,61 @@ create table appointments (
   status appointment_status not null default 'SCHEDULED', fee_amount_minor bigint, currency_code text, public_booking_ref uuid unique,
   created_at timestamptz not null default clock_timestamp(), unique(id, owner_doctor_id), foreign key(owner_doctor_id, owner_profession) references professional_profiles(id, profession),
   foreign key(clinical_patient_id, owner_doctor_id) references clinical_patients(id, owner_doctor_id), foreign key(doctor_chamber_id, owner_doctor_id, practice_location_id) references doctor_chambers(id, doctor_id, practice_location_id),
-  check(owner_profession='DOCTOR'), check(clinical_patient_id is not null or health_subject_id is not null or source_channel='WALK_IN')
+  check(owner_profession='DOCTOR'),
+  check (
+    (
+      source_channel='INTERNAL'
+      and public_booking_ref is null
+      and (clinical_patient_id is not null or health_subject_id is not null)
+    )
+    or (
+      source_channel in ('DOCTOR','RECEPTIONIST','ASSISTANT')
+      and public_booking_ref is null
+      and booked_by_profile_id is not null
+      and (clinical_patient_id is not null or health_subject_id is not null)
+    )
+    or (
+      source_channel='WALK_IN'
+      and public_booking_ref is null
+      and clinical_patient_id is not null
+    )
+    or (
+      source_channel in ('PUBLIC_WEB','PUBLIC_APP')
+      and public_booking_ref is not null
+      and doctor_chamber_id is not null
+      and booked_by_profile_id is null
+    )
+  )
 );
 create table appointment_events (
   id uuid primary key default gen_random_uuid(), appointment_id uuid not null references appointments(id), from_status appointment_status, to_status appointment_status not null,
   actor_kind actor_kind not null, actor_id uuid, reason text, occurred_at timestamptz not null default clock_timestamp(), seq bigserial unique
 );
+
+create table public_booking_contacts (
+  appointment_id uuid primary key references appointments(id) on delete restrict,
+  contact_name text not null check (length(btrim(contact_name)) between 1 and 200),
+  phone_raw text check (phone_raw is null or length(btrim(phone_raw)) between 1 and 64),
+  phone_e164 text check (phone_e164 is null or phone_e164 ~ '^[+][1-9][0-9]{1,14}$'),
+  phone_country_hint text check (phone_country_hint is null or phone_country_hint ~ '^[A-Z]{2}$'),
+  email text check (email is null or length(btrim(email)) between 3 and 320),
+  locale text check (locale is null or length(btrim(locale)) between 1 and 32),
+  lifecycle_status text not null default 'ACTIVE'
+    check (lifecycle_status in ('ACTIVE','RESOLVED','CANCELLED','PURGE_ELIGIBLE')),
+  resolved_at timestamptz,
+  cancelled_at timestamptz,
+  purge_eligible_at timestamptz,
+  created_at timestamptz not null default clock_timestamp(),
+  updated_at timestamptz not null default clock_timestamp(),
+  check (phone_raw is not null or email is not null),
+  check (resolved_at is null or lifecycle_status in ('RESOLVED','PURGE_ELIGIBLE')),
+  check (cancelled_at is null or lifecycle_status in ('CANCELLED','PURGE_ELIGIBLE')),
+  check (purge_eligible_at is null or lifecycle_status='PURGE_ELIGIBLE'),
+  check (lifecycle_status <> 'RESOLVED' or resolved_at is not null),
+  check (lifecycle_status <> 'CANCELLED' or cancelled_at is not null),
+  check (lifecycle_status <> 'PURGE_ELIGIBLE' or purge_eligible_at is not null)
+);
+
 create table queue_token_counters (
   doctor_chamber_id uuid not null references doctor_chambers(id) on delete restrict, session_date date not null, next_token integer not null default 1,
   primary key(doctor_chamber_id, session_date)
@@ -242,6 +296,42 @@ create table queue_entries (
   practice_location_id uuid not null references practice_locations(id), session_date date not null, queue_token integer not null, priority integer not null default 0,
   created_at timestamptz not null default clock_timestamp(), unique(doctor_chamber_id, session_date, queue_token)
 );
+
+create table anon_rate_limit_policies (
+  rpc_code text not null
+    check (rpc_code in ('PUBLIC_CHAMBER_AVAILABILITY','CREATE_PUBLIC_BOOKING','PUBLIC_BOOKING_STATUS')),
+  bucket_kind text not null
+    check (bucket_kind in ('SESSION_GLOBAL','NETWORK_GLOBAL','SESSION_RESOURCE','NETWORK_RESOURCE')),
+  window_seconds integer not null check (window_seconds between 1 and 86400),
+  max_requests integer not null check (max_requests between 1 and 100000),
+  enabled boolean not null default true,
+  policy_version text not null check (length(btrim(policy_version)) between 1 and 64),
+  effective_from timestamptz not null,
+  updated_at timestamptz not null default clock_timestamp(),
+  primary key (rpc_code, bucket_kind, policy_version)
+);
+create unique index anon_rate_limit_policies_one_active
+  on anon_rate_limit_policies(rpc_code, bucket_kind)
+  where enabled;
+
+create table anon_rate_limit_buckets (
+  rpc_code text not null,
+  bucket_kind text not null,
+  policy_version text not null,
+  key_digest bytea not null check (octet_length(key_digest)=32),
+  window_started_at timestamptz not null,
+  request_count integer not null check (request_count >= 1),
+  last_seen_at timestamptz not null,
+  expires_at timestamptz not null,
+  primary key (rpc_code, bucket_kind, key_digest, window_started_at),
+  foreign key (rpc_code, bucket_kind, policy_version)
+    references anon_rate_limit_policies(rpc_code, bucket_kind, policy_version)
+    on delete restrict,
+  check (last_seen_at >= window_started_at),
+  check (expires_at > window_started_at)
+);
+create index anon_rate_limit_buckets_expiry_idx
+  on anon_rate_limit_buckets(expires_at);
 
 -- Domain-L P0 foundation. Raw stores have no owner-reader grant; rollups carry no clinical keys.
 create table metric_definitions (metric_code text primary key, display_name text not null, unit text not null, allowed_dimensions text[] not null, is_active boolean not null default true);
@@ -261,8 +351,53 @@ create table metric_rollups (
   period_start date not null, doctor_id uuid references professional_profiles(id), practice_location_id uuid references practice_locations(id), count_value bigint not null default 0,
   updated_at timestamptz not null default clock_timestamp(), unique(metric_code, period_kind, period_start, doctor_id, practice_location_id)
 );
-do $$ begin
-  if not exists (select 1 from pg_roles where rolname='dd_owner_analytics') then create role dd_owner_analytics noinherit; end if;
-  if not exists (select 1 from pg_roles where rolname='dd_metrics_reader') then create role dd_metrics_reader noinherit; end if;
-  if not exists (select 1 from pg_roles where rolname='dd_metrics_rollup') then create role dd_metrics_rollup noinherit; end if;
+do $$
+declare
+  ingress record;
+begin
+  if not exists (select 1 from pg_roles where rolname='dd_owner_analytics') then
+    create role dd_owner_analytics noinherit;
+  end if;
+
+  if not exists (select 1 from pg_roles where rolname='dd_metrics_reader') then
+    create role dd_metrics_reader noinherit;
+  end if;
+
+  if not exists (select 1 from pg_roles where rolname='dd_metrics_rollup') then
+    create role dd_metrics_rollup noinherit;
+  end if;
+
+  select
+    rolsuper,
+    rolcreatedb,
+    rolcreaterole,
+    rolinherit,
+    rolcanlogin,
+    rolreplication,
+    rolbypassrls
+  into ingress
+  from pg_roles
+  where rolname = 'dd_public_ingress';
+
+  if not found then
+    create role dd_public_ingress
+      nosuperuser
+      nocreatedb
+      nocreaterole
+      noinherit
+      login
+      noreplication
+      nobypassrls;
+  else
+    if ingress.rolsuper
+       or ingress.rolcreatedb
+       or ingress.rolcreaterole
+       or ingress.rolinherit
+       or not ingress.rolcanlogin
+       or ingress.rolreplication
+       or ingress.rolbypassrls then
+      raise exception 'DD_PUBLIC_INGRESS_ROLE_ATTRIBUTES_INVALID'
+        using errcode='42501';
+    end if;
+  end if;
 end $$;
