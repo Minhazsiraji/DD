@@ -66,25 +66,32 @@ export function MarketingShell({ children }: { children: ReactNode }) {
       <main>{children}</main>
 
       <footer className="px-3 pb-4 pt-8 sm:px-5 lg:px-7">
-        <div className="dd-public-footer mx-auto grid max-w-7xl gap-6 px-4 py-5 text-[12.5px] text-ink-secondary sm:px-6 md:grid-cols-[1.6fr_1fr_1fr]">
-          <div>
-            <div className="flex items-center gap-2.5">
-              <BrandMark className="h-8 w-11" />
-              <BrandWordmark className="text-[14px]" />
+        <div className="dd-approved-stage dd-footer-glass-stage mx-auto max-w-7xl">
+          <span className="dd-approved-light" aria-hidden />
+          <div className="dd-public-footer dd-approved-slab grid gap-6 px-4 py-5 text-[12.5px] text-ink-secondary sm:px-6 md:grid-cols-[1.6fr_1fr_1fr]">
+            <span className="dd-approved-glows" aria-hidden />
+            <span className="dd-approved-contour" aria-hidden />
+            <div className="dd-approved-content contents">
+              <div>
+                <div className="flex items-center gap-2.5">
+                  <BrandMark className="h-8 w-11" />
+                  <BrandWordmark className="text-[14px]" />
+                </div>
+                <p className="mt-2.5 max-w-md leading-5">
+                  Less typing. Less searching. Less remembering. More patient.
+                </p>
+              </div>
+              <div className="grid gap-1.5">
+                <Link href="/features">Features</Link>
+                <Link href="/pricing">Pricing</Link>
+                <Link href="/security">Security</Link>
+              </div>
+              <div className="grid gap-1.5">
+                <Link href="/faq">FAQ</Link>
+                <Link href="/contact">Contact</Link>
+                <Link href="/login">Doctor sign in</Link>
+              </div>
             </div>
-            <p className="mt-2.5 max-w-md leading-5">
-              Less typing. Less searching. Less remembering. More patient.
-            </p>
-          </div>
-          <div className="grid gap-1.5">
-            <Link href="/features">Features</Link>
-            <Link href="/pricing">Pricing</Link>
-            <Link href="/security">Security</Link>
-          </div>
-          <div className="grid gap-1.5">
-            <Link href="/faq">FAQ</Link>
-            <Link href="/contact">Contact</Link>
-            <Link href="/login">Doctor sign in</Link>
           </div>
         </div>
       </footer>
