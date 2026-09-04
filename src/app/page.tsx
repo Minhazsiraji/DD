@@ -67,42 +67,37 @@ export default function RootPage() {
           </p>
         </div>
 
-        <div className="dd-landing-demo dd-layered-slab p-3 sm:p-4">
-          <span className="dd-glass-light" aria-hidden />
-          <span className="dd-glass-glows" aria-hidden />
-          <span className="dd-glass-contour" aria-hidden />
+        <div className="dd-approved-stage dd-hero-stage">
+          <span className="dd-approved-light" aria-hidden />
+          <div className="dd-landing-demo dd-approved-slab p-3 sm:p-4">
+            <span className="dd-approved-glows" aria-hidden />
+            <span className="dd-approved-contour" aria-hidden />
 
-          <div className="dd-landing-inner dd-layered-inner rounded-[20px] p-4 sm:rounded-[22px] sm:p-5">
-            <span className="dd-inner-light" aria-hidden />
-            <span className="dd-inner-contour" aria-hidden />
-
-            <div className="dd-landing-content">
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div>
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[#70698e]">Today</p>
-                  <p className="mt-1 text-[17px] font-semibold tracking-[-0.025em] text-[#2c2753] sm:text-[19px]">Doctor workspace</p>
-                </div>
-                <span className="dd-chip inline-flex rounded-full px-2.5 py-1.5 text-[10px] font-semibold text-[#5f52c5] sm:text-[10.5px]">
-                  Private clinical workspace
-                </span>
-              </div>
-              <div className="mt-4 grid gap-2.5">
-                {workflow.map((item, i) => (
-                  <div
-                    key={item}
-                    className="dd-workflow-row dd-layered-row flex min-h-[44px] items-center gap-2.5 rounded-[15px] px-3 py-2.5 text-[12px] font-medium text-[#48425f] sm:min-h-[48px] sm:rounded-[16px] sm:px-3.5 sm:text-[12.5px]"
-                  >
-                    <span className="dd-row-light" aria-hidden />
-                    <span className="dd-row-glows" aria-hidden />
-                    <span className="dd-row-contour" aria-hidden />
-
-                    <span className="dd-step grid size-7 shrink-0 place-items-center rounded-full text-[10.5px] font-semibold text-[#6554d0]">
-                      {i + 1}
-                    </span>
-                    <span className="min-w-0 flex-1">{item}</span>
-                    <CheckCircle2 className="size-3.5 shrink-0 text-[#72cdbb]" aria-hidden="true" />
+            <div className="dd-landing-inner rounded-[20px] p-4 sm:rounded-[22px] sm:p-5">
+              <div className="dd-approved-content">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[#70698e]">Today</p>
+                    <p className="mt-1 text-[17px] font-semibold tracking-[-0.025em] text-[#2c2753] sm:text-[19px]">Doctor workspace</p>
                   </div>
-                ))}
+                  <span className="dd-chip inline-flex rounded-full px-2.5 py-1.5 text-[10px] font-semibold text-[#5f52c5] sm:text-[10.5px]">
+                    Private clinical workspace
+                  </span>
+                </div>
+                <div className="mt-4 grid gap-2.5">
+                  {workflow.map((item, i) => (
+                    <div
+                      key={item}
+                      className="dd-workflow-row dd-approved-mini flex min-h-[44px] items-center gap-2.5 rounded-[15px] px-3 py-2.5 text-[12px] font-medium text-[#48425f] sm:min-h-[48px] sm:rounded-[16px] sm:px-3.5 sm:text-[12.5px]"
+                    >
+                      <span className="dd-step grid size-7 shrink-0 place-items-center rounded-full text-[10.5px] font-semibold text-[#6554d0]">
+                        {i + 1}
+                      </span>
+                      <span className="min-w-0 flex-1">{item}</span>
+                      <CheckCircle2 className="size-3.5 shrink-0 text-[#72cdbb]" aria-hidden="true" />
+                    </div>
+                  ))}
+                </div>
               </div>
             </div>
           </div>
