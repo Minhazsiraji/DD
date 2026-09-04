@@ -1,6 +1,6 @@
 /*
  * Doctor's Diary — canonical brand/action lock.
- * Owner-approved: glossy blue+teal DD logo + violet liquid primary button.
+ * Owner-approved: glossy blue+teal DD logo + violet primary action + aqua liquid secondary action.
  * Semantic clinical status colours remain untouched.
  */
 
@@ -11,9 +11,14 @@
   --dd-action-blue-reflect: #5ca9ee;
   --dd-action-cyan-rim: #8fe8f7;
   --dd-action-focus: #7359e2;
+
+  --dd-aqua-text: #087187;
+  --dd-aqua-a: rgba(188, 255, 248, .94);
+  --dd-aqua-b: rgba(128, 237, 239, .90);
+  --dd-aqua-c: rgba(171, 224, 255, .90);
 }
 
-/* Exact primary-action family from the approved red-tick reference. */
+/* Primary action family — owner-approved violet/blue liquid CTA. */
 .dd-primary,
 a.bg-brand,
 button.bg-brand,
@@ -79,7 +84,45 @@ button.bg-primary:active,
     0 2px 7px rgba(64,54,165,.22) !important;
 }
 
-/* Active navigation / selected tabs use the same approved action colour family. */
+/* Secondary/common action — matched to the supplied aqua Consultation button.
+   This replaces the old plain white Sign in / plan buttons across public + auth UI. */
+.dd-secondary {
+  border: 1px solid transparent !important;
+  border-radius: 999px !important;
+  color: var(--dd-aqua-text) !important;
+  background:
+    radial-gradient(88% 128% at 25% -20%, rgba(255,255,255,.92) 0%, rgba(255,255,255,.32) 31%, transparent 58%),
+    radial-gradient(72% 180% at 103% 54%, rgba(171,214,255,.62) 0%, transparent 64%),
+    linear-gradient(100deg,
+      var(--dd-aqua-a) 0%,
+      var(--dd-aqua-b) 48%,
+      var(--dd-aqua-c) 100%) padding-box,
+    linear-gradient(118deg,
+      rgba(255,255,255,.99) 0%,
+      rgba(221,255,252,.99) 28%,
+      rgba(155,244,246,.99) 68%,
+      rgba(216,228,255,.98) 100%) border-box !important;
+  box-shadow:
+    0 0 0 1px rgba(255,255,255,.70),
+    0 0 12px rgba(89,231,232,.34),
+    0 7px 16px rgba(73,152,176,.18),
+    inset 0 2px 1px rgba(255,255,255,.94),
+    inset 0 -2px 4px rgba(59,144,167,.13) !important;
+  text-shadow: 0 1px 0 rgba(255,255,255,.62);
+}
+
+.dd-secondary:hover {
+  color: #046b80 !important;
+  filter: brightness(1.025) saturate(1.04);
+  transform: translateY(-1px);
+}
+
+.dd-secondary:active {
+  transform: translateY(0) scale(.99);
+  filter: brightness(.99);
+}
+
+/* Active navigation / selected tabs keep the stronger primary family. */
 .dd-nav-active,
 .dd-sidebar a[aria-current="page"],
 .dd-topbar a[aria-current="page"],
@@ -99,6 +142,7 @@ button.bg-primary:active,
 }
 
 .dd-primary:focus-visible,
+.dd-secondary:focus-visible,
 a.bg-brand:focus-visible,
 button.bg-brand:focus-visible,
 a.bg-primary:focus-visible,
@@ -128,6 +172,78 @@ input[type="radio"] { accent-color: var(--dd-action-focus); }
   transform: scale(1.035);
 }
 
+/* -------------------------------------------------------------------------
+   AUTH CONSISTENCY LOCK
+   Login/signup/recovery must use the same exact canvas + transparent slab +
+   rim/glow/contour language as the landing header and workspace card.
+   ------------------------------------------------------------------------- */
+.dd-auth-shell {
+  color: #211b4a !important;
+}
+
+.dd-auth-header-stage .dd-approved-light,
+.dd-auth-card-stage .dd-approved-light {
+  opacity: .92;
+}
+
+.dd-auth-header-stage .dd-approved-slab,
+.dd-auth-card.dd-approved-slab {
+  background: rgba(255,255,255,.01) !important;
+  -webkit-backdrop-filter: blur(20px) !important;
+  backdrop-filter: blur(20px) !important;
+}
+
+.dd-auth-card.dd-approved-slab {
+  border-radius: 32px !important;
+}
+
+.dd-auth-card .dd-approved-contour {
+  inset: 7px;
+  border-radius: 25px;
+}
+
+.dd-auth-input {
+  border: 1px solid transparent !important;
+  color: #211b4a !important;
+  background:
+    radial-gradient(88% 130% at 25% -20%, rgba(255,255,255,.74) 0%, rgba(255,255,255,.20) 36%, transparent 60%),
+    linear-gradient(115deg, rgba(255,255,255,.50), rgba(241,248,250,.27), rgba(250,242,249,.28)) padding-box,
+    linear-gradient(118deg, rgba(255,255,255,.99), rgba(235,245,251,.96), rgba(184,236,244,.80), rgba(255,255,255,.98)) border-box !important;
+  -webkit-backdrop-filter: blur(13px) !important;
+  backdrop-filter: blur(13px) !important;
+  box-shadow:
+    inset 0 1.5px 1px rgba(255,255,255,.96),
+    inset 0 -1px 2px rgba(100,90,150,.09),
+    0 0 0 1px rgba(255,255,255,.46),
+    0 5px 13px rgba(66,57,96,.08) !important;
+}
+
+.dd-auth-subpanel {
+  border: 1px solid rgba(255,255,255,.82) !important;
+  background: rgba(255,255,255,.10) !important;
+  -webkit-backdrop-filter: blur(12px) !important;
+  backdrop-filter: blur(12px) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,.92),
+    inset 0 -1px 0 rgba(106,92,154,.08),
+    0 5px 12px rgba(72,61,107,.07) !important;
+}
+
+.dd-auth-disclaimer {
+  color: #59637d !important;
+  border: 1px solid rgba(255,255,255,.82) !important;
+  background: rgba(255,255,255,.08) !important;
+  -webkit-backdrop-filter: blur(13px) !important;
+  backdrop-filter: blur(13px) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,.90),
+    0 6px 16px rgba(70,61,98,.09) !important;
+}
+
+.dd-auth-shell label,
+.dd-auth-shell .text-ink-secondary { color: #3f4968 !important; }
+.dd-auth-shell .text-ink-muted { color: #59637d !important; }
+
 @media (max-width: 767px) {
   .dd-primary,
   a.bg-brand,
@@ -143,6 +259,15 @@ input[type="radio"] { accent-color: var(--dd-action-focus); }
       inset 0 1.7px 1px rgba(255,255,255,.88),
       inset 0 -1.5px 3px rgba(48,35,128,.19) !important;
   }
+
+  .dd-auth-card.dd-approved-slab {
+    border-radius: 27px !important;
+  }
+
+  .dd-auth-card .dd-approved-contour {
+    inset: 6px;
+    border-radius: 21px;
+  }
 }
 
 @media (prefers-reduced-transparency: reduce) {
@@ -155,5 +280,9 @@ input[type="radio"] { accent-color: var(--dd-action-focus); }
   .dd-nav-active,
   [role="tab"][aria-selected="true"] {
     background: #6b55d8 !important;
+  }
+
+  .dd-secondary {
+    background: #a8ecef !important;
   }
 }
