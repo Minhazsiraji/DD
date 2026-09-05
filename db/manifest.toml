@@ -1,0 +1,44 @@
+# Doctor's Diary Database V2 P0 deployment authority.
+# Architecture: Rev 4.3.2f
+# SHA-256: fb28a7985702d3a8975ad5dd3804e6072b9775f67e5b9315603bbe2586d88514
+# Track A only. Track B and Track C are never deployment targets here.
+
+version = 1
+phase = "P0"
+architecture_sha256 = "fb28a7985702d3a8975ad5dd3804e6072b9775f67e5b9315603bbe2586d88514"
+
+[[step]]
+id = "0001"
+kind = "schema"
+file = "db/schema/0001_p0_baseline.sql"
+sha256 = "3072d21c2c6500ed89fd339f56edbca8212534a92d1d0fd7ea9eb3f610d38a06"
+
+[[step]]
+id = "0002"
+kind = "functions"
+file = "db/functions/0002_p0_core.sql"
+sha256 = "162ddd5ba548c96b2648702b1ae892319113b2bfa60019e2a5507c1ce1bd613f"
+
+[[step]]
+id = "0003"
+kind = "policies"
+file = "db/policies/0003_p0_rls.sql"
+sha256 = "295fdc5e97c73d14539103ea5a28b0f3a1c1edbaead30ca58f3980b043c6bd61"
+
+[[step]]
+id = "0004"
+kind = "grants"
+file = "db/grants/0004_p0_grants.sql"
+sha256 = "74d2dd8d0ccfe5e93f8846dd9d709041e11702fc00ce334482d7d0b54617cd94"
+
+[[step]]
+id = "0005"
+kind = "storage"
+file = "db/storage/0005_p0_buckets.sql"
+sha256 = "6d0a8ac7852a9c4386f8cfc507114f3ee6a76d3c2539a917525599725a3683a3"
+
+[[step]]
+id = "0006"
+kind = "seed"
+file = "db/seed/0006_p0_reference.sql"
+sha256 = "1651b77c0677ed1d6182a8494ae2f37025cbb83647a90d81e8dd86be00f3c279"

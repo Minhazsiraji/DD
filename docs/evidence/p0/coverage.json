@@ -1,0 +1,43 @@
+{
+  "phase": "P0",
+  "architecture_sha256": "fb28a7985702d3a8975ad5dd3804e6072b9775f67e5b9315603bbe2586d88514",
+  "track": "A",
+  "status": "IN_PROGRESS",
+  "executed": {
+    "manifest_static_integrity": true,
+    "manifest_replay": false,
+    "dd_chk_31": true,
+    "forced_rls_boundary": false,
+    "p1_plus_exclusion": false,
+    "audit_foundation": false,
+    "domain_l_clinical_fk_exclusion": false,
+    "verified_doctor_write": false,
+    "prescription_immutability": false,
+    "queue_token_allocation": false,
+    "golden_dump_comparison": false,
+    "deployment_determinism_two_replay": false,
+    "target_guard": true,
+    "lint": true,
+    "typecheck": true,
+    "tests": true,
+    "build": true
+  },
+  "note": "Every boolean requiring a deployed database is false. No P0 manifest deployment onto a clean Supabase substrate has been demonstrated: the c9e8281 Codespace run executed verify-p0 against an unproven database state, and the determinism harness built raw PostgreSQL databases lacking the auth and storage schemas the manifest requires. Only pure/static results are claimed true, and each was executed. They will be re-evaluated from the two-replay run, not assumed.",
+  "outstanding": [
+    "manifest deployment onto a clean Supabase substrate, and every database-dependent boolean re-derived from it",
+    "deployment determinism two-replay run on the Codespace Track-A host",
+    "full 25-proof matrix",
+    "21 applicable Set-A runtime assets",
+    "verify-doctor-isolation.mjs P0 extension",
+    "verify-rx-immutability.mjs P0 extension",
+    "complete P0 RPC and policy coverage",
+    "adversarial multi-role RLS suite",
+    "Storage API object-path runtime suite",
+    "D-12 concurrent contention and rollback suite",
+    "credential-state negative matrix",
+    "composite-FK negative matrix",
+    "no-exclusion/search_path/anon surface verifiers",
+    "final evidence logs for every proof"
+  ],
+  "track_b_contact_or_write": 0
+}
