@@ -2,16 +2,13 @@ import * as React from "react";
 import { cn } from "@/lib/utils";
 
 /**
- * SectionCard — the opaque counterpart to GlassCard.
- *
- * `min-w-0` is intentional: these cards commonly sit inside responsive grid
- * and flex children. Without it, one long clinical label can keep the grid
- * track at its intrinsic width and make the whole mobile page scroll sideways.
+ * Shared section container. The structural contract is unchanged; the
+ * presentation is supplied by the canonical app-wide liquid material layer.
  */
 export function SectionCard({ className, ...props }: React.ComponentProps<"section">) {
   return (
     <section
-      className={cn("clinical-surface min-w-0 rounded-glass-lg shadow-soft", className)}
+      className={cn("clinical-surface dd-app-panel min-w-0 rounded-glass-lg shadow-soft", className)}
       {...props}
     />
   );
@@ -35,7 +32,7 @@ export function SectionHeader({
   return (
     <div
       className={cn(
-        "flex min-w-0 flex-wrap items-center justify-between gap-3 border-b border-hairline px-4 py-3 sm:flex-nowrap sm:px-5",
+        "dd-section-header flex min-w-0 flex-wrap items-center justify-between gap-3 border-b border-hairline px-4 py-3 sm:flex-nowrap sm:px-5",
         className,
       )}
       {...props}
