@@ -37,6 +37,33 @@ export type OpenResult =
   | { ok: true; encounterId: string }
   | { ok: false; message: string };
 
+function missingRpcSignature(error: { code?: string; message?: string } | null): boolean {
+  if (!error) return false;
+  return (
+    error.code === "PGRST202" ||
+    /could not find the function|function .* does not exist/i.test(error.message ?? "")
+  );
+}
+
+async function legacyAppointmentPatientId(
+  appointmentId: string,
+  locationId: string,
+): Promise<string | null> {
+  const supabase = await createSupabaseServerClient();
+  const { data, error } = await supabase
+    .from("appointments")
+    .select("patient_id")
+    .eq("id", appointmentId)
+    .eq("practice_location_id", locationId)
+    .maybeSingle();
+
+  if (error) {
+    console.error("[encounters] legacy appointment patient lookup failed", error.message);
+    return null;
+  }
+  return data?.patient_id ? String(data.patient_id) : null;
+}
+
 async function scopedAppointmentIsAvailable(
   appointmentId: string,
   locationId: string,
@@ -71,12 +98,27 @@ export async function openAppointmentConsultationAction(input: {
   }
 
   const supabase = await createSupabaseServerClient();
-  const { data, error } = await supabase.rpc("open_encounter_for_appointment", {
+  let result = await supabase.rpc("open_encounter_for_appointment", {
     appointment_key: parsed.data.appointmentId,
   });
 
+  // Preview is still on the pre-cutover application schema. Fall back only
+  // when the exact V2 entry point is absent; database refusals remain final.
+  if (missingRpcSignature(result.error)) {
+    const patientId = await legacyAppointmentPatientId(parsed.data.appointmentId, ctx.locationId);
+    if (!patientId) {
+      return { ok: false, message: "That appointment is no longer available at this location." };
+    }
+    result = await supabase.rpc("open_encounter", {
+      p_patient_id: patientId,
+      p_practice_location_id: ctx.locationId,
+      p_appointment_id: parsed.data.appointmentId,
+    });
+  }
+
+  const { data, error } = result;
   if (error) {
-    return { ok: false, message: safeMessage("open_encounter_for_appointment", error.message).message };
+    return { ok: false, message: safeMessage("open appointment encounter", error.message).message };
   }
   if (!data) {
     console.error("[encounters] open_encounter_for_appointment returned no id");
@@ -144,11 +186,22 @@ export async function openUnscheduledConsultationAction(input: {
   if (existing) return { ok: true, encounterId: existing.id };
 
   const supabase = await createSupabaseServerClient();
-  const { data, error } = await supabase.rpc("open_encounter", {
+  let result = await supabase.rpc("open_encounter", {
     patient_id: parsed.data.patientId,
     location_id: authority.locationId,
   });
 
+  // Accepted V2 is the target contract. The current Preview still exposes the
+  // legacy 3-argument function, so use it only when V2's signature is absent.
+  if (missingRpcSignature(result.error)) {
+    result = await supabase.rpc("open_encounter", {
+      p_patient_id: parsed.data.patientId,
+      p_practice_location_id: authority.locationId,
+      p_appointment_id: null,
+    });
+  }
+
+  const { data, error } = result;
   if (!error && data) {
     revalidatePath("/dashboard");
     revalidatePath(`/patients/${parsed.data.patientId}`);

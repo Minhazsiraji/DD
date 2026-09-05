@@ -152,6 +152,14 @@ describe("M1 consultation launcher state matrix", () => {
     expect(encounterActions()).toMatch(/rpc\("open_encounter_for_appointment"/);
   });
 
+  it("uses legacy encounter RPCs only when V2 signatures are absent", () => {
+    const source = encounterActions();
+    expect(source).toMatch(/error\.code === "PGRST202"/);
+    expect(source).toMatch(/p_appointment_id:\s*null/);
+    expect(source).toMatch(/p_appointment_id:\s*parsed\.data\.appointmentId/);
+    expect(source).toMatch(/p_practice_location_id:\s*authority\.locationId/);
+  });
+
   it("20 SCHEDULED cannot direct clinical-start", () => {
     const source = launcher();
     const branch = source.slice(source.indexOf('state === "SCHEDULED"'), source.indexOf("// NONE and COMPLETED"));
