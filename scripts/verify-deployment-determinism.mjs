@@ -222,12 +222,50 @@ const P0_TABLES = (await fs.readFile(path.join(root, "db/schema/0001_p0_baseline
   .filter(Boolean);
 
 /**
- * Only the PostgreSQL 17 `\restrict` / `\unrestrict` guard tokens are
- * canonicalised — they carry a random value in every dump. Nothing else is
- * touched, so a real difference cannot hide behind the normalisation.
+ * Canonicalise only substrate-generated noise: PostgreSQL 17 guard tokens and
+ * Supabase Realtime's rolling daily partition names/bounds. DD-owned objects
+ * remain byte-sensitive, so a real manifest difference cannot hide here.
  */
-const canonicalize = (dump) =>
-  dump.replace(/^\\(restrict|unrestrict) .*$/gm, "\\$1 DD_P0_GOLDEN");
+const canonicalize = (dump) => {
+  let normalized = dump.replace(
+    /^\\(restrict|unrestrict) .*$/gm,
+    "\\$1 DD_P0_GOLDEN",
+  );
+
+  /**
+   * Supabase Realtime creates a rolling set of daily `messages_YYYY_MM_DD`
+   * partitions as part of the PLATFORM substrate. Their relative shape is
+   * deterministic, but their calendar names move every day. They are not DD
+   * manifest objects, so pinning the literal date would make a valid manifest
+   * fail simply because midnight passed.
+   *
+   * Normalise only those Realtime-owned partition identifiers and their attach
+   * bounds. Public/DD objects, auth/storage objects and every other timestamp in
+   * the dump remain byte-sensitive.
+   */
+  const realtimePartitions = [
+    ...new Set(
+      [...normalized.matchAll(/messages_\d{4}_\d{2}_\d{2}/g)].map(
+        (match) => match[0],
+      ),
+    ),
+  ].sort();
+
+  realtimePartitions.forEach((name, index) => {
+    normalized = normalized.replaceAll(
+      name,
+      `messages_DD_P0_DAY_${index}`,
+    );
+  });
+
+  normalized = normalized.replace(
+    /(ALTER TABLE ONLY realtime\.messages ATTACH PARTITION realtime\.messages_DD_P0_DAY_(\d+) FOR VALUES FROM )\('[^']+'\) TO \('[^']+'\);/g,
+    (_match, prefix, index) =>
+      `${prefix}('DD_P0_DAY_${index}_START') TO ('DD_P0_DAY_${Number(index) + 1}_START');`,
+  );
+
+  return normalized;
+};
 
 async function freshSubstrate(round) {
   line(`\n── round ${round} ──`);
