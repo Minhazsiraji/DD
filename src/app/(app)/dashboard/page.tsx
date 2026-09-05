@@ -108,17 +108,17 @@ export default async function DashboardPage() {
     : [];
 
   return (
-    <div className="space-y-4 sm:space-y-5">
+    <div className="w-full min-w-0 space-y-4 sm:space-y-5">
       {/*
         Compact by design. This is the screen a doctor opens dozens of times a
         day; a full-height greeting pushes the actual work below the fold.
       */}
-      <header className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
-        <h1 className="text-lg font-semibold text-ink sm:text-xl">
+      <header className="flex w-full min-w-0 flex-col items-start gap-1 sm:flex-row sm:flex-wrap sm:items-baseline sm:justify-between sm:gap-x-3">
+        <h1 className="min-w-0 text-lg font-semibold text-ink sm:text-xl">
           <span className="font-normal text-ink-secondary">{greeting()}, </span>
           {doctorName}
         </h1>
-        <p className="text-[13px] text-ink-secondary">
+        <p className="max-w-full break-words text-[13px] text-ink-secondary">
           {ctx.locationName} · {formatDate(clinicToday())}
         </p>
       </header>
@@ -128,7 +128,7 @@ export default async function DashboardPage() {
         content cannot shrink pushes the track wider than the column and the
         whole page scrolls sideways on a phone.
       */}
-      <div className="grid grid-cols-2 gap-3 [&>*]:min-w-0 sm:gap-4 lg:grid-cols-4">
+      <div className="grid w-full min-w-0 grid-cols-1 gap-3 [&>*]:min-w-0 min-[480px]:grid-cols-2 sm:gap-4 lg:grid-cols-4">
         {patients.ok ? (
           <StatCard
             label="Patients"
@@ -210,8 +210,8 @@ export default async function DashboardPage() {
         )}
       </div>
 
-      <div className="grid gap-4 sm:gap-5 xl:grid-cols-3">
-        <div className="space-y-4 sm:space-y-5 xl:col-span-2">
+      <div className="grid w-full min-w-0 gap-4 sm:gap-5 xl:grid-cols-3">
+        <div className="min-w-0 space-y-4 sm:space-y-5 xl:col-span-2">
           <WorkNow
             current={current}
             next={next}
@@ -271,7 +271,7 @@ export default async function DashboardPage() {
           )}
         </div>
 
-        <div className="space-y-4 sm:space-y-5">
+        <div className="min-w-0 space-y-4 sm:space-y-5">
           <SectionCard className="overflow-hidden">
             <SectionHeader title="Quick actions" icon={<Search className="size-4" />} />
             {/*

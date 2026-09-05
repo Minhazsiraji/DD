@@ -78,4 +78,15 @@ describe("P0 mobile responsive boundaries", () => {
     expect(finalize).toContain("data-mobile-finalize-confirmation");
     expect(finalize).toContain("w-full items-center justify-center");
   });
+  it("keeps the M1 dashboard full-width and readable at phone widths", () => {
+    const dashboard = source("src/app/(app)/dashboard/page.tsx");
+    const stat = source("src/components/common/stat-card.tsx");
+
+    expect(dashboard).toContain("w-full min-w-0 space-y-4");
+    expect(dashboard).toContain("flex w-full min-w-0 flex-col items-start");
+    expect(dashboard).toContain("grid w-full min-w-0 grid-cols-1");
+    expect(dashboard).toContain("min-[480px]:grid-cols-2");
+    expect(stat).toContain("dd-dashboard-card w-full min-w-0");
+  });
+
 });
