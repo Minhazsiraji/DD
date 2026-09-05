@@ -14,7 +14,11 @@ import { SEX_LABEL, BLOOD_GROUP_LABEL } from "@/features/patients/schema";
 import { cn } from "@/lib/utils";
 import { SafetyList } from "@/features/patients/components/safety-list";
 import { DoctorConsultationLauncher } from "@/features/patients/components/doctor-consultation-launcher";
-import { getM1DoctorAuthority, getPatientAppointmentContexts } from "@/features/patients/m1-context";
+import {
+  getExistingUnscheduledDraftId,
+  getM1DoctorAuthority,
+  getPatientAppointmentContexts,
+} from "@/features/patients/m1-context";
 
 export async function generateMetadata(
   props: PageProps<"/patients/[id]">,
@@ -53,9 +57,12 @@ export default async function PatientProfilePage(props: PageProps<"/patients/[id
       authority.doctorId &&
       patient.ownerDoctorId === authority.doctorId,
   );
-  const appointmentContexts = ownsPatient
-    ? await getPatientAppointmentContexts([id], authority)
-    : new Map();
+  const [appointmentContexts, unscheduledEncounterId] = ownsPatient
+    ? await Promise.all([
+        getPatientAppointmentContexts([id], authority),
+        getExistingUnscheduledDraftId(id, authority),
+      ])
+    : [new Map(), null];
   const appointmentContext = appointmentContexts?.get(id) ?? null;
 
   const age = formatAge({ years: patient.ageYears, isApproximate: patient.ageApproximate });
@@ -103,6 +110,7 @@ export default async function PatientProfilePage(props: PageProps<"/patients/[id
               patientNumber={patient.patientNumber}
               state={appointmentContext.state}
               appointmentId={appointmentContext.appointmentId}
+              unscheduledEncounterId={unscheduledEncounterId}
               tokenNumber={appointmentContext.tokenNumber}
               locationName={authority.locationName}
               canMarkArrived={authority.canMarkArrived}

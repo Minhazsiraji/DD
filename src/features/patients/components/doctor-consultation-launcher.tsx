@@ -17,6 +17,7 @@ export function DoctorConsultationLauncher({
   patientNumber,
   state,
   appointmentId,
+  unscheduledEncounterId,
   tokenNumber,
   locationName,
   canMarkArrived,
@@ -28,6 +29,7 @@ export function DoctorConsultationLauncher({
   patientNumber: string;
   state: M1PatientState;
   appointmentId: string | null;
+  unscheduledEncounterId?: string | null;
   tokenNumber: number | null;
   locationName: string;
   canMarkArrived: boolean;
@@ -99,6 +101,25 @@ export function DoctorConsultationLauncher({
 
   // Only NONE and COMPLETED deliberately start a new unscheduled encounter.
   if (state !== "NONE" && state !== "COMPLETED") return null;
+
+
+  if (unscheduledEncounterId) {
+    return (
+      <div className={compact ? undefined : "w-full"}>
+        <button
+          type="button"
+          onClick={() => router.push(`/consultation/${unscheduledEncounterId}`)}
+          className={cn(
+            "inline-flex h-11 items-center justify-center gap-1.5 rounded-xl border border-brand bg-brand-soft px-3.5 text-[13px] font-semibold text-brand transition-[background-color,transform] duration-200 hover:bg-brand hover:text-white active:scale-[0.985] motion-reduce:active:scale-100 focus-visible:focus-ring",
+            !compact && "w-full",
+          )}
+        >
+          <Stethoscope className="size-4" aria-hidden="true" />
+          Resume consultation
+        </button>
+      </div>
+    );
+  }
 
   if (!confirmingUnscheduled) {
     return (

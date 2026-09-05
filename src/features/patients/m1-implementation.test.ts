@@ -108,6 +108,16 @@ describe("M1 consultation launcher state matrix", () => {
     expect(launcher()).toContain("Start unscheduled consultation");
   });
 
+  it("resumes an existing unscheduled draft with the exact encounter id", () => {
+    expect(context()).toContain("getExistingUnscheduledDraftId");
+    expect(context()).toMatch(/\.is\("appointment_id",\s*null\)/);
+    expect(patientProfile()).toContain("unscheduledEncounterId={unscheduledEncounterId}");
+    expect(launcher()).toMatch(/if \(unscheduledEncounterId\)/);
+    expect(launcher()).toContain("Resume consultation");
+    expect(launcher()).toMatch(/router\.push\(`\/consultation\/\$\{unscheduledEncounterId\}`\)/);
+    expect(launcher().indexOf('state === "ARRIVED"')).toBeLessThan(launcher().indexOf("if (unscheduledEncounterId)"));
+  });
+
   it("12 constrains unscheduled lookup to appointment_id IS NULL", () => {
     expect(encounterActions()).toMatch(/\.is\("appointment_id",\s*null\)/);
   });

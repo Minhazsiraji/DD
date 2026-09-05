@@ -34,6 +34,35 @@ export interface M1DoctorAuthority {
   roles: readonly string[];
 }
 
+export async function getExistingUnscheduledDraftId(
+  patientId: string,
+  authority: M1DoctorAuthority,
+): Promise<string | null> {
+  if (!authority.canClinical || !authority.doctorId) return null;
+  const supabase = await createSupabaseServerClient();
+
+  const read = async (patientColumn: "clinical_patient_id" | "patient_id") =>
+    supabase
+      .from("encounters")
+      .select("id")
+      .eq("owner_doctor_id", authority.doctorId!)
+      .eq("practice_location_id", authority.locationId)
+      .eq(patientColumn, patientId)
+      .eq("status", "DRAFT")
+      .is("appointment_id", null)
+      .maybeSingle();
+
+  let result = await read("clinical_patient_id");
+  if (result.error && /clinical_patient_id|column .* does not exist/i.test(result.error.message)) {
+    result = await read("patient_id");
+  }
+  if (result.error) {
+    console.error("[m1] unscheduled draft context read failed", result.error.message);
+    return null;
+  }
+  return result.data?.id ? String(result.data.id) : null;
+}
+
 const NONE: PatientAppointmentContext = {
   state: "NONE",
   appointmentId: null,
