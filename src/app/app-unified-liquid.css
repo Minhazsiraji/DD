@@ -120,6 +120,14 @@ nav.glass-strong {
       transparent 41%, transparent 100%);
 }
 
+
+/* Finder result panels intentionally escape normal document flow.
+   Keep the shared glass material while preserving the component's absolute
+   positioning below the search field. */
+.dd-app-panel.dd-finder-panel {
+  position: absolute !important;
+}
+
 .dd-app-panel::after {
   content: "";
   position: absolute;

@@ -89,6 +89,13 @@ describe("P0 mobile responsive boundaries", () => {
     expect(stat).toContain("dd-dashboard-card w-full min-w-0");
   });
 
+  it("keeps the desktop Finder panel absolutely positioned below the search field", () => {
+    const visual = source("src/app/app-unified-liquid.css");
+    const finder = source("src/features/patients/components/global-patient-finder.tsx");
+    expect(finder).toContain("dd-finder-panel absolute left-0 top-[calc(100%+8px)]");
+    expect(visual).toMatch(/\.dd-app-panel\.dd-finder-panel\s*\{[^}]*position:\s*absolute\s*!important/);
+  });
+
   it("does not let the visual material layer override fixed/sticky app chrome positioning", () => {
     const visual = source("src/app/app-unified-liquid.css");
     const sharedChrome = visual.slice(

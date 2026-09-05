@@ -166,7 +166,7 @@ export function GlobalPatientFinder() {
             identifierKind={identifierKind}
             onRetry={() => setRetryKey((key) => key + 1)}
             onContextChanged={refreshCurrentSearch}
-            className="absolute left-0 top-[calc(100%+8px)] z-50 w-[min(680px,calc(100vw-2rem))]"
+            className="dd-finder-panel absolute left-0 top-[calc(100%+8px)] z-50 w-[min(680px,calc(100vw-2rem))]"
           />
         ) : null}
       </div>
