@@ -12,6 +12,9 @@ const P1_FUNCTIONS = [
   "revoke_platform_staff_role", "refresh_profile_capabilities",
   "refresh_student_capability_trigger", "refresh_student_profile_capability_trigger",
   "submit_credential", "respond_to_credential", "decide_credential",
+  "list_pending_credential_reviews", "read_credential_review_case",
+  "read_credential_review_history", "activate_platform_staff",
+  "deactivate_platform_staff", "bootstrap_platform_admin",
   "submit_student_enrollment", "decide_enrollment", "validate_system_health_detail",
   "require_platform_analyst", "owner_metrics_overview", "owner_metrics_timeseries",
   "owner_metrics_new_doctors", "owner_system_health", "owner_system_health_history",
@@ -26,6 +29,7 @@ const AUTH_FORBIDDEN = new Set([
   "enforce_platform_staff_role_separation", "refresh_profile_capabilities",
   "refresh_student_capability_trigger", "refresh_student_profile_capability_trigger",
   "validate_system_health_detail", "require_platform_analyst",
+  "bootstrap_platform_admin",
 ]);
 
 try {
@@ -81,6 +85,9 @@ try {
   const expectedAuthenticated = [
     "has_platform_staff_role", "grant_platform_staff_role", "revoke_platform_staff_role",
     "submit_credential", "respond_to_credential", "decide_credential",
+    "list_pending_credential_reviews", "read_credential_review_case",
+    "read_credential_review_history", "activate_platform_staff",
+    "deactivate_platform_staff",
     "submit_student_enrollment", "decide_enrollment", "owner_metrics_overview",
     "owner_metrics_timeseries", "owner_metrics_new_doctors", "owner_system_health",
     "owner_system_health_history",
@@ -115,6 +122,30 @@ try {
   `;
   assert(eventsRead.allowed === false,
     "credential_review_events unexpectedly exposes direct authenticated discovery/read");
+
+  const [bootstrap] = await sql`
+    select p.prosecdef,
+           has_function_privilege('anon', p.oid, 'EXECUTE') as anon_exec,
+           has_function_privilege('authenticated', p.oid, 'EXECUTE') as auth_exec,
+           has_function_privilege('service_role', p.oid, 'EXECUTE') as service_exec
+    from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+    where n.nspname='public' and p.proname='bootstrap_platform_admin'
+  `;
+  assert(bootstrap && bootstrap.prosecdef === false,
+    "bootstrap_platform_admin must remain SECURITY INVOKER");
+  assert(!bootstrap.anon_exec && !bootstrap.auth_exec && !bootstrap.service_exec,
+    "bootstrap_platform_admin leaked to an application role");
+
+  const verifierPolicies = await sql`
+    select tablename, policyname, roles, qual, with_check
+    from pg_policies
+    where schemaname='public'
+      and tablename in ('profiles','professional_profiles','professional_credentials','credential_review_events')
+      and (coalesce(qual,'') || coalesce(with_check,'') || array_to_string(roles,','))
+          ilike '%CREDENTIAL_VERIFIER%'
+  `;
+  assert(verifierPolicies.length === 0,
+    `credential verifier gained direct-table policy access: ${JSON.stringify(verifierPolicies)}`);
 
   console.log(`verify-p1-security-surface: PASS (${TABLES.length} FORCE-RLS tables; service_role no P1 table/function shortcut; P1 sequence closed; definer search_path trusted; internal functions hidden)`);
 } finally {

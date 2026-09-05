@@ -20,14 +20,15 @@ function parseManifest(text) {
 const p0 = parseManifest(await fs.readFile(path.join(root,"db/manifest.toml"),"utf8"));
 const p1 = parseManifest(await fs.readFile(path.join(root,"db/manifest-p1.toml"),"utf8"));
 if (p0.step.length !== 6) throw new Error("P0 manifest must remain exactly six steps");
-if (p1.step.length !== 11) throw new Error("P1 manifest must contain 11 cumulative steps");
-const expectedIds = Array.from({ length: 11 }, (_, index) => String(index + 1).padStart(4, "0"));
+if (p1.step.length !== 13) throw new Error("P1 manifest must contain 13 cumulative steps");
+const expectedIds = Array.from({ length: 13 }, (_, index) => String(index + 1).padStart(4, "0"));
 const expectedKinds = [
   "schema", "functions", "policies", "grants", "storage", "seed",
   "p1_schema", "p1_functions", "p1_rls", "p1_grants", "p1_seed",
+  "p1_operational", "p1_operational_grants",
 ];
 if (p1.step.map((step) => step.id).join(",") !== expectedIds.join(",")) {
-  throw new Error("P1 manifest step ids are not canonical 0001..0011");
+  throw new Error("P1 manifest step ids are not canonical 0001..0013");
 }
 if (p1.step.map((step) => step.kind).join(",") !== expectedKinds.join(",")) {
   throw new Error("P1 manifest step kinds/order are not canonical");
