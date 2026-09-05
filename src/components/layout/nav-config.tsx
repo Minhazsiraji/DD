@@ -1,14 +1,19 @@
 import * as React from "react";
 import {
-  Home,
+  LayoutDashboard,
+  ListChecks,
   CalendarDays,
   Users,
-  MoreHorizontal,
+  Pill,
+  FileText,
+  CircleDollarSign,
+  Settings,
   UserPlus,
   CalendarPlus,
   Stethoscope,
   ClipboardPlus,
   Upload,
+  Printer,
 } from "lucide-react";
 import type { OrbAccent } from "@/components/common/icon-orb";
 
@@ -21,26 +26,32 @@ export interface NavItem {
 
 const ICON = "size-[18px]";
 
-/** Friendly Doctor Pilot — locked minimal information architecture. */
+/** Desktop sidebar / tablet rail — keep the full working workspace map from main. */
 export const PRIMARY_NAV: NavItem[] = [
-  { href: "/dashboard", label: "Today", icon: <Home className={ICON} /> },
-  { href: "/patients", label: "Patients", icon: <Users className={ICON} /> },
+  { href: "/dashboard", label: "Dashboard", icon: <LayoutDashboard className={ICON} /> },
+  { href: "/queue", label: "Live Queue", icon: <ListChecks className={ICON} />, badgeKey: "waiting" },
+  { href: "/handover", label: "Hand Over", icon: <Printer className={ICON} /> },
   {
     href: "/appointments",
     label: "Appointments",
     icon: <CalendarDays className={ICON} />,
     badgeKey: "appointmentsToday",
   },
-  { href: "/more", label: "More", icon: <MoreHorizontal className={ICON} /> },
+  { href: "/patients", label: "Patients", icon: <Users className={ICON} /> },
+  { href: "/medicines", label: "Medicines", icon: <Pill className={ICON} /> },
+  { href: "/documents", label: "Documents", icon: <FileText className={ICON} /> },
+  { href: "/payments", label: "Payments", icon: <CircleDollarSign className={ICON} /> },
 ];
 
-export const SECONDARY_NAV: NavItem[] = [];
+export const SECONDARY_NAV: NavItem[] = [
+  { href: "/settings", label: "Settings", icon: <Settings className={ICON} /> },
+];
 
 export const MOBILE_NAV: NavItem[] = [
-  { href: "/dashboard", label: "Today", icon: <Home className="size-5" /> },
+  { href: "/dashboard", label: "Home", icon: <LayoutDashboard className="size-5" /> },
   { href: "/patients", label: "Patients", icon: <Users className="size-5" /> },
   { href: "/appointments", label: "Appointments", icon: <CalendarDays className="size-5" /> },
-  { href: "/more", label: "More", icon: <MoreHorizontal className="size-5" /> },
+  { href: "/more", label: "More", icon: <ListChecks className="size-5" /> },
 ];
 
 export interface QuickAction {
@@ -70,21 +81,21 @@ export const QUICK_ACTIONS: QuickAction[] = [
   {
     href: "/queue",
     label: "Start Consultation",
-    description: "Open the live queue and start the next patient",
+    description: "Send in the next patient who has arrived",
     icon: <Stethoscope className="size-[18px]" />,
     accent: "success",
   },
   {
     href: "/handover",
-    label: "Hand Over Prescription",
-    description: "Print or hand over a finalized prescription",
+    label: "Hand Over a Prescription",
+    description: "Print a signed prescription for the patient",
     icon: <ClipboardPlus className="size-[18px]" />,
     accent: "warning",
   },
   {
     href: "/documents",
     label: "Documents",
-    description: "Open lab, imaging and uploaded documents",
+    description: "Lab and imaging reports",
     icon: <Upload className="size-[18px]" />,
     accent: "info",
   },
