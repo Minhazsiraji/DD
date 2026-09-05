@@ -65,8 +65,9 @@ try {
   assert(authorityFns.length === 2, `credential authority function inventory drifted: ${JSON.stringify(credentialFns.map(r => r.proname))}`);
   for (const row of authorityFns) {
     const def = normalized(row.definition);
+    assert(/verification_status\s*=\s*'verified'/.test(def),
+      `${row.proname} missing credential live term: verification_status = 'verified'`);
     for (const term of [
-      "verification_status = 'verified'",
       "verified_at is not null",
       "verified_at <= clock_timestamp()",
       "expires_at is null",

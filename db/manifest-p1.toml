@@ -1,0 +1,73 @@
+# Doctor's Diary Database V2 P1 cumulative deployment authority.
+# Architecture: Rev 4.3.2f
+# P0 prefix is frozen and replayed byte-for-byte before additive P1 steps.
+
+version = 1
+phase = "P1"
+architecture_sha256 = "fb28a7985702d3a8975ad5dd3804e6072b9775f67e5b9315603bbe2586d88514"
+
+[[step]]
+id = "0001"
+kind = "schema"
+file = "db/schema/0001_p0_baseline.sql"
+sha256 = "3072d21c2c6500ed89fd339f56edbca8212534a92d1d0fd7ea9eb3f610d38a06"
+
+[[step]]
+id = "0002"
+kind = "functions"
+file = "db/functions/0002_p0_core.sql"
+sha256 = "162ddd5ba548c96b2648702b1ae892319113b2bfa60019e2a5507c1ce1bd613f"
+
+[[step]]
+id = "0003"
+kind = "policies"
+file = "db/policies/0003_p0_rls.sql"
+sha256 = "295fdc5e97c73d14539103ea5a28b0f3a1c1edbaead30ca58f3980b043c6bd61"
+
+[[step]]
+id = "0004"
+kind = "grants"
+file = "db/grants/0004_p0_grants.sql"
+sha256 = "74d2dd8d0ccfe5e93f8846dd9d709041e11702fc00ce334482d7d0b54617cd94"
+
+[[step]]
+id = "0005"
+kind = "storage"
+file = "db/storage/0005_p0_buckets.sql"
+sha256 = "6d0a8ac7852a9c4386f8cfc507114f3ee6a76d3c2539a917525599725a3683a3"
+
+[[step]]
+id = "0006"
+kind = "seed"
+file = "db/seed/0006_p0_reference.sql"
+sha256 = "1651b77c0677ed1d6182a8494ae2f37025cbb83647a90d81e8dd86be00f3c279"
+
+[[step]]
+id = "0007"
+kind = "p1_schema"
+file = "db/p1/0007_p1_identity_schema.sql"
+sha256 = "53ba26d269e1c6622c6910a83fd08e0cbf9e881b9b43932b960dcefa19a9dce8"
+
+[[step]]
+id = "0008"
+kind = "p1_functions"
+file = "db/p1/0008_p1_identity_functions.sql"
+sha256 = "429f46d16b06d4b832a6447011834612aa11b0d39151c3d5cadc140a569d77b0"
+
+[[step]]
+id = "0009"
+kind = "p1_rls"
+file = "db/p1/0009_p1_identity_rls.sql"
+sha256 = "c8038a3f88ecf23260c24fef57ae1f9bf5810774f6f4f506614b1616ef8f2c77"
+
+[[step]]
+id = "0010"
+kind = "p1_grants"
+file = "db/p1/0010_p1_identity_grants.sql"
+sha256 = "fbb6ad084025b21d609007ff2ba7b55450fbcfed0add2adb11f1885f4be8a8fd"
+
+[[step]]
+id = "0011"
+kind = "p1_seed"
+file = "db/p1/0011_p1_reference.sql"
+sha256 = "b39eb1a48b0a00cbe25a377c37b878b7f100bf4c8f60a7cd7fcbac2d32cb8d01"

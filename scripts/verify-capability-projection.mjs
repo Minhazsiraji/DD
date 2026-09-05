@@ -2,11 +2,12 @@ import crypto from "node:crypto";
 import {
   assert,
   expectSqlFailure,
-  openLocalDatabase,
+  openLocalAdminDatabase,
   qaEmail,
 } from "./p0-b2-lib.mjs";
+import { insertAuthProfile } from "./p1-proof-lib.mjs";
 
-const sql = openLocalDatabase();
+const sql = openLocalAdminDatabase();
 
 const applicationRoles = [
   "anon",
@@ -141,6 +142,44 @@ async function createDoctorFixture({
   };
 }
 
+async function createStudentFixture({
+  label,
+  institutionId,
+  verificationStatus,
+  verifiedAtSql,
+  endedOnSql = "null",
+  profileStatus = "ACTIVE",
+}) {
+  const profileId = crypto.randomUUID();
+  await insertAuthProfile(sql, profileId, `capability-student-${label}`);
+  const [studentProfile] = await sql`
+    insert into public.medical_student_profiles(profile_id, status)
+    values (${profileId}, ${profileStatus}::medical_student_status)
+    returning id
+  `;
+  const studentId = `QA-STU-${label}-${profileId.slice(0, 6)}`;
+  const [enrollment] = await sql.unsafe(`
+    insert into public.student_enrollments(
+      medical_student_profile_id, medical_institution_id,
+      institution_country_code, student_id_display, programme,
+      started_on, expected_graduation, ended_on,
+      verification_status, verification_method, verified_at
+    ) values (
+      '${studentProfile.id}'::uuid, '${institutionId}'::uuid,
+      'BD', '${studentId}', 'MBBS', current_date - 365, current_date + 365,
+      ${endedOnSql}, '${verificationStatus}', 'MANUAL_REVIEW', ${verifiedAtSql}
+    ) returning id
+  `);
+  return {
+    label,
+    profileId,
+    studentProfileId: studentProfile.id,
+    enrollmentId: enrollment.id,
+    verificationStatus,
+    profileStatus,
+  };
+}
+
 try {
   await sql.unsafe("begin");
 
@@ -177,6 +216,7 @@ try {
    * to project credential-derived DOCTOR authority.
    */
   const fixtures = [];
+  let studentFixtures = [];
 
   fixtures.push(await createDoctorFixture({
     label: "verified-live",
@@ -313,6 +353,132 @@ try {
       `got ${usable.allowed}`,
     );
   }
+
+  /*
+   * P1 student-enrollment source matrix.
+   * Only ACTIVE profile + VERIFIED + already-verified + non-ended enrollment
+   * may project MEDICAL_STUDENT. This is independent from DOCTOR authority.
+   */
+  await sql`
+    insert into public.regulator_professions(regulator_id, profession)
+    values (${regulatorId}, 'MEDICAL_STUDENT')
+  `;
+  const institutionId = crypto.randomUUID();
+  await sql`
+    insert into public.medical_institutions(
+      id, country_code, name, institution_type, regulator_id
+    ) values (
+      ${institutionId}, 'BD', 'QA Capability Medical College',
+      'MEDICAL_COLLEGE', ${regulatorId}
+    )
+  `;
+
+  studentFixtures = [
+    await createStudentFixture({
+      label: "verified-active",
+      institutionId,
+      verificationStatus: "VERIFIED",
+      verifiedAtSql: "clock_timestamp() - interval '1 day'",
+    }),
+    await createStudentFixture({
+      label: "pending-active",
+      institutionId,
+      verificationStatus: "PENDING",
+      verifiedAtSql: "null",
+    }),
+    await createStudentFixture({
+      label: "rejected-active",
+      institutionId,
+      verificationStatus: "REJECTED",
+      verifiedAtSql: "null",
+    }),
+    await createStudentFixture({
+      label: "verified-future",
+      institutionId,
+      verificationStatus: "VERIFIED",
+      verifiedAtSql: "clock_timestamp() + interval '1 day'",
+    }),
+    await createStudentFixture({
+      label: "verified-ended",
+      institutionId,
+      verificationStatus: "VERIFIED",
+      verifiedAtSql: "clock_timestamp() - interval '2 days'",
+      endedOnSql: "current_date - 1",
+    }),
+    await createStudentFixture({
+      label: "verified-graduated",
+      institutionId,
+      verificationStatus: "VERIFIED",
+      verifiedAtSql: "clock_timestamp() - interval '1 day'",
+      profileStatus: "GRADUATED",
+    }),
+  ];
+
+  for (const fixture of studentFixtures) {
+    await sql`select public.refresh_profile_capabilities(${fixture.profileId})`;
+  }
+  const studentProfileIds = studentFixtures.map((fixture) => fixture.profileId);
+  const actualEnrollmentProjection = await sql`
+    select profile_id, capability, granted_by_kind, source_row_id, professional_profile_id
+    from public.profile_capabilities
+    where profile_id = any(${studentProfileIds}) and granted_by_kind='ENROLLMENT'
+    order by profile_id, capability, source_row_id
+  `;
+  const liveStudent = studentFixtures.find((fixture) => fixture.label === "verified-active");
+  assert(liveStudent, "VERIFIED active student fixture missing");
+  const expectedEnrollmentProjection = [{
+    profile_id: liveStudent.profileId,
+    capability: "MEDICAL_STUDENT",
+    granted_by_kind: "ENROLLMENT",
+    source_row_id: liveStudent.enrollmentId,
+    professional_profile_id: null,
+  }];
+  const actualStudentSet = canonicalRows(actualEnrollmentProjection);
+  const expectedStudentSet = canonicalRows(expectedEnrollmentProjection);
+  assert(
+    JSON.stringify(actualStudentSet) === JSON.stringify(expectedStudentSet),
+    "enrollment-derived projection set mismatch\n" +
+      `expected=${JSON.stringify(expectedStudentSet)}\nactual=${JSON.stringify(actualStudentSet)}`,
+  );
+  assert(actualEnrollmentProjection.every((row) => row.capability === "MEDICAL_STUDENT"),
+    "student enrollment projection produced a non-MEDICAL_STUDENT capability");
+  assert(actualEnrollmentProjection.every((row) => row.professional_profile_id === null),
+    "student enrollment projection acquired professional-profile provenance");
+
+  for (const fixture of studentFixtures) {
+    const [usable] = await sql`
+      select public.has_capability(${fixture.profileId}, 'MEDICAL_STUDENT') as allowed,
+             public.has_capability(${fixture.profileId}, 'DOCTOR') as doctor_allowed
+    `;
+    assert(usable.doctor_allowed === false, `${fixture.label}: student source granted DOCTOR`);
+    assert(usable.allowed === (fixture.label === "verified-active"),
+      `${fixture.label}: unexpected MEDICAL_STUDENT usable=${usable.allowed}`);
+  }
+
+  await sql`
+    update public.medical_student_profiles set status='GRADUATED'
+    where id=${liveStudent.studentProfileId}
+  `;
+  let [stale] = await sql`
+    select public.has_capability(${liveStudent.profileId}, 'MEDICAL_STUDENT') as allowed
+  `;
+  assert(stale.allowed === false, "graduated student retained MEDICAL_STUDENT capability");
+  await sql`
+    update public.medical_student_profiles set status='ACTIVE'
+    where id=${liveStudent.studentProfileId}
+  `;
+  [stale] = await sql`
+    select public.has_capability(${liveStudent.profileId}, 'MEDICAL_STUDENT') as allowed
+  `;
+  assert(stale.allowed === true, "reactivated verified student did not regain capability");
+  await sql`
+    update public.student_enrollments set ended_on=current_date
+    where id=${liveStudent.enrollmentId}
+  `;
+  [stale] = await sql`
+    select public.has_capability(${liveStudent.profileId}, 'MEDICAL_STUDENT') as allowed
+  `;
+  assert(stale.allowed === false, "ended enrollment retained MEDICAL_STUDENT capability");
 
   /*
    * Read-time expiry proof:
@@ -494,8 +660,9 @@ try {
 
   console.log(
     "verify-capability-projection: PASS " +
-    `(${fixtures.length} source fixtures; exact credential set equality; ` +
-    `read-time expiry; ${applicationRoles.length} application roles x 3 writes denied)`,
+    `(${fixtures.length} credential fixtures; ${studentFixtures.length} student fixtures; ` +
+    `exact credential+enrollment set equality; student staleness; read-time expiry; ` +
+    `${applicationRoles.length} application roles x 3 writes denied)`,
   );
 } finally {
   try {
