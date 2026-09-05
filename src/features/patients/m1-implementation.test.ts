@@ -14,6 +14,7 @@ const patientForm = () => code("src/features/patients/components/patient-form.ts
 const patientProfile = () => code("src/app/(app)/patients/[id]/page.tsx");
 const finder = () => code("src/features/patients/components/global-patient-finder.tsx");
 const finderActions = () => code("src/features/patients/finder-actions.ts");
+const patientQueries = () => code("src/features/patients/queries.ts");
 const context = () => code("src/features/patients/m1-context.ts");
 const launcher = () => code("src/features/patients/components/doctor-consultation-launcher.tsx");
 const encounterActions = () => code("src/features/encounters/actions.ts");
@@ -43,10 +44,20 @@ describe("M1 doctor repository and finder security", () => {
     expect(errorBranch).toContain("Retry");
   });
 
-  it("uses phone/patient number as Finder identifiers and never name-only lookup", () => {
-    expect(finder()).toContain("Find patients by phone or patient number");
-    expect(finder()).toContain("Names are shown after a matching identifier is found");
-    expect(finderActions()).toContain("classifyFinderTerm(q)");
+  it("restores name as bounded doctor-repository discovery without making it identity authority", () => {
+    expect(finder()).toContain("Find patients by name, phone or patient number");
+    expect(finderActions()).toContain('kind === "NAME" && !ownerDoctorId');
+    expect(finder()).toContain('setSelectedIndex(identifierKind === "NAME" ? -1 : 0)');
+    expect(finder()).toContain("Names can belong to more than one person");
+    expect(finder()).toContain("Name discovery is available in the Doctor workspace");
+  });
+
+  it("keeps owner_doctor_id in the DB query before ordering/LIMIT and includes normalized name search", () => {
+    const source = patientQueries();
+    expect(source).toContain('request.eq("owner_doctor_id", ownerDoctorId)');
+    expect(source).toContain("name_normalized.ilike");
+    expect(source.indexOf('request.eq("owner_doctor_id", ownerDoctorId)')).toBeLessThan(source.indexOf('.order("created_at"'));
+    expect(source.indexOf('request.eq("owner_doctor_id", ownerDoctorId)')).toBeLessThan(source.indexOf('.limit(limit)'));
   });
 
   it("27 keeps shared Top Bar clinical actions capability-safe", () => {

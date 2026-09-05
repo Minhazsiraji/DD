@@ -78,11 +78,13 @@ export function GlobalPatientFinder() {
       setPatients(result.patients);
       setCanRegister(result.canRegister);
       setOperationalOnly(result.operationalOnly);
-      setSelectedIndex(0);
+      // A name is only a discovery signal. Even with one result, require the
+      // doctor to explicitly choose the candidate before patient actions appear.
+      setSelectedIndex(identifierKind === "NAME" ? -1 : 0);
     }, DEBOUNCE_MS);
 
     return () => window.clearTimeout(timer);
-  }, [canSearch, trimmed, retryKey]);
+  }, [canSearch, identifierKind, trimmed, retryKey]);
 
   React.useEffect(() => {
     function onShortcut(event: KeyboardEvent) {
@@ -140,13 +142,13 @@ export function GlobalPatientFinder() {
     <>
       <div className="relative hidden min-w-0 flex-1 sm:block">
         <label htmlFor="global-patient-finder" className="sr-only">
-          Find patients by phone or patient number
+          Find patients by name, phone or patient number
         </label>
         <Search className="pointer-events-none absolute left-3 top-1/2 z-10 size-4 -translate-y-1/2 text-ink-muted" aria-hidden="true" />
         <input
           ref={desktopRef}
           type="search"
-          placeholder="Phone or patient number…  /"
+          placeholder="Name, phone or patient number…  /"
           className="dd-patient-finder-input dd-input h-10 min-w-0 w-full rounded-xl border border-hairline bg-white/80 pr-10 pl-9 text-base text-ink placeholder:text-ink-muted focus-visible:focus-ring sm:max-w-xl"
           {...inputProps("global-patient-finder")}
         />
@@ -193,7 +195,7 @@ export function GlobalPatientFinder() {
                 <input
                   ref={mobileRef}
                   type="search"
-                  placeholder="Phone number or patient number…"
+                  placeholder="Name, phone or patient number…"
                   className="dd-patient-finder-input dd-input h-12 w-full rounded-xl border border-hairline bg-white pr-10 pl-9 text-base text-ink placeholder:text-ink-muted focus-visible:focus-ring"
                   {...inputProps("mobile-patient-finder")}
                 />
@@ -226,7 +228,7 @@ export function GlobalPatientFinder() {
                   onContextChanged={refreshCurrentSearch}
                 />
               ) : (
-                <p className="px-2 py-6 text-center text-sm text-ink-secondary">Enter a phone number or patient number to search.</p>
+                <p className="px-2 py-6 text-center text-sm text-ink-secondary">Type at least 2 characters to search by name, phone or patient number.</p>
               )}
             </div>
           </div>
@@ -281,8 +283,8 @@ function FinderPanel({
     <div className={cn("dd-app-panel overflow-hidden rounded-2xl border border-hairline bg-white/95 shadow-xl", className)}>
       {identifierKind === "INVALID" ? (
         <div className="p-4">
-          <p className="text-sm font-semibold text-ink">Search by phone number or patient number</p>
-          <p className="mt-1 text-xs text-ink-muted">Names are shown after a matching identifier is found, but names are not used to choose a clinical record.</p>
+          <p className="text-sm font-semibold text-ink">Enter a name, phone number or patient number</p>
+          <p className="mt-1 text-xs text-ink-muted">Use at least 2 meaningful characters.</p>
         </div>
       ) : error ? (
         <div className="p-4">
@@ -295,6 +297,11 @@ function FinderPanel({
         </div>
       ) : patients.length > 0 ? (
         <>
+          {identifierKind === "NAME" ? (
+            <div className="border-b border-hairline bg-brand-soft/35 px-3.5 py-2.5 text-xs text-ink-secondary">
+              Names can belong to more than one person. Choose the intended patient using patient number, phone, age and sex details.
+            </div>
+          ) : null}
           <ul id={`${id}-listbox`} role="listbox" aria-label="Patient suggestions" className="max-h-72 overflow-y-auto divide-y divide-hairline">
             {patients.map((patient, index) => (
               <li
@@ -350,10 +357,19 @@ function FinderPanel({
         </>
       ) : !loading ? (
         <div className="p-4">
-          <p className="text-sm font-semibold text-ink">No patient matches this {identifierKind === "PHONE" ? "phone number" : "patient number"}</p>
-          <p className="mt-1 text-xs text-ink-muted">Check the identifier before creating a new record.</p>
+          {identifierKind === "NAME" && operationalOnly ? (
+            <>
+              <p className="text-sm font-semibold text-ink">Name discovery is available in the Doctor workspace</p>
+              <p className="mt-1 text-xs text-ink-muted">Use a phone number or patient number for operational lookup.</p>
+            </>
+          ) : (
+            <>
+              <p className="text-sm font-semibold text-ink">No patient matches this {identifierKind === "PHONE" ? "phone number" : identifierKind === "PATIENT_NUMBER" ? "patient number" : "name"}</p>
+              <p className="mt-1 text-xs text-ink-muted">Check the search details before creating a new record.</p>
+            </>
+          )}
           {canRegister ? (
-            <Link href={identifierKind === "PHONE" ? `/patients/new?phone=${encodeURIComponent(term)}` : "/patients/new"} className="mt-3 inline-flex min-h-11 items-center justify-center gap-1.5 rounded-xl bg-brand px-3.5 text-[13px] font-semibold text-white shadow-soft focus-visible:focus-ring">
+            <Link href={identifierKind === "PHONE" ? `/patients/new?phone=${encodeURIComponent(term)}` : identifierKind === "NAME" ? `/patients/new?name=${encodeURIComponent(term)}` : "/patients/new"} className="mt-3 inline-flex min-h-11 items-center justify-center gap-1.5 rounded-xl bg-brand px-3.5 text-[13px] font-semibold text-white shadow-soft focus-visible:focus-ring">
               <UserPlus className="size-4" aria-hidden="true" />
               Register a new patient
             </Link>

@@ -36,12 +36,21 @@ export type FinderOutcome =
 
 export async function findPatientsAction(term: string): Promise<FinderOutcome> {
   const q = term.trim();
-  if (q.length < 2 || classifyFinderTerm(q) === "INVALID") {
+  const kind = classifyFinderTerm(q);
+  if (q.length < 2 || kind === "INVALID") {
     return { ok: true, patients: [], canRegister: false, operationalOnly: false };
   }
 
   const authority = await getM1DoctorAuthority();
   const ownerDoctorId = authority.doctorId ?? undefined;
+
+  // Name is discovery-only and is never run as a broad operational lookup.
+  // It is allowed only when the server has resolved the caller's own doctor
+  // repository; the DB query below applies owner_doctor_id before order/LIMIT.
+  if (kind === "NAME" && !ownerDoctorId) {
+    return { ok: true, patients: [], canRegister: false, operationalOnly: true };
+  }
+
   const outcome = await searchPatients(q, 60, ownerDoctorId);
   if (!outcome.ok) {
     return { ok: false, message: "Patient search is temporarily unavailable." };

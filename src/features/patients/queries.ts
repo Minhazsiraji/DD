@@ -155,10 +155,14 @@ export async function searchPatients(
   request = request.order("created_at", { ascending: false }).limit(limit);
 
   if (q.length > 0) {
+    const name = normalizeName(q);
     const phone = normalizePhone(q);
     const escaped = q.replace(/[%,()]/g, " ").trim();
 
-    const clauses = [`patient_number.ilike.%${escaped}%`];
+    const clauses = [
+      `patient_number.ilike.%${escaped}%`,
+      `name_normalized.ilike.%${name || escaped}%`,
+    ];
     if (phone) clauses.push(`phone_normalized.ilike.%${phone}%`);
 
     request = request.or(clauses.join(","));
