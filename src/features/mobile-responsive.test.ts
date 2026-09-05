@@ -89,6 +89,13 @@ describe("P0 mobile responsive boundaries", () => {
     expect(stat).toContain("dd-dashboard-card w-full min-w-0");
   });
 
+  it("uses one DD-owned clear control in Finder search fields", () => {
+    const visual = source("src/app/app-unified-liquid.css");
+    const finder = source("src/features/patients/components/global-patient-finder.tsx");
+    expect(finder.match(/dd-patient-finder-input/g)?.length).toBeGreaterThanOrEqual(2);
+    expect(visual).toContain(".dd-patient-finder-input::-webkit-search-cancel-button");
+  });
+
   it("keeps the desktop Finder panel absolutely positioned below the search field", () => {
     const visual = source("src/app/app-unified-liquid.css");
     const finder = source("src/features/patients/components/global-patient-finder.tsx");

@@ -147,7 +147,7 @@ export function GlobalPatientFinder() {
           ref={desktopRef}
           type="search"
           placeholder="Phone or patient number…  /"
-          className="dd-input h-10 min-w-0 w-full rounded-xl border border-hairline bg-white/80 pr-10 pl-9 text-base text-ink placeholder:text-ink-muted focus-visible:focus-ring sm:max-w-xl"
+          className="dd-patient-finder-input dd-input h-10 min-w-0 w-full rounded-xl border border-hairline bg-white/80 pr-10 pl-9 text-base text-ink placeholder:text-ink-muted focus-visible:focus-ring sm:max-w-xl"
           {...inputProps("global-patient-finder")}
         />
         <InputTail loading={loading} term={term} onClear={() => updateTerm("")} />
@@ -194,7 +194,7 @@ export function GlobalPatientFinder() {
                   ref={mobileRef}
                   type="search"
                   placeholder="Phone number or patient number…"
-                  className="dd-input h-12 w-full rounded-xl border border-hairline bg-white pr-10 pl-9 text-base text-ink placeholder:text-ink-muted focus-visible:focus-ring"
+                  className="dd-patient-finder-input dd-input h-12 w-full rounded-xl border border-hairline bg-white pr-10 pl-9 text-base text-ink placeholder:text-ink-muted focus-visible:focus-ring"
                   {...inputProps("mobile-patient-finder")}
                 />
                 <InputTail loading={loading} term={term} onClear={() => updateTerm("")} />

@@ -121,6 +121,14 @@ nav.glass-strong {
 }
 
 
+/* Keep one DD-owned clear control in patient search. Edge/Chromium otherwise
+   renders its native search cancel button beside our explicit clear action. */
+.dd-patient-finder-input::-webkit-search-cancel-button,
+.dd-patient-finder-input::-webkit-search-decoration {
+  -webkit-appearance: none;
+  appearance: none;
+}
+
 /* Finder result panels intentionally escape normal document flow.
    Keep the shared glass material while preserving the component's absolute
    positioning below the search field. */
