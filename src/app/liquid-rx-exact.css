@@ -1,0 +1,44 @@
+/* Prescription rows derived from the marked compact Rx card reference. */
+.liquid-medicine-row {
+  border: 1px solid transparent;
+  border-radius: 20px;
+  background:
+    linear-gradient(145deg, rgb(255 255 255 / 0.68), rgb(244 239 246 / 0.50)) padding-box,
+    linear-gradient(125deg, white, rgb(211 197 255 / 0.82), rgb(146 231 253 / 0.70), rgb(245 193 226 / 0.60), white) border-box;
+  box-shadow:
+    0 10px 22px rgb(67 56 89 / 0.10),
+    6px 6px 15px rgb(94 219 243 / 0.08),
+    inset 0 1px 1px rgb(255 255 255 / 0.95);
+}
+
+.liquid-rx-index {
+  border: 1px solid rgb(255 255 255 / 0.82);
+  background: linear-gradient(145deg, rgb(244 238 255 / 0.94), rgb(219 212 255 / 0.80));
+  box-shadow:
+    0 7px 15px rgb(99 79 173 / 0.13),
+    inset 0 1px 1px white;
+}
+
+.liquid-rx-chip {
+  border: 1px solid rgb(255 255 255 / 0.78);
+  background: rgb(255 255 255 / 0.44);
+  box-shadow:
+    0 4px 10px rgb(73 62 97 / 0.055),
+    inset 0 1px 1px white;
+}
+
+@media (max-width: 767px) {
+  .liquid-medicine-row {
+    border-radius: 18px;
+  }
+}
+
+@media print {
+  .liquid-medicine-row,
+  .liquid-rx-index,
+  .liquid-rx-chip {
+    background: white !important;
+    box-shadow: none !important;
+    border-color: #d9dee8 !important;
+  }
+}

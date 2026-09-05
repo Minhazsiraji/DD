@@ -1,0 +1,249 @@
+/* Doctor's Diary — literal visual pass from the approved UI component board.
+   This file is intentionally last in the cascade. */
+
+:root {
+  --background: #eee9ef;
+  --foreground: #28224f;
+  --dd-ink: #28224f;
+  --dd-ink-secondary: #5b5670;
+  --dd-ink-muted: #817b91;
+  --dd-brand: #6d57ee;
+  --dd-brand-hover: #5f48df;
+  --dd-brand-soft: #eee9ff;
+  --dd-hairline: rgb(205 198 218 / 0.62);
+}
+
+body {
+  color: var(--dd-ink);
+  background-color: #eee9ef;
+  background-image:
+    radial-gradient(780px 460px at 3% -4%, rgb(255 226 240 / 0.74), transparent 62%),
+    radial-gradient(840px 500px at 98% 3%, rgb(192 226 255 / 0.66), transparent 61%),
+    radial-gradient(660px 420px at 46% 8%, rgb(219 204 255 / 0.54), transparent 63%),
+    radial-gradient(620px 390px at 84% 82%, rgb(178 245 235 / 0.32), transparent 65%),
+    linear-gradient(155deg, #f4edf2 0%, #eee9ef 49%, #eceaf0 100%) !important;
+}
+
+/* ===== Core material ===== */
+.liquid-app-header,
+.liquid-glass-card,
+.liquid-panel,
+.liquid-clinical-card,
+.liquid-auth-card,
+.glass,
+.glass-strong,
+.glass-flat,
+.glass-flat-strong,
+.clinical-surface {
+  border: 1px solid transparent !important;
+  background:
+    linear-gradient(145deg, rgb(255 255 255 / 0.68), rgb(244 239 246 / 0.48)) padding-box,
+    linear-gradient(
+      125deg,
+      rgb(255 255 255 / 0.98) 0%,
+      rgb(225 214 255 / 0.86) 27%,
+      rgb(153 231 252 / 0.72) 54%,
+      rgb(247 190 226 / 0.68) 77%,
+      rgb(255 255 255 / 0.96) 100%
+    ) border-box !important;
+  box-shadow:
+    0 18px 36px rgb(67 56 89 / 0.16),
+    0 4px 10px rgb(80 69 105 / 0.07),
+    0 0 16px rgb(117 221 242 / 0.10),
+    inset 0 1px 2px rgb(255 255 255 / 0.98),
+    inset 0 -1px 0 rgb(190 224 249 / 0.44) !important;
+}
+
+.liquid-app-header,
+.glass,
+.glass-strong {
+  -webkit-backdrop-filter: blur(24px) saturate(145%) !important;
+  backdrop-filter: blur(24px) saturate(145%) !important;
+}
+
+.liquid-app-header {
+  border-radius: 30px;
+  background:
+    linear-gradient(145deg, rgb(255 255 255 / 0.73), rgb(241 236 244 / 0.50)) padding-box,
+    linear-gradient(120deg, white, rgb(218 205 255 / 0.88), rgb(142 230 251 / 0.74), rgb(245 183 224 / 0.68), white) border-box !important;
+  box-shadow:
+    0 20px 38px rgb(62 53 82 / 0.18),
+    0 5px 12px rgb(62 53 82 / 0.08),
+    0 0 20px rgb(112 220 244 / 0.16),
+    inset 0 2px 2px rgb(255 255 255 / 0.98),
+    inset 0 -1px 0 rgb(182 218 247 / 0.5) !important;
+}
+
+.liquid-glass-card,
+.liquid-panel,
+.liquid-clinical-card,
+.liquid-auth-card {
+  border-radius: 24px !important;
+  overflow: hidden;
+}
+
+/* Clinical safety blocks remain clearer than the shell but keep the same edge. */
+.liquid-clinical-card,
+.liquid-auth-card,
+.clinical-surface {
+  background:
+    linear-gradient(145deg, rgb(255 255 255 / 0.82), rgb(248 244 248 / 0.66)) padding-box,
+    linear-gradient(125deg, white, rgb(224 214 255 / 0.74), rgb(160 230 249 / 0.56), rgb(245 199 229 / 0.54), white) border-box !important;
+}
+
+/* The glass material must never erase semantic clinical emphasis. */
+.clinical-surface[class*="border-l-4"] { border-left-width: 4px !important; }
+.clinical-surface[class*="border-l-warning"] { border-left-color: var(--dd-warning) !important; }
+.clinical-surface[class*="border-l-danger"] { border-left-color: var(--dd-danger) !important; }
+.clinical-surface[class*="border-l-brand"] { border-left-color: var(--dd-brand) !important; }
+input[class*="border-danger"], textarea[class*="border-danger"], select[class*="border-danger"] { border-color: var(--dd-danger) !important; }
+
+/* ===== Reference header controls ===== */
+.liquid-nav-pill {
+  border: 1px solid transparent;
+  background: transparent;
+}
+
+.liquid-nav-pill:hover {
+  background: rgb(255 255 255 / 0.34);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.82);
+}
+
+.liquid-nav-pill-active {
+  background:
+    linear-gradient(145deg, rgb(255 255 255 / 0.78), rgb(235 231 247 / 0.56)) padding-box,
+    linear-gradient(120deg, white, rgb(201 185 255 / 0.82), rgb(157 227 251 / 0.72), white) border-box !important;
+  border: 1px solid transparent !important;
+  box-shadow:
+    0 8px 18px rgb(86 70 146 / 0.14),
+    0 0 12px rgb(104 214 245 / 0.14),
+    inset 0 1px 1px white;
+}
+
+.liquid-input {
+  border: 1px solid transparent !important;
+  background:
+    linear-gradient(145deg, rgb(255 255 255 / 0.77), rgb(243 238 244 / 0.58)) padding-box,
+    linear-gradient(120deg, white, rgb(220 210 239 / 0.84), rgb(175 228 246 / 0.54), white) border-box !important;
+  box-shadow:
+    0 8px 18px rgb(74 63 99 / 0.09),
+    inset 0 1px 1px rgb(255 255 255 / 0.98),
+    inset 0 -1px 0 rgb(190 216 235 / 0.28);
+  -webkit-backdrop-filter: blur(16px) saturate(130%);
+  backdrop-filter: blur(16px) saturate(130%);
+}
+
+.liquid-input:focus {
+  box-shadow:
+    0 9px 20px rgb(84 66 150 / 0.12),
+    0 0 0 3px rgb(111 90 232 / 0.10),
+    inset 0 1px 1px white;
+}
+
+.liquid-icon-button,
+.liquid-profile-chip,
+.liquid-secondary {
+  border: 1px solid transparent !important;
+  background:
+    linear-gradient(145deg, rgb(255 255 255 / 0.78), rgb(242 238 245 / 0.58)) padding-box,
+    linear-gradient(125deg, white, rgb(219 210 241 / 0.76), rgb(175 231 248 / 0.48), white) border-box !important;
+  box-shadow:
+    0 7px 16px rgb(72 60 97 / 0.10),
+    inset 0 1px 1px white;
+}
+
+/* ===== Buttons: exact glossy pill family ===== */
+.liquid-primary,
+button.bg-brand,
+a.bg-brand {
+  border: 1px solid transparent !important;
+  border-radius: 999px !important;
+  color: white !important;
+  background:
+    linear-gradient(100deg, #7658ee 0%, #8068ff 46%, #58c7f3 100%) padding-box,
+    linear-gradient(120deg, #dcd2ff, white, #92e8ff, #c9b8ff) border-box !important;
+  box-shadow:
+    0 10px 21px rgb(90 68 210 / 0.28),
+    0 4px 9px rgb(85 194 237 / 0.17),
+    inset 0 1px 2px rgb(255 255 255 / 0.74),
+    inset 0 -1px 0 rgb(59 49 156 / 0.18) !important;
+  text-shadow: 0 1px 1px rgb(65 45 139 / 0.16);
+}
+
+.liquid-primary:hover,
+button.bg-brand:hover,
+a.bg-brand:hover {
+  filter: brightness(1.045) saturate(1.04);
+  transform: translateY(-1px);
+}
+
+/* All ordinary bordered action controls become the approved milky pill. */
+a[class*="border-hairline"],
+button[class*="border-hairline"] {
+  border: 1px solid transparent !important;
+  border-radius: 999px !important;
+  background:
+    linear-gradient(145deg, rgb(255 255 255 / 0.82), rgb(241 237 243 / 0.62)) padding-box,
+    linear-gradient(120deg, white, rgb(214 204 238 / 0.82), rgb(169 230 248 / 0.52), white) border-box !important;
+  box-shadow:
+    0 8px 18px rgb(74 62 103 / 0.10),
+    inset 0 1px 1px white,
+    inset 0 -1px 0 rgb(196 216 232 / 0.26);
+}
+
+a[class*="border-hairline"]:hover,
+button[class*="border-hairline"]:hover {
+  filter: brightness(1.03);
+  transform: translateY(-1px);
+}
+
+/* ===== Inset controls / mini tiles ===== */
+.inset-panel,
+.liquid-inset,
+.bg-surface-muted,
+.bg-brand-soft {
+  border: 1px solid rgb(255 255 255 / 0.76);
+  background: rgb(255 255 255 / 0.44) !important;
+  box-shadow:
+    inset 0 1px 2px rgb(255 255 255 / 0.86),
+    0 4px 10px rgb(81 68 105 / 0.055);
+}
+
+.border-hairline { border-color: rgb(203 197 214 / 0.50) !important; }
+[role="status"]:not(.sr-only) { border-radius: 18px; }
+h1, h2, h3 { letter-spacing: -0.018em; }
+
+@media (max-width: 1023px) {
+  .liquid-app-header { border-radius: 24px; }
+}
+
+@media (max-width: 767px) {
+  body {
+    background-image:
+      radial-gradient(520px 300px at 0% 0%, rgb(255 223 238 / 0.62), transparent 64%),
+      radial-gradient(500px 300px at 100% 4%, rgb(190 230 253 / 0.54), transparent 63%),
+      radial-gradient(430px 280px at 48% 34%, rgb(215 203 255 / 0.36), transparent 66%),
+      linear-gradient(160deg, #f4edf2 0%, #ede9ef 100%) !important;
+  }
+  .liquid-app-header { min-height: 62px; border-radius: 22px; }
+  .liquid-glass-card, .liquid-panel, .liquid-clinical-card, .liquid-auth-card { border-radius: 20px !important; }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .liquid-app-header, .liquid-glass-card, .liquid-panel, .liquid-clinical-card, .liquid-auth-card, .glass, .glass-strong {
+    -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
+    background: #fbf8fb !important;
+  }
+}
+
+@media print {
+  body { background: white !important; }
+  .liquid-app-header, .liquid-glass-card, .liquid-panel, .liquid-clinical-card, .liquid-auth-card, .clinical-surface,
+  a[class*="border-hairline"], button[class*="border-hairline"], button.bg-brand, a.bg-brand {
+    background: #fff !important;
+    border-color: #cbd5e1 !important;
+    box-shadow: none !important;
+    transform: none !important;
+  }
+}

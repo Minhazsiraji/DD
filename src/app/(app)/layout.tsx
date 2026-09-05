@@ -1,8 +1,8 @@
 import { redirect } from "next/navigation";
 import { DesktopSidebar } from "@/components/layout/desktop-sidebar";
-import { getNavCounts } from "@/features/queue/nav-counts";
 import { MobileBottomNav } from "@/components/layout/mobile-bottom-nav";
 import { TopBar } from "@/components/layout/top-bar";
+import { getNavCounts } from "@/features/queue/nav-counts";
 import type { LocationOption, LocationType } from "@/components/layout/location-switcher";
 import { requireUser, getMemberships, ACTIVE_LOCATION_COOKIE } from "@/lib/auth/session";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
@@ -12,32 +12,23 @@ import { SHARED_DEVICE_COOKIE, requiresMfaChallenge } from "@/features/security/
 import { redirect as nextRedirect } from "next/navigation";
 
 /**
- * The authenticated workspace shell.
+ * Authenticated workspace shell.
  *
- * Desktop (≥ xl) : sidebar + workspace
- * Tablet  (lg)   : icon rail + workspace
- * Mobile  (< lg) : compact header + workspace + bottom navigation
- *
- * This redirect is convenience, not security. Every Server Action still calls
- * requireLocationContext(), and RLS still applies underneath.
+ * Desktop keeps the locked Pilot left navigation (Today · Patients ·
+ * Appointments · More) inside the selected liquid-glass shell. The top bar is
+ * contextual only: chamber, patient search, quick action, notifications and
+ * profile. Mobile keeps the accepted bottom navigation.
  */
 export default async function AppLayout({ children }: LayoutProps<"/">) {
   const user = await requireUser();
   const supabase = await createSupabaseServerClient();
 
-  /**
-   * A password-only session must never render the workspace when the account
-   * has a verified second factor. Checked here rather than only in proxy.ts so
-   * a direct request to a nested route cannot slip past.
-   */
   const { data: aal } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
   if (requiresMfaChallenge(aal?.currentLevel ?? null, aal?.nextLevel ?? null)) {
     nextRedirect("/mfa");
   }
 
   const memberships = await getMemberships();
-
-  // Signed in but no clinic yet — finish setup first.
   if (memberships.length === 0) redirect("/onboarding");
 
   const [{ data: profile }, { data: locationRows }] = await Promise.all([
@@ -68,17 +59,7 @@ export default async function AppLayout({ children }: LayoutProps<"/">) {
   const activeLocationId =
     locations.find((c) => c.id === requested)?.id ?? locations[0]!.id;
 
-  const doctorName =
-    profile?.full_name ?? user.email?.split("@")[0] ?? "Doctor";
-
-  /**
-   * The sidebar's counts, for the ACTIVE location and today.
-   *
-   * Resolved here, per request, so switching clinic or signing in as someone
-   * else re-derives them — the numbers used to be the constants 7 and 24 and
-   * followed every doctor everywhere. Both go through the caller's own
-   * authorised reads, so a count can only describe rows they may already see.
-   */
+  const doctorName = profile?.full_name ?? user.email?.split("@")[0] ?? "Doctor";
   const navCounts = await getNavCounts(activeLocationId);
 
   return (
@@ -94,14 +75,13 @@ export default async function AppLayout({ children }: LayoutProps<"/">) {
 
         <main
           id="main"
-          className="mx-auto min-w-0 w-full max-w-[1400px] flex-1 overflow-x-clip px-4 py-5 pb-[calc(76px+env(safe-area-inset-bottom))] sm:px-6 sm:py-6 lg:pb-8"
+          className="mx-auto min-w-0 w-full max-w-[1480px] flex-1 overflow-x-clip px-4 py-4 pb-[calc(76px+env(safe-area-inset-bottom))] sm:px-6 sm:py-5 lg:px-6 lg:pb-8 xl:px-7"
         >
           {children}
         </main>
       </div>
 
       <MobileBottomNav />
-
       <IdleLock sharedDevice={sharedDevice} />
     </div>
   );

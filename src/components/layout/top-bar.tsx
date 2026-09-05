@@ -1,9 +1,9 @@
 import * as React from "react";
 import Link from "next/link";
-import { Search, Bell, Stethoscope, Sparkles, LogOut } from "lucide-react";
+import { Search, Bell, LogOut } from "lucide-react";
 import { QuickActionMenu } from "./quick-action-menu";
 import { LocationSwitcher, type LocationOption } from "./location-switcher";
-import { IconOrb } from "@/components/common/icon-orb";
+import { BrandMark } from "@/components/brand/brand-mark";
 import { initials } from "@/lib/format";
 import { signOutAction } from "@/features/auth/actions";
 
@@ -14,25 +14,20 @@ interface TopBarProps {
 }
 
 /**
- * Sticky app header. Glass is correct here — it is chrome, and one of the two
- * blurred layers the view is allowed.
+ * Contextual top bar used alongside the locked desktop sidebar. Navigation does
+ * not duplicate here: this strip is only chamber/context, patient search,
+ * quick action, notifications and doctor identity.
  */
 export function TopBar({ doctorName, locations, activeLocationId }: TopBarProps) {
   return (
-    <header
-      data-print-hidden
-      className="glass sticky top-0 z-30 min-w-0 border-b border-glass-border"
-    >
-      <div className="flex h-16 min-w-0 items-center gap-1.5 px-3 sm:gap-3 sm:px-6">
-        {/* Brand — mobile only; the sidebar carries it from lg up. */}
+    <header data-print-hidden className="sticky top-0 z-40 px-3 pt-3 sm:px-5 sm:pt-4 lg:px-4 lg:pt-4 xl:px-5">
+      <div className="liquid-app-header mx-auto flex min-h-[68px] max-w-[1480px] min-w-0 items-center gap-2.5 px-3.5 py-2.5 sm:gap-3 sm:px-4 lg:px-5">
         <Link
           href="/dashboard"
-          className="flex shrink-0 items-center gap-2 rounded-lg lg:hidden focus-visible:focus-ring"
+          className="flex shrink-0 items-center gap-2 rounded-2xl lg:hidden focus-visible:focus-ring"
+          aria-label="Doctor's Diary — Today"
         >
-          <IconOrb accent="brand" size="md">
-            <Stethoscope className="size-[18px]" />
-          </IconOrb>
-          <span className="sr-only">Doctor&apos;s Diary — Dashboard</span>
+          <BrandMark className="size-10" />
         </Link>
 
         <LocationSwitcher
@@ -41,71 +36,59 @@ export function TopBar({ doctorName, locations, activeLocationId }: TopBarProps)
           className="shrink-0"
         />
 
-        {/* Search — the fastest route to a patient, so it owns the space. */}
         <div className="min-w-0 flex-1">
           <label htmlFor="global-search" className="sr-only">
-            Search patients by name, phone or patient number
+            Search my patients by name, phone or patient number
           </label>
           <div className="relative min-w-0">
             <Search
-              className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-ink-muted"
+              className="pointer-events-none absolute top-1/2 left-4 size-4 -translate-y-1/2 text-[#77728d]"
               aria-hidden="true"
             />
             <input
               id="global-search"
               type="search"
-              placeholder="Search patients…"
-              className="h-10 min-w-0 w-full rounded-xl border border-hairline bg-white/80 pr-2 pl-9 text-sm text-ink placeholder:text-ink-muted focus-visible:focus-ring sm:max-w-md sm:pr-3"
+              placeholder="Search my patients…"
+              className="liquid-input h-11 min-w-0 w-full rounded-full pr-4 pl-10 text-[13px] text-ink placeholder:text-[#8b869a] focus-visible:focus-ring sm:h-12 sm:max-w-[620px]"
             />
           </div>
         </div>
 
-        <Link
-          href="/assistant"
-          className="hidden h-10 items-center gap-2 rounded-xl border border-hairline bg-white/80 px-3 text-sm font-medium text-brand transition-colors hover:bg-white sm:inline-flex focus-visible:focus-ring"
-        >
-          <Sparkles className="size-4" aria-hidden="true" />
-          Ask AI
-        </Link>
-
         <QuickActionMenu variant="button" className="hidden sm:inline-flex" />
 
-        {/* Secondary chrome disappears first on a phone; search keeps the room. */}
         <button
           type="button"
           aria-label="Notifications"
-          className="relative hidden size-10 shrink-0 items-center justify-center rounded-xl text-ink-secondary transition-colors hover:bg-white/70 focus-visible:focus-ring sm:flex"
+          className="liquid-icon-button relative hidden size-11 shrink-0 items-center justify-center rounded-full text-[#5f5b78] transition-transform hover:-translate-y-px focus-visible:focus-ring sm:flex"
         >
-          <Bell className="size-5" aria-hidden="true" />
+          <Bell className="size-[19px]" aria-hidden="true" />
         </button>
 
-        <div className="flex shrink-0 items-center gap-1 sm:gap-2">
+        <div className="liquid-profile-chip hidden shrink-0 items-center gap-2 rounded-full p-1.5 pr-2.5 sm:flex">
           <span
-            className="hidden size-9 items-center justify-center rounded-full bg-brand-soft text-[13px] font-semibold text-brand sm:flex"
+            className="flex size-9 items-center justify-center rounded-full bg-[linear-gradient(145deg,#efeaff,#ddd6ff)] text-[12px] font-semibold text-[#5f50c9] ring-1 ring-white/80"
             aria-hidden="true"
           >
             {initials(doctorName)}
           </span>
-          <span className="hidden min-w-0 xl:block">
-            <span className="block max-w-[160px] truncate text-[13px] leading-tight font-semibold text-ink">
+          <span className="hidden min-w-0 2xl:block">
+            <span className="block max-w-[120px] truncate text-[12px] leading-tight font-semibold text-[#312d5d]">
               {doctorName}
             </span>
-            <span className="block truncate text-[11px] text-ink-muted">
-              Signed in
-            </span>
+            <span className="block text-[10px] text-[#7e7892]">Doctor</span>
           </span>
-
-          <form action={signOutAction}>
-            <button
-              type="submit"
-              aria-label="Sign out"
-              title="Sign out"
-              className="flex size-10 items-center justify-center rounded-xl text-ink-secondary transition-colors hover:bg-white/70 hover:text-ink focus-visible:focus-ring sm:size-9"
-            >
-              <LogOut className="size-4" aria-hidden="true" />
-            </button>
-          </form>
         </div>
+
+        <form action={signOutAction} className="hidden sm:block">
+          <button
+            type="submit"
+            aria-label="Sign out"
+            title="Sign out"
+            className="liquid-icon-button flex size-10 items-center justify-center rounded-full text-[#6d6880] transition-transform hover:-translate-y-px focus-visible:focus-ring"
+          >
+            <LogOut className="size-4" aria-hidden="true" />
+          </button>
+        </form>
       </div>
     </header>
   );

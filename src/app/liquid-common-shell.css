@@ -1,0 +1,297 @@
+/*
+ * Doctor's Diary — common-shell visual layer.
+ *
+ * This file is the only presentation override loaded after liquid-glass.css for
+ * the approved first checkpoint: public/auth, app shell, sidebar/header, Today
+ * shared surfaces and patient cards. It deliberately does not restyle the
+ * consultation/prescription clinical workflows yet.
+ */
+
+:root {
+  --dd-pearl: #efeaf0;
+  --dd-pearl-strong: #f5f0f4;
+  --dd-violet-ink: #40358f;
+  --dd-liquid-border: linear-gradient(125deg, #ffffff 0%, #d9ccff 28%, #92e7fb 55%, #f3bfdf 78%, #ffffff 100%);
+}
+
+body {
+  background-color: var(--dd-pearl);
+  background-image:
+    radial-gradient(820px 480px at 3% -3%, rgb(255 224 239 / 0.66), transparent 62%),
+    radial-gradient(860px 500px at 98% 2%, rgb(194 229 255 / 0.58), transparent 61%),
+    radial-gradient(690px 430px at 48% 11%, rgb(217 203 255 / 0.44), transparent 64%),
+    radial-gradient(650px 420px at 88% 86%, rgb(179 244 234 / 0.28), transparent 65%),
+    linear-gradient(155deg, #f5eef2 0%, #efeaef 48%, #ececf1 100%) !important;
+}
+
+/* ---------- shared premium glass ---------- */
+.liquid-app-header,
+.liquid-public-header,
+.liquid-public-footer,
+.liquid-public-card,
+.liquid-public-cta,
+.liquid-landing-demo,
+.liquid-patient-card,
+.liquid-sidebar-note {
+  border: 1px solid transparent;
+  background:
+    linear-gradient(145deg, rgb(255 255 255 / 0.70), rgb(244 239 246 / 0.52)) padding-box,
+    var(--dd-liquid-border) border-box;
+  -webkit-backdrop-filter: blur(22px) saturate(142%);
+  backdrop-filter: blur(22px) saturate(142%);
+  box-shadow:
+    0 18px 38px rgb(67 55 90 / 0.14),
+    7px 8px 22px rgb(92 220 245 / 0.09),
+    -6px -4px 18px rgb(143 105 255 / 0.08),
+    inset 0 2px 2px rgb(255 255 255 / 0.96),
+    inset 0 -1px 0 rgb(185 220 246 / 0.38);
+}
+
+/* ---------- locked desktop sidebar ---------- */
+.liquid-sidebar {
+  margin: 16px 0 16px 16px !important;
+  height: calc(100dvh - 32px) !important;
+  border-radius: 28px !important;
+  border: 1px solid transparent !important;
+  background:
+    linear-gradient(150deg, rgb(255 255 255 / 0.73), rgb(241 236 244 / 0.54)) padding-box,
+    var(--dd-liquid-border) border-box !important;
+  -webkit-backdrop-filter: blur(24px) saturate(145%) !important;
+  backdrop-filter: blur(24px) saturate(145%) !important;
+  box-shadow:
+    0 20px 42px rgb(68 56 91 / 0.16),
+    8px 7px 22px rgb(96 219 243 / 0.11),
+    -7px -5px 18px rgb(142 104 255 / 0.09),
+    inset 0 2px 2px white !important;
+  overflow: hidden;
+}
+
+.liquid-sidebar-note {
+  background:
+    linear-gradient(145deg, rgb(255 255 255 / 0.57), rgb(245 240 246 / 0.46)) padding-box,
+    linear-gradient(120deg, white, rgb(220 209 242 / 0.72), rgb(174 230 248 / 0.48), white) border-box;
+  box-shadow:
+    0 7px 16px rgb(75 63 99 / 0.07),
+    inset 0 1px 1px white;
+}
+
+.liquid-sidebar .dd-nav-selected,
+.liquid-sidebar .liquid-nav-active {
+  background:
+    linear-gradient(145deg, rgb(255 255 255 / 0.84), rgb(236 231 250 / 0.68)) padding-box,
+    linear-gradient(118deg, white, rgb(196 179 255 / 0.88), rgb(137 226 251 / 0.75), white) border-box !important;
+  box-shadow:
+    0 9px 20px rgb(93 72 191 / 0.16),
+    0 0 16px rgb(96 218 244 / 0.14),
+    inset 0 1px 2px white !important;
+}
+
+/* ---------- contextual top bar ---------- */
+.liquid-app-header {
+  border-radius: 28px;
+  min-height: 68px;
+  box-shadow:
+    0 16px 34px rgb(68 56 91 / 0.13),
+    0 0 18px rgb(92 220 245 / 0.08),
+    inset 0 2px 2px white;
+}
+
+.liquid-icon-button,
+.liquid-profile-chip,
+.liquid-secondary,
+.liquid-workflow-row,
+.liquid-step,
+.liquid-feature-icon,
+.liquid-chip,
+.liquid-patient-tile,
+.liquid-patient-alert,
+.liquid-patient-safety {
+  border: 1px solid transparent;
+  background:
+    linear-gradient(145deg, rgb(255 255 255 / 0.82), rgb(243 238 245 / 0.62)) padding-box,
+    linear-gradient(120deg, white, rgb(218 207 241 / 0.78), rgb(170 230 248 / 0.50), white) border-box;
+  box-shadow:
+    0 7px 16px rgb(73 61 98 / 0.08),
+    inset 0 1px 1px rgb(255 255 255 / 0.98);
+}
+
+/* Keep the approved glossy pill CTA, including the aqua edge light. */
+.liquid-primary,
+button.bg-brand,
+a.bg-brand {
+  border: 1px solid transparent !important;
+  border-radius: 999px !important;
+  color: white !important;
+  background:
+    radial-gradient(circle at 20% 12%, rgb(255 255 255 / 0.42), transparent 26%),
+    linear-gradient(100deg, #7658ee 0%, #8068ff 47%, #58c7f3 100%) padding-box,
+    linear-gradient(120deg, #dcd2ff, white, #92e8ff, #c9b8ff) border-box !important;
+  box-shadow:
+    0 10px 21px rgb(90 68 210 / 0.26),
+    0 4px 9px rgb(85 194 237 / 0.15),
+    inset 0 1px 2px rgb(255 255 255 / 0.74),
+    inset 0 -1px 0 rgb(59 49 156 / 0.18) !important;
+}
+
+/* ---------- public / landing ---------- */
+.liquid-public-shell {
+  min-height: 100vh;
+}
+
+.liquid-public-header,
+.liquid-public-footer {
+  background:
+    linear-gradient(145deg, rgb(255 255 255 / 0.74), rgb(244 239 246 / 0.54)) padding-box,
+    var(--dd-liquid-border) border-box;
+}
+
+.liquid-landing-demo {
+  padding: 1px;
+}
+
+.liquid-landing-inner {
+  background:
+    linear-gradient(145deg, rgb(255 255 255 / 0.62), rgb(236 232 244 / 0.46)),
+    radial-gradient(520px 250px at 0% 100%, rgb(146 231 251 / 0.18), transparent 60%),
+    radial-gradient(480px 240px at 100% 0%, rgb(242 186 224 / 0.17), transparent 60%);
+  box-shadow: inset 0 1px 2px rgb(255 255 255 / 0.92);
+}
+
+.liquid-workflow-row {
+  background:
+    linear-gradient(145deg, rgb(255 255 255 / 0.78), rgb(246 242 247 / 0.58)) padding-box,
+    linear-gradient(120deg, white, rgb(218 207 241 / 0.70), rgb(167 230 248 / 0.44), white) border-box;
+}
+
+.liquid-step {
+  background:
+    linear-gradient(145deg, rgb(249 246 255 / 0.98), rgb(229 223 253 / 0.84)) padding-box,
+    linear-gradient(120deg, white, rgb(198 181 255 / 0.82), rgb(148 229 250 / 0.58), white) border-box;
+}
+
+.liquid-public-card:hover {
+  transform: translateY(-2px);
+  box-shadow:
+    0 22px 42px rgb(67 55 90 / 0.16),
+    8px 8px 22px rgb(92 220 245 / 0.10),
+    inset 0 2px 2px white;
+}
+
+.liquid-feature-icon {
+  background:
+    linear-gradient(145deg, rgb(248 244 255 / 0.96), rgb(220 214 252 / 0.80)) padding-box,
+    linear-gradient(120deg, white, rgb(190 173 255 / 0.84), rgb(141 226 250 / 0.60), white) border-box;
+}
+
+/* ---------- patient cards ---------- */
+.liquid-patient-card {
+  background:
+    linear-gradient(145deg, rgb(255 255 255 / 0.69), rgb(241 236 244 / 0.50)) padding-box,
+    linear-gradient(125deg, white, rgb(207 191 255 / 0.90), rgb(132 231 254 / 0.80), rgb(247 181 226 / 0.72), white) border-box;
+  transition: transform 150ms ease, box-shadow 150ms ease, filter 150ms ease;
+}
+
+.liquid-patient-card:hover {
+  transform: translateY(-2px);
+  filter: brightness(1.01);
+  box-shadow:
+    0 24px 44px rgb(65 54 88 / 0.18),
+    9px 9px 21px rgb(92 221 245 / 0.13),
+    -7px -5px 18px rgb(143 105 255 / 0.11),
+    inset 0 2px 2px white;
+}
+
+.liquid-patient-avatar {
+  color: #6550db;
+  border: 1px solid rgb(255 255 255 / 0.90);
+  background:
+    radial-gradient(circle at 28% 22%, white 0 8%, transparent 9%),
+    linear-gradient(145deg, rgb(245 239 255 / 0.98), rgb(211 204 250 / 0.84));
+  box-shadow:
+    0 9px 18px rgb(86 68 146 / 0.15),
+    inset 0 1px 2px white;
+}
+
+.liquid-patient-tile {
+  background:
+    linear-gradient(145deg, rgb(255 255 255 / 0.52), rgb(247 243 248 / 0.39)) padding-box,
+    linear-gradient(120deg, white, rgb(225 216 243 / 0.60), rgb(183 234 248 / 0.36), white) border-box;
+}
+
+.liquid-patient-alert {
+  background:
+    linear-gradient(145deg, rgb(255 247 248 / 0.88), rgb(255 235 240 / 0.66)) padding-box,
+    linear-gradient(120deg, white, rgb(250 198 207 / 0.72), rgb(246 222 235 / 0.60), white) border-box;
+}
+
+.liquid-patient-safety {
+  background:
+    linear-gradient(145deg, rgb(255 249 249 / 0.88), rgb(255 239 242 / 0.66)) padding-box,
+    linear-gradient(120deg, white, rgb(248 198 208 / 0.70), rgb(244 219 231 / 0.56), white) border-box;
+}
+
+/* Auth pages already use liquid-auth-card from the base system. This makes the
+   surrounding identity treatment visibly belong to the same public product. */
+.liquid-auth-card {
+  border-radius: 25px !important;
+  box-shadow:
+    0 22px 42px rgb(66 55 89 / 0.15),
+    8px 8px 20px rgb(95 218 244 / 0.09),
+    inset 0 2px 2px white !important;
+}
+
+/* Preserve safety styling and accessible error boundaries above decorative glass. */
+input[aria-invalid="true"],
+textarea[aria-invalid="true"],
+select[aria-invalid="true"] {
+  border-color: var(--dd-danger) !important;
+}
+
+@media (max-width: 1023px) {
+  .liquid-app-header,
+  .liquid-public-header,
+  .liquid-public-footer {
+    border-radius: 23px;
+  }
+}
+
+@media (max-width: 767px) {
+  .liquid-patient-card {
+    border-radius: 21px;
+  }
+
+  body {
+    background-image:
+      radial-gradient(520px 300px at 0% 0%, rgb(255 223 238 / 0.58), transparent 64%),
+      radial-gradient(500px 300px at 100% 4%, rgb(190 230 253 / 0.50), transparent 63%),
+      radial-gradient(430px 280px at 48% 34%, rgb(215 203 255 / 0.34), transparent 66%),
+      linear-gradient(160deg, #f4edf2 0%, #ede9ef 100%) !important;
+  }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .liquid-app-header,
+  .liquid-public-header,
+  .liquid-public-footer,
+  .liquid-public-card,
+  .liquid-public-cta,
+  .liquid-landing-demo,
+  .liquid-patient-card,
+  .liquid-sidebar {
+    -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
+    background: #fbf8fb !important;
+  }
+}
+
+@media print {
+  .liquid-patient-card,
+  .liquid-public-card,
+  .liquid-app-header,
+  .liquid-sidebar {
+    background: white !important;
+    border-color: #cbd5e1 !important;
+    box-shadow: none !important;
+    transform: none !important;
+  }
+}
