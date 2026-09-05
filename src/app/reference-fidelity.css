@@ -1,0 +1,269 @@
+/*
+ * Doctor's Diary — approved-reference fidelity layer.
+ *
+ * This file does not introduce a second design language. It tightens the
+ * existing liquid system against the user's approved component board: first the
+ * pearl background/material, then the CTA/control construction. It contains
+ * presentation-only overrides and is intentionally loaded after liquid-ui.css.
+ */
+
+:root {
+  /* The approved board is a muted pearl-grey/pink canvas, not a white page with
+     coloured fog. These values are sampled/visually matched to that board. */
+  --dd-ref-canvas: #e9e1e5;
+  --dd-ref-canvas-deep: #e3dfe5;
+  --dd-ref-panel-top: rgba(249, 246, 248, 0.86);
+  --dd-ref-panel-bottom: rgba(229, 225, 232, 0.72);
+  --dd-ref-ink: #302a58;
+  --dd-ref-muted: #6f697f;
+
+  /* edge light: white first, then very small violet/aqua/pink reflections */
+  --dd-ref-edge: linear-gradient(
+    126deg,
+    rgba(255,255,255,.98) 0%,
+    rgba(236,229,250,.92) 28%,
+    rgba(187,231,242,.70) 55%,
+    rgba(239,207,229,.66) 79%,
+    rgba(255,255,255,.96) 100%
+  );
+}
+
+html,
+body {
+  background-color: var(--dd-ref-canvas) !important;
+}
+
+body {
+  color: var(--dd-ref-ink);
+  /* The board is mostly neutral. Colour lives at the perimeter and on glass
+     edges, not as large blue/pink clouds across the page. */
+  background-image:
+    radial-gradient(72rem 32rem at -12% -10%, rgba(247,219,232,.17), transparent 61%),
+    radial-gradient(68rem 30rem at 112% -8%, rgba(190,226,239,.15), transparent 62%),
+    radial-gradient(50rem 25rem at 55% 108%, rgba(206,197,235,.08), transparent 64%),
+    linear-gradient(153deg, #ede4e7 0%, #e8e1e5 44%, #e5e2e8 100%) !important;
+  background-attachment: fixed;
+}
+
+/* ---- approved glass body ------------------------------------------------- */
+.glass,
+.glass-strong,
+.glass-flat,
+.glass-flat-strong,
+.dd-liquid,
+.dd-public-header,
+.dd-public-footer,
+.dd-public-card,
+.dd-public-cta,
+.dd-landing-demo,
+.dd-patient-card,
+.dd-dashboard-card,
+.dd-sidebar,
+.dd-topbar {
+  border: 1px solid transparent !important;
+  background:
+    linear-gradient(146deg, var(--dd-ref-panel-top), var(--dd-ref-panel-bottom)) padding-box,
+    var(--dd-ref-edge) border-box !important;
+  -webkit-backdrop-filter: blur(13px) saturate(116%) !important;
+  backdrop-filter: blur(13px) saturate(116%) !important;
+  box-shadow:
+    0 11px 22px rgba(60,51,78,.11),
+    0 2px 5px rgba(255,255,255,.44),
+    4px 4px 10px rgba(91,207,231,.045),
+    -3px 0 9px rgba(166,106,205,.035),
+    inset 0 1.7px 1px rgba(255,255,255,.98),
+    inset 0 -1px 0 rgba(163,154,174,.20) !important;
+}
+
+/* Strong panels are still translucent, but the approved board has a slightly
+   denser milk-glass body than our previous version. */
+.glass-strong,
+.glass-flat-strong,
+.dd-public-header,
+.dd-sidebar,
+.dd-topbar {
+  background:
+    linear-gradient(146deg, rgba(251,248,250,.91), rgba(232,228,235,.77)) padding-box,
+    var(--dd-ref-edge) border-box !important;
+}
+
+/* Keep clinical content more opaque than the decorative reference. */
+.clinical-surface {
+  background:
+    linear-gradient(145deg, rgba(255,255,255,.985), rgba(247,244,247,.95)) padding-box,
+    linear-gradient(126deg, #fff, rgba(227,219,245,.66), rgba(191,229,240,.43), rgba(240,216,231,.38), #fff) border-box !important;
+  box-shadow:
+    0 7px 16px rgba(60,51,78,.07),
+    inset 0 1.4px 1px rgba(255,255,255,.98) !important;
+}
+
+/* ---- PRIMARY CTA: reference construction ---------------------------------
+   The approved button is lavender glass with a violet core, a controlled blue
+   reflection on the right, bright top specular light and a soft underside
+   shadow. It is not a flat violet-to-cyan gradient. */
+.dd-primary,
+a.bg-brand,
+button.bg-brand {
+  border: 1px solid transparent !important;
+  border-radius: 999px !important;
+  color: #fff !important;
+  white-space: nowrap;
+  background:
+    radial-gradient(90% 82% at 24% -9%, rgba(255,255,255,.50) 0%, rgba(255,255,255,.15) 26%, transparent 52%),
+    linear-gradient(100deg, #8b6cf1 0%, #8063ea 31%, #775ae5 66%, #6caee6 100%) padding-box,
+    linear-gradient(120deg, rgba(238,229,255,.98), #fff 24%, rgba(188,230,244,.96) 70%, rgba(219,199,249,.94)) border-box !important;
+  box-shadow:
+    0 8px 16px rgba(83,62,172,.23),
+    0 3px 8px rgba(88,188,222,.11),
+    inset 0 1.8px 1px rgba(255,255,255,.78),
+    inset 0 -2px 3px rgba(58,43,138,.15) !important;
+  text-shadow: 0 1px 1px rgba(47,31,113,.14);
+}
+
+.dd-primary:hover,
+a.bg-brand:hover,
+button.bg-brand:hover {
+  filter: brightness(1.015) saturate(1.015);
+  transform: translateY(-1px);
+}
+
+.dd-primary:active,
+a.bg-brand:active,
+button.bg-brand:active {
+  filter: brightness(.99);
+  transform: translateY(0) scale(.988);
+}
+
+/* The reference primary button often terminates in a small luminous arrow
+   bubble. Apply this only where the markup opts into dd-primary-arrow. */
+.dd-primary-arrow {
+  padding-right: .38rem !important;
+}
+
+.dd-primary-arrow svg {
+  width: 1.75rem !important;
+  height: 1.75rem !important;
+  padding: .38rem;
+  margin-left: .18rem;
+  border-radius: 999px;
+  color: #fff;
+  background:
+    linear-gradient(145deg, rgba(255,255,255,.20), rgba(96,147,224,.26));
+  box-shadow:
+    inset 0 1px 1px rgba(255,255,255,.55),
+    0 0 0 1px rgba(224,236,255,.25);
+}
+
+/* ---- MILKY SECONDARY / TERTIARY CONTROLS --------------------------------- */
+.dd-secondary,
+.dd-icon-btn,
+.dd-profile-chip,
+.dd-patient-tile,
+.dd-chip,
+.dd-workflow-row,
+.dd-step,
+.dd-feature-icon,
+.dd-quick-row {
+  border: 1px solid transparent !important;
+  background:
+    linear-gradient(180deg, rgba(251,248,250,.93), rgba(230,226,232,.80)) padding-box,
+    linear-gradient(120deg, #fff, rgba(229,220,242,.80), rgba(193,226,236,.55), #fff) border-box !important;
+  box-shadow:
+    0 5px 10px rgba(63,54,78,.095),
+    inset 0 1.6px 1px rgba(255,255,255,.98),
+    inset 0 -1px 1px rgba(157,149,166,.15) !important;
+}
+
+.dd-secondary {
+  color: #4f4965 !important;
+}
+
+.dd-secondary:hover,
+.dd-icon-btn:hover,
+.dd-quick-row:hover {
+  filter: brightness(1.012);
+  transform: translateY(-1px);
+}
+
+/* ---- Inputs: same raised milk-glass body as the approved search / note ----- */
+.dd-input,
+input:not([type="checkbox"]):not([type="radio"]):not([type="file"]),
+select,
+textarea {
+  border: 1px solid transparent !important;
+  background:
+    linear-gradient(180deg, rgba(249,246,248,.92), rgba(233,229,234,.79)) padding-box,
+    linear-gradient(120deg, #fff, rgba(229,221,241,.79), rgba(195,229,238,.50), #fff) border-box !important;
+  box-shadow:
+    inset 0 1.5px 1px rgba(255,255,255,.98),
+    0 4px 9px rgba(63,54,78,.07) !important;
+}
+
+/* ---- Header / sidebar / cards: compact edge-light, not colourful fill ------ */
+.dd-public-header,
+.dd-topbar,
+.dd-sidebar,
+.dd-patient-card,
+.dd-dashboard-card,
+.dd-landing-demo,
+.dd-public-card {
+  position: relative;
+}
+
+/* A tiny cool highlight along lower-right edges approximates the board's aqua
+   rim without flooding the surface with blue. */
+.dd-public-header::after,
+.dd-topbar::after,
+.dd-sidebar::after,
+.dd-patient-card::after,
+.dd-landing-demo::after,
+.dd-public-card::after {
+  content: "";
+  pointer-events: none;
+  position: absolute;
+  inset: auto 6% 0 auto;
+  width: 34%;
+  height: 1px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, transparent, rgba(102,219,241,.52), rgba(202,137,231,.30), transparent);
+  filter: blur(.2px);
+}
+
+/* ---- mobile: preserve the same material instead of making the canvas whiter */
+@media (max-width: 767px) {
+  body {
+    background-image:
+      radial-gradient(36rem 19rem at -18% -5%, rgba(247,219,232,.15), transparent 61%),
+      radial-gradient(34rem 18rem at 118% 0%, rgba(190,226,239,.13), transparent 62%),
+      linear-gradient(157deg, #ede5e8 0%, #e8e2e6 47%, #e5e2e8 100%) !important;
+  }
+
+  .dd-primary,
+  a.bg-brand,
+  button.bg-brand {
+    box-shadow:
+      0 7px 14px rgba(83,62,172,.21),
+      0 2px 6px rgba(88,188,222,.09),
+      inset 0 1.6px 1px rgba(255,255,255,.76),
+      inset 0 -1.5px 2px rgba(58,43,138,.13) !important;
+  }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .glass,
+  .glass-strong,
+  .glass-flat,
+  .glass-flat-strong,
+  .dd-liquid,
+  .dd-public-header,
+  .dd-public-footer,
+  .dd-public-card,
+  .dd-public-cta,
+  .dd-landing-demo,
+  .dd-patient-card,
+  .dd-dashboard-card,
+  .dd-sidebar,
+  .dd-topbar {
+    background: #f2edf0 !important;
+  }
+}

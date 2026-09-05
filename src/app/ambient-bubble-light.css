@@ -1,0 +1,84 @@
+/* Doctor's Diary — ambient light continuation, tuned to match the approved header.
+   Scope: landing page below-hero sections + footer only.
+   The previous pass created large white bubble fields. This version removes those
+   broad washes and uses the SAME kind of compact rim-adjacent light pools seen
+   around the approved header: subtle, local and mostly outside each glass group. */
+
+main > section:has(.dd-public-card),
+main > section:has(.dd-public-cta),
+footer:has(.dd-public-footer) {
+  position: relative;
+  isolation: isolate;
+  overflow: visible;
+}
+
+main > section:has(.dd-public-card) > *,
+main > section:has(.dd-public-cta) > *,
+footer:has(.dd-public-footer) > * {
+  position: relative;
+  z-index: 2;
+}
+
+/* Header-matched light recipe: compact white pools near the perimeter only.
+   No central white bubble, no full-width fog column. */
+main > section:has(.dd-public-card)::before,
+main > section:has(.dd-public-cta)::before,
+footer:has(.dd-public-footer)::before {
+  content: "";
+  position: absolute;
+  z-index: 0;
+  pointer-events: none;
+  left: 50%;
+  top: 50%;
+  width: min(1320px, calc(100% + 120px));
+  height: calc(100% + 120px);
+  transform: translate(-50%, -50%);
+  border-radius: 90px;
+  background:
+    radial-gradient(125px 125px at 44px 50%, rgba(255,255,255,.78) 0%, rgba(255,255,255,.24) 44%, transparent 72%),
+    radial-gradient(115px 115px at calc(100% - 44px) 44%, rgba(255,255,255,.72) 0%, rgba(255,255,255,.21) 44%, transparent 72%),
+    radial-gradient(155px 105px at 33% 44px, rgba(255,255,255,.72) 0%, rgba(255,255,255,.19) 46%, transparent 74%),
+    radial-gradient(115px 92px at 66% 44px, rgba(255,255,255,.54) 0%, transparent 70%),
+    radial-gradient(145px 100px at 71% calc(100% - 44px), rgba(255,255,255,.68) 0%, rgba(255,255,255,.19) 46%, transparent 74%),
+    radial-gradient(105px 88px at 22% calc(100% - 44px), rgba(255,255,255,.52) 0%, transparent 70%);
+  opacity: .72;
+  filter: none;
+}
+
+/* Feature row needs even less ambient light because there are three separate cards. */
+main > section:has(.dd-public-card)::before {
+  opacity: .58;
+  height: calc(100% + 90px);
+}
+
+/* Founding panel gets the same treatment as the header, not a bright center bubble. */
+main > section:has(.dd-public-cta)::before {
+  opacity: .66;
+  height: calc(100% + 96px);
+}
+
+/* Footer is the quietest surface. */
+footer:has(.dd-public-footer)::before {
+  opacity: .48;
+  height: calc(100% + 86px);
+}
+
+@media (max-width: 767px) {
+  main > section:has(.dd-public-card)::before,
+  main > section:has(.dd-public-cta)::before,
+  footer:has(.dd-public-footer)::before {
+    width: calc(100% + 54px);
+    height: calc(100% + 74px);
+    border-radius: 64px;
+    background:
+      radial-gradient(92px 92px at 24px 52%, rgba(255,255,255,.70) 0%, rgba(255,255,255,.20) 44%, transparent 72%),
+      radial-gradient(88px 88px at calc(100% - 24px) 44%, rgba(255,255,255,.64) 0%, rgba(255,255,255,.18) 44%, transparent 72%),
+      radial-gradient(112px 76px at 34% 24px, rgba(255,255,255,.60) 0%, rgba(255,255,255,.16) 46%, transparent 74%),
+      radial-gradient(108px 74px at 72% calc(100% - 24px), rgba(255,255,255,.58) 0%, rgba(255,255,255,.15) 46%, transparent 74%);
+    opacity: .58;
+  }
+
+  footer:has(.dd-public-footer)::before {
+    opacity: .40;
+  }
+}

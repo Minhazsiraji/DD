@@ -8,11 +8,6 @@ interface PageHeaderProps extends React.ComponentProps<"header"> {
   actions?: React.ReactNode;
 }
 
-/**
- * PageHeader — the standard title block for every workspace route.
- * Sits on the page background (no surface of its own) so it never adds a
- * blur layer to the view's budget.
- */
 export function PageHeader({
   title,
   subtitle,
@@ -24,22 +19,22 @@ export function PageHeader({
   return (
     <header
       className={cn(
-        "flex min-w-0 flex-col gap-3 sm:flex-row sm:items-end sm:justify-between",
+        "flex min-w-0 flex-col gap-2.5 sm:flex-row sm:items-end sm:justify-between",
         className,
       )}
       {...props}
     >
       <div className="min-w-0">
         {eyebrow ? (
-          <p className="text-xs font-semibold tracking-wide text-brand uppercase">
+          <p className="text-[10.5px] font-semibold uppercase tracking-[0.14em] text-brand">
             {eyebrow}
           </p>
         ) : null}
-        <h1 className="mt-1 break-words text-2xl font-semibold tracking-tight text-ink sm:truncate sm:text-[28px]">
+        <h1 className="mt-0.5 break-words text-[22px] font-semibold tracking-[-0.025em] text-ink sm:truncate sm:text-[24px]">
           {title}
         </h1>
         {subtitle ? (
-          <p className="mt-1 break-words text-sm text-ink-secondary">{subtitle}</p>
+          <p className="mt-0.5 break-words text-[12.5px] leading-5 text-ink-secondary sm:text-[13px]">{subtitle}</p>
         ) : null}
       </div>
       {actions ? (

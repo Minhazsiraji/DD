@@ -1,0 +1,41 @@
+/* Doctor's Diary — owner-approved global canvas pass.
+   Keep the current liquid/glass component styling unchanged; only unify the
+   page canvas behind landing, auth, onboarding and the signed-in workspace. */
+
+html,
+body {
+  min-height: 100%;
+  background-color: #ddd8ea !important;
+}
+
+body {
+  background-image: url('/dd-global-bg.webp') !important;
+  background-size: cover !important;
+  background-position: center center !important;
+  background-repeat: no-repeat !important;
+  background-attachment: fixed !important;
+}
+
+/* Keep every major route shell on the same canvas. This covers the public
+   landing shell, auth shell, setup/onboarding root, and the authenticated app
+   root without flattening card/component surfaces inside them. */
+.dd-public-stage,
+.dd-auth-shell,
+body > div[class*="min-h-dvh"],
+body > main[class*="min-h-dvh"] {
+  background-color: transparent !important;
+  background-image: none !important;
+}
+
+/* Disable the old full-page ambient wash so the approved canvas remains the
+   visible source of atmosphere across every route. */
+.dd-public-stage-light {
+  display: none !important;
+}
+
+@media (max-width: 767px) {
+  body {
+    background-attachment: scroll !important;
+    background-position: center top !important;
+  }
+}

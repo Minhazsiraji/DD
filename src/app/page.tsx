@@ -1,18 +1,22 @@
 import Link from "next/link";
+import { ArrowRight, CheckCircle2, FileText, Search, Stethoscope } from "lucide-react";
 import { MarketingShell } from "@/components/marketing/marketing-shell";
 
 const benefits = [
   {
     title: "Move faster",
-    body: "Keep the consultation focused. Patient context, structured notes and prescription workflow live in one place.",
+    body: "Keep patient context, structured notes and prescription workflow together without turning the visit into a long form.",
+    icon: <Stethoscope className="size-5" aria-hidden="true" />,
   },
   {
-    title: "Remember the patient",
-    body: "Return visits keep previous consultations, prescriptions and investigations available without overwriting today.",
+    title: "Find context quickly",
+    body: "Return visits surface previous consultations and prescriptions without overwriting today’s clinical record.",
+    icon: <Search className="size-5" aria-hidden="true" />,
   },
   {
     title: "Finish safely",
-    body: "Review first. Finalized prescriptions are controlled, auditable and protected from silent historical changes.",
+    body: "Prescription drafts stay editable until the doctor explicitly reviews and finalizes them.",
+    icon: <FileText className="size-5" aria-hidden="true" />,
   },
 ];
 
@@ -20,86 +24,129 @@ const workflow = [
   "Find or create patient",
   "Review previous context",
   "Consult with less typing",
-  "Prepare prescription",
+  "Prepare prescription if needed",
   "Review and finalize",
-  "Print and remember next time",
+  "Set follow-up and finish",
 ];
 
 export default function RootPage() {
   return (
     <MarketingShell>
-      <section className="mx-auto grid max-w-7xl gap-12 px-5 pb-20 pt-16 lg:grid-cols-[1.05fr_.95fr] lg:px-8 lg:pb-28 lg:pt-24">
+      <section className="mx-auto grid max-w-7xl gap-6 px-4 pb-10 pt-8 sm:gap-8 sm:px-5 sm:pb-14 sm:pt-11 lg:grid-cols-[1.02fr_.98fr] lg:items-center lg:px-7 lg:pb-16 lg:pt-14">
         <div className="self-center">
-          <p className="inline-flex rounded-full border border-teal-200 bg-teal-50 px-3 py-1 text-sm font-medium text-teal-800">
+          <p className="dd-chip inline-flex max-w-full rounded-full px-3 py-1.5 text-[10.5px] leading-4 font-semibold text-[#5f52c5] sm:text-[11.5px]">
             Built around the doctor, not the data-entry screen
           </p>
-          <h1 className="mt-6 max-w-3xl text-5xl font-semibold tracking-tight text-slate-950 sm:text-6xl">
+          <h1 className="mt-4 max-w-3xl text-[38px] leading-[1] font-semibold tracking-[-0.043em] text-[#211c43] sm:text-[50px] lg:text-[58px]">
             Less screen.
             <br />
             More patient.
           </h1>
-          <p className="mt-6 max-w-2xl text-lg leading-8 text-slate-600">
+          <p className="mt-4 max-w-2xl text-[15px] leading-6.5 text-ink-secondary sm:text-[16.5px] sm:leading-7 lg:max-w-xl">
             Doctor&apos;s Diary is a doctor productivity workspace for patient history,
             consultations, prescriptions, chambers and follow-up — designed to reduce
             repetitive work instead of adding more forms.
           </p>
-          <div className="mt-8 flex flex-wrap gap-3">
-            <Link href="/signup" className="rounded-xl bg-teal-600 px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-teal-700">
+          <div className="mt-5 flex flex-wrap gap-2.5">
+            <Link
+              href="/signup"
+              className="dd-primary dd-primary-arrow inline-flex h-10 items-center gap-1.5 whitespace-nowrap rounded-full pl-4 text-[12.5px] font-semibold text-white sm:h-11 sm:pl-5 sm:text-[13px]"
+            >
               Start free
+              <ArrowRight className="size-3.5" aria-hidden="true" />
             </Link>
-            <Link href="/pricing" className="rounded-xl border border-slate-300 bg-white px-5 py-3 text-sm font-semibold text-slate-800 transition hover:bg-slate-50">
+            <Link
+              href="/pricing"
+              className="dd-secondary inline-flex h-10 items-center whitespace-nowrap rounded-full px-4 text-[12.5px] font-semibold text-ink-secondary sm:h-11 sm:px-5 sm:text-[13px]"
+            >
               See founding plan
             </Link>
           </div>
-          <p className="mt-4 text-sm text-slate-500">
+          <p className="mt-3.5 max-w-xl text-[11px] leading-5 text-ink-muted sm:text-[11.5px]">
             No public “verified doctor” claim is made until credential verification is actually available.
           </p>
         </div>
 
-        <div className="rounded-[2rem] border border-slate-200 bg-white p-5 shadow-[0_24px_80px_rgba(15,23,42,.08)] sm:p-7">
-          <div className="rounded-3xl bg-[#edf4ff] p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Today</p>
-                <p className="mt-1 text-xl font-semibold">Doctor workspace</p>
-              </div>
-              <span className="rounded-full bg-white px-3 py-1 text-xs font-medium text-teal-700">Private clinical workspace</span>
-            </div>
-            <div className="mt-6 grid gap-3">
-              {workflow.map((item, i) => (
-                <div key={item} className="flex items-center gap-3 rounded-2xl bg-white px-4 py-3 text-sm text-slate-700 shadow-sm">
-                  <span className="grid size-7 shrink-0 place-items-center rounded-full bg-teal-50 font-semibold text-teal-700">{i + 1}</span>
-                  {item}
+        <div className="dd-approved-stage dd-hero-stage">
+          <span className="dd-approved-light" aria-hidden />
+          <div className="dd-landing-demo dd-approved-slab p-3 sm:p-4">
+            <span className="dd-approved-glows" aria-hidden />
+            <span className="dd-approved-contour" aria-hidden />
+
+            <div className="dd-landing-inner rounded-[20px] p-4 sm:rounded-[22px] sm:p-5">
+              <div className="dd-approved-content">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[#70698e]">Today</p>
+                    <p className="mt-1 text-[17px] font-semibold tracking-[-0.025em] text-[#2c2753] sm:text-[19px]">Doctor workspace</p>
+                  </div>
+                  <span className="dd-chip inline-flex rounded-full px-2.5 py-1.5 text-[10px] font-semibold text-[#5f52c5] sm:text-[10.5px]">
+                    Private clinical workspace
+                  </span>
                 </div>
-              ))}
+                <div className="mt-4 grid gap-2.5">
+                  {workflow.map((item, i) => (
+                    <div
+                      key={item}
+                      className="dd-workflow-row dd-approved-mini flex min-h-[44px] items-center gap-2.5 rounded-[15px] px-3 py-2.5 text-[12px] font-medium text-[#48425f] sm:min-h-[48px] sm:rounded-[16px] sm:px-3.5 sm:text-[12.5px]"
+                    >
+                      <span className="dd-step grid size-7 shrink-0 place-items-center rounded-full text-[10.5px] font-semibold text-[#6554d0]">
+                        {i + 1}
+                      </span>
+                      <span className="min-w-0 flex-1">{item}</span>
+                      <CheckCircle2 className="size-3.5 shrink-0 text-[#72cdbb]" aria-hidden="true" />
+                    </div>
+                  ))}
+                </div>
+              </div>
             </div>
           </div>
         </div>
       </section>
 
-      <section className="border-y border-slate-200 bg-white">
-        <div className="mx-auto grid max-w-7xl gap-5 px-5 py-16 md:grid-cols-3 lg:px-8">
+      <section className="mx-auto max-w-7xl px-4 py-6 sm:px-5 sm:py-7 lg:px-7 lg:py-8">
+        <div className="grid gap-3 md:grid-cols-3">
           {benefits.map((benefit) => (
-            <article key={benefit.title} className="rounded-3xl border border-slate-200 bg-[#fbfdff] p-6">
-              <h2 className="text-lg font-semibold">{benefit.title}</h2>
-              <p className="mt-3 leading-7 text-slate-600">{benefit.body}</p>
+            <article key={benefit.title} className="dd-approved-stage dd-lower-glass-stage">
+              <span className="dd-approved-light" aria-hidden />
+              <div className="dd-public-card dd-approved-slab p-4 sm:p-5">
+                <span className="dd-approved-glows" aria-hidden />
+                <span className="dd-approved-contour" aria-hidden />
+                <div className="dd-approved-content">
+                  <span className="dd-feature-icon inline-flex size-9 items-center justify-center rounded-[13px] text-[#6655cf]">
+                    {benefit.icon}
+                  </span>
+                  <h2 className="mt-3 text-[15.5px] font-semibold tracking-[-0.02em] text-[#302a59] sm:text-[16.5px]">{benefit.title}</h2>
+                  <p className="mt-1.5 text-[12.5px] leading-5.5 text-ink-secondary sm:text-[13px] sm:leading-6">{benefit.body}</p>
+                </div>
+              </div>
             </article>
           ))}
         </div>
       </section>
 
-      <section className="mx-auto max-w-7xl px-5 py-20 lg:px-8">
-        <div className="rounded-[2rem] bg-slate-950 px-6 py-10 text-white sm:px-10 lg:flex lg:items-center lg:justify-between">
-          <div>
-            <p className="text-sm font-semibold uppercase tracking-[0.18em] text-teal-300">Founding doctors</p>
-            <h2 className="mt-3 text-3xl font-semibold tracking-tight">Help shape the workflow before the wider launch.</h2>
-            <p className="mt-3 max-w-2xl text-slate-300">
-              Early doctors get high-touch onboarding and an early-user commercial plan. Exact pricing remains configurable until pilot evidence is complete.
-            </p>
+      <section className="mx-auto max-w-7xl px-4 py-9 sm:px-5 sm:py-11 lg:px-7 lg:py-12">
+        <div className="dd-approved-stage dd-lower-glass-stage">
+          <span className="dd-approved-light" aria-hidden />
+          <div className="dd-public-cta dd-approved-slab px-5 py-6 sm:px-7 lg:px-8">
+            <span className="dd-approved-glows" aria-hidden />
+            <span className="dd-approved-contour" aria-hidden />
+            <div className="dd-approved-content lg:flex lg:items-center lg:justify-between">
+              <div>
+                <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[#6554d0]">Founding doctors</p>
+                <h2 className="mt-2.5 text-[24px] leading-tight font-semibold tracking-[-0.035em] text-[#2b254f] sm:text-[28px]">Help shape the workflow before wider launch.</h2>
+                <p className="mt-2.5 max-w-2xl text-[13px] leading-6 text-ink-secondary sm:text-[13.5px]">
+                  Early doctors get high-touch onboarding and an early-user commercial plan while pilot evidence is completed.
+                </p>
+              </div>
+              <Link
+                href="/pricing"
+                className="dd-secondary mt-5 inline-flex h-10 items-center whitespace-nowrap rounded-full px-4 text-[12.5px] font-semibold text-ink-secondary lg:mt-0"
+              >
+                View the plan
+              </Link>
+            </div>
           </div>
-          <Link href="/pricing" className="mt-6 inline-flex rounded-xl bg-white px-5 py-3 text-sm font-semibold text-slate-950 lg:mt-0">
-            View the plan
-          </Link>
         </div>
       </section>
     </MarketingShell>

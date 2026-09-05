@@ -1,0 +1,226 @@
+/*
+ * Doctor's Diary — approved board exact-match pass.
+ * Presentation only. This file tightens the two remaining visual mismatches:
+ * 1) pearl background depth, 2) floating header material/depth.
+ */
+
+:root {
+  --dd-board-base-a: #eee5e8;
+  --dd-board-base-b: #e5dde3;
+  --dd-board-base-c: #dcdbe3;
+  --dd-board-ink: #302a58;
+  --dd-board-edge: linear-gradient(
+    118deg,
+    rgba(255,255,255,.99) 0%,
+    rgba(250,246,255,.98) 15%,
+    rgba(221,210,248,.91) 33%,
+    rgba(179,226,243,.82) 57%,
+    rgba(237,199,227,.73) 78%,
+    rgba(255,255,255,.98) 100%
+  );
+}
+
+html { background: #dfd9e0 !important; }
+
+body {
+  position: relative;
+  isolation: isolate;
+  color: var(--dd-board-ink);
+  background-color: var(--dd-board-base-b) !important;
+  background-image:
+    radial-gradient(62rem 31rem at -8% -6%, rgba(255,238,244,.44), transparent 56%),
+    radial-gradient(58rem 28rem at 104% -3%, rgba(206,232,245,.37), transparent 58%),
+    radial-gradient(48rem 25rem at 82% 28%, rgba(175,175,207,.20), transparent 61%),
+    radial-gradient(44rem 23rem at 16% 54%, rgba(232,196,217,.18), transparent 64%),
+    radial-gradient(55rem 28rem at 48% 68%, rgba(170,168,195,.14), transparent 64%),
+    radial-gradient(45rem 24rem at 2% 98%, rgba(176,235,241,.20), transparent 61%),
+    radial-gradient(41rem 22rem at 91% 92%, rgba(210,187,227,.16), transparent 63%),
+    linear-gradient(154deg, var(--dd-board-base-a) 0%, var(--dd-board-base-b) 43%, var(--dd-board-base-c) 100%) !important;
+  background-attachment: fixed;
+}
+
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(40rem 18rem at 50% 8%, rgba(255,255,255,.20), transparent 67%),
+    radial-gradient(34rem 16rem at 58% 37%, rgba(97,91,121,.055), transparent 70%),
+    radial-gradient(37rem 17rem at 73% 63%, rgba(88,82,111,.045), transparent 72%),
+    linear-gradient(180deg, rgba(255,255,255,.035), rgba(76,69,95,.025));
+}
+
+body > * { position: relative; z-index: 1; }
+
+.dd-public-header,
+.dd-topbar {
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+  min-height: 64px !important;
+  border: 1px solid transparent !important;
+  border-radius: 28px !important;
+  background:
+    radial-gradient(80% 170% at 46% -80%, rgba(255,255,255,.96) 0%, rgba(255,255,255,.22) 45%, transparent 62%),
+    radial-gradient(35% 150% at 98% 35%, rgba(160,221,244,.13), transparent 66%),
+    radial-gradient(34% 150% at 2% 40%, rgba(195,158,239,.11), transparent 66%),
+    linear-gradient(180deg, rgba(252,249,252,.91) 0%, rgba(242,237,242,.82) 47%, rgba(222,218,226,.73) 100%) padding-box,
+    var(--dd-board-edge) border-box !important;
+  -webkit-backdrop-filter: blur(17px) saturate(122%) !important;
+  backdrop-filter: blur(17px) saturate(122%) !important;
+  box-shadow:
+    0 18px 31px rgba(49,43,67,.165),
+    0 6px 12px rgba(74,65,97,.095),
+    4px 5px 14px rgba(84,206,235,.060),
+    -4px 2px 13px rgba(154,103,212,.055),
+    inset 0 2px 1px rgba(255,255,255,.99),
+    inset 0 -1px 0 rgba(130,123,145,.25) !important;
+}
+
+.dd-public-header::before,
+.dd-topbar::before {
+  content: "";
+  position: absolute;
+  z-index: 0;
+  pointer-events: none;
+  left: 2.2%;
+  right: 2.2%;
+  top: 1px;
+  height: 2px;
+  border-radius: 999px;
+  background: linear-gradient(90deg,transparent,rgba(255,255,255,.82) 10%,rgba(255,255,255,.98) 48%,rgba(255,255,255,.74) 87%,transparent);
+}
+
+.dd-public-header::after,
+.dd-topbar::after {
+  content: "";
+  position: absolute;
+  z-index: 0;
+  pointer-events: none;
+  left: 3.5%;
+  right: 3.5%;
+  bottom: -1px;
+  height: 3px;
+  border-radius: 999px;
+  background: linear-gradient(90deg,transparent 0%,rgba(127,100,238,.42) 14%,rgba(255,255,255,.24) 38%,rgba(95,216,242,.58) 66%,rgba(226,137,210,.43) 88%,transparent 100%);
+  filter: blur(.75px);
+  opacity: .92;
+}
+
+.dd-public-header > *,
+.dd-topbar > * { position: relative; z-index: 1; }
+
+.dd-public-header .dd-secondary,
+.dd-topbar .dd-secondary,
+.dd-topbar .dd-icon-btn,
+.dd-topbar .dd-profile-chip,
+.dd-topbar .dd-input {
+  box-shadow: 0 5px 10px rgba(60,52,77,.10), inset 0 1.5px 1px rgba(255,255,255,.99), inset 0 -1px 1px rgba(139,132,151,.14) !important;
+}
+
+.dd-public-header .dd-primary,
+.dd-topbar .dd-primary,
+.dd-topbar a.bg-brand,
+.dd-topbar button.bg-brand {
+  box-shadow: 0 7px 15px rgba(82,61,173,.25),0 2px 7px rgba(88,191,224,.12),inset 0 1.8px 1px rgba(255,255,255,.82),inset 0 -2px 3px rgba(58,43,138,.16) !important;
+}
+
+.dd-sidebar {
+  background:
+    radial-gradient(100% 38% at 50% 0%, rgba(255,255,255,.66), transparent 68%),
+    radial-gradient(85% 35% at 100% 100%, rgba(112,215,239,.08), transparent 68%),
+    linear-gradient(165deg, rgba(250,247,250,.89), rgba(226,222,230,.74)) padding-box,
+    var(--dd-board-edge) border-box !important;
+  box-shadow: 0 17px 31px rgba(48,42,66,.14),3px 5px 13px rgba(88,207,234,.05),inset 0 2px 1px rgba(255,255,255,.98),inset 0 -1px 0 rgba(130,123,145,.20) !important;
+}
+
+.dd-public-card,
+.dd-patient-card,
+.dd-dashboard-card {
+  background:
+    radial-gradient(110% 70% at 15% 0%, rgba(255,255,255,.44), transparent 58%),
+    linear-gradient(145deg, rgba(248,245,248,.80), rgba(222,219,227,.66)) padding-box,
+    var(--dd-board-edge) border-box !important;
+  box-shadow: 0 14px 27px rgba(51,44,69,.13),3px 4px 12px rgba(87,205,232,.045),inset 0 1.7px 1px rgba(255,255,255,.98),inset 0 -1px 0 rgba(133,125,147,.18) !important;
+}
+
+/* Landing workspace: true water-glass like the approved Patient Summary Card. */
+.dd-landing-demo {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid transparent !important;
+  background:
+    radial-gradient(125% 85% at 18% 0%, rgba(255,255,255,.28), transparent 58%),
+    radial-gradient(52% 72% at 100% 92%, rgba(89,217,243,.13), transparent 67%),
+    radial-gradient(42% 62% at 0% 100%, rgba(132,96,235,.10), transparent 66%),
+    linear-gradient(145deg, rgba(255,255,255,.34), rgba(240,235,244,.24)) padding-box,
+    var(--dd-board-edge) border-box !important;
+  -webkit-backdrop-filter: blur(18px) saturate(132%) !important;
+  backdrop-filter: blur(18px) saturate(132%) !important;
+  box-shadow:
+    0 19px 34px rgba(48,42,66,.16),
+    5px 6px 15px rgba(84,210,238,.065),
+    -4px 3px 14px rgba(132,97,216,.055),
+    inset 0 2px 1px rgba(255,255,255,.96),
+    inset 0 -1px 0 rgba(117,109,135,.18) !important;
+}
+
+.dd-landing-demo::after {
+  content: "";
+  position: absolute;
+  inset: auto 5% -2px 5%;
+  height: 4px;
+  border-radius: 999px;
+  background: linear-gradient(90deg,transparent,rgba(126,95,239,.46) 18%,rgba(255,255,255,.18) 42%,rgba(89,216,242,.62) 68%,rgba(231,147,215,.44) 87%,transparent);
+  filter: blur(.8px);
+  pointer-events: none;
+}
+
+.dd-landing-inner {
+  position: relative;
+  border: 1px solid rgba(255,255,255,.62) !important;
+  background:
+    radial-gradient(120% 80% at 18% 2%, rgba(255,255,255,.24), transparent 58%),
+    linear-gradient(145deg, rgba(255,255,255,.26), rgba(246,242,248,.16)) !important;
+  -webkit-backdrop-filter: blur(10px) saturate(118%);
+  backdrop-filter: blur(10px) saturate(118%);
+  box-shadow: inset 0 1.5px 1px rgba(255,255,255,.90), inset 0 -1px 0 rgba(138,129,153,.10) !important;
+}
+
+.dd-landing-inner .dd-workflow-row {
+  background:
+    linear-gradient(145deg, rgba(255,255,255,.52), rgba(246,242,248,.34)) padding-box,
+    linear-gradient(118deg,rgba(255,255,255,.95),rgba(221,210,248,.74),rgba(178,226,243,.60),rgba(255,255,255,.92)) border-box !important;
+  -webkit-backdrop-filter: blur(8px) saturate(112%);
+  backdrop-filter: blur(8px) saturate(112%);
+  box-shadow: 0 7px 13px rgba(54,47,72,.075), inset 0 1.3px 1px rgba(255,255,255,.94) !important;
+}
+
+@media (min-width: 768px) {
+  .dd-public-header,.dd-topbar { min-height: 66px !important; }
+}
+
+@media (max-width: 767px) {
+  body {
+    background-image:
+      radial-gradient(32rem 17rem at -12% -4%, rgba(255,237,244,.39), transparent 57%),
+      radial-gradient(31rem 16rem at 112% 0%, rgba(202,231,244,.31), transparent 59%),
+      radial-gradient(29rem 15rem at 80% 43%, rgba(170,170,201,.13), transparent 64%),
+      radial-gradient(30rem 16rem at 7% 90%, rgba(177,232,240,.14), transparent 63%),
+      linear-gradient(157deg, #eee5e8 0%, #e7e0e5 47%, #dfdfe6 100%) !important;
+  }
+  .dd-public-header,.dd-topbar {
+    min-height: 62px !important;
+    border-radius: 26px !important;
+    box-shadow: 0 14px 24px rgba(49,43,67,.145),0 5px 10px rgba(74,65,97,.075),3px 4px 11px rgba(84,206,235,.05),inset 0 1.8px 1px rgba(255,255,255,.99),inset 0 -1px 0 rgba(130,123,145,.22) !important;
+  }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .dd-public-header,.dd-topbar,.dd-sidebar,.dd-public-card,.dd-landing-demo,.dd-patient-card,.dd-dashboard-card {
+    -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
+  }
+}

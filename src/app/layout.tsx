@@ -1,17 +1,32 @@
 import type { Metadata, Viewport } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { Inter, Noto_Sans_Bengali, Geist_Mono } from "next/font/google";
 import "./globals.css";
+import "./liquid-ui.css";
+import "./clinical-liquid-ui.css";
+import "./reference-fidelity.css";
+import "./reference-exact-match.css";
+import "./reference-content-match.css";
+import "./branding-logo.css";
+import "./landing-glass-final.css";
+import "./phase-b-exact.css";
+import "./auth-transparent-test.css";
+import "./reference-skin-test.css";
+import "./layered-liquid-study.css";
+import "./approved-liquid-material.css";
+import "./global-background-test.css";
+import "./full-liquid-pass.css";
+import "./exact-rim-bridge.css";
 
-/**
- * Fonts are self-hosted by next/font at build time — no runtime request to a
- * font CDN. That is a privacy requirement here, not just a latency one.
- *
- * Phase 8+: when Bangla patient-facing output lands, add a Bangla-capable face
- * as a second variable here rather than reworking the type scale.
- */
-const fontSans = Geist({
+const fontSans = Inter({
   variable: "--font-sans",
   subsets: ["latin"],
+  display: "swap",
+});
+
+const fontBengali = Noto_Sans_Bengali({
+  variable: "--font-bengali",
+  subsets: ["bengali"],
+  weight: ["400", "500", "600", "700"],
   display: "swap",
 });
 
@@ -42,10 +57,9 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
-  themeColor: "#e4edfd",
+  themeColor: "#e5dde3",
   width: "device-width",
   initialScale: 1,
-  // Never block zoom: clinicians need to enlarge dose text.
   maximumScale: 5,
   viewportFit: "cover",
 };
@@ -54,7 +68,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html
       lang="en"
-      className={`${fontSans.variable} ${fontMono.variable} h-full antialiased`}
+      className={`${fontSans.variable} ${fontBengali.variable} ${fontMono.variable} h-full antialiased`}
     >
       <body className="min-h-full">{children}</body>
     </html>

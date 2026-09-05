@@ -1,0 +1,439 @@
+/*
+ * Doctor's Diary — approved-board full UI lock.
+ * Source of truth: owner-approved liquid-glass board (1448×1086).
+ * Presentation only. No routing, data, clinical logic, roles, security, RLS,
+ * database, Supabase or backend behavior is changed here.
+ */
+
+:root {
+  --dd-ref-canvas-1: #ebe3e7;
+  --dd-ref-canvas-2: #e2dce3;
+  --dd-ref-canvas-3: #d9d9e1;
+  --dd-ref-ink: #302a58;
+  --dd-ref-muted: #676178;
+  --dd-ref-violet: #8d6df2;
+  --dd-ref-violet-2: #8971f2;
+  --dd-ref-aqua: #65d1ef;
+  --dd-ref-mint: #d2e9e5;
+  --dd-ref-progress: #dadef5;
+  --dd-ref-pending: #f1e2d9;
+  --dd-ref-completed: #dee8e1;
+  --dd-ref-cancelled: #f2d7de;
+  --dd-ref-noshow: #e8e1e6;
+  --dd-ref-edge: linear-gradient(118deg,
+    rgba(255,255,255,.99) 0%,
+    rgba(255,255,255,.96) 12%,
+    rgba(221,209,249,.88) 31%,
+    rgba(189,231,245,.80) 57%,
+    rgba(239,198,229,.71) 82%,
+    rgba(255,255,255,.98) 100%);
+  --dd-ref-glass: linear-gradient(145deg,
+    rgba(255,255,255,.25) 0%,
+    rgba(250,246,250,.18) 50%,
+    rgba(232,226,235,.14) 100%);
+  --dd-ref-glass-readable: linear-gradient(145deg,
+    rgba(255,255,255,.72) 0%,
+    rgba(249,246,249,.63) 55%,
+    rgba(236,231,238,.57) 100%);
+  --dd-ref-shadow:
+    0 18px 31px rgba(50,43,68,.155),
+    0 6px 13px rgba(62,54,81,.075),
+    4px 4px 12px rgba(97,213,238,.045),
+    -3px 2px 11px rgba(152,105,220,.040),
+    inset 0 2px 1px rgba(255,255,255,.96),
+    inset 0 -1px 0 rgba(127,117,143,.16);
+}
+
+html { background: var(--dd-ref-canvas-3) !important; }
+
+body {
+  color: var(--dd-ref-ink) !important;
+  background-color: var(--dd-ref-canvas-2) !important;
+  background-image:
+    radial-gradient(52rem 24rem at 50% 2%, rgba(255,255,255,.27), transparent 68%),
+    radial-gradient(44rem 22rem at -8% 16%, rgba(244,214,228,.16), transparent 68%),
+    radial-gradient(46rem 23rem at 106% 12%, rgba(191,225,240,.15), transparent 69%),
+    radial-gradient(40rem 22rem at 78% 88%, rgba(197,184,221,.10), transparent 71%),
+    linear-gradient(154deg, var(--dd-ref-canvas-1) 0%, var(--dd-ref-canvas-2) 48%, var(--dd-ref-canvas-3) 100%) !important;
+  background-attachment: fixed;
+}
+
+/* --- canonical glass shell: clear neutral centre, colour mostly on the rim --- */
+.dd-public-header,
+.dd-topbar,
+.dd-sidebar,
+.dd-public-card,
+.dd-public-cta,
+.dd-public-footer,
+.dd-landing-demo,
+.dd-patient-card,
+.dd-dashboard-card,
+.glass,
+.glass-strong,
+.glass-flat,
+.glass-flat-strong,
+.dd-liquid {
+  position: relative;
+  isolation: isolate;
+  border: 1px solid transparent !important;
+  background:
+    radial-gradient(105% 70% at 15% -8%, rgba(255,255,255,.34), transparent 56%),
+    radial-gradient(20% 40% at 100% 82%, rgba(91,216,241,.075), transparent 72%),
+    radial-gradient(18% 28% at 4% 97%, rgba(133,99,237,.055), transparent 74%),
+    var(--dd-ref-glass) padding-box,
+    var(--dd-ref-edge) border-box !important;
+  -webkit-backdrop-filter: blur(18px) saturate(116%) !important;
+  backdrop-filter: blur(18px) saturate(116%) !important;
+  box-shadow: var(--dd-ref-shadow) !important;
+}
+
+.dd-public-header::before,
+.dd-topbar::before,
+.dd-sidebar::before,
+.dd-public-card::before,
+.dd-public-cta::before,
+.dd-public-footer::before,
+.dd-landing-demo::before,
+.dd-patient-card::before,
+.dd-dashboard-card::before {
+  content: "";
+  position: absolute;
+  z-index: 0;
+  left: 4%;
+  right: 4%;
+  top: 1px;
+  height: 2px;
+  border-radius: 999px;
+  pointer-events: none;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,.82) 12%, rgba(255,255,255,.99) 48%, rgba(255,255,255,.78) 88%, transparent);
+}
+
+.dd-public-header::after,
+.dd-topbar::after,
+.dd-public-card::after,
+.dd-public-cta::after,
+.dd-public-footer::after,
+.dd-landing-demo::after,
+.dd-patient-card::after,
+.dd-dashboard-card::after {
+  content: "";
+  position: absolute;
+  z-index: 0;
+  left: 5%;
+  right: 5%;
+  bottom: -1px;
+  height: 3px;
+  border-radius: 999px;
+  pointer-events: none;
+  background: linear-gradient(90deg,
+    transparent 0%,
+    rgba(126,96,239,.31) 17%,
+    rgba(255,255,255,.11) 40%,
+    rgba(91,216,241,.47) 67%,
+    rgba(231,143,215,.32) 88%,
+    transparent 100%);
+  filter: blur(.65px);
+}
+
+.dd-public-header > *, .dd-topbar > *, .dd-sidebar > *,
+.dd-public-card > *, .dd-public-cta > *, .dd-public-footer > *,
+.dd-landing-demo > *, .dd-patient-card > *, .dd-dashboard-card > * {
+  position: relative;
+  z-index: 1;
+}
+
+/* --- header: approved board geometry and material --- */
+.dd-public-header,
+.dd-topbar {
+  min-height: 68px !important;
+  border-radius: 28px !important;
+  overflow: hidden;
+  background:
+    radial-gradient(90% 190% at 48% -112%, rgba(255,255,255,.50), transparent 62%),
+    linear-gradient(180deg, rgba(255,255,255,.29) 0%, rgba(247,242,247,.20) 51%, rgba(218,212,221,.18) 100%) padding-box,
+    var(--dd-ref-edge) border-box !important;
+  box-shadow:
+    0 20px 32px rgba(50,43,68,.17),
+    0 7px 13px rgba(62,54,81,.08),
+    3px 4px 12px rgba(97,213,238,.045),
+    inset 0 2px 1px rgba(255,255,255,.99),
+    inset 0 -1px 0 rgba(127,117,143,.20) !important;
+}
+
+.dd-public-header nav a,
+.dd-topbar nav a { border-radius: 999px !important; }
+
+/* --- left sidebar retained, same material family --- */
+.dd-sidebar {
+  border-radius: 28px !important;
+  overflow: hidden;
+  background:
+    radial-gradient(105% 36% at 50% 0%, rgba(255,255,255,.38), transparent 69%),
+    linear-gradient(165deg, rgba(255,255,255,.25), rgba(230,224,234,.16)) padding-box,
+    var(--dd-ref-edge) border-box !important;
+}
+
+.dd-nav-item {
+  min-height: 44px !important;
+  border-radius: 15px !important;
+}
+
+.dd-nav-active {
+  color: #6554d0 !important;
+  border: 1px solid transparent !important;
+  background:
+    linear-gradient(180deg, rgba(255,255,255,.49), rgba(237,232,241,.27)) padding-box,
+    linear-gradient(120deg, rgba(255,255,255,.98), rgba(224,212,250,.82), rgba(188,229,243,.62), rgba(255,255,255,.96)) border-box !important;
+  box-shadow: 0 6px 13px rgba(78,61,157,.11), inset 0 1.4px 1px rgba(255,255,255,.97) !important;
+}
+
+/* --- primary CTA: violet body, aqua concentrated at right end --- */
+.dd-primary,
+a.bg-brand,
+button.bg-brand {
+  border: 1px solid transparent !important;
+  border-radius: 999px !important;
+  color: #fff !important;
+  white-space: nowrap;
+  background:
+    radial-gradient(45% 92% at 18% 0%, rgba(255,255,255,.35), transparent 47%),
+    linear-gradient(100deg,
+      var(--dd-ref-violet) 0%,
+      var(--dd-ref-violet-2) 53%,
+      #9187f1 78%,
+      #78b8ed 91%,
+      var(--dd-ref-aqua) 100%) padding-box,
+    linear-gradient(120deg, rgba(228,216,255,.98), rgba(255,255,255,.97), rgba(170,231,246,.92), rgba(207,191,248,.92)) border-box !important;
+  box-shadow:
+    0 7px 14px rgba(84,65,181,.22),
+    0 2px 6px rgba(82,187,220,.10),
+    inset 0 1.6px 1px rgba(255,255,255,.75),
+    inset 0 -1.5px 2px rgba(61,47,145,.15) !important;
+}
+
+.dd-primary-arrow svg {
+  border-radius: 999px;
+  filter: drop-shadow(0 0 5px rgba(118,210,239,.30));
+}
+
+/* --- milky secondary / tertiary controls --- */
+.dd-secondary,
+.dd-icon-btn,
+.dd-profile-chip,
+.dd-chip,
+.dd-quick-row,
+.dd-feature-icon,
+.dd-step,
+.dd-patient-tile {
+  border: 1px solid transparent !important;
+  background:
+    linear-gradient(180deg, rgba(255,255,255,.48), rgba(235,230,238,.28)) padding-box,
+    linear-gradient(120deg, rgba(255,255,255,.98), rgba(228,220,242,.79), rgba(197,230,240,.53), rgba(255,255,255,.96)) border-box !important;
+  box-shadow:
+    0 5px 10px rgba(64,55,82,.07),
+    inset 0 1.5px 1px rgba(255,255,255,.94),
+    inset 0 -1px 0 rgba(132,123,147,.08) !important;
+}
+
+.dd-chip { border-radius: 999px !important; }
+
+/* --- inputs / search: slim luminous milk glass --- */
+.dd-input,
+input:not([type="checkbox"]):not([type="radio"]):not([type="file"]),
+select,
+textarea {
+  border: 1px solid transparent !important;
+  background:
+    linear-gradient(180deg, rgba(255,255,255,.50), rgba(236,231,239,.31)) padding-box,
+    linear-gradient(120deg, rgba(255,255,255,.98), rgba(228,220,242,.77), rgba(197,230,240,.48), rgba(255,255,255,.96)) border-box !important;
+  box-shadow: 0 4px 9px rgba(65,56,82,.055), inset 0 1.3px 1px rgba(255,255,255,.96) !important;
+}
+
+input:not([type="checkbox"]):not([type="radio"]):not([type="file"]),
+select { min-height: 42px; border-radius: 999px !important; }
+textarea { border-radius: 16px !important; }
+
+/* --- approved transparent patient / hero card --- */
+.dd-landing-demo,
+.dd-patient-card,
+.clinical-surface.sticky {
+  border-radius: 28px !important;
+  overflow: hidden;
+  background:
+    radial-gradient(112% 78% at 15% -5%, rgba(255,255,255,.24), transparent 56%),
+    radial-gradient(20% 37% at 100% 85%, rgba(92,217,242,.07), transparent 72%),
+    radial-gradient(18% 28% at 3% 97%, rgba(140,104,238,.055), transparent 74%),
+    linear-gradient(145deg, rgba(255,255,255,.16), rgba(232,226,235,.12)) padding-box,
+    var(--dd-ref-edge) border-box !important;
+  -webkit-backdrop-filter: blur(18px) saturate(116%) !important;
+  backdrop-filter: blur(18px) saturate(116%) !important;
+  box-shadow: var(--dd-ref-shadow) !important;
+}
+
+.dd-landing-inner {
+  border: 1px solid rgba(255,255,255,.58) !important;
+  border-radius: 22px !important;
+  background: linear-gradient(145deg, rgba(255,255,255,.17), rgba(237,232,240,.09)) !important;
+  -webkit-backdrop-filter: blur(9px) saturate(110%) !important;
+  backdrop-filter: blur(9px) saturate(110%) !important;
+  box-shadow: inset 0 1.5px 1px rgba(255,255,255,.87), inset 0 -1px 0 rgba(128,119,143,.07) !important;
+}
+
+.dd-landing-inner .dd-workflow-row {
+  border: 1px solid rgba(255,255,255,.62) !important;
+  background: linear-gradient(180deg, rgba(255,255,255,.29), rgba(239,234,241,.16)) !important;
+  -webkit-backdrop-filter: blur(7px) saturate(108%) !important;
+  backdrop-filter: blur(7px) saturate(108%) !important;
+  box-shadow: 0 6px 12px rgba(58,50,76,.06), inset 0 1.3px 1px rgba(255,255,255,.88) !important;
+}
+
+/* --- public feature / founding / footer surfaces use the SAME glass, not flat slabs --- */
+.dd-public-card,
+.dd-public-cta,
+.dd-public-footer {
+  border-radius: 24px !important;
+  background:
+    radial-gradient(100% 70% at 14% -8%, rgba(255,255,255,.27), transparent 58%),
+    linear-gradient(145deg, rgba(255,255,255,.20), rgba(233,227,236,.13)) padding-box,
+    var(--dd-ref-edge) border-box !important;
+}
+
+.dd-public-card { min-height: 100%; }
+.dd-public-cta { border-radius: 26px !important; }
+.dd-public-footer { border-radius: 26px !important; }
+
+/* --- dashboard / patient cards --- */
+.dd-dashboard-card,
+.dd-patient-card {
+  border-radius: 22px !important;
+}
+
+.dd-patient-card {
+  background:
+    radial-gradient(106% 72% at 12% -6%, rgba(255,255,255,.26), transparent 58%),
+    radial-gradient(20% 36% at 100% 83%, rgba(92,217,242,.065), transparent 72%),
+    linear-gradient(145deg, rgba(255,255,255,.18), rgba(232,226,235,.12)) padding-box,
+    var(--dd-ref-edge) border-box !important;
+}
+
+/* --- clinical cards: same rim/depth, higher centre opacity for readability --- */
+.clinical-surface {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  border: 1px solid transparent !important;
+  border-radius: 22px !important;
+  background:
+    radial-gradient(100% 75% at 10% -8%, rgba(255,255,255,.48), transparent 55%),
+    var(--dd-ref-glass-readable) padding-box,
+    var(--dd-ref-edge) border-box !important;
+  -webkit-backdrop-filter: blur(12px) saturate(110%) !important;
+  backdrop-filter: blur(12px) saturate(110%) !important;
+  box-shadow:
+    0 14px 27px rgba(49,43,67,.12),
+    0 5px 11px rgba(70,62,90,.065),
+    inset 0 1.8px 1px rgba(255,255,255,.98),
+    inset 0 -1px 0 rgba(133,125,147,.14) !important;
+}
+
+section.clinical-surface > div:first-child {
+  background: linear-gradient(180deg, rgba(255,255,255,.25), rgba(237,233,239,.10)) !important;
+  border-bottom-color: rgba(205,198,214,.40) !important;
+}
+
+/* timeline items = separate appointment-like liquid rows */
+#timeline > ol {
+  display: grid;
+  gap: 9px;
+  padding: 12px;
+}
+
+#timeline > ol > li,
+#timeline > ol > li + li { border-top: 0 !important; }
+
+#timeline > ol > li > a,
+#timeline > ol > li > div,
+section.clinical-surface > ul.divide-y > li,
+section.clinical-surface > p:not([role]) {
+  border: 1px solid transparent !important;
+  border-radius: 15px !important;
+  background:
+    linear-gradient(180deg, rgba(255,255,255,.46), rgba(237,232,240,.27)) padding-box,
+    linear-gradient(120deg, rgba(255,255,255,.98), rgba(228,220,242,.72), rgba(197,230,240,.45), rgba(255,255,255,.96)) border-box !important;
+  box-shadow: 0 5px 10px rgba(61,52,77,.06), inset 0 1.3px 1px rgba(255,255,255,.94) !important;
+}
+
+/* --- status pills sampled from approved board --- */
+.bg-success-soft {
+  background: var(--dd-ref-mint) !important;
+  border-color: rgba(255,255,255,.74) !important;
+  box-shadow: 0 4px 9px rgba(44,106,94,.06), inset 0 1px 1px rgba(255,255,255,.72) !important;
+}
+.bg-info-soft, .bg-brand-soft {
+  background: var(--dd-ref-progress) !important;
+  border-color: rgba(255,255,255,.72) !important;
+  box-shadow: 0 4px 9px rgba(64,74,151,.055), inset 0 1px 1px rgba(255,255,255,.72) !important;
+}
+.bg-warning-soft {
+  background: var(--dd-ref-pending) !important;
+  border-color: rgba(255,255,255,.72) !important;
+  box-shadow: 0 4px 9px rgba(143,91,40,.05), inset 0 1px 1px rgba(255,255,255,.72) !important;
+}
+.bg-danger-soft {
+  background: var(--dd-ref-cancelled) !important;
+  border-color: rgba(255,255,255,.72) !important;
+  box-shadow: 0 4px 9px rgba(154,64,81,.05), inset 0 1px 1px rgba(255,255,255,.72) !important;
+}
+.bg-surface-muted {
+  background: var(--dd-ref-noshow) !important;
+  border-color: rgba(255,255,255,.70) !important;
+  box-shadow: 0 4px 9px rgba(73,64,81,.04), inset 0 1px 1px rgba(255,255,255,.70) !important;
+}
+.text-success { color: #177d70 !important; }
+.text-info { color: #375cc4 !important; }
+.text-warning { color: #a75a14 !important; }
+.text-danger { color: #c64b5d !important; }
+
+/* critical safety text remains stronger than decorative status colours */
+[role="alert"], [data-severity="critical"] { color: #991b1b !important; }
+
+/* --- mobile: same material, compact geometry --- */
+@media (max-width: 767px) {
+  body {
+    background-image:
+      radial-gradient(31rem 17rem at 50% -4%, rgba(255,255,255,.22), transparent 68%),
+      radial-gradient(27rem 15rem at -12% 20%, rgba(244,214,228,.12), transparent 68%),
+      radial-gradient(28rem 16rem at 112% 16%, rgba(191,225,240,.11), transparent 69%),
+      linear-gradient(157deg, #ebe3e7 0%, #e3dde3 51%, #dcdae1 100%) !important;
+  }
+
+  .dd-public-header,
+  .dd-topbar { min-height: 62px !important; border-radius: 24px !important; }
+  .dd-sidebar,
+  .dd-public-card,
+  .dd-public-cta,
+  .dd-public-footer,
+  .dd-landing-demo,
+  .dd-patient-card,
+  .dd-dashboard-card,
+  .clinical-surface { border-radius: 20px !important; }
+
+  .dd-public-card,
+  .dd-public-cta,
+  .dd-public-footer { box-shadow: 0 12px 22px rgba(50,43,68,.12), inset 0 1.5px 1px rgba(255,255,255,.95) !important; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dd-primary, .dd-secondary, .dd-nav-item, .dd-public-card,
+  .dd-patient-card, .dd-quick-row { transition: none !important; transform: none !important; }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .dd-public-header, .dd-topbar, .dd-sidebar, .dd-public-card,
+  .dd-public-cta, .dd-public-footer, .dd-landing-demo,
+  .dd-patient-card, .dd-dashboard-card, .clinical-surface {
+    -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
+    background: #f4eff2 !important;
+  }
+}

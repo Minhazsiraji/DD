@@ -1,0 +1,271 @@
+/* Doctor's Diary — canonical approved liquid-glass material
+   Ported from the user's working HeaderStudy CSS.
+   This is intentionally a strong, visible implementation: canvas -> outside light pools ->
+   clear slab -> rim iridescence -> wet gloss/specular -> inset contour -> live content.
+   Presentation only. */
+
+:root {
+  --dd-approved-canvas-a: #e1ddee;
+  --dd-approved-canvas-b: #d7d3e6;
+  --dd-approved-canvas-c: #e3dff0;
+  --dd-approved-shadow: rgba(104, 88, 152, 0.5);
+}
+
+body {
+  background: linear-gradient(160deg, var(--dd-approved-canvas-a) 0%, var(--dd-approved-canvas-b) 52%, var(--dd-approved-canvas-c) 100%) fixed !important;
+}
+
+.dd-approved-stage {
+  position: relative;
+  isolation: isolate;
+  overflow: visible;
+}
+
+/* Layer 2: OUTSIDE light pools. This is deliberately a sibling of the slab,
+   not a child clipped by the slab. */
+.dd-approved-light {
+  position: absolute;
+  inset: -90px;
+  z-index: 0;
+  pointer-events: none;
+  border-radius: 120px;
+  background:
+    radial-gradient(125px 125px at 90px 50%, rgba(255,255,255,.98) 0%, rgba(255,255,255,.34) 44%, transparent 72%),
+    radial-gradient(115px 115px at calc(100% - 90px) 44%, rgba(255,255,255,.92) 0%, rgba(255,255,255,.30) 44%, transparent 72%),
+    radial-gradient(155px 105px at 33% 90px, rgba(255,255,255,.92) 0%, rgba(255,255,255,.28) 46%, transparent 74%),
+    radial-gradient(115px 92px at 66% 90px, rgba(255,255,255,.75) 0%, transparent 70%),
+    radial-gradient(145px 100px at 71% calc(100% - 90px), rgba(255,255,255,.90) 0%, rgba(255,255,255,.28) 46%, transparent 74%),
+    radial-gradient(105px 88px at 22% calc(100% - 90px), rgba(255,255,255,.72) 0%, transparent 70%);
+  filter: none;
+}
+
+.dd-approved-stage::after {
+  content: "";
+  position: absolute;
+  inset: -140px;
+  z-index: -1;
+  pointer-events: none;
+  background: radial-gradient(130% 120% at 50% 45%, transparent 64%, rgba(96,84,132,.10) 100%);
+}
+
+/* Layer 3: glass slab. */
+.dd-approved-slab {
+  position: relative !important;
+  isolation: isolate;
+  z-index: 2;
+  overflow: hidden;
+  border: 0 !important;
+  border-radius: 32px !important;
+  background: rgba(255,255,255,.01) !important;
+  -webkit-backdrop-filter: blur(20px) !important;
+  backdrop-filter: blur(20px) !important;
+  box-shadow:
+    inset 0 0 0 1px rgba(255,255,255,.95),
+    inset 0 2px 1px -1px rgba(255,255,255,1),
+    inset 0 6px 10px -5px rgba(255,255,255,1),
+    inset 3px 0 7px -4px rgba(255,255,255,.9),
+    inset 0 -9px 16px -8px rgba(104,88,152,.50),
+    inset -3px 0 7px -4px rgba(104,88,152,.30),
+    inset -1px -2px 3px -2px rgba(104,88,152,.45),
+    inset 0 -1.5px 0 0 rgba(255,255,255,.75),
+    inset 0 0 9px 0 rgba(255,255,255,.90),
+    0 0 0 1px rgba(255,255,255,.85),
+    0 0 12px 0 rgba(255,255,255,.50),
+    0 0 26px 2px rgba(255,255,255,.22),
+    0 10px 22px -12px rgba(78,64,128,.22),
+    0 26px 48px -30px rgba(110,92,172,.30) !important;
+}
+
+/* Broad gloss wash. */
+.dd-approved-slab::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  z-index: 2;
+  background: linear-gradient(
+    148deg,
+    rgba(255,255,255,.98) 0%,
+    rgba(255,255,255,.52) 5%,
+    rgba(255,255,255,.18) 11%,
+    rgba(255,255,255,.04) 17%,
+    rgba(255,255,255,0) 24%,
+    rgba(255,255,255,0) 76%,
+    rgba(255,255,255,.16) 94%,
+    rgba(255,255,255,.30) 100%
+  ) !important;
+}
+
+/* Wet-glass specular streak. */
+.dd-approved-slab::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  z-index: 2;
+  background: linear-gradient(
+    116deg,
+    transparent 0%,
+    transparent 18%,
+    rgba(255,255,255,.10) 22%,
+    rgba(255,255,255,.55) 26%,
+    rgba(255,255,255,.78) 29%,
+    rgba(255,255,255,.40) 32%,
+    rgba(255,255,255,.08) 36%,
+    transparent 41%,
+    transparent 100%
+  ) !important;
+}
+
+/* Rim iridescence — colour stays at the perimeter. */
+.dd-approved-glows {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  border-radius: inherit;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.dd-approved-glows::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(5% 30% at 0% 62%, rgba(126,226,236,.75) 0%, transparent 70%),
+    radial-gradient(9% 20% at 78% 100%, rgba(134,230,232,.68) 0%, transparent 70%),
+    radial-gradient(4.5% 22% at 100% 46%, rgba(150,238,208,.62) 0%, transparent 70%),
+    radial-gradient(7% 22% at 93% 0%, rgba(238,150,216,.60) 0%, transparent 70%),
+    radial-gradient(7% 20% at 5% 100%, rgba(240,158,216,.55) 0%, transparent 70%),
+    radial-gradient(5% 20% at 0% 16%, rgba(178,166,248,.50) 0%, transparent 70%),
+    radial-gradient(6% 16% at 44% 0%, rgba(176,172,250,.42) 0%, transparent 70%);
+}
+
+/* Engraved inner contour. */
+.dd-approved-contour {
+  position: absolute;
+  inset: 7px;
+  z-index: 1;
+  pointer-events: none;
+  border-radius: 25px;
+  box-shadow:
+    0 0 0 1px rgba(255,255,255,.95),
+    0 1px 2px 0 rgba(112,96,158,.26),
+    inset 0 1px 0 0 rgba(112,96,158,.14),
+    inset 0 -1px 0 0 rgba(255,255,255,.70);
+}
+
+.dd-approved-content {
+  position: relative;
+  z-index: 3;
+}
+
+/* Header: same glass, compact geometry. */
+.dd-header-stage {
+  width: min(1280px, 100%);
+  margin-inline: auto;
+}
+
+.dd-header-stage .dd-approved-light {
+  inset: -82px -90px;
+}
+
+.dd-public-header.dd-approved-slab {
+  min-height: 72px;
+  border-radius: 32px !important;
+}
+
+/* Hero/workspace card: deliberately transparent. */
+.dd-hero-stage .dd-approved-light {
+  inset: -96px;
+  transform: scale(1.03);
+}
+
+.dd-landing-demo.dd-approved-slab {
+  border-radius: 32px !important;
+  background: rgba(255,255,255,.008) !important;
+}
+
+.dd-landing-demo .dd-landing-inner {
+  border: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+
+/* Miniature wet-glass slabs for workflow rows. */
+.dd-workflow-row.dd-approved-mini {
+  position: relative !important;
+  isolation: isolate;
+  overflow: hidden;
+  border: 0 !important;
+  background: rgba(255,255,255,.012) !important;
+  -webkit-backdrop-filter: blur(13px) !important;
+  backdrop-filter: blur(13px) !important;
+  box-shadow:
+    inset 0 0 0 1px rgba(255,255,255,.92),
+    inset 0 2px 1px -1px rgba(255,255,255,.96),
+    inset 0 5px 8px -6px rgba(255,255,255,.95),
+    inset 0 -7px 12px -9px rgba(104,88,152,.34),
+    inset 0 0 6px rgba(255,255,255,.62),
+    0 0 0 1px rgba(255,255,255,.56),
+    0 5px 14px -8px rgba(78,64,128,.20) !important;
+}
+
+.dd-workflow-row.dd-approved-mini::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  border-radius: inherit;
+  background:
+    radial-gradient(7% 45% at 0% 65%, rgba(126,226,236,.46), transparent 72%),
+    radial-gradient(8% 50% at 100% 38%, rgba(150,238,208,.38), transparent 72%),
+    radial-gradient(10% 42% at 92% 0%, rgba(238,150,216,.34), transparent 72%),
+    linear-gradient(116deg, transparent 20%, rgba(255,255,255,.42) 28%, rgba(255,255,255,.10) 35%, transparent 43%);
+}
+
+.dd-workflow-row.dd-approved-mini::after {
+  content: "";
+  position: absolute;
+  inset: 4px;
+  z-index: 1;
+  pointer-events: none;
+  border-radius: calc(inherit - 4px);
+  box-shadow:
+    0 0 0 1px rgba(255,255,255,.78),
+    inset 0 1px 0 rgba(112,96,158,.10),
+    inset 0 -1px 0 rgba(255,255,255,.62);
+}
+
+.dd-workflow-row.dd-approved-mini > * {
+  position: relative;
+  z-index: 3;
+}
+
+/* Keep the step dot readable but translucent. */
+.dd-workflow-row.dd-approved-mini .dd-step {
+  background: rgba(255,255,255,.08) !important;
+  border: 1px solid rgba(255,255,255,.78) !important;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.90), 0 3px 8px rgba(59,51,77,.05) !important;
+}
+
+@media (max-width: 767px) {
+  .dd-approved-light { inset: -58px; opacity: .88; }
+  .dd-public-header.dd-approved-slab,
+  .dd-landing-demo.dd-approved-slab { border-radius: 27px !important; }
+  .dd-approved-contour { inset: 6px; border-radius: 21px; }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .dd-approved-slab,
+  .dd-workflow-row.dd-approved-mini {
+    background: rgba(249,248,252,.88) !important;
+    -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
+  }
+}
