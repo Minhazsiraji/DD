@@ -11,9 +11,18 @@ const sql = openLocalDatabase();
 const expectedPracticeAuthorityRpcs = new Set([
   "create_clinical_patient(text,uuid)",
   "open_encounter(uuid,uuid)",
+  "open_encounter_for_appointment(uuid)",
+  "update_encounter_sections(uuid,integer,text,text,text,text,text,text)",
+  "add_encounter_diagnosis(uuid,integer,text)",
+  "add_encounter_investigation(uuid,integer,text)",
+  "finish_consultation(uuid,integer)",
   "open_prescription(uuid)",
+  "add_prescription_item(uuid,integer,jsonb)",
   "finalize_prescription(uuid,integer,jsonb,text,text)",
-  "allocate_queue_token(uuid,date,uuid)",
+  "create_prescription_correction(uuid,text)",
+  "prepare_prescription_signature_asset(uuid)",
+  "create_prescription_template(text,jsonb)",
+  "update_prescription_template(uuid,text,jsonb,boolean)",
   "resolve_public_booking_patient(uuid,uuid)",
   "register_public_booking_patient(uuid,text,text,text)",
 ]);
@@ -305,6 +314,26 @@ async function expectPracticeDenied({
       },
     ],
     [
+      "open_encounter_for_appointment",
+      async () => { await sql`select public.open_encounter_for_appointment(${appointmentId})`; },
+    ],
+    [
+      "update_encounter_sections",
+      async () => { await sql`select public.update_encounter_sections(${encounterId},1,null,null,null,null,null,null)`; },
+    ],
+    [
+      "add_encounter_diagnosis",
+      async () => { await sql`select public.add_encounter_diagnosis(${encounterId},1,'Denied diagnosis')`; },
+    ],
+    [
+      "add_encounter_investigation",
+      async () => { await sql`select public.add_encounter_investigation(${encounterId},1,'Denied investigation')`; },
+    ],
+    [
+      "finish_consultation",
+      async () => { await sql`select public.finish_consultation(${encounterId},1)`; },
+    ],
+    [
       "open_prescription",
       async () => {
         await sql`
@@ -313,6 +342,10 @@ async function expectPracticeDenied({
           )
         `;
       },
+    ],
+    [
+      "add_prescription_item",
+      async () => { await sql`select public.add_prescription_item(${prescriptionId},1,'{"display_name":"Denied medicine"}'::jsonb)`; },
     ],
     [
       "finalize_prescription",
@@ -327,6 +360,22 @@ async function expectPracticeDenied({
           )
         `;
       },
+    ],
+    [
+      "create_prescription_correction",
+      async () => { await sql`select public.create_prescription_correction(${prescriptionId},'Denied correction')`; },
+    ],
+    [
+      "prepare_prescription_signature_asset",
+      async () => { await sql`select public.prepare_prescription_signature_asset(${prescriptionId})`; },
+    ],
+    [
+      "create_prescription_template",
+      async () => { await sql`select public.create_prescription_template('Denied template','{}'::jsonb)`; },
+    ],
+    [
+      "update_prescription_template",
+      async () => { await sql`select public.update_prescription_template(gen_random_uuid(),'Denied template','{}'::jsonb,true)`; },
     ],
     [
       "allocate_queue_token",
@@ -625,6 +674,14 @@ const profileId = crypto.randomUUID();
       ${location.id}
     )
     returning id
+  `;
+
+  await sql`
+    insert into public.practice_memberships(
+      practice_location_id, profile_id, role, status, joined_at
+    ) values (
+      ${location.id}, ${profileId}, 'DOCTOR', 'ACTIVE', clock_timestamp()
+    )
   `;
 
   const [credential] = await sql`

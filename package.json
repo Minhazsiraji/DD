@@ -61,7 +61,16 @@
     "db:verify:anon-operational-controls": "node scripts/p0-run.mjs scripts/verify-anon-operational-controls.mjs",
     "db:verify:audit-no-clinical-payload": "node scripts/p0-run.mjs scripts/verify-audit-no-clinical-payload.mjs",
     "db:verify:phone-canonicalization": "node scripts/p0-run.mjs scripts/verify-phone-canonicalization.mjs",
-    "db:verify:appointments-p0": "node scripts/p0-run.mjs scripts/verify-appointments-p0.mjs"
+    "db:verify:appointments-p0": "node scripts/p0-run.mjs scripts/verify-appointments-p0.mjs",
+    "db:verify:no-hardcoded-jurisdiction": "node scripts/p0-run.mjs scripts/verify-no-hardcoded-jurisdiction.mjs",
+    "db:verify:dd-number-immutable": "node scripts/p0-run.mjs scripts/verify-dd-number-immutable.mjs",
+    "db:verify:dd-number-not-authority": "node scripts/p0-run.mjs scripts/verify-dd-number-not-authority.mjs",
+    "db:verify:control-plane-isolation": "node scripts/p0-run.mjs scripts/verify-control-plane-isolation.mjs",
+    "db:verify:rollup-consistency": "node scripts/p0-run.mjs scripts/verify-rollup-consistency.mjs",
+    "db:verify:storage-paths": "node scripts/p0-run.mjs scripts/verify-storage-paths.mjs",
+    "db:verify:no-exclusion-predicates": "node scripts/p0-run.mjs scripts/verify-no-exclusion-predicates.mjs",
+    "db:verify:relationship-label-not-authority": "node scripts/p0-run.mjs scripts/verify-relationship-label-not-authority.mjs",
+    "db:verify:live-edge-uniformity": "node scripts/p0-run.mjs scripts/verify-live-edge-uniformity.mjs"
   },
   "dependencies": {
     "@base-ui/react": "^1.7.0",

@@ -1,11 +1,22 @@
 -- P0 reference seed. Jurisdiction-specific values belong here, never in schema DDL.
 insert into metric_definitions(metric_code, display_name, unit, allowed_dimensions)
 values
-  ('DOCTORS_REGISTERED', 'Doctors registered', 'COUNT', array['doctor_id','period_start']),
-  ('APPOINTMENTS_BOOKED', 'Appointments booked', 'COUNT', array['doctor_id','practice_location_id','period_start']),
-  ('CONSULTATIONS_COMPLETED', 'Consultations completed', 'COUNT', array['doctor_id','practice_location_id','period_start']),
-  ('PRESCRIPTIONS_FINALIZED', 'Prescriptions finalized', 'COUNT', array['doctor_id','practice_location_id','period_start'])
-on conflict (metric_code) do nothing;
+  ('DOCTORS_REGISTERED', 'Doctors registered', 'COUNT', array['doctor_id','period_start']::metric_dimension[]),
+  ('DOCTORS_VERIFIED', 'Doctors verified', 'COUNT', array['doctor_id','period_start']::metric_dimension[]),
+  ('APPOINTMENTS_BOOKED', 'Appointments booked', 'COUNT', array['doctor_id','practice_location_id','period_start']::metric_dimension[]),
+  ('APPOINTMENTS_RESCHEDULED', 'Appointments rescheduled', 'COUNT', array['doctor_id','practice_location_id','period_start']::metric_dimension[]),
+  ('APPOINTMENTS_CANCELLED', 'Appointments cancelled', 'COUNT', array['doctor_id','practice_location_id','period_start']::metric_dimension[]),
+  ('APPOINTMENTS_NO_SHOW', 'Appointments no-show', 'COUNT', array['doctor_id','practice_location_id','period_start']::metric_dimension[]),
+  ('APPOINTMENTS_COMPLETED', 'Appointments completed', 'COUNT', array['doctor_id','practice_location_id','period_start']::metric_dimension[]),
+  ('CONSULTATIONS_COMPLETED', 'Consultations completed', 'COUNT', array['doctor_id','practice_location_id','period_start']::metric_dimension[]),
+  ('CONSULTATIONS_ABANDONED', 'Consultations abandoned', 'COUNT', array['doctor_id','practice_location_id','period_start']::metric_dimension[]),
+  ('PRESCRIPTIONS_FINALIZED', 'Prescriptions finalized', 'COUNT', array['doctor_id','practice_location_id','period_start']::metric_dimension[]),
+  ('PRESCRIPTIONS_CORRECTED', 'Prescriptions corrected', 'COUNT', array['doctor_id','practice_location_id','period_start']::metric_dimension[])
+on conflict (metric_code) do update set
+  display_name = excluded.display_name,
+  unit = excluded.unit,
+  allowed_dimensions = excluded.allowed_dimensions,
+  is_active = true;
 
 insert into metric_classification_registry(classification_code)
 values ('STANDARD'), ('CORRECTION')

@@ -196,7 +196,9 @@ language plpgsql
 set search_path = pg_catalog, pg_temp
 as $$
 begin
-  if session_user <> 'dd_public_ingress' then
+  if session_user = 'dd_public_ingress' then
+    null;
+  else
     raise exception 'TRUSTED_PUBLIC_INGRESS_REQUIRED' using errcode='42501';
   end if;
 
@@ -229,7 +231,9 @@ begin
     raise exception 'PUBLIC_RATE_DIGEST_INVALID' using errcode='22023';
   end if;
 
-  if public_source not in ('PUBLIC_WEB','PUBLIC_APP') then
+  if public_source in ('PUBLIC_WEB','PUBLIC_APP') then
+    null;
+  else
     raise exception 'PUBLIC_SOURCE_INVALID' using errcode='22023';
   end if;
 
@@ -258,7 +262,9 @@ declare
   public_source text;
   request_key text;
 begin
-  if session_user <> 'dd_public_ingress' then
+  if session_user = 'dd_public_ingress' then
+    null;
+  else
     raise exception 'TRUSTED_PUBLIC_INGRESS_REQUIRED' using errcode='42501';
   end if;
 
@@ -290,8 +296,13 @@ begin
      or session_started::timestamptz <= clock_timestamp() - interval '24 hours'
      or length(session_digest) <> 64
      or length(network_digest) <> 64
-     or length(resource_digest) <> 64
-     or public_source not in ('PUBLIC_WEB','PUBLIC_APP') then
+     or length(resource_digest) <> 64 then
+    raise exception 'TRUSTED_PUBLIC_CONTEXT_INVALID' using errcode='42501';
+  end if;
+
+  if public_source in ('PUBLIC_WEB','PUBLIC_APP') then
+    null;
+  else
     raise exception 'TRUSTED_PUBLIC_CONTEXT_INVALID' using errcode='42501';
   end if;
 end $$;
@@ -529,7 +540,9 @@ as $$
 declare
   result uuid;
 begin
-  if session_user <> 'dd_public_ingress' then
+  if session_user = 'dd_public_ingress' then
+    null;
+  else
     raise exception 'TRUSTED_PUBLIC_INGRESS_REQUIRED' using errcode='42501';
   end if;
 
@@ -2119,7 +2132,7 @@ begin
 
   if tg_op = 'UPDATE'
      and new.source_channel in ('PUBLIC_WEB','PUBLIC_APP')
-     and old.source_channel not in ('PUBLIC_WEB','PUBLIC_APP') then
+     and old.source_channel in ('INTERNAL','DOCTOR','RECEPTIONIST','ASSISTANT','WALK_IN','SUPPORT_ASSISTED') then
     raise exception 'PUBLIC_BOOKING_SOURCE_IMMUTABLE'
       using errcode='23514';
   end if;
@@ -2178,3 +2191,875 @@ exception when unique_violation then
 end $$;
 
 revoke all on function public.create_professional_profile(text, profession), public.create_health_subject(text, subject_kind, text), public.create_clinical_patient(text, uuid), public.open_encounter(uuid, uuid), public.open_prescription(uuid) from public, anon;
+-- -----------------------------------------------------------------------------
+-- P0 DD-number allocation lifecycle hardening.
+-- Allocation rows are durable forever. LIVE -> RETIRED is permitted; RETIRED
+-- -> LIVE would make an old global identifier reusable and is forbidden.
+-- -----------------------------------------------------------------------------
+create or replace function public.prevent_dd_allocation_reactivation()
+returns trigger language plpgsql as $$
+begin
+  if old.allocation_state = 'RETIRED' and new.allocation_state = 'LIVE' then
+    raise exception 'DD_NUMBER_REACTIVATION_FORBIDDEN' using errcode='P0001';
+  end if;
+  return new;
+end $$;
+
+create trigger dd_number_allocations_no_reactivation
+before update on public.dd_number_allocations
+for each row execute function public.prevent_dd_allocation_reactivation();
+
+-- -----------------------------------------------------------------------------
+-- P0 Domain-L projection pipeline.
+-- metric_source_refs stays on the clinical side. Only its opaque source_ref
+-- crosses into metric_contributions; no clinical identifier or payload does.
+-- -----------------------------------------------------------------------------
+create or replace function public.record_p0_metric_contribution(
+  metric_name text,
+  source_kind metric_source_object_kind,
+  source_object uuid,
+  transition_code text,
+  source_transition_seq integer,
+  business_day date,
+  metric_doctor_id uuid,
+  metric_location_id uuid,
+  metric_delta integer,
+  metric_classification text default null
+)
+returns void
+language plpgsql
+volatile
+set search_path = public, pg_temp
+as $$
+declare
+  source_key uuid;
+begin
+  if metric_delta not in (-1, 1) then
+    raise exception 'METRIC_DELTA_INVALID' using errcode='22023';
+  end if;
+  if business_day is null then
+    raise exception 'METRIC_PERIOD_DAY_REQUIRED' using errcode='22023';
+  end if;
+
+  insert into public.metric_source_refs(
+    object_kind, object_id, transition, transition_seq
+  ) values (
+    source_kind, source_object, transition_code, source_transition_seq
+  )
+  on conflict (object_kind, object_id, transition, transition_seq) do nothing
+  returning source_ref into source_key;
+
+  if source_key is null then
+    select msr.source_ref into source_key
+    from public.metric_source_refs msr
+    where msr.object_kind = source_kind
+      and msr.object_id = source_object
+      and msr.transition = transition_code
+      and msr.transition_seq = source_transition_seq;
+  end if;
+
+  insert into public.metric_contributions(
+    metric_code, source_event_key, period_day, doctor_id,
+    practice_location_id, delta, classification_code
+  ) values (
+    metric_name, source_key, business_day, metric_doctor_id,
+    metric_location_id, metric_delta::smallint, metric_classification
+  )
+  on conflict (metric_code, source_event_key) do nothing;
+end $$;
+
+revoke all on function public.record_p0_metric_contribution(
+  text, metric_source_object_kind, uuid, text, integer, date, uuid, uuid, integer, text
+) from public, anon, authenticated, dd_owner_analytics, dd_metrics_reader, dd_metrics_rollup, dd_public_ingress;
+
+create or replace function public.emit_p0_profile_metric()
+returns trigger language plpgsql volatile security definer set search_path = public, pg_temp as $$
+begin
+  perform public.record_p0_metric_contribution(
+    'DOCTORS_REGISTERED','PROFESSIONAL_PROFILE',new.id,'REGISTERED',0,
+    (new.created_at at time zone 'UTC')::date,new.id,null,1,'STANDARD'
+  );
+  return new;
+end $$;
+
+create or replace function public.emit_p0_credential_metric()
+returns trigger language plpgsql volatile security definer set search_path = public, pg_temp as $$
+declare seq_no integer;
+begin
+  if (tg_op='INSERT' and new.verification_status='VERIFIED')
+     or (tg_op='UPDATE' and old.verification_status is distinct from 'VERIFIED' and new.verification_status='VERIFIED') then
+    select coalesce(max(msr.transition_seq),-1)+1 into seq_no from public.metric_source_refs msr
+      where msr.object_kind='CREDENTIAL' and msr.object_id=new.id and msr.transition='VERIFIED';
+    perform public.record_p0_metric_contribution('DOCTORS_VERIFIED','CREDENTIAL',new.id,'VERIFIED',seq_no,
+      (coalesce(new.verified_at,clock_timestamp()) at time zone 'UTC')::date,new.professional_profile_id,null,1,'STANDARD');
+  elsif tg_op='UPDATE' and old.verification_status='VERIFIED' and new.verification_status is distinct from 'VERIFIED' then
+    select coalesce(max(msr.transition_seq),-1)+1 into seq_no from public.metric_source_refs msr
+      where msr.object_kind='CREDENTIAL' and msr.object_id=new.id and msr.transition='UNVERIFIED';
+    perform public.record_p0_metric_contribution('DOCTORS_VERIFIED','CREDENTIAL',new.id,'UNVERIFIED',seq_no,current_date,
+      new.professional_profile_id,null,-1,'STANDARD');
+  end if;
+  return new;
+end $$;
+create or replace function public.emit_p0_appointment_metric()
+returns trigger language plpgsql volatile security definer set search_path = public, pg_temp as $$
+declare seq_no integer;
+begin
+  if tg_op='INSERT' then
+    perform public.record_p0_metric_contribution('APPOINTMENTS_BOOKED','APPOINTMENT',new.id,'BOOKED',0,new.session_date,
+      new.owner_doctor_id,new.practice_location_id,1,'STANDARD');
+    if new.rescheduled_from_id is not null then
+      perform public.record_p0_metric_contribution('APPOINTMENTS_RESCHEDULED','APPOINTMENT',new.id,'RESCHEDULED',0,new.session_date,
+        new.owner_doctor_id,new.practice_location_id,1,'STANDARD');
+    end if;
+    return new;
+  end if;
+  if old.status is not distinct from new.status then return new; end if;
+  if new.status='CANCELLED' and coalesce(new.cancellation_reason::text,'')<>'RESCHEDULED' then
+    perform public.record_p0_metric_contribution('APPOINTMENTS_CANCELLED','APPOINTMENT',new.id,'CANCELLED',0,new.session_date,
+      new.owner_doctor_id,new.practice_location_id,1,'STANDARD');
+  end if;
+  if new.status='NO_SHOW' then
+    perform public.record_p0_metric_contribution('APPOINTMENTS_NO_SHOW','APPOINTMENT',new.id,'NO_SHOW',0,new.session_date,
+      new.owner_doctor_id,new.practice_location_id,1,'STANDARD');
+  elsif old.status='NO_SHOW' and new.status='COMPLETED' then
+    perform public.record_p0_metric_contribution('APPOINTMENTS_NO_SHOW','APPOINTMENT',new.id,'NO_SHOW_REVERSED',0,new.session_date,
+      new.owner_doctor_id,new.practice_location_id,-1,'STANDARD');
+  end if;
+  if new.status='COMPLETED' and old.status is distinct from 'COMPLETED' then
+    select coalesce(max(msr.transition_seq),-1)+1 into seq_no from public.metric_source_refs msr
+      where msr.object_kind='APPOINTMENT' and msr.object_id=new.id and msr.transition='COMPLETED';
+    perform public.record_p0_metric_contribution('APPOINTMENTS_COMPLETED','APPOINTMENT',new.id,'COMPLETED',seq_no,new.session_date,
+      new.owner_doctor_id,new.practice_location_id,1,'STANDARD');
+  elsif old.status='COMPLETED' and new.status is distinct from 'COMPLETED' then
+    select coalesce(max(msr.transition_seq),-1)+1 into seq_no from public.metric_source_refs msr
+      where msr.object_kind='APPOINTMENT' and msr.object_id=new.id and msr.transition='COMPLETION_REVERSED';
+    perform public.record_p0_metric_contribution('APPOINTMENTS_COMPLETED','APPOINTMENT',new.id,'COMPLETION_REVERSED',seq_no,new.session_date,
+      new.owner_doctor_id,new.practice_location_id,-1,'STANDARD');
+  end if;
+  return new;
+end $$;
+
+create or replace function public.emit_p0_encounter_metric()
+returns trigger language plpgsql volatile security definer set search_path = public, pg_temp as $$
+declare seq_no integer; metric_day date; zone_name text;
+begin
+  if old.status is not distinct from new.status then return new; end if;
+  select pl.timezone into zone_name from public.practice_locations pl where pl.id=new.practice_location_id;
+  metric_day := (coalesce(new.completed_at,clock_timestamp()) at time zone coalesce(zone_name,'UTC'))::date;
+  if old.status='DRAFT' and new.status='CANCELLED' then
+    perform public.record_p0_metric_contribution('CONSULTATIONS_ABANDONED','ENCOUNTER',new.id,'ABANDONED',0,metric_day,
+      new.owner_doctor_id,new.practice_location_id,1,'STANDARD');
+  elsif old.status='CANCELLED' and new.status='COMPLETED' then
+    perform public.record_p0_metric_contribution('CONSULTATIONS_ABANDONED','ENCOUNTER',new.id,'ABANDON_REVERSED',0,metric_day,
+      new.owner_doctor_id,new.practice_location_id,-1,'STANDARD');
+  end if;
+  if new.status='COMPLETED' and old.status is distinct from 'COMPLETED' then
+    select coalesce(max(msr.transition_seq),-1)+1 into seq_no from public.metric_source_refs msr
+      where msr.object_kind='ENCOUNTER' and msr.object_id=new.id and msr.transition='COMPLETED';
+    perform public.record_p0_metric_contribution('CONSULTATIONS_COMPLETED','ENCOUNTER',new.id,'COMPLETED',seq_no,metric_day,
+      new.owner_doctor_id,new.practice_location_id,1,'STANDARD');
+  elsif old.status='COMPLETED' and new.status='DRAFT' then
+    select coalesce(max(msr.transition_seq),-1)+1 into seq_no from public.metric_source_refs msr
+      where msr.object_kind='ENCOUNTER' and msr.object_id=new.id and msr.transition='REOPENED';
+    perform public.record_p0_metric_contribution('CONSULTATIONS_COMPLETED','ENCOUNTER',new.id,'REOPENED',seq_no,metric_day,
+      new.owner_doctor_id,new.practice_location_id,-1,'STANDARD');
+  end if;
+  return new;
+end $$;
+
+create or replace function public.emit_p0_prescription_metric()
+returns trigger language plpgsql volatile security definer set search_path = public, pg_temp as $$
+declare metric_day date; zone_name text;
+begin
+  if old.status='DRAFT' and new.status='FINALIZED' then
+    select pl.timezone into zone_name from public.practice_locations pl where pl.id=new.practice_location_id;
+    metric_day := (coalesce(new.finalized_at,clock_timestamp()) at time zone coalesce(zone_name,'UTC'))::date;
+    perform public.record_p0_metric_contribution('PRESCRIPTIONS_FINALIZED','PRESCRIPTION',new.id,'FINALIZED',0,metric_day,
+      new.owner_doctor_id,new.practice_location_id,1,'STANDARD');
+    if new.replaces_prescription_id is not null then
+      perform public.record_p0_metric_contribution('PRESCRIPTIONS_CORRECTED','PRESCRIPTION',new.id,'CORRECTION_OF',0,metric_day,
+        new.owner_doctor_id,new.practice_location_id,1,'CORRECTION');
+    end if;
+  end if;
+  return new;
+end $$;
+revoke all on function public.emit_p0_profile_metric() from public,anon,authenticated,service_role,dd_owner_analytics,dd_metrics_reader,dd_metrics_rollup,dd_public_ingress;
+revoke all on function public.emit_p0_credential_metric() from public,anon,authenticated,service_role,dd_owner_analytics,dd_metrics_reader,dd_metrics_rollup,dd_public_ingress;
+revoke all on function public.emit_p0_appointment_metric() from public,anon,authenticated,service_role,dd_owner_analytics,dd_metrics_reader,dd_metrics_rollup,dd_public_ingress;
+revoke all on function public.emit_p0_encounter_metric() from public,anon,authenticated,service_role,dd_owner_analytics,dd_metrics_reader,dd_metrics_rollup,dd_public_ingress;
+revoke all on function public.emit_p0_prescription_metric() from public,anon,authenticated,service_role,dd_owner_analytics,dd_metrics_reader,dd_metrics_rollup,dd_public_ingress;
+
+drop trigger if exists p0_metric_professional_profile on public.professional_profiles;
+drop trigger if exists p0_metric_professional_credential on public.professional_credentials;
+drop trigger if exists p0_metric_appointment on public.appointments;
+drop trigger if exists p0_metric_encounter on public.encounters;
+drop trigger if exists p0_metric_prescription on public.prescriptions;
+create trigger p0_metric_professional_profile after insert on public.professional_profiles
+  for each row execute function public.emit_p0_profile_metric();
+create trigger p0_metric_professional_credential after insert or update on public.professional_credentials
+  for each row execute function public.emit_p0_credential_metric();
+create trigger p0_metric_appointment after insert or update on public.appointments
+  for each row execute function public.emit_p0_appointment_metric();
+create trigger p0_metric_encounter after update on public.encounters
+  for each row execute function public.emit_p0_encounter_metric();
+create trigger p0_metric_prescription after update on public.prescriptions
+  for each row execute function public.emit_p0_prescription_metric();
+
+-- Aggregate cache rebuild. SECURITY INVOKER is deliberate: only the dedicated
+-- maintenance role receives EXECUTE plus raw-read/aggregate-write grants.
+create or replace function public.rebuild_metric_rollups(target_day date)
+returns integer
+language plpgsql
+volatile
+set search_path = public, pg_temp
+as $$
+declare
+  month_start date := date_trunc('month', target_day)::date;
+  month_end date := (date_trunc('month', target_day) + interval '1 month')::date;
+  written integer := 0;
+  month_written integer := 0;
+begin
+  if target_day is null then
+    raise exception 'METRIC_PERIOD_REQUIRED' using errcode='22023';
+  end if;
+
+  perform pg_advisory_xact_lock(hashtextextended('dd:metric:month:' || month_start::text, 0));
+  perform pg_advisory_xact_lock(hashtextextended('dd:metric:day:' || target_day::text, 0));
+
+  delete from public.metric_rollups mr
+  where (mr.period_kind = 'DAY' and mr.period_start = target_day)
+     or (mr.period_kind = 'MONTH' and mr.period_start = month_start);
+
+  insert into public.metric_rollups(
+    metric_code, period_kind, period_start, doctor_id,
+    practice_location_id, count_value, updated_at
+  )
+  select mc.metric_code, 'DAY'::public.metric_period_kind, target_day,
+         mc.doctor_id, mc.practice_location_id, sum(mc.delta)::bigint,
+         clock_timestamp()
+  from public.metric_contributions mc
+  where mc.period_day = target_day
+  group by mc.metric_code, mc.doctor_id, mc.practice_location_id;
+  get diagnostics written = row_count;
+
+  insert into public.metric_rollups(
+    metric_code, period_kind, period_start, doctor_id,
+    practice_location_id, count_value, updated_at
+  )
+  select mc.metric_code, 'MONTH'::public.metric_period_kind, month_start,
+         mc.doctor_id, mc.practice_location_id, sum(mc.delta)::bigint,
+         clock_timestamp()
+  from public.metric_contributions mc
+  where mc.period_day >= month_start and mc.period_day < month_end
+  group by mc.metric_code, mc.doctor_id, mc.practice_location_id;
+  get diagnostics month_written = row_count;
+  written := written + month_written;
+
+  return written;
+end $$;
+
+revoke all on function public.rebuild_metric_rollups(date)
+from public, anon, authenticated, dd_owner_analytics, dd_metrics_reader, dd_public_ingress;
+
+create or replace function public.refresh_metric_rollups_after_contribution()
+returns trigger
+language plpgsql
+volatile
+security definer
+set search_path = public, pg_temp
+as $$
+begin
+  perform public.rebuild_metric_rollups(new.period_day);
+  return new;
+end $$;
+
+revoke all on function public.refresh_metric_rollups_after_contribution()
+from public, anon, authenticated, dd_owner_analytics, dd_metrics_reader, dd_metrics_rollup, dd_public_ingress;
+
+create trigger metric_contributions_refresh_rollups
+  after insert on public.metric_contributions
+  for each row execute function public.refresh_metric_rollups_after_contribution();
+
+-- P0 trusted clinical/operational write surface closure.
+create or replace function public.doctor_active_at(location_key uuid, doctor_key uuid)
+returns boolean language sql stable security definer set search_path = public, pg_temp as $$
+  select exists (
+    select 1 from public.professional_profiles pp
+    join public.practice_memberships pm on pm.profile_id=pp.profile_id
+    join public.practice_locations pl on pl.id=pm.practice_location_id
+    where pp.id=doctor_key and pp.profession='DOCTOR'
+      and pm.practice_location_id=location_key and pm.role='DOCTOR'
+      and pm.status='ACTIVE' and pl.is_active=true
+  )
+$$;
+
+create or replace function public.may_manage_appointment(target uuid)
+returns boolean language sql stable security definer set search_path = public, pg_temp as $$
+  select exists (
+    select 1 from public.appointments a
+    where a.id=target and (
+      (a.owner_doctor_id=public.current_doctor_id()
+       and public.has_capability(public.current_profile_id(),'DOCTOR')
+       and public.doctor_active_at(a.practice_location_id,a.owner_doctor_id))
+      or exists (select 1 from public.practice_memberships pm
+        where pm.practice_location_id=a.practice_location_id
+          and pm.profile_id=public.current_profile_id()
+          and pm.status='ACTIVE' and pm.role in ('RECEPTIONIST','LOCATION_ADMIN'))
+    )
+  )
+$$;create or replace function public.may_hand_over_prescription(target uuid)
+returns boolean language sql stable security definer set search_path = public, pg_temp as $$
+  select exists (
+    select 1 from public.prescriptions p
+    where p.id=target and p.status='FINALIZED' and (
+      (p.owner_doctor_id=public.current_doctor_id()
+       and public.has_capability(public.current_profile_id(),'DOCTOR')
+       and public.doctor_active_at(p.practice_location_id,p.owner_doctor_id))
+      or exists (select 1 from public.practice_memberships pm
+        where pm.practice_location_id=p.practice_location_id
+          and pm.profile_id=public.current_profile_id()
+          and pm.status='ACTIVE' and pm.role in ('RECEPTIONIST','LOCATION_ADMIN'))
+    )
+  )
+$$;
+
+create or replace function public.create_clinical_patient(patient_name text, location_id uuid)
+returns uuid language plpgsql security definer set search_path = public, pg_temp as $$
+declare doctor uuid; result uuid; next_number integer; prefix text;
+begin
+  doctor := public.current_doctor_id();
+  if doctor is null or not public.has_capability(public.current_profile_id(),'DOCTOR')
+     or not public.doctor_active_at(location_id,doctor) then
+    raise exception 'PRACTICE_AUTHORITY_REQUIRED' using errcode='42501';
+  end if;
+  if nullif(btrim(patient_name),'') is null then raise exception 'PATIENT_NAME_REQUIRED' using errcode='22023'; end if;
+  select patient_number_seq,patient_number_prefix into next_number,prefix from public.professional_profiles where id=doctor for update;
+  update public.professional_profiles set patient_number_seq=next_number+1 where id=doctor;
+  insert into public.clinical_patients(owner_doctor_id,patient_number,full_name)
+  values(doctor,prefix||'-'||lpad((next_number+1)::text,6,'0'),btrim(patient_name)) returning id into result;
+  return result;
+end $$;create or replace function public.open_encounter(patient_id uuid, location_id uuid)
+returns uuid language plpgsql security definer set search_path = public, pg_temp as $$
+declare doctor uuid; result uuid;
+begin
+  doctor:=public.current_doctor_id();
+  if doctor is null or not public.has_capability(public.current_profile_id(),'DOCTOR')
+     or not public.doctor_active_at(location_id,doctor) then
+    raise exception 'PRACTICE_AUTHORITY_REQUIRED' using errcode='42501';
+  end if;
+  if not exists(select 1 from public.clinical_patients cp where cp.id=patient_id and cp.owner_doctor_id=doctor and cp.deleted_at is null) then
+    raise exception 'PATIENT_NOT_FOUND' using errcode='42501';
+  end if;
+  insert into public.encounters(owner_doctor_id,clinical_patient_id,practice_location_id)
+  values(doctor,patient_id,location_id) returning id into result;
+  insert into public.encounter_events(encounter_id,owner_doctor_id,event) values(result,doctor,'OPENED');
+  perform public.emit_audit_event('ENCOUNTER_OPENED','encounters',result,null);
+  return result;
+exception when unique_violation then
+  raise exception 'ENCOUNTER_DRAFT_ALREADY_EXISTS' using errcode='P0001';
+end $$;
+
+create or replace function public.update_encounter_sections(
+  encounter_key uuid, expected_version integer, chief text, illness text,
+  history text, exam text, assessment_text text, advice_text text
+) returns integer language plpgsql security definer set search_path = public, pg_temp as $$
+declare doctor uuid:=public.current_doctor_id(); next_version integer;
+begin
+  if doctor is null or not public.has_capability(public.current_profile_id(),'DOCTOR') then raise exception 'PRACTICE_AUTHORITY_REQUIRED' using errcode='42501'; end if;
+  update public.encounters set chief_complaints=chief,present_illness=illness,past_history=history,
+    examination=exam,assessment=assessment_text,advice=advice_text,version=version+1
+  where id=encounter_key and owner_doctor_id=doctor and status='DRAFT' and version=expected_version
+  returning version into next_version;
+  if next_version is null then raise exception 'ENCOUNTER_VERSION_OR_STATE_CONFLICT' using errcode='P0001'; end if;
+  insert into public.encounter_events(encounter_id,owner_doctor_id,event) values(encounter_key,doctor,'UPDATED');
+  return next_version;
+end $$;create or replace function public.finish_consultation(encounter_key uuid, expected_version integer)
+returns integer language plpgsql security definer set search_path = public, pg_temp as $$
+declare doctor uuid:=public.current_doctor_id(); next_version integer; appt uuid; old_appt appointment_status;
+begin
+  if doctor is null or not public.has_capability(public.current_profile_id(),'DOCTOR') then raise exception 'PRACTICE_AUTHORITY_REQUIRED' using errcode='42501'; end if;
+  update public.encounters set status='COMPLETED',completed_at=clock_timestamp(),version=version+1
+  where id=encounter_key and owner_doctor_id=doctor and status='DRAFT' and version=expected_version
+  returning version,appointment_id into next_version,appt;
+  if next_version is null then raise exception 'ENCOUNTER_VERSION_OR_STATE_CONFLICT' using errcode='P0001'; end if;
+  insert into public.encounter_events(encounter_id,owner_doctor_id,event) values(encounter_key,doctor,'COMPLETED');
+  if appt is not null then
+    select status into old_appt from public.appointments where id=appt and owner_doctor_id=doctor for update;
+    if old_appt in ('ARRIVED','IN_CONSULTATION') then
+      update public.appointments set status='COMPLETED',completed_at=clock_timestamp(),updated_at=clock_timestamp() where id=appt;
+      insert into public.appointment_events(appointment_id,from_status,to_status,actor_kind,actor_id,reason)
+      values(appt,old_appt,'COMPLETED','USER',public.current_profile_id(),'CONSULTATION_FINISHED');
+    end if;
+  end if;
+  perform public.emit_audit_event('ENCOUNTER_COMPLETED','encounters',encounter_key,null);
+  return next_version;
+end $$;
+
+create or replace function public.add_prescription_item(prescription_key uuid, expected_version integer, item jsonb)
+returns uuid language plpgsql security definer set search_path = public, pg_temp as $$
+declare doctor uuid:=public.current_doctor_id(); result uuid; next_position integer;
+begin
+  if doctor is null or not public.has_capability(public.current_profile_id(),'DOCTOR') then raise exception 'PRACTICE_AUTHORITY_REQUIRED' using errcode='42501'; end if;
+  perform 1 from public.prescriptions p where p.id=prescription_key and p.owner_doctor_id=doctor and p.status='DRAFT' and p.version=expected_version for update;
+  if not found then raise exception 'PRESCRIPTION_VERSION_OR_STATE_CONFLICT' using errcode='P0001'; end if;
+  if nullif(btrim(item->>'display_name'),'') is null then raise exception 'PRESCRIPTION_ITEM_INVALID' using errcode='22023'; end if;
+  select coalesce(max(position),-1)+1 into next_position from public.prescription_items where prescription_id=prescription_key;
+  insert into public.prescription_items(prescription_id,display_name,brand_name,generic_name,strength_text,dose_text,dosage_form,route,schedule_text,duration_text,quantity_text,food_relation,is_prn,instructions,substitution_allowed,position)
+  values(prescription_key,btrim(item->>'display_name'),item->>'brand_name',item->>'generic_name',item->>'strength_text',item->>'dose_text',item->>'dosage_form',item->>'route',item->>'schedule_text',item->>'duration_text',item->>'quantity_text',item->>'food_relation',coalesce((item->>'is_prn')::boolean,false),item->>'instructions',coalesce((item->>'substitution_allowed')::boolean,false),next_position)
+  returning id into result;
+  update public.prescriptions set version=version+1 where id=prescription_key;
+  return result;
+end $$;create or replace function public.prescription_review_bundle(prescription_key uuid)
+returns jsonb language plpgsql stable security definer set search_path = public, pg_temp as $$
+declare doctor uuid:=public.current_doctor_id(); rx public.prescriptions%rowtype; bundle jsonb; expected_path text; profile_id uuid;
+begin
+  if doctor is null or not public.has_capability(public.current_profile_id(),'DOCTOR') then raise exception 'PRACTICE_AUTHORITY_REQUIRED' using errcode='42501'; end if;
+  select * into rx from public.prescriptions where id=prescription_key and owner_doctor_id=doctor and status='DRAFT';
+  if not found then raise exception 'PRESCRIPTION_NOT_FOUND' using errcode='42501'; end if;
+  select pp.profile_id into profile_id from public.professional_profiles pp where pp.id=doctor;
+  expected_path:=profile_id::text||'/'||rx.id::text||'/signature';
+  select jsonb_build_object(
+    'schemaVersion','P0','prescriptionId',rx.id,'encounterId',rx.encounter_id,
+    'doctor',(select jsonb_build_object('id',pp.id,'displayName',pp.display_name,'designation',pp.designation,'qualification',pp.qualification) from public.professional_profiles pp where pp.id=doctor),
+    'location',(select jsonb_build_object('id',pl.id,'name',pl.name,'type',pl.location_type,'countryCode',pl.country_code) from public.practice_locations pl where pl.id=rx.practice_location_id),
+    'patient',(select jsonb_build_object('id',cp.id,'patientNumber',cp.patient_number,'fullName',cp.full_name,'dob',cp.dob,'sex',cp.sex,'bloodGroup',cp.blood_group) from public.clinical_patients cp where cp.id=rx.clinical_patient_id and cp.owner_doctor_id=doctor),
+    'items',coalesce((select jsonb_agg(to_jsonb(i)-'prescription_id' order by i.position) from public.prescription_items i where i.prescription_id=rx.id),'[]'::jsonb),
+    'signature',jsonb_build_object('path',expected_path)
+  ) into bundle;
+  return jsonb_build_object('bundle',bundle,'digest',encode(extensions.digest(convert_to(bundle::text,'UTF8'),'sha256'),'hex'),'expectedSignaturePath',expected_path,'version',rx.version);
+end $$;
+
+create or replace function public.finalize_prescription(prescription_key uuid, expected_version integer, approved_bundle jsonb, approved_digest text, frozen_signature_path text)
+returns uuid language plpgsql security definer set search_path = public, pg_temp as $$
+declare doctor uuid:=public.current_doctor_id(); review jsonb; trusted_bundle jsonb; trusted_digest text; trusted_path text; items integer;
+begin
+  if doctor is null or not public.has_capability(public.current_profile_id(),'DOCTOR') then raise exception 'PRACTICE_AUTHORITY_REQUIRED' using errcode='42501'; end if;
+  perform 1 from public.prescriptions p where p.id=prescription_key and p.owner_doctor_id=doctor and p.status='DRAFT' and p.version=expected_version for update;
+  if not found then raise exception 'PRESCRIPTION_VERSION_OR_STATE_CONFLICT' using errcode='P0001'; end if;
+  select count(*) into items from public.prescription_items where prescription_id=prescription_key;
+  if items=0 then raise exception 'PRESCRIPTION_EMPTY' using errcode='22023'; end if;
+  review:=public.prescription_review_bundle(prescription_key); trusted_bundle:=review->'bundle'; trusted_digest:=review->>'digest'; trusted_path:=review->>'expectedSignaturePath';
+  if approved_bundle is distinct from trusted_bundle or approved_digest is distinct from trusted_digest or frozen_signature_path is distinct from trusted_path then raise exception 'REVIEW_STALE_OR_UNTRUSTED' using errcode='22023'; end if;
+  if not exists(select 1 from storage.objects o where o.bucket_id='prescription-assets' and o.name=trusted_path and coalesce(o.is_delete_marker,false)=false) then raise exception 'SIGNATURE_NOT_FROZEN' using errcode='22023'; end if;
+  update public.prescriptions set status='FINALIZED',version=version+1,review_bundle_snapshot=trusted_bundle,review_digest=trusted_digest,signature_asset_path=trusted_path,snapshot_schema_version='P0',finalized_at=clock_timestamp() where id=prescription_key;
+  insert into public.prescription_events(prescription_id,event,actor_kind,actor_id) values(prescription_key,'FINALIZED','USER',public.current_profile_id());
+  perform public.emit_audit_event('PRESCRIPTION_FINALIZED','prescriptions',prescription_key,null); return prescription_key;
+end $$;create or replace function public.create_prescription_correction(original_key uuid, reason text)
+returns uuid language plpgsql security definer set search_path = public, pg_temp as $$
+declare doctor uuid:=public.current_doctor_id(); original public.prescriptions%rowtype; result uuid;
+begin
+  if doctor is null or not public.has_capability(public.current_profile_id(),'DOCTOR') then raise exception 'PRACTICE_AUTHORITY_REQUIRED' using errcode='42501'; end if;
+  if nullif(btrim(reason),'') is null or char_length(btrim(reason))>500 then raise exception 'CORRECTION_REASON_REQUIRED' using errcode='22023'; end if;
+  perform pg_advisory_xact_lock(hashtextextended('rx:correct:'||original_key::text,0));
+  select * into original from public.prescriptions where id=original_key and owner_doctor_id=doctor and status='FINALIZED' for update;
+  if not found then raise exception 'PRESCRIPTION_NOT_FOUND' using errcode='42501'; end if;
+  if exists(select 1 from public.prescriptions where replaces_prescription_id=original_key) then raise exception 'PRESCRIPTION_ALREADY_CORRECTED' using errcode='P0001'; end if;
+  insert into public.prescriptions(encounter_id,owner_doctor_id,clinical_patient_id,practice_location_id,replaces_prescription_id,replacement_reason)
+  values(original.encounter_id,doctor,original.clinical_patient_id,original.practice_location_id,original_key,btrim(reason)) returning id into result;
+  insert into public.prescription_items(prescription_id,display_name,brand_name,generic_name,strength_text,dose_text,dosage_form,route,schedule_text,duration_text,quantity_text,food_relation,is_prn,instructions,substitution_allowed,position)
+  select result,display_name,brand_name,generic_name,strength_text,dose_text,dosage_form,route,schedule_text,duration_text,quantity_text,food_relation,is_prn,instructions,substitution_allowed,position
+  from public.prescription_items where prescription_id=original_key order by position;
+  insert into public.prescription_events(prescription_id,event,actor_kind,actor_id) values(result,'CORRECTION_STARTED','USER',public.current_profile_id());
+  perform public.emit_audit_event('PRESCRIPTION_CORRECTION_STARTED','prescriptions',result,null); return result;
+exception when unique_violation then raise exception 'PRESCRIPTION_ALREADY_CORRECTED' using errcode='P0001';
+end $$;
+
+create or replace function public.handover_prescription(prescription_key uuid)
+returns jsonb language plpgsql security definer set search_path = public, pg_temp as $$
+declare rx public.prescriptions%rowtype;
+begin
+  if public.current_profile_id() is null then raise exception 'AUTHENTICATION_REQUIRED' using errcode='42501'; end if;
+  select * into rx from public.prescriptions where id=prescription_key and status='FINALIZED';
+  if not found or not public.may_hand_over_prescription(prescription_key) then raise exception 'PRESCRIPTION_NOT_FOUND' using errcode='42501'; end if;
+  insert into public.prescription_events(prescription_id,event,actor_kind,actor_id) values(prescription_key,'HANDED_OVER','USER',public.current_profile_id());
+  perform public.emit_audit_event('PRESCRIPTION_HANDED_OVER','prescriptions',prescription_key,null);
+  return jsonb_build_object('id',rx.id,'finalizedAt',rx.finalized_at,'reviewDigest',rx.review_digest,'bundle',rx.review_bundle_snapshot,'signatureAssetPath',rx.signature_asset_path);
+end $$;create or replace function public.create_internal_appointment(chamber_key uuid, patient_key uuid, requested_slot timestamptz, booking_mode appointment_mode default 'IN_PERSON')
+returns uuid language plpgsql security definer set search_path = public, pg_temp as $$
+declare caller uuid:=public.current_profile_id(); doctor uuid; loc uuid; tz text; source appointment_source; result uuid; local_start timestamp; slot_end timestamp;
+begin
+  if caller is null or requested_slot is null or requested_slot<=clock_timestamp() or booking_mode='HOME_VISIT' then raise exception 'APPOINTMENT_INVALID' using errcode='22023'; end if;
+  select dc.doctor_id,dc.practice_location_id,pl.timezone into doctor,loc,tz from public.doctor_chambers dc join public.practice_locations pl on pl.id=dc.practice_location_id where dc.id=chamber_key and pl.is_active for update of dc;
+  if doctor is null then raise exception 'CHAMBER_NOT_FOUND' using errcode='42501'; end if;
+  if doctor=public.current_doctor_id() and public.has_capability(caller,'DOCTOR') and public.doctor_active_at(loc,doctor) then source:='DOCTOR';
+  elsif exists(select 1 from public.practice_memberships pm where pm.practice_location_id=loc and pm.profile_id=caller and pm.role='RECEPTIONIST' and pm.status='ACTIVE') then source:='RECEPTIONIST';
+  else raise exception 'APPOINTMENT_AUTHORITY_REQUIRED' using errcode='42501'; end if;
+  if not exists(select 1 from public.clinical_patients cp where cp.id=patient_key and cp.owner_doctor_id=doctor and cp.deleted_at is null) then raise exception 'PATIENT_NOT_FOUND' using errcode='42501'; end if;
+  local_start:=requested_slot at time zone tz; slot_end:=local_start+interval '30 minutes';
+  if not exists(select 1 from public.doctor_chamber_hours h where h.doctor_chamber_id=chamber_key and h.weekday=extract(dow from local_start)::int and local_start::time>=h.start_time and slot_end::date=local_start::date and slot_end::time<=h.end_time and mod(extract(epoch from (local_start::time-h.start_time))::bigint,1800)=0) then raise exception 'SLOT_UNAVAILABLE' using errcode='P0001'; end if;
+  if exists(select 1 from public.appointments a where a.doctor_chamber_id=chamber_key and a.status in ('SCHEDULED','CONFIRMED','ARRIVED','IN_CONSULTATION','COMPLETED') and a.scheduled_at<requested_slot+interval '30 minutes' and a.scheduled_at+pg_catalog.make_interval(mins=>a.duration_minutes)>requested_slot) then raise exception 'SLOT_UNAVAILABLE' using errcode='P0001'; end if;
+  insert into public.appointments(owner_doctor_id,practice_location_id,doctor_chamber_id,clinical_patient_id,booked_by_profile_id,scheduled_at,session_date,duration_minutes,visit_type,mode,source_channel,status)
+  values(doctor,loc,chamber_key,patient_key,caller,requested_slot,local_start::date,30,'GENERAL_CONSULTATION',booking_mode,source,'SCHEDULED') returning id into result;
+  insert into public.appointment_events(appointment_id,to_status,actor_kind,actor_id,reason) values(result,'SCHEDULED','USER',caller,'BOOKED'); return result;
+end $$;
+
+-- P0 appointment/queue/family/storage write-surface completion.
+create or replace function public.set_appointment_status(
+  appointment_key uuid, target_status appointment_status, note text default null
+) returns appointment_status
+language plpgsql security definer set search_path = public, pg_temp as $$
+declare a public.appointments%rowtype; caller uuid:=public.current_profile_id();
+begin
+  if caller is null then raise exception 'AUTHENTICATION_REQUIRED' using errcode='42501'; end if;
+  select * into a from public.appointments where id=appointment_key for update;
+  if not found or not public.may_manage_appointment(appointment_key) then
+    raise exception 'APPOINTMENT_NOT_FOUND' using errcode='42501';
+  end if;
+  if a.status in ('COMPLETED','CANCELLED','NO_SHOW') then raise exception 'APPOINTMENT_TERMINAL' using errcode='P0001'; end if;
+  if target_status='COMPLETED' then raise exception 'USE_FINISH_CONSULTATION' using errcode='42501'; end if;
+  if target_status='IN_CONSULTATION' and (a.owner_doctor_id is distinct from public.current_doctor_id() or not public.has_capability(caller,'DOCTOR')) then
+    raise exception 'DOCTOR_AUTHORITY_REQUIRED' using errcode='42501';
+  end if;
+  if not ((a.status='SCHEDULED' and target_status in ('CONFIRMED','ARRIVED','CANCELLED','NO_SHOW'))
+       or (a.status='CONFIRMED' and target_status in ('ARRIVED','CANCELLED','NO_SHOW'))
+       or (a.status='ARRIVED' and target_status in ('IN_CONSULTATION','CANCELLED'))) then
+    raise exception 'APPOINTMENT_TRANSITION_INVALID' using errcode='P0001';
+  end if;
+  update public.appointments set status=target_status, arrived_at=case when target_status='ARRIVED' then coalesce(arrived_at,clock_timestamp()) else arrived_at end,
+    consultation_started_at=case when target_status='IN_CONSULTATION' then coalesce(consultation_started_at,clock_timestamp()) else consultation_started_at end,
+    cancelled_at=case when target_status='CANCELLED' then clock_timestamp() else cancelled_at end, updated_at=clock_timestamp() where id=appointment_key;
+  insert into public.appointment_events(appointment_id,from_status,to_status,actor_kind,actor_id,reason)
+  values(appointment_key,a.status,target_status,'USER',caller,nullif(btrim(coalesce(note,'')),''));
+  return target_status;
+end $$;
+create or replace function public.cancel_appointment(
+  appointment_key uuid, cancel_reason cancellation_reason, note text default null
+) returns appointment_status
+language plpgsql security definer set search_path = public, pg_temp as $$
+declare a public.appointments%rowtype; caller uuid:=public.current_profile_id();
+begin
+  if caller is null then raise exception 'AUTHENTICATION_REQUIRED' using errcode='42501'; end if;
+  select * into a from public.appointments where id=appointment_key for update;
+  if not found or not public.may_manage_appointment(appointment_key) then raise exception 'APPOINTMENT_NOT_FOUND' using errcode='42501'; end if;
+  if a.status in ('COMPLETED','CANCELLED','NO_SHOW') then raise exception 'APPOINTMENT_TERMINAL' using errcode='P0001'; end if;
+  if cancel_reason is null then raise exception 'CANCELLATION_REASON_REQUIRED' using errcode='22023'; end if;
+  update public.appointments set status='CANCELLED', cancellation_reason=cancel_reason,
+    cancellation_note=nullif(btrim(coalesce(note,'')),''), cancelled_at=clock_timestamp(), updated_at=clock_timestamp()
+  where id=appointment_key;
+  insert into public.appointment_events(appointment_id,from_status,to_status,actor_kind,actor_id,reason)
+  values(appointment_key,a.status,'CANCELLED','USER',caller,cancel_reason::text);
+  return 'CANCELLED';
+end $$;
+
+create or replace function public.allocate_queue_token(chamber_key uuid, queue_date date, appointment_key uuid)
+returns integer language plpgsql security definer set search_path = public, pg_temp as $$
+declare token integer; a public.appointments%rowtype;
+begin
+  select * into a from public.appointments where id=appointment_key for update;
+  if not found or a.doctor_chamber_id is distinct from chamber_key or a.session_date is distinct from queue_date
+     or a.status not in ('ARRIVED','IN_CONSULTATION') or not public.may_manage_appointment(appointment_key) then
+    raise exception 'QUEUE_APPOINTMENT_CONTEXT_INVALID' using errcode='42501';
+  end if;
+  select qe.queue_token into token from public.queue_entries qe where qe.appointment_id=appointment_key;
+  if token is not null then return token; end if;
+  insert into public.queue_token_counters as qtc(doctor_chamber_id,session_date,next_token) values(chamber_key,queue_date,2)
+  on conflict(doctor_chamber_id,session_date) do update set next_token=qtc.next_token+1 returning next_token-1 into token;
+  insert into public.queue_entries(appointment_id,doctor_chamber_id,practice_location_id,session_date,queue_token)
+  values(appointment_key,chamber_key,a.practice_location_id,queue_date,token);
+  return token;
+end $$;
+create or replace function public.check_in_appointment(appointment_key uuid)
+returns integer language plpgsql security definer set search_path = public, pg_temp as $$
+declare a public.appointments%rowtype; token integer;
+begin
+  select * into a from public.appointments where id=appointment_key for update;
+  if not found or not public.may_manage_appointment(appointment_key) then raise exception 'APPOINTMENT_NOT_FOUND' using errcode='42501'; end if;
+  if a.doctor_chamber_id is null then raise exception 'QUEUE_CHAMBER_REQUIRED' using errcode='22023'; end if;
+  if a.status in ('SCHEDULED','CONFIRMED') then
+    perform public.set_appointment_status(appointment_key,'ARRIVED','CHECK_IN');
+  elsif a.status not in ('ARRIVED','IN_CONSULTATION') then
+    raise exception 'APPOINTMENT_NOT_CHECKIN_ELIGIBLE' using errcode='P0001';
+  end if;
+  token:=public.allocate_queue_token(a.doctor_chamber_id,a.session_date,appointment_key);
+  return token;
+end $$;
+
+create or replace function public.call_patient(appointment_key uuid, note text default null)
+returns void language plpgsql security definer set search_path = public, pg_temp as $$
+declare a public.appointments%rowtype;
+begin
+  select * into a from public.appointments where id=appointment_key;
+  if not found or a.status<>'ARRIVED' or not public.may_manage_appointment(appointment_key) then raise exception 'QUEUE_ENTRY_NOT_AVAILABLE' using errcode='42501'; end if;
+  if not exists(select 1 from public.queue_entries qe where qe.appointment_id=appointment_key) then raise exception 'QUEUE_ENTRY_NOT_AVAILABLE' using errcode='P0001'; end if;
+  insert into public.queue_events(appointment_id,practice_location_id,event_type,note,actor_id)
+  values(appointment_key,a.practice_location_id,'CALLED',nullif(btrim(coalesce(note,'')),''),public.current_profile_id());
+end $$;
+
+create or replace function public.skip_patient(appointment_key uuid, note text default null)
+returns void language plpgsql security definer set search_path = public, pg_temp as $$
+declare a public.appointments%rowtype;
+begin
+  select * into a from public.appointments where id=appointment_key;
+  if not found or a.status<>'ARRIVED' or not public.may_manage_appointment(appointment_key) then raise exception 'QUEUE_ENTRY_NOT_AVAILABLE' using errcode='42501'; end if;
+  if not exists(select 1 from public.queue_entries qe where qe.appointment_id=appointment_key) then raise exception 'QUEUE_ENTRY_NOT_AVAILABLE' using errcode='P0001'; end if;
+  insert into public.queue_events(appointment_id,practice_location_id,event_type,note,actor_id)
+  values(appointment_key,a.practice_location_id,'SKIPPED',nullif(btrim(coalesce(note,'')),''),public.current_profile_id());
+end $$;
+create or replace function public.set_queue_priority(
+  appointment_key uuid, priority_reason_value priority_reason, note text default null
+) returns void language plpgsql security definer set search_path = public, pg_temp as $$
+declare a public.appointments%rowtype;
+begin
+  select * into a from public.appointments where id=appointment_key;
+  if not found or a.status<>'ARRIVED' or not public.may_manage_appointment(appointment_key) then raise exception 'QUEUE_ENTRY_NOT_AVAILABLE' using errcode='42501'; end if;
+  if priority_reason_value is null then raise exception 'QUEUE_PRIORITY_REASON_REQUIRED' using errcode='22023'; end if;
+  update public.queue_entries set priority=1 where appointment_id=appointment_key;
+  if not found then raise exception 'QUEUE_ENTRY_NOT_AVAILABLE' using errcode='P0001'; end if;
+  insert into public.queue_events(appointment_id,practice_location_id,event_type,reason,note,actor_id)
+  values(appointment_key,a.practice_location_id,'PRIORITY_SET',priority_reason_value,nullif(btrim(coalesce(note,'')),''),public.current_profile_id());
+end $$;
+
+create or replace function public.clear_queue_priority(appointment_key uuid)
+returns void language plpgsql security definer set search_path = public, pg_temp as $$
+declare a public.appointments%rowtype;
+begin
+  select * into a from public.appointments where id=appointment_key;
+  if not found or a.status<>'ARRIVED' or not public.may_manage_appointment(appointment_key) then raise exception 'QUEUE_ENTRY_NOT_AVAILABLE' using errcode='42501'; end if;
+  update public.queue_entries set priority=0 where appointment_id=appointment_key;
+  if not found then raise exception 'QUEUE_ENTRY_NOT_AVAILABLE' using errcode='P0001'; end if;
+  insert into public.queue_events(appointment_id,practice_location_id,event_type,actor_id)
+  values(appointment_key,a.practice_location_id,'PRIORITY_CLEARED',public.current_profile_id());
+end $$;
+
+create or replace function public.create_walkin_appointment(chamber_key uuid, patient_name text)
+returns uuid language plpgsql security definer set search_path = public, pg_temp as $$
+declare caller uuid:=public.current_profile_id(); doctor uuid; loc uuid; tz text; patient uuid; result uuid; seq integer; prefix text; local_now timestamp; local_end timestamp; instant_now timestamptz;
+begin
+  if caller is null or nullif(btrim(patient_name),'') is null then raise exception 'WALKIN_INVALID' using errcode='22023'; end if;
+  select dc.doctor_id,dc.practice_location_id,pl.timezone into doctor,loc,tz
+  from public.doctor_chambers dc join public.practice_locations pl on pl.id=dc.practice_location_id
+  where dc.id=chamber_key and pl.is_active for update of dc;
+  if doctor is null then raise exception 'CHAMBER_NOT_FOUND' using errcode='42501'; end if;
+  if not ((doctor=public.current_doctor_id() and public.has_capability(caller,'DOCTOR') and public.doctor_active_at(loc,doctor)) or exists(
+    select 1 from public.practice_memberships pm where pm.practice_location_id=loc and pm.profile_id=caller and pm.status='ACTIVE' and pm.role='RECEPTIONIST')) then
+    raise exception 'APPOINTMENT_AUTHORITY_REQUIRED' using errcode='42501';
+  end if;
+  instant_now:=clock_timestamp();
+  local_now:=instant_now at time zone tz;
+  local_end:=local_now+interval '30 minutes';
+  if not exists(select 1 from public.doctor_chamber_hours h where h.doctor_chamber_id=chamber_key
+      and h.weekday=extract(dow from local_now)::int and local_now::time>=h.start_time
+      and local_end::date=local_now::date and local_end::time<=h.end_time) then
+    raise exception 'CHAMBER_NOT_OPEN' using errcode='P0001';
+  end if;
+  if exists(select 1 from public.appointments a where a.doctor_chamber_id=chamber_key
+      and a.status not in ('CANCELLED','NO_SHOW')
+      and a.scheduled_at<instant_now+interval '30 minutes'
+      and a.scheduled_at+pg_catalog.make_interval(mins=>a.duration_minutes)>instant_now) then
+    raise exception 'SLOT_UNAVAILABLE' using errcode='P0001';
+  end if;
+  select patient_number_seq,patient_number_prefix into seq,prefix from public.professional_profiles where id=doctor for update;
+  update public.professional_profiles set patient_number_seq=seq+1 where id=doctor;
+  insert into public.clinical_patients(owner_doctor_id,patient_number,full_name)
+  values(doctor,prefix||'-'||lpad((seq+1)::text,6,'0'),btrim(patient_name)) returning id into patient;
+  insert into public.appointments(owner_doctor_id,practice_location_id,doctor_chamber_id,clinical_patient_id,scheduled_at,session_date,duration_minutes,visit_type,mode,source_channel,status,arrived_at)
+  values(doctor,loc,chamber_key,patient,instant_now,local_now::date,30,'GENERAL_CONSULTATION','IN_PERSON','WALK_IN','ARRIVED',instant_now) returning id into result;
+  insert into public.appointment_events(appointment_id,to_status,actor_kind,actor_id,reason) values(result,'ARRIVED','USER',caller,'WALK_IN');
+  perform public.allocate_queue_token(chamber_key,local_now::date,result);
+  return result;
+end $$;
+create or replace function public.grant_health_subject_access(
+  subject_key uuid, target_profile uuid, target_authority subject_authority, relationship text default null
+) returns uuid language plpgsql security definer set search_path = public, pg_temp as $$
+declare caller uuid:=public.current_profile_id(); caller_authority subject_authority; result uuid;
+begin
+  if caller is null then raise exception 'AUTHENTICATION_REQUIRED' using errcode='42501'; end if;
+  if target_authority='CARE_MANAGER' then raise exception 'CARE_MANAGER_NOT_P0' using errcode='0A000'; end if;
+  select a.authority into caller_authority from public.health_subject_access a
+  where a.health_subject_id=subject_key and a.profile_id=caller and a.authority in ('SELF','GUARDIAN')
+    and public.is_live_edge(a.effective_from,a.expires_at,a.revoked_at)
+  order by case when a.authority='SELF' then 0 else 1 end limit 1;
+  if caller_authority is null then raise exception 'SUBJECT_ACCESS_REQUIRED' using errcode='42501'; end if;
+  if target_authority='SELF' then
+    if caller_authority<>'SELF' or target_profile<>caller or not exists(select 1 from public.health_subjects hs where hs.id=subject_key and hs.claimed_profile_id=target_profile) then
+      raise exception 'SELF_AUTHORITY_INVALID' using errcode='42501';
+    end if;
+  end if;
+  insert into public.health_subject_access(health_subject_id,profile_id,authority,relationship_label,granted_by_profile_id)
+  values(subject_key,target_profile,target_authority,nullif(btrim(coalesce(relationship,'')),''),caller)
+  returning id into result;
+  insert into public.health_subject_access_events(health_subject_access_id,to_state,actor_kind,actor_id,reason)
+  values(result,'ACTIVE','USER',caller,'GRANTED');
+  return result;
+exception when unique_violation then raise exception 'SUBJECT_ACCESS_ALREADY_LIVE' using errcode='P0001';
+end $$;
+create or replace function public.revoke_health_subject_access(access_key uuid, reason text default null)
+returns void language plpgsql security definer set search_path = public, pg_temp as $$
+declare caller uuid:=public.current_profile_id(); target public.health_subject_access%rowtype;
+begin
+  if caller is null then raise exception 'AUTHENTICATION_REQUIRED' using errcode='42501'; end if;
+  select * into target from public.health_subject_access where id=access_key and revoked_at is null for update;
+  if not found then raise exception 'SUBJECT_ACCESS_NOT_FOUND' using errcode='42501'; end if;
+  if target.authority='SELF' then raise exception 'LAST_SELF_CANNOT_BE_REVOKED' using errcode='P0001'; end if;
+  if not exists(select 1 from public.health_subject_access a where a.health_subject_id=target.health_subject_id and a.profile_id=caller
+      and a.authority in ('SELF','GUARDIAN') and public.is_live_edge(a.effective_from,a.expires_at,a.revoked_at)) then
+    raise exception 'SUBJECT_ACCESS_REQUIRED' using errcode='42501';
+  end if;
+  update public.health_subject_access set revoked_at=clock_timestamp(),revoked_by=caller,revoke_reason=nullif(btrim(coalesce(reason,'')),'') where id=access_key;
+  insert into public.health_subject_access_events(health_subject_access_id,from_state,to_state,actor_kind,actor_id,reason)
+  values(access_key,'ACTIVE','REVOKED','USER',caller,nullif(btrim(coalesce(reason,'')),''));
+end $$;
+
+create or replace function public.prepare_doctor_asset(asset_kind text)
+returns text language plpgsql security definer set search_path = public, pg_temp as $$
+declare profile_key uuid:=public.current_profile_id(); doctor uuid:=public.current_doctor_id(); object_path text;
+begin
+  if profile_key is null or doctor is null then raise exception 'DOCTOR_AUTHORITY_REQUIRED' using errcode='42501'; end if;
+  if asset_kind not in ('PHOTO','SIGNATURE') then raise exception 'ASSET_KIND_INVALID' using errcode='22023'; end if;
+  object_path:=profile_key::text||'/'||extensions.gen_random_uuid()::text;
+  if asset_kind='PHOTO' then update public.professional_profiles set professional_photo_path=object_path,updated_at=clock_timestamp() where id=doctor;
+  else update public.professional_profiles set signature_path=object_path,updated_at=clock_timestamp() where id=doctor; end if;
+  return object_path;
+end $$;
+
+create or replace function public.prepare_prescription_signature_asset(prescription_key uuid)
+returns text language plpgsql security definer set search_path = public, pg_temp as $$
+declare doctor uuid:=public.current_doctor_id(); profile_key uuid; object_path text;
+begin
+  if doctor is null or not public.has_capability(public.current_profile_id(),'DOCTOR') then raise exception 'PRACTICE_AUTHORITY_REQUIRED' using errcode='42501'; end if;
+  if not exists(select 1 from public.prescriptions p where p.id=prescription_key and p.owner_doctor_id=doctor and p.status='DRAFT') then raise exception 'PRESCRIPTION_NOT_FOUND' using errcode='42501'; end if;
+  select pp.profile_id into profile_key from public.professional_profiles pp where pp.id=doctor;
+  object_path:=profile_key::text||'/'||prescription_key::text||'/signature';
+  return object_path;
+end $$;
+create or replace function public.may_write_doctor_asset(bucket_name text, object_name text)
+returns boolean language sql stable security definer set search_path = public, pg_temp as $$
+  select exists(
+    select 1 from public.professional_profiles pp
+    where pp.profile_id=public.current_profile_id() and (
+      (bucket_name='doctor-profile-photos' and pp.professional_photo_path=object_name)
+      or (bucket_name='doctor-signatures' and pp.signature_path=object_name)
+    )
+  )
+$$;
+
+create or replace function public.may_write_prescription_asset(object_name text)
+returns boolean language sql stable security definer set search_path = public, pg_temp as $$
+  select exists(
+    select 1 from public.prescriptions p join public.professional_profiles pp on pp.id=p.owner_doctor_id
+    where p.owner_doctor_id=public.current_doctor_id() and p.status='DRAFT'
+      and public.has_capability(public.current_profile_id(),'DOCTOR')
+      and public.doctor_active_at(p.practice_location_id,p.owner_doctor_id)
+      and object_name=pp.profile_id::text||'/'||p.id::text||'/signature'
+  )
+$$;
+
+create or replace function public.may_read_prescription_asset(object_name text)
+returns boolean language sql stable security definer set search_path = public, pg_temp as $$
+  select exists(
+    select 1 from public.prescriptions p
+    where p.status='FINALIZED' and p.signature_asset_path=object_name
+      and (p.owner_doctor_id=public.current_doctor_id() or public.may_hand_over_prescription(p.id))
+  )
+$$;
+
+-- P0 remaining clinical aggregate mutation surface.
+create or replace function public.add_encounter_diagnosis(encounter_key uuid, expected_version integer, diagnosis text)
+returns uuid language plpgsql security definer set search_path = public, pg_temp as $$
+declare doctor uuid:=public.current_doctor_id(); result uuid;
+begin
+  if doctor is null or not public.has_capability(public.current_profile_id(),'DOCTOR') then raise exception 'PRACTICE_AUTHORITY_REQUIRED' using errcode='42501'; end if;
+  if nullif(btrim(diagnosis),'') is null then raise exception 'DIAGNOSIS_REQUIRED' using errcode='22023'; end if;
+  perform 1 from public.encounters e where e.id=encounter_key and e.owner_doctor_id=doctor and e.status='DRAFT' and e.version=expected_version for update;
+  if not found then raise exception 'ENCOUNTER_VERSION_OR_STATE_CONFLICT' using errcode='P0001'; end if;
+  insert into public.encounter_diagnoses(encounter_id,owner_doctor_id,diagnosis_text)
+  values(encounter_key,doctor,btrim(diagnosis)) returning id into result;
+  update public.encounters set version=version+1 where id=encounter_key;
+  insert into public.encounter_events(encounter_id,owner_doctor_id,event) values(encounter_key,doctor,'DIAGNOSIS_ADDED');
+  return result;
+end $$;
+
+create or replace function public.add_encounter_investigation(encounter_key uuid, expected_version integer, investigation text)
+returns uuid language plpgsql security definer set search_path = public, pg_temp as $$
+declare doctor uuid:=public.current_doctor_id(); result uuid;
+begin
+  if doctor is null or not public.has_capability(public.current_profile_id(),'DOCTOR') then raise exception 'PRACTICE_AUTHORITY_REQUIRED' using errcode='42501'; end if;
+  if nullif(btrim(investigation),'') is null then raise exception 'INVESTIGATION_REQUIRED' using errcode='22023'; end if;
+  perform 1 from public.encounters e where e.id=encounter_key and e.owner_doctor_id=doctor and e.status='DRAFT' and e.version=expected_version for update;
+  if not found then raise exception 'ENCOUNTER_VERSION_OR_STATE_CONFLICT' using errcode='P0001'; end if;
+  insert into public.encounter_investigations(encounter_id,owner_doctor_id,investigation_text)
+  values(encounter_key,doctor,btrim(investigation)) returning id into result;
+  update public.encounters set version=version+1 where id=encounter_key;
+  insert into public.encounter_events(encounter_id,owner_doctor_id,event) values(encounter_key,doctor,'INVESTIGATION_ADDED');
+  return result;
+end $$;
+create or replace function public.create_prescription_template(template_name text, template_body jsonb default '{}'::jsonb)
+returns uuid language plpgsql security definer set search_path = public, pg_temp as $$
+declare doctor uuid:=public.current_doctor_id(); result uuid;
+begin
+  if doctor is null or not public.has_capability(public.current_profile_id(),'DOCTOR') then raise exception 'PRACTICE_AUTHORITY_REQUIRED' using errcode='42501'; end if;
+  if nullif(btrim(template_name),'') is null then raise exception 'TEMPLATE_NAME_REQUIRED' using errcode='22023'; end if;
+  insert into public.prescription_templates(doctor_id,name,template)
+  values(doctor,btrim(template_name),coalesce(template_body,'{}'::jsonb)) returning id into result;
+  return result;
+end $$;
+
+create or replace function public.update_prescription_template(template_key uuid, template_name text, template_body jsonb, active boolean)
+returns void language plpgsql security definer set search_path = public, pg_temp as $$
+declare doctor uuid:=public.current_doctor_id();
+begin
+  if doctor is null or not public.has_capability(public.current_profile_id(),'DOCTOR') then raise exception 'PRACTICE_AUTHORITY_REQUIRED' using errcode='42501'; end if;
+  if nullif(btrim(template_name),'') is null then raise exception 'TEMPLATE_NAME_REQUIRED' using errcode='22023'; end if;
+  update public.prescription_templates set name=btrim(template_name),template=coalesce(template_body,'{}'::jsonb),is_active=coalesce(active,true)
+  where id=template_key and doctor_id=doctor;
+  if not found then raise exception 'TEMPLATE_NOT_FOUND' using errcode='42501'; end if;
+end $$;
+
+create or replace function public.reschedule_appointment(appointment_key uuid, requested_slot timestamptz)
+returns uuid language plpgsql security definer set search_path = public, pg_temp as $$
+declare old public.appointments%rowtype; caller uuid:=public.current_profile_id(); tz text; local_start timestamp; local_end timestamp; result uuid;
+begin
+  if caller is null or requested_slot is null or requested_slot<=clock_timestamp() then raise exception 'APPOINTMENT_INVALID' using errcode='22023'; end if;
+  select * into old from public.appointments where id=appointment_key for update;
+  if not found or not public.may_manage_appointment(appointment_key) or old.status in ('COMPLETED','CANCELLED','NO_SHOW') then raise exception 'APPOINTMENT_NOT_RESCHEDULABLE' using errcode='42501'; end if;
+  if old.clinical_patient_id is null or old.doctor_chamber_id is null then raise exception 'APPOINTMENT_NOT_RESCHEDULABLE' using errcode='P0001'; end if;
+  perform 1 from public.doctor_chambers dc where dc.id=old.doctor_chamber_id for update;
+  select pl.timezone into tz from public.practice_locations pl where pl.id=old.practice_location_id and pl.is_active;
+  local_start:=requested_slot at time zone tz; local_end:=local_start+interval '30 minutes';
+  if not exists(select 1 from public.doctor_chamber_hours h where h.doctor_chamber_id=old.doctor_chamber_id and h.weekday=extract(dow from local_start)::int and local_start::time>=h.start_time and local_end::date=local_start::date and local_end::time<=h.end_time and mod(extract(epoch from(local_start::time-h.start_time))::bigint,1800)=0) then raise exception 'SLOT_UNAVAILABLE' using errcode='P0001'; end if;
+  if exists(select 1 from public.appointments a where a.doctor_chamber_id=old.doctor_chamber_id and a.id<>old.id and a.status not in ('CANCELLED','NO_SHOW') and a.scheduled_at<requested_slot+interval '30 minutes' and a.scheduled_at+pg_catalog.make_interval(mins=>a.duration_minutes)>requested_slot) then raise exception 'SLOT_UNAVAILABLE' using errcode='P0001'; end if;  update public.appointments set status='CANCELLED',cancellation_reason='RESCHEDULED',cancelled_at=clock_timestamp(),updated_at=clock_timestamp() where id=old.id;
+  insert into public.appointment_events(appointment_id,from_status,to_status,actor_kind,actor_id,reason)
+  values(old.id,old.status,'CANCELLED','USER',caller,'RESCHEDULED');
+  insert into public.appointments(owner_doctor_id,practice_location_id,doctor_chamber_id,clinical_patient_id,health_subject_id,booked_by_profile_id,scheduled_at,session_date,duration_minutes,visit_type,mode,source_channel,status,rescheduled_from_id)
+  values(old.owner_doctor_id,old.practice_location_id,old.doctor_chamber_id,old.clinical_patient_id,old.health_subject_id,caller,requested_slot,local_start::date,30,old.visit_type,old.mode,
+    case when old.owner_doctor_id=public.current_doctor_id() then 'DOCTOR'::appointment_source else 'RECEPTIONIST'::appointment_source end,'SCHEDULED',old.id)
+  returning id into result;
+  insert into public.appointment_events(appointment_id,to_status,actor_kind,actor_id,reason)
+  values(result,'SCHEDULED','USER',caller,'RESCHEDULED');
+  return result;
+end $$;
+
+create or replace function public.update_professional_profile(
+  display_name_value text, designation_value text, qualification_value text, bio_value text, visibility_value text
+) returns void language plpgsql security definer set search_path = public, pg_temp as $$
+declare doctor uuid:=public.current_doctor_id();
+begin
+  if doctor is null then raise exception 'DOCTOR_PROFILE_REQUIRED' using errcode='42501'; end if;
+  if nullif(btrim(display_name_value),'') is null then raise exception 'DISPLAY_NAME_REQUIRED' using errcode='22023'; end if;
+  if visibility_value not in ('PRIVATE','PUBLIC') then raise exception 'PROFILE_VISIBILITY_INVALID' using errcode='22023'; end if;
+  update public.professional_profiles set display_name=btrim(display_name_value),designation=nullif(btrim(coalesce(designation_value,'')),''),qualification=nullif(btrim(coalesce(qualification_value,'')),''),bio=nullif(btrim(coalesce(bio_value,'')),''),profile_visibility=visibility_value,updated_at=clock_timestamp() where id=doctor;
+end $$;
+
+-- P0 appointment-linked encounter entry point.
+create or replace function public.open_encounter_for_appointment(appointment_key uuid)
+returns uuid language plpgsql security definer set search_path = public, pg_temp as $$
+declare doctor uuid:=public.current_doctor_id(); a public.appointments%rowtype; result uuid;
+begin
+  if doctor is null or not public.has_capability(public.current_profile_id(),'DOCTOR') then raise exception 'PRACTICE_AUTHORITY_REQUIRED' using errcode='42501'; end if;
+  select * into a from public.appointments where id=appointment_key and owner_doctor_id=doctor for update;
+  if not found or a.clinical_patient_id is null or a.status<>'IN_CONSULTATION'
+     or not public.doctor_active_at(a.practice_location_id,doctor) then
+    raise exception 'APPOINTMENT_NOT_IN_CONSULTATION' using errcode='42501';
+  end if;
+  select e.id into result from public.encounters e where e.appointment_id=appointment_key and e.status='DRAFT';
+  if result is not null then return result; end if;
+  insert into public.encounters(owner_doctor_id,clinical_patient_id,practice_location_id,appointment_id)
+  values(doctor,a.clinical_patient_id,a.practice_location_id,appointment_key) returning id into result;
+  insert into public.encounter_events(encounter_id,owner_doctor_id,event) values(result,doctor,'OPENED');
+  perform public.emit_audit_event('ENCOUNTER_OPENED','encounters',result,null);
+  return result;
+exception when unique_violation then
+  select e.id into result from public.encounters e where e.appointment_id=appointment_key and e.status='DRAFT';
+  if result is not null then return result; end if;
+  raise;
+end $$;

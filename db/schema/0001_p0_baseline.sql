@@ -19,7 +19,12 @@ create type prescription_status as enum ('DRAFT','FINALIZED','VOIDED');
 create type appointment_status as enum ('SCHEDULED','CONFIRMED','ARRIVED','IN_CONSULTATION','COMPLETED','CANCELLED','NO_SHOW');
 create type appointment_source as enum ('INTERNAL','DOCTOR','RECEPTIONIST','ASSISTANT','WALK_IN','PUBLIC_WEB','PUBLIC_APP','SUPPORT_ASSISTED');
 create type appointment_mode as enum ('IN_PERSON','ONLINE','HOME_VISIT');
+create type cancellation_reason as enum ('PATIENT_REQUEST','PATIENT_UNWELL','DOCTOR_UNAVAILABLE','RESCHEDULED','DUPLICATE','OTHER');
+create type queue_event_type as enum ('CALLED','SKIPPED','RECALLED','PRIORITY_SET','PRIORITY_CLEARED');
+create type priority_reason as enum ('EMERGENCY','ELDERLY','CHILD','PREGNANT','DISABILITY','UNWELL_WAITING','DOCTOR_INSTRUCTION','STAFF_OR_FAMILY','OTHER');
 create type metric_period_kind as enum ('DAY','MONTH');
+create type metric_dimension as enum ('doctor_id','practice_location_id','period_start','plan_id','subscription_status','provider','service_kind','model','feature_code');
+create type metric_source_object_kind as enum ('ENCOUNTER','PRESCRIPTION','APPOINTMENT','PROFESSIONAL_PROFILE','CREDENTIAL');
 
 create table profiles (
   id uuid primary key references auth.users(id) on delete cascade,
@@ -103,7 +108,7 @@ create table health_subject_access (
   relationship_label text, granted_by_profile_id uuid references profiles(id), granted_via_consent_id uuid,
   effective_from timestamptz not null default clock_timestamp(), expires_at timestamptz, revoked_at timestamptz,
   revoked_by uuid references profiles(id), revoke_reason text, check (expires_at is null or expires_at > effective_from),
-  check (authority <> 'CARE_MANAGER' or granted_via_consent_id is not null)
+  check (authority in ('SELF','GUARDIAN') or granted_via_consent_id is not null)
 );
 create unique index health_subject_access_live_key on health_subject_access(health_subject_id, profile_id, authority) where revoked_at is null;
 create unique index health_subject_access_self_key on health_subject_access(health_subject_id) where authority='SELF' and revoked_at is null;
@@ -187,6 +192,12 @@ create table encounters (
   unique(id, owner_doctor_id), foreign key(owner_doctor_id, owner_profession) references professional_profiles(id, profession),
   foreign key(clinical_patient_id, owner_doctor_id) references clinical_patients(id, owner_doctor_id), check(owner_profession='DOCTOR')
 );
+create unique index encounters_one_draft_per_appointment
+  on encounters(appointment_id) where status='DRAFT' and appointment_id is not null;
+create unique index encounters_one_unscheduled_draft_at_location
+  on encounters(owner_doctor_id, clinical_patient_id, practice_location_id)
+  where status='DRAFT' and appointment_id is null;
+
 create table encounter_diagnoses (
   id uuid primary key default gen_random_uuid(), encounter_id uuid not null, owner_doctor_id uuid not null, diagnosis_text text not null,
   foreign key(encounter_id, owner_doctor_id) references encounters(id, owner_doctor_id) on delete restrict
@@ -210,9 +221,12 @@ create table prescriptions (
   snapshot_schema_version text, created_at timestamptz not null default clock_timestamp(), finalized_at timestamptz,
   foreign key(encounter_id, owner_doctor_id) references encounters(id, owner_doctor_id), foreign key(clinical_patient_id, owner_doctor_id) references clinical_patients(id, owner_doctor_id),
   foreign key(owner_doctor_id, owner_profession) references professional_profiles(id, profession), check(owner_profession='DOCTOR'),
-  check(status <> 'FINALIZED' or (review_bundle_snapshot is not null and review_digest is not null and signature_asset_path is not null))
+  check(status <> 'FINALIZED' or (review_bundle_snapshot is not null and review_digest is not null and signature_asset_path is not null)),
+  check(replaces_prescription_id is null or replacement_reason is not null),
+  check(replacement_reason is null or char_length(btrim(replacement_reason)) between 1 and 500)
 );
 create unique index prescriptions_one_draft on prescriptions(encounter_id) where status='DRAFT';
+create unique index prescriptions_one_replacement on prescriptions(replaces_prescription_id) where replaces_prescription_id is not null;
 create table prescription_items (
   id uuid primary key default gen_random_uuid(), prescription_id uuid not null references prescriptions(id) on delete restrict, display_name text not null,
   brand_name text, generic_name text, strength_text text, dose_text text, dosage_form text, route text, schedule_text text, duration_text text, quantity_text text,
@@ -229,8 +243,12 @@ create table appointments (
   practice_location_id uuid not null references practice_locations(id), doctor_chamber_id uuid references doctor_chambers(id), clinical_patient_id uuid,
   health_subject_id uuid, booked_by_profile_id uuid references profiles(id), scheduled_at timestamptz not null, session_date date not null,
   duration_minutes integer not null default 30, visit_type text not null, mode appointment_mode not null default 'IN_PERSON', source_channel appointment_source not null,
-  status appointment_status not null default 'SCHEDULED', fee_amount_minor bigint, currency_code text, public_booking_ref uuid unique,
-  created_at timestamptz not null default clock_timestamp(), unique(id, owner_doctor_id), foreign key(owner_doctor_id, owner_profession) references professional_profiles(id, profession),
+  status appointment_status not null default 'SCHEDULED', reason text,
+  arrived_at timestamptz, consultation_started_at timestamptz, completed_at timestamptz, cancelled_at timestamptz,
+  cancellation_reason cancellation_reason, cancellation_note text, rescheduled_from_id uuid references appointments(id) on delete restrict,
+  fee_amount_minor bigint, currency_code text, public_booking_ref uuid unique,
+  created_at timestamptz not null default clock_timestamp(), updated_at timestamptz not null default clock_timestamp(),
+  unique(id, owner_doctor_id), foreign key(owner_doctor_id, owner_profession) references professional_profiles(id, profession),
   foreign key(clinical_patient_id, owner_doctor_id) references clinical_patients(id, owner_doctor_id), foreign key(doctor_chamber_id, owner_doctor_id, practice_location_id) references doctor_chambers(id, doctor_id, practice_location_id),
   check(owner_profession='DOCTOR'),
   check (
@@ -258,6 +276,10 @@ create table appointments (
     )
   )
 );
+create unique index appointments_one_successor
+  on appointments(rescheduled_from_id)
+  where rescheduled_from_id is not null;
+
 create table appointment_events (
   id uuid primary key default gen_random_uuid(), appointment_id uuid not null references appointments(id), from_status appointment_status, to_status appointment_status not null,
   actor_kind actor_kind not null, actor_id uuid, reason text, occurred_at timestamptz not null default clock_timestamp(), seq bigserial unique
@@ -293,9 +315,20 @@ create table queue_token_counters (
 );
 create table queue_entries (
   id uuid primary key default gen_random_uuid(), appointment_id uuid not null unique references appointments(id) on delete restrict, doctor_chamber_id uuid not null references doctor_chambers(id),
-  practice_location_id uuid not null references practice_locations(id), session_date date not null, queue_token integer not null, priority integer not null default 0,
-  created_at timestamptz not null default clock_timestamp(), unique(doctor_chamber_id, session_date, queue_token)
+  practice_location_id uuid not null references practice_locations(id), session_date date not null, queue_token integer not null,
+  called_at timestamptz, call_count integer not null default 0 check(call_count >= 0), skipped_at timestamptz, skip_count integer not null default 0 check(skip_count >= 0),
+  priority integer not null default 0 check(priority in (0,1)), priority_reason priority_reason, priority_note text, priority_set_by uuid references profiles(id),
+  created_at timestamptz not null default clock_timestamp(), updated_at timestamptz not null default clock_timestamp(),
+  unique(doctor_chamber_id, session_date, queue_token)
 );
+create table queue_events (
+  id uuid primary key default gen_random_uuid(), appointment_id uuid not null references appointments(id) on delete restrict,
+  practice_location_id uuid not null references practice_locations(id) on delete restrict, event_type queue_event_type not null,
+  reason priority_reason, note text, actor_id uuid references profiles(id) on delete set null,
+  created_at timestamptz not null default clock_timestamp(), seq bigserial unique
+);
+create index queue_entries_live_idx on queue_entries(doctor_chamber_id, session_date, priority desc, queue_token);
+create index queue_events_appointment_idx on queue_events(appointment_id, seq);
 
 create table anon_rate_limit_policies (
   rpc_code text not null
@@ -334,14 +367,16 @@ create index anon_rate_limit_buckets_expiry_idx
   on anon_rate_limit_buckets(expires_at);
 
 -- Domain-L P0 foundation. Raw stores have no owner-reader grant; rollups carry no clinical keys.
-create table metric_definitions (metric_code text primary key, display_name text not null, unit text not null, allowed_dimensions text[] not null, is_active boolean not null default true);
+create table metric_definitions (metric_code text primary key, display_name text not null, unit text not null, allowed_dimensions metric_dimension[] not null, is_active boolean not null default true);
 create table metric_classification_registry (classification_code text primary key);
+-- Clinical-side durable mapping: Domain L never receives object_kind/object_id.
 create table metric_source_refs (
-  source_ref uuid primary key default gen_random_uuid(), object_kind text not null, object_id uuid not null, transition text not null, transition_seq integer not null default 0,
+  source_ref uuid primary key default gen_random_uuid(), object_kind metric_source_object_kind not null, object_id uuid not null,
+  transition text not null check (transition ~ '^[A-Z][A-Z0-9_]{1,47}$'), transition_seq integer not null default 0 check (transition_seq >= 0),
   unique(object_kind, object_id, transition, transition_seq)
 );
 create table metric_contributions (
-  metric_code text not null references metric_definitions(metric_code), source_event_key uuid not null references metric_source_refs(source_ref), period_day date not null,
+  metric_code text not null references metric_definitions(metric_code), source_event_key uuid not null, period_day date not null,
   doctor_id uuid references professional_profiles(id), practice_location_id uuid references practice_locations(id), delta smallint not null check(delta in(-1,1)),
   classification_code text references metric_classification_registry(classification_code), ingested_on date not null default current_date, contribution_seq bigserial,
   primary key(metric_code, source_event_key)
@@ -349,7 +384,14 @@ create table metric_contributions (
 create table metric_rollups (
   id uuid primary key default gen_random_uuid(), metric_code text not null references metric_definitions(metric_code), period_kind metric_period_kind not null,
   period_start date not null, doctor_id uuid references professional_profiles(id), practice_location_id uuid references practice_locations(id), count_value bigint not null default 0,
-  updated_at timestamptz not null default clock_timestamp(), unique(metric_code, period_kind, period_start, doctor_id, practice_location_id)
+  updated_at timestamptz not null default clock_timestamp()
+);
+create unique index metric_rollups_identity_key on metric_rollups(
+  metric_code,
+  period_kind,
+  period_start,
+  coalesce(doctor_id, '00000000-0000-0000-0000-000000000000'::uuid),
+  coalesce(practice_location_id, '00000000-0000-0000-0000-000000000000'::uuid)
 );
 do $$
 declare

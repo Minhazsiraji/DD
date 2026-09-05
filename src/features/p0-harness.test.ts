@@ -195,11 +195,16 @@ describe("determinism harness — the proof itself", () => {
     expect(text).not.toContain("sql.unsafe(body)");
   });
 
-  it("canonicalizes only the PostgreSQL 17 restrict guard tokens", () => {
+  it("canonicalizes only PostgreSQL 17 guards and Supabase Realtime rolling partitions", () => {
     const text = code(DETERMINISM);
     expect(text).toContain("\\\\(restrict|unrestrict)");
-    // Exactly one normalisation rule, so nothing else can hide behind it.
-    expect((text.match(/\.replace\(\/\^\\\\/g) ?? []).length).toBe(1);
+    expect(text).toContain("messages_DD_P0_DAY_");
+    expect(text).toContain("ALTER TABLE ONLY realtime\\.messages ATTACH PARTITION");
+    expect(text).toContain("realtimePartitions");
+    expect(text).toContain("normalized.replaceAll");
+    // The only moving substrate names normalized beyond the PostgreSQL guard
+    // are Supabase Realtime's date-named daily message partitions.
+    expect(text).toContain("messages_\\d{4}_\\d{2}_\\d{2}");
   });
 
   it("keeps manifest order, hash pinning and the no-stray-SQL rule", () => {

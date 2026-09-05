@@ -1,20 +1,25 @@
-# P0 Implementation Status
+# P0 status — accepted implementation/proof checkpoint
 
-Final fresh Track-A replay and the current proof harness pass for:
+Date: 2026-09-05
 
-- manifest hash pins and required step order;
-- DD-CHK-31 exhaustive substitution corpus and 1,000,000 round trips;
-- 39 P0 tables forced under RLS;
-- P0+ exclusion checks;
-- audit foundation presence;
-- Domain-L clinical foreign-key exclusion.
+The isolated Track-A Database V2 P0 implementation now satisfies the required P0 proof gate.
 
-The golden schema dump is `db/golden-p0.sql` and was generated from the final
-fresh replay. PostgreSQL 17 emits a random `\\restrict` guard token in dumps;
-the evidence process canonicalizes only those two guard lines before the
-byte-for-byte comparison. The schema body is unchanged.
+Final verified state:
+- Set-A: 21/21 PASS
+- B1 extensions: 2/2 PASS
+- P0 Set-B2: 18/18 PASS
+- C2 auxiliary booking/anon/scheduling proofs: PASS
+- `verify-p0`: PASS with 43/43 public P0 tables under RLS + FORCE RLS
+- SECURITY DEFINER functions: 66; `service_role` effective EXECUTE: 0
+- anonymous EXECUTE surface: exactly 3 accepted booking RPCs
+- P0 physical storage: exactly 3 private buckets
+- deployment determinism: two fresh local Supabase substrates, A == B == golden
+- canonical golden SHA-256: `ddccd1ae741d7af58b053c301e4703d0f28d2f67ad7585c51e67f71b66ff9b42`
+- lint: PASS
+- typecheck: PASS
+- tests: 57 files / 963 tests PASS
+- production build: PASS; 46/46 static pages generated
 
-This is an implementation checkpoint, not final P0 acceptance. The complete
-25-proof matrix, all 21 Set-A runtime assets, both B-1 extensions, the full
-Domain-L model, adversarial multi-role tests, storage object policies, and the
-remaining P0 RPC/state-machine surface are still outstanding.
+Formal interpretation: **P0 IMPLEMENTATION & PROOF ACCEPTED**.
+
+This does not authorize protected/shared reset, backup/restore acceptance, migration/cutover, merge, production deployment, P1+, Voice, or DGDA. See `p0-acceptance-2026-09-05.md` for the complete evidence package.

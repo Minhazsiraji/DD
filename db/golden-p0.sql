@@ -297,6 +297,20 @@ CREATE TYPE public.appointment_status AS ENUM (
 
 
 --
+-- Name: cancellation_reason; Type: TYPE; Schema: public; Owner: -
+--
+
+CREATE TYPE public.cancellation_reason AS ENUM (
+    'PATIENT_REQUEST',
+    'PATIENT_UNWELL',
+    'DOCTOR_UNAVAILABLE',
+    'RESCHEDULED',
+    'DUPLICATE',
+    'OTHER'
+);
+
+
+--
 -- Name: capability; Type: TYPE; Schema: public; Owner: -
 --
 
@@ -387,12 +401,42 @@ CREATE TYPE public.location_type AS ENUM (
 
 
 --
+-- Name: metric_dimension; Type: TYPE; Schema: public; Owner: -
+--
+
+CREATE TYPE public.metric_dimension AS ENUM (
+    'doctor_id',
+    'practice_location_id',
+    'period_start',
+    'plan_id',
+    'subscription_status',
+    'provider',
+    'service_kind',
+    'model',
+    'feature_code'
+);
+
+
+--
 -- Name: metric_period_kind; Type: TYPE; Schema: public; Owner: -
 --
 
 CREATE TYPE public.metric_period_kind AS ENUM (
     'DAY',
     'MONTH'
+);
+
+
+--
+-- Name: metric_source_object_kind; Type: TYPE; Schema: public; Owner: -
+--
+
+CREATE TYPE public.metric_source_object_kind AS ENUM (
+    'ENCOUNTER',
+    'PRESCRIPTION',
+    'APPOINTMENT',
+    'PROFESSIONAL_PROFILE',
+    'CREDENTIAL'
 );
 
 
@@ -420,6 +464,23 @@ CREATE TYPE public.prescription_status AS ENUM (
 
 
 --
+-- Name: priority_reason; Type: TYPE; Schema: public; Owner: -
+--
+
+CREATE TYPE public.priority_reason AS ENUM (
+    'EMERGENCY',
+    'ELDERLY',
+    'CHILD',
+    'PREGNANT',
+    'DISABILITY',
+    'UNWELL_WAITING',
+    'DOCTOR_INSTRUCTION',
+    'STAFF_OR_FAMILY',
+    'OTHER'
+);
+
+
+--
 -- Name: profession; Type: TYPE; Schema: public; Owner: -
 --
 
@@ -430,6 +491,19 @@ CREATE TYPE public.profession AS ENUM (
     'NURSE',
     'PHYSIOTHERAPIST',
     'OTHER'
+);
+
+
+--
+-- Name: queue_event_type; Type: TYPE; Schema: public; Owner: -
+--
+
+CREATE TYPE public.queue_event_type AS ENUM (
+    'CALLED',
+    'SKIPPED',
+    'RECALLED',
+    'PRIORITY_SET',
+    'PRIORITY_CLEARED'
 );
 
 
@@ -956,6 +1030,73 @@ $_$;
 
 
 --
+-- Name: add_encounter_diagnosis(uuid, integer, text); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.add_encounter_diagnosis(encounter_key uuid, expected_version integer, diagnosis text) RETURNS uuid
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+declare doctor uuid:=public.current_doctor_id(); result uuid;
+begin
+  if doctor is null or not public.has_capability(public.current_profile_id(),'DOCTOR') then raise exception 'PRACTICE_AUTHORITY_REQUIRED' using errcode='42501'; end if;
+  if nullif(btrim(diagnosis),'') is null then raise exception 'DIAGNOSIS_REQUIRED' using errcode='22023'; end if;
+  perform 1 from public.encounters e where e.id=encounter_key and e.owner_doctor_id=doctor and e.status='DRAFT' and e.version=expected_version for update;
+  if not found then raise exception 'ENCOUNTER_VERSION_OR_STATE_CONFLICT' using errcode='P0001'; end if;
+  insert into public.encounter_diagnoses(encounter_id,owner_doctor_id,diagnosis_text)
+  values(encounter_key,doctor,btrim(diagnosis)) returning id into result;
+  update public.encounters set version=version+1 where id=encounter_key;
+  insert into public.encounter_events(encounter_id,owner_doctor_id,event) values(encounter_key,doctor,'DIAGNOSIS_ADDED');
+  return result;
+end $$;
+
+
+--
+-- Name: add_encounter_investigation(uuid, integer, text); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.add_encounter_investigation(encounter_key uuid, expected_version integer, investigation text) RETURNS uuid
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+declare doctor uuid:=public.current_doctor_id(); result uuid;
+begin
+  if doctor is null or not public.has_capability(public.current_profile_id(),'DOCTOR') then raise exception 'PRACTICE_AUTHORITY_REQUIRED' using errcode='42501'; end if;
+  if nullif(btrim(investigation),'') is null then raise exception 'INVESTIGATION_REQUIRED' using errcode='22023'; end if;
+  perform 1 from public.encounters e where e.id=encounter_key and e.owner_doctor_id=doctor and e.status='DRAFT' and e.version=expected_version for update;
+  if not found then raise exception 'ENCOUNTER_VERSION_OR_STATE_CONFLICT' using errcode='P0001'; end if;
+  insert into public.encounter_investigations(encounter_id,owner_doctor_id,investigation_text)
+  values(encounter_key,doctor,btrim(investigation)) returning id into result;
+  update public.encounters set version=version+1 where id=encounter_key;
+  insert into public.encounter_events(encounter_id,owner_doctor_id,event) values(encounter_key,doctor,'INVESTIGATION_ADDED');
+  return result;
+end $$;
+
+
+--
+-- Name: add_prescription_item(uuid, integer, jsonb); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.add_prescription_item(prescription_key uuid, expected_version integer, item jsonb) RETURNS uuid
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+declare doctor uuid:=public.current_doctor_id(); result uuid; next_position integer;
+begin
+  if doctor is null or not public.has_capability(public.current_profile_id(),'DOCTOR') then raise exception 'PRACTICE_AUTHORITY_REQUIRED' using errcode='42501'; end if;
+  perform 1 from public.prescriptions p where p.id=prescription_key and p.owner_doctor_id=doctor and p.status='DRAFT' and p.version=expected_version for update;
+  if not found then raise exception 'PRESCRIPTION_VERSION_OR_STATE_CONFLICT' using errcode='P0001'; end if;
+  if nullif(btrim(item->>'display_name'),'') is null then raise exception 'PRESCRIPTION_ITEM_INVALID' using errcode='22023'; end if;
+  select coalesce(max(position),-1)+1 into next_position from public.prescription_items where prescription_id=prescription_key;
+  insert into public.prescription_items(prescription_id,display_name,brand_name,generic_name,strength_text,dose_text,dosage_form,route,schedule_text,duration_text,quantity_text,food_relation,is_prn,instructions,substitution_allowed,position)
+  values(prescription_key,btrim(item->>'display_name'),item->>'brand_name',item->>'generic_name',item->>'strength_text',item->>'dose_text',item->>'dosage_form',item->>'route',item->>'schedule_text',item->>'duration_text',item->>'quantity_text',item->>'food_relation',coalesce((item->>'is_prn')::boolean,false),item->>'instructions',coalesce((item->>'substitution_allowed')::boolean,false),next_position)
+  returning id into result;
+  update public.prescriptions set version=version+1 where id=prescription_key;
+  return result;
+end $$;
+
+
+--
 -- Name: allocate_dd_patient_number(); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -994,21 +1135,38 @@ CREATE FUNCTION public.allocate_queue_token(chamber_key uuid, queue_date date, a
     LANGUAGE plpgsql SECURITY DEFINER
     SET search_path TO 'public', 'pg_temp'
     AS $$
-declare doctor uuid; token integer;
+declare token integer; a public.appointments%rowtype;
 begin
-  doctor := public.current_doctor_id();
-  if doctor is null or not public.has_capability(public.current_profile_id(), 'DOCTOR') then raise exception 'PRACTICE_AUTHORITY_REQUIRED' using errcode='42501'; end if;
-  if not exists (select 1 from public.appointments a where a.id=appointment_key and a.doctor_chamber_id=chamber_key and a.owner_doctor_id=doctor and a.session_date=queue_date and a.status in ('ARRIVED','IN_CONSULTATION')) then
-    raise exception 'QUEUE_APPOINTMENT_CONTEXT_INVALID' using errcode='P0001';
+  select * into a from public.appointments where id=appointment_key for update;
+  if not found or a.doctor_chamber_id is distinct from chamber_key or a.session_date is distinct from queue_date
+     or a.status not in ('ARRIVED','IN_CONSULTATION') or not public.may_manage_appointment(appointment_key) then
+    raise exception 'QUEUE_APPOINTMENT_CONTEXT_INVALID' using errcode='42501';
   end if;
-  insert into public.queue_token_counters as qtc(doctor_chamber_id, session_date, next_token) values (chamber_key, queue_date, 2)
-  on conflict (doctor_chamber_id, session_date) do update set next_token=qtc.next_token+1
-  returning next_token-1 into token;
-  insert into public.queue_entries(appointment_id, doctor_chamber_id, practice_location_id, session_date, queue_token)
-  select appointment_key, a.doctor_chamber_id, a.practice_location_id, queue_date, token from public.appointments a where a.id=appointment_key;
+  select qe.queue_token into token from public.queue_entries qe where qe.appointment_id=appointment_key;
+  if token is not null then return token; end if;
+  insert into public.queue_token_counters as qtc(doctor_chamber_id,session_date,next_token) values(chamber_key,queue_date,2)
+  on conflict(doctor_chamber_id,session_date) do update set next_token=qtc.next_token+1 returning next_token-1 into token;
+  insert into public.queue_entries(appointment_id,doctor_chamber_id,practice_location_id,session_date,queue_token)
+  values(appointment_key,chamber_key,a.practice_location_id,queue_date,token);
   return token;
-exception when unique_violation then
-  raise exception 'QUEUE_TOKEN_ALREADY_ALLOCATED' using errcode='P0001';
+end $$;
+
+
+--
+-- Name: call_patient(uuid, text); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.call_patient(appointment_key uuid, note text DEFAULT NULL::text) RETURNS void
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+declare a public.appointments%rowtype;
+begin
+  select * into a from public.appointments where id=appointment_key;
+  if not found or a.status<>'ARRIVED' or not public.may_manage_appointment(appointment_key) then raise exception 'QUEUE_ENTRY_NOT_AVAILABLE' using errcode='42501'; end if;
+  if not exists(select 1 from public.queue_entries qe where qe.appointment_id=appointment_key) then raise exception 'QUEUE_ENTRY_NOT_AVAILABLE' using errcode='P0001'; end if;
+  insert into public.queue_events(appointment_id,practice_location_id,event_type,note,actor_id)
+  values(appointment_key,a.practice_location_id,'CALLED',nullif(btrim(coalesce(note,'')),''),public.current_profile_id());
 end $$;
 
 
@@ -1042,6 +1200,72 @@ CREATE FUNCTION public.can_read_public_booking_contact(appointment_key uuid) RET
       )
   )
 $$;
+
+
+--
+-- Name: cancel_appointment(uuid, public.cancellation_reason, text); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.cancel_appointment(appointment_key uuid, cancel_reason public.cancellation_reason, note text DEFAULT NULL::text) RETURNS public.appointment_status
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+declare a public.appointments%rowtype; caller uuid:=public.current_profile_id();
+begin
+  if caller is null then raise exception 'AUTHENTICATION_REQUIRED' using errcode='42501'; end if;
+  select * into a from public.appointments where id=appointment_key for update;
+  if not found or not public.may_manage_appointment(appointment_key) then raise exception 'APPOINTMENT_NOT_FOUND' using errcode='42501'; end if;
+  if a.status in ('COMPLETED','CANCELLED','NO_SHOW') then raise exception 'APPOINTMENT_TERMINAL' using errcode='P0001'; end if;
+  if cancel_reason is null then raise exception 'CANCELLATION_REASON_REQUIRED' using errcode='22023'; end if;
+  update public.appointments set status='CANCELLED', cancellation_reason=cancel_reason,
+    cancellation_note=nullif(btrim(coalesce(note,'')),''), cancelled_at=clock_timestamp(), updated_at=clock_timestamp()
+  where id=appointment_key;
+  insert into public.appointment_events(appointment_id,from_status,to_status,actor_kind,actor_id,reason)
+  values(appointment_key,a.status,'CANCELLED','USER',caller,cancel_reason::text);
+  return 'CANCELLED';
+end $$;
+
+
+--
+-- Name: check_in_appointment(uuid); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.check_in_appointment(appointment_key uuid) RETURNS integer
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+declare a public.appointments%rowtype; token integer;
+begin
+  select * into a from public.appointments where id=appointment_key for update;
+  if not found or not public.may_manage_appointment(appointment_key) then raise exception 'APPOINTMENT_NOT_FOUND' using errcode='42501'; end if;
+  if a.doctor_chamber_id is null then raise exception 'QUEUE_CHAMBER_REQUIRED' using errcode='22023'; end if;
+  if a.status in ('SCHEDULED','CONFIRMED') then
+    perform public.set_appointment_status(appointment_key,'ARRIVED','CHECK_IN');
+  elsif a.status not in ('ARRIVED','IN_CONSULTATION') then
+    raise exception 'APPOINTMENT_NOT_CHECKIN_ELIGIBLE' using errcode='P0001';
+  end if;
+  token:=public.allocate_queue_token(a.doctor_chamber_id,a.session_date,appointment_key);
+  return token;
+end $$;
+
+
+--
+-- Name: clear_queue_priority(uuid); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.clear_queue_priority(appointment_key uuid) RETURNS void
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+declare a public.appointments%rowtype;
+begin
+  select * into a from public.appointments where id=appointment_key;
+  if not found or a.status<>'ARRIVED' or not public.may_manage_appointment(appointment_key) then raise exception 'QUEUE_ENTRY_NOT_AVAILABLE' using errcode='42501'; end if;
+  update public.queue_entries set priority=0 where appointment_id=appointment_key;
+  if not found then raise exception 'QUEUE_ENTRY_NOT_AVAILABLE' using errcode='P0001'; end if;
+  insert into public.queue_events(appointment_id,practice_location_id,event_type,actor_id)
+  values(appointment_key,a.practice_location_id,'PRIORITY_CLEARED',public.current_profile_id());
+end $$;
 
 
 --
@@ -1365,10 +1589,15 @@ CREATE FUNCTION public.create_clinical_patient(patient_name text, location_id uu
 declare doctor uuid; result uuid; next_number integer; prefix text;
 begin
   doctor := public.current_doctor_id();
-  if doctor is null or not public.has_capability(public.current_profile_id(), 'DOCTOR') then raise exception 'PRACTICE_AUTHORITY_REQUIRED' using errcode='42501'; end if;
-  select patient_number_seq, patient_number_prefix into next_number, prefix from public.professional_profiles where id=doctor for update;
+  if doctor is null or not public.has_capability(public.current_profile_id(),'DOCTOR')
+     or not public.doctor_active_at(location_id,doctor) then
+    raise exception 'PRACTICE_AUTHORITY_REQUIRED' using errcode='42501';
+  end if;
+  if nullif(btrim(patient_name),'') is null then raise exception 'PATIENT_NAME_REQUIRED' using errcode='22023'; end if;
+  select patient_number_seq,patient_number_prefix into next_number,prefix from public.professional_profiles where id=doctor for update;
   update public.professional_profiles set patient_number_seq=next_number+1 where id=doctor;
-  insert into public.clinical_patients(owner_doctor_id, patient_number, full_name) values (doctor, prefix || '-' || lpad(next_number::text, 6, '0'), patient_name) returning id into result;
+  insert into public.clinical_patients(owner_doctor_id,patient_number,full_name)
+  values(doctor,prefix||'-'||lpad((next_number+1)::text,6,'0'),btrim(patient_name)) returning id into result;
   return result;
 end $$;
 
@@ -1392,6 +1621,77 @@ begin
   insert into public.health_subject_origins(health_subject_id, origin_type, registration_channel, registered_by_profile_id, registered_by_actor_kind)
   values (result, 'SELF_REGISTRATION', 'API', public.current_profile_id(), 'USER');
   insert into public.health_subject_access(health_subject_id, profile_id, authority) values (result, public.current_profile_id(), case when subject_kind='SELF' then 'SELF' else 'GUARDIAN' end);
+  return result;
+end $$;
+
+
+--
+-- Name: create_internal_appointment(uuid, uuid, timestamp with time zone, public.appointment_mode); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.create_internal_appointment(chamber_key uuid, patient_key uuid, requested_slot timestamp with time zone, booking_mode public.appointment_mode DEFAULT 'IN_PERSON'::public.appointment_mode) RETURNS uuid
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+declare caller uuid:=public.current_profile_id(); doctor uuid; loc uuid; tz text; source appointment_source; result uuid; local_start timestamp; slot_end timestamp;
+begin
+  if caller is null or requested_slot is null or requested_slot<=clock_timestamp() or booking_mode='HOME_VISIT' then raise exception 'APPOINTMENT_INVALID' using errcode='22023'; end if;
+  select dc.doctor_id,dc.practice_location_id,pl.timezone into doctor,loc,tz from public.doctor_chambers dc join public.practice_locations pl on pl.id=dc.practice_location_id where dc.id=chamber_key and pl.is_active for update of dc;
+  if doctor is null then raise exception 'CHAMBER_NOT_FOUND' using errcode='42501'; end if;
+  if doctor=public.current_doctor_id() and public.has_capability(caller,'DOCTOR') and public.doctor_active_at(loc,doctor) then source:='DOCTOR';
+  elsif exists(select 1 from public.practice_memberships pm where pm.practice_location_id=loc and pm.profile_id=caller and pm.role='RECEPTIONIST' and pm.status='ACTIVE') then source:='RECEPTIONIST';
+  else raise exception 'APPOINTMENT_AUTHORITY_REQUIRED' using errcode='42501'; end if;
+  if not exists(select 1 from public.clinical_patients cp where cp.id=patient_key and cp.owner_doctor_id=doctor and cp.deleted_at is null) then raise exception 'PATIENT_NOT_FOUND' using errcode='42501'; end if;
+  local_start:=requested_slot at time zone tz; slot_end:=local_start+interval '30 minutes';
+  if not exists(select 1 from public.doctor_chamber_hours h where h.doctor_chamber_id=chamber_key and h.weekday=extract(dow from local_start)::int and local_start::time>=h.start_time and slot_end::date=local_start::date and slot_end::time<=h.end_time and mod(extract(epoch from (local_start::time-h.start_time))::bigint,1800)=0) then raise exception 'SLOT_UNAVAILABLE' using errcode='P0001'; end if;
+  if exists(select 1 from public.appointments a where a.doctor_chamber_id=chamber_key and a.status in ('SCHEDULED','CONFIRMED','ARRIVED','IN_CONSULTATION','COMPLETED') and a.scheduled_at<requested_slot+interval '30 minutes' and a.scheduled_at+pg_catalog.make_interval(mins=>a.duration_minutes)>requested_slot) then raise exception 'SLOT_UNAVAILABLE' using errcode='P0001'; end if;
+  insert into public.appointments(owner_doctor_id,practice_location_id,doctor_chamber_id,clinical_patient_id,booked_by_profile_id,scheduled_at,session_date,duration_minutes,visit_type,mode,source_channel,status)
+  values(doctor,loc,chamber_key,patient_key,caller,requested_slot,local_start::date,30,'GENERAL_CONSULTATION',booking_mode,source,'SCHEDULED') returning id into result;
+  insert into public.appointment_events(appointment_id,to_status,actor_kind,actor_id,reason) values(result,'SCHEDULED','USER',caller,'BOOKED'); return result;
+end $$;
+
+
+--
+-- Name: create_prescription_correction(uuid, text); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.create_prescription_correction(original_key uuid, reason text) RETURNS uuid
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+declare doctor uuid:=public.current_doctor_id(); original public.prescriptions%rowtype; result uuid;
+begin
+  if doctor is null or not public.has_capability(public.current_profile_id(),'DOCTOR') then raise exception 'PRACTICE_AUTHORITY_REQUIRED' using errcode='42501'; end if;
+  if nullif(btrim(reason),'') is null or char_length(btrim(reason))>500 then raise exception 'CORRECTION_REASON_REQUIRED' using errcode='22023'; end if;
+  perform pg_advisory_xact_lock(hashtextextended('rx:correct:'||original_key::text,0));
+  select * into original from public.prescriptions where id=original_key and owner_doctor_id=doctor and status='FINALIZED' for update;
+  if not found then raise exception 'PRESCRIPTION_NOT_FOUND' using errcode='42501'; end if;
+  if exists(select 1 from public.prescriptions where replaces_prescription_id=original_key) then raise exception 'PRESCRIPTION_ALREADY_CORRECTED' using errcode='P0001'; end if;
+  insert into public.prescriptions(encounter_id,owner_doctor_id,clinical_patient_id,practice_location_id,replaces_prescription_id,replacement_reason)
+  values(original.encounter_id,doctor,original.clinical_patient_id,original.practice_location_id,original_key,btrim(reason)) returning id into result;
+  insert into public.prescription_items(prescription_id,display_name,brand_name,generic_name,strength_text,dose_text,dosage_form,route,schedule_text,duration_text,quantity_text,food_relation,is_prn,instructions,substitution_allowed,position)
+  select result,display_name,brand_name,generic_name,strength_text,dose_text,dosage_form,route,schedule_text,duration_text,quantity_text,food_relation,is_prn,instructions,substitution_allowed,position
+  from public.prescription_items where prescription_id=original_key order by position;
+  insert into public.prescription_events(prescription_id,event,actor_kind,actor_id) values(result,'CORRECTION_STARTED','USER',public.current_profile_id());
+  perform public.emit_audit_event('PRESCRIPTION_CORRECTION_STARTED','prescriptions',result,null); return result;
+exception when unique_violation then raise exception 'PRESCRIPTION_ALREADY_CORRECTED' using errcode='P0001';
+end $$;
+
+
+--
+-- Name: create_prescription_template(text, jsonb); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.create_prescription_template(template_name text, template_body jsonb DEFAULT '{}'::jsonb) RETURNS uuid
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+declare doctor uuid:=public.current_doctor_id(); result uuid;
+begin
+  if doctor is null or not public.has_capability(public.current_profile_id(),'DOCTOR') then raise exception 'PRACTICE_AUTHORITY_REQUIRED' using errcode='42501'; end if;
+  if nullif(btrim(template_name),'') is null then raise exception 'TEMPLATE_NAME_REQUIRED' using errcode='22023'; end if;
+  insert into public.prescription_templates(doctor_id,name,template)
+  values(doctor,btrim(template_name),coalesce(template_body,'{}'::jsonb)) returning id into result;
   return result;
 end $$;
 
@@ -1622,6 +1922,51 @@ end $_$;
 
 
 --
+-- Name: create_walkin_appointment(uuid, text); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.create_walkin_appointment(chamber_key uuid, patient_name text) RETURNS uuid
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+declare caller uuid:=public.current_profile_id(); doctor uuid; loc uuid; tz text; patient uuid; result uuid; seq integer; prefix text; local_now timestamp; local_end timestamp; instant_now timestamptz;
+begin
+  if caller is null or nullif(btrim(patient_name),'') is null then raise exception 'WALKIN_INVALID' using errcode='22023'; end if;
+  select dc.doctor_id,dc.practice_location_id,pl.timezone into doctor,loc,tz
+  from public.doctor_chambers dc join public.practice_locations pl on pl.id=dc.practice_location_id
+  where dc.id=chamber_key and pl.is_active for update of dc;
+  if doctor is null then raise exception 'CHAMBER_NOT_FOUND' using errcode='42501'; end if;
+  if not ((doctor=public.current_doctor_id() and public.has_capability(caller,'DOCTOR') and public.doctor_active_at(loc,doctor)) or exists(
+    select 1 from public.practice_memberships pm where pm.practice_location_id=loc and pm.profile_id=caller and pm.status='ACTIVE' and pm.role='RECEPTIONIST')) then
+    raise exception 'APPOINTMENT_AUTHORITY_REQUIRED' using errcode='42501';
+  end if;
+  instant_now:=clock_timestamp();
+  local_now:=instant_now at time zone tz;
+  local_end:=local_now+interval '30 minutes';
+  if not exists(select 1 from public.doctor_chamber_hours h where h.doctor_chamber_id=chamber_key
+      and h.weekday=extract(dow from local_now)::int and local_now::time>=h.start_time
+      and local_end::date=local_now::date and local_end::time<=h.end_time) then
+    raise exception 'CHAMBER_NOT_OPEN' using errcode='P0001';
+  end if;
+  if exists(select 1 from public.appointments a where a.doctor_chamber_id=chamber_key
+      and a.status not in ('CANCELLED','NO_SHOW')
+      and a.scheduled_at<instant_now+interval '30 minutes'
+      and a.scheduled_at+pg_catalog.make_interval(mins=>a.duration_minutes)>instant_now) then
+    raise exception 'SLOT_UNAVAILABLE' using errcode='P0001';
+  end if;
+  select patient_number_seq,patient_number_prefix into seq,prefix from public.professional_profiles where id=doctor for update;
+  update public.professional_profiles set patient_number_seq=seq+1 where id=doctor;
+  insert into public.clinical_patients(owner_doctor_id,patient_number,full_name)
+  values(doctor,prefix||'-'||lpad((seq+1)::text,6,'0'),btrim(patient_name)) returning id into patient;
+  insert into public.appointments(owner_doctor_id,practice_location_id,doctor_chamber_id,clinical_patient_id,scheduled_at,session_date,duration_minutes,visit_type,mode,source_channel,status,arrived_at)
+  values(doctor,loc,chamber_key,patient,instant_now,local_now::date,30,'GENERAL_CONSULTATION','IN_PERSON','WALK_IN','ARRIVED',instant_now) returning id into result;
+  insert into public.appointment_events(appointment_id,to_status,actor_kind,actor_id,reason) values(result,'ARRIVED','USER',caller,'WALK_IN');
+  perform public.allocate_queue_token(chamber_key,local_now::date,result);
+  return result;
+end $$;
+
+
+--
 -- Name: current_doctor_id(); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -1665,6 +2010,25 @@ begin
   end loop;
   return substr(alphabet, ((31 + 1 - state) % 31) + 1, 1);
 end $$;
+
+
+--
+-- Name: doctor_active_at(uuid, uuid); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.doctor_active_at(location_key uuid, doctor_key uuid) RETURNS boolean
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+  select exists (
+    select 1 from public.professional_profiles pp
+    join public.practice_memberships pm on pm.profile_id=pp.profile_id
+    join public.practice_locations pl on pl.id=pm.practice_location_id
+    where pp.id=doctor_key and pp.profession='DOCTOR'
+      and pm.practice_location_id=location_key and pm.role='DOCTOR'
+      and pm.status='ACTIVE' and pl.is_active=true
+  )
+$$;
 
 
 --
@@ -1763,6 +2127,154 @@ end $_$;
 
 
 --
+-- Name: emit_p0_appointment_metric(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.emit_p0_appointment_metric() RETURNS trigger
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+declare seq_no integer;
+begin
+  if tg_op='INSERT' then
+    perform public.record_p0_metric_contribution('APPOINTMENTS_BOOKED','APPOINTMENT',new.id,'BOOKED',0,new.session_date,
+      new.owner_doctor_id,new.practice_location_id,1,'STANDARD');
+    if new.rescheduled_from_id is not null then
+      perform public.record_p0_metric_contribution('APPOINTMENTS_RESCHEDULED','APPOINTMENT',new.id,'RESCHEDULED',0,new.session_date,
+        new.owner_doctor_id,new.practice_location_id,1,'STANDARD');
+    end if;
+    return new;
+  end if;
+  if old.status is not distinct from new.status then return new; end if;
+  if new.status='CANCELLED' and coalesce(new.cancellation_reason::text,'')<>'RESCHEDULED' then
+    perform public.record_p0_metric_contribution('APPOINTMENTS_CANCELLED','APPOINTMENT',new.id,'CANCELLED',0,new.session_date,
+      new.owner_doctor_id,new.practice_location_id,1,'STANDARD');
+  end if;
+  if new.status='NO_SHOW' then
+    perform public.record_p0_metric_contribution('APPOINTMENTS_NO_SHOW','APPOINTMENT',new.id,'NO_SHOW',0,new.session_date,
+      new.owner_doctor_id,new.practice_location_id,1,'STANDARD');
+  elsif old.status='NO_SHOW' and new.status='COMPLETED' then
+    perform public.record_p0_metric_contribution('APPOINTMENTS_NO_SHOW','APPOINTMENT',new.id,'NO_SHOW_REVERSED',0,new.session_date,
+      new.owner_doctor_id,new.practice_location_id,-1,'STANDARD');
+  end if;
+  if new.status='COMPLETED' and old.status is distinct from 'COMPLETED' then
+    select coalesce(max(msr.transition_seq),-1)+1 into seq_no from public.metric_source_refs msr
+      where msr.object_kind='APPOINTMENT' and msr.object_id=new.id and msr.transition='COMPLETED';
+    perform public.record_p0_metric_contribution('APPOINTMENTS_COMPLETED','APPOINTMENT',new.id,'COMPLETED',seq_no,new.session_date,
+      new.owner_doctor_id,new.practice_location_id,1,'STANDARD');
+  elsif old.status='COMPLETED' and new.status is distinct from 'COMPLETED' then
+    select coalesce(max(msr.transition_seq),-1)+1 into seq_no from public.metric_source_refs msr
+      where msr.object_kind='APPOINTMENT' and msr.object_id=new.id and msr.transition='COMPLETION_REVERSED';
+    perform public.record_p0_metric_contribution('APPOINTMENTS_COMPLETED','APPOINTMENT',new.id,'COMPLETION_REVERSED',seq_no,new.session_date,
+      new.owner_doctor_id,new.practice_location_id,-1,'STANDARD');
+  end if;
+  return new;
+end $$;
+
+
+--
+-- Name: emit_p0_credential_metric(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.emit_p0_credential_metric() RETURNS trigger
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+declare seq_no integer;
+begin
+  if (tg_op='INSERT' and new.verification_status='VERIFIED')
+     or (tg_op='UPDATE' and old.verification_status is distinct from 'VERIFIED' and new.verification_status='VERIFIED') then
+    select coalesce(max(msr.transition_seq),-1)+1 into seq_no from public.metric_source_refs msr
+      where msr.object_kind='CREDENTIAL' and msr.object_id=new.id and msr.transition='VERIFIED';
+    perform public.record_p0_metric_contribution('DOCTORS_VERIFIED','CREDENTIAL',new.id,'VERIFIED',seq_no,
+      (coalesce(new.verified_at,clock_timestamp()) at time zone 'UTC')::date,new.professional_profile_id,null,1,'STANDARD');
+  elsif tg_op='UPDATE' and old.verification_status='VERIFIED' and new.verification_status is distinct from 'VERIFIED' then
+    select coalesce(max(msr.transition_seq),-1)+1 into seq_no from public.metric_source_refs msr
+      where msr.object_kind='CREDENTIAL' and msr.object_id=new.id and msr.transition='UNVERIFIED';
+    perform public.record_p0_metric_contribution('DOCTORS_VERIFIED','CREDENTIAL',new.id,'UNVERIFIED',seq_no,current_date,
+      new.professional_profile_id,null,-1,'STANDARD');
+  end if;
+  return new;
+end $$;
+
+
+--
+-- Name: emit_p0_encounter_metric(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.emit_p0_encounter_metric() RETURNS trigger
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+declare seq_no integer; metric_day date; zone_name text;
+begin
+  if old.status is not distinct from new.status then return new; end if;
+  select pl.timezone into zone_name from public.practice_locations pl where pl.id=new.practice_location_id;
+  metric_day := (coalesce(new.completed_at,clock_timestamp()) at time zone coalesce(zone_name,'UTC'))::date;
+  if old.status='DRAFT' and new.status='CANCELLED' then
+    perform public.record_p0_metric_contribution('CONSULTATIONS_ABANDONED','ENCOUNTER',new.id,'ABANDONED',0,metric_day,
+      new.owner_doctor_id,new.practice_location_id,1,'STANDARD');
+  elsif old.status='CANCELLED' and new.status='COMPLETED' then
+    perform public.record_p0_metric_contribution('CONSULTATIONS_ABANDONED','ENCOUNTER',new.id,'ABANDON_REVERSED',0,metric_day,
+      new.owner_doctor_id,new.practice_location_id,-1,'STANDARD');
+  end if;
+  if new.status='COMPLETED' and old.status is distinct from 'COMPLETED' then
+    select coalesce(max(msr.transition_seq),-1)+1 into seq_no from public.metric_source_refs msr
+      where msr.object_kind='ENCOUNTER' and msr.object_id=new.id and msr.transition='COMPLETED';
+    perform public.record_p0_metric_contribution('CONSULTATIONS_COMPLETED','ENCOUNTER',new.id,'COMPLETED',seq_no,metric_day,
+      new.owner_doctor_id,new.practice_location_id,1,'STANDARD');
+  elsif old.status='COMPLETED' and new.status='DRAFT' then
+    select coalesce(max(msr.transition_seq),-1)+1 into seq_no from public.metric_source_refs msr
+      where msr.object_kind='ENCOUNTER' and msr.object_id=new.id and msr.transition='REOPENED';
+    perform public.record_p0_metric_contribution('CONSULTATIONS_COMPLETED','ENCOUNTER',new.id,'REOPENED',seq_no,metric_day,
+      new.owner_doctor_id,new.practice_location_id,-1,'STANDARD');
+  end if;
+  return new;
+end $$;
+
+
+--
+-- Name: emit_p0_prescription_metric(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.emit_p0_prescription_metric() RETURNS trigger
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+declare metric_day date; zone_name text;
+begin
+  if old.status='DRAFT' and new.status='FINALIZED' then
+    select pl.timezone into zone_name from public.practice_locations pl where pl.id=new.practice_location_id;
+    metric_day := (coalesce(new.finalized_at,clock_timestamp()) at time zone coalesce(zone_name,'UTC'))::date;
+    perform public.record_p0_metric_contribution('PRESCRIPTIONS_FINALIZED','PRESCRIPTION',new.id,'FINALIZED',0,metric_day,
+      new.owner_doctor_id,new.practice_location_id,1,'STANDARD');
+    if new.replaces_prescription_id is not null then
+      perform public.record_p0_metric_contribution('PRESCRIPTIONS_CORRECTED','PRESCRIPTION',new.id,'CORRECTION_OF',0,metric_day,
+        new.owner_doctor_id,new.practice_location_id,1,'CORRECTION');
+    end if;
+  end if;
+  return new;
+end $$;
+
+
+--
+-- Name: emit_p0_profile_metric(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.emit_p0_profile_metric() RETURNS trigger
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+begin
+  perform public.record_p0_metric_contribution(
+    'DOCTORS_REGISTERED','PROFESSIONAL_PROFILE',new.id,'REGISTERED',0,
+    (new.created_at at time zone 'UTC')::date,new.id,null,1,'STANDARD'
+  );
+  return new;
+end $$;
+
+
+--
 -- Name: enforce_public_appointment_invariants(); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -1789,7 +2301,7 @@ begin
 
   if tg_op = 'UPDATE'
      and new.source_channel in ('PUBLIC_WEB','PUBLIC_APP')
-     and old.source_channel not in ('PUBLIC_WEB','PUBLIC_APP') then
+     and old.source_channel in ('INTERNAL','DOCTOR','RECEPTIONIST','ASSISTANT','WALK_IN','SUPPORT_ASSISTED') then
     raise exception 'PUBLIC_BOOKING_SOURCE_IMMUTABLE'
       using errcode='23514';
   end if;
@@ -1832,16 +2344,99 @@ CREATE FUNCTION public.finalize_prescription(prescription_key uuid, expected_ver
     LANGUAGE plpgsql SECURITY DEFINER
     SET search_path TO 'public', 'pg_temp'
     AS $$
-declare doctor uuid;
+declare doctor uuid:=public.current_doctor_id(); review jsonb; trusted_bundle jsonb; trusted_digest text; trusted_path text; items integer;
 begin
-  doctor := public.current_doctor_id();
-  if doctor is null or not public.has_capability(public.current_profile_id(), 'DOCTOR') then raise exception 'PRACTICE_AUTHORITY_REQUIRED' using errcode='42501'; end if;
-  update public.prescriptions
-  set status='FINALIZED', version=version+1, review_bundle_snapshot=approved_bundle, review_digest=approved_digest, signature_asset_path=frozen_signature_path, snapshot_schema_version='P0', finalized_at=clock_timestamp()
-  where id=prescription_key and owner_doctor_id=doctor and status='DRAFT' and version=expected_version;
+  if doctor is null or not public.has_capability(public.current_profile_id(),'DOCTOR') then raise exception 'PRACTICE_AUTHORITY_REQUIRED' using errcode='42501'; end if;
+  perform 1 from public.prescriptions p where p.id=prescription_key and p.owner_doctor_id=doctor and p.status='DRAFT' and p.version=expected_version for update;
   if not found then raise exception 'PRESCRIPTION_VERSION_OR_STATE_CONFLICT' using errcode='P0001'; end if;
-  perform public.emit_audit_event('PRESCRIPTION_FINALIZED', 'prescriptions', prescription_key, null);
-  return prescription_key;
+  select count(*) into items from public.prescription_items where prescription_id=prescription_key;
+  if items=0 then raise exception 'PRESCRIPTION_EMPTY' using errcode='22023'; end if;
+  review:=public.prescription_review_bundle(prescription_key); trusted_bundle:=review->'bundle'; trusted_digest:=review->>'digest'; trusted_path:=review->>'expectedSignaturePath';
+  if approved_bundle is distinct from trusted_bundle or approved_digest is distinct from trusted_digest or frozen_signature_path is distinct from trusted_path then raise exception 'REVIEW_STALE_OR_UNTRUSTED' using errcode='22023'; end if;
+  if not exists(select 1 from storage.objects o where o.bucket_id='prescription-assets' and o.name=trusted_path and coalesce(o.is_delete_marker,false)=false) then raise exception 'SIGNATURE_NOT_FROZEN' using errcode='22023'; end if;
+  update public.prescriptions set status='FINALIZED',version=version+1,review_bundle_snapshot=trusted_bundle,review_digest=trusted_digest,signature_asset_path=trusted_path,snapshot_schema_version='P0',finalized_at=clock_timestamp() where id=prescription_key;
+  insert into public.prescription_events(prescription_id,event,actor_kind,actor_id) values(prescription_key,'FINALIZED','USER',public.current_profile_id());
+  perform public.emit_audit_event('PRESCRIPTION_FINALIZED','prescriptions',prescription_key,null); return prescription_key;
+end $$;
+
+
+--
+-- Name: finish_consultation(uuid, integer); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.finish_consultation(encounter_key uuid, expected_version integer) RETURNS integer
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+declare doctor uuid:=public.current_doctor_id(); next_version integer; appt uuid; old_appt appointment_status;
+begin
+  if doctor is null or not public.has_capability(public.current_profile_id(),'DOCTOR') then raise exception 'PRACTICE_AUTHORITY_REQUIRED' using errcode='42501'; end if;
+  update public.encounters set status='COMPLETED',completed_at=clock_timestamp(),version=version+1
+  where id=encounter_key and owner_doctor_id=doctor and status='DRAFT' and version=expected_version
+  returning version,appointment_id into next_version,appt;
+  if next_version is null then raise exception 'ENCOUNTER_VERSION_OR_STATE_CONFLICT' using errcode='P0001'; end if;
+  insert into public.encounter_events(encounter_id,owner_doctor_id,event) values(encounter_key,doctor,'COMPLETED');
+  if appt is not null then
+    select status into old_appt from public.appointments where id=appt and owner_doctor_id=doctor for update;
+    if old_appt in ('ARRIVED','IN_CONSULTATION') then
+      update public.appointments set status='COMPLETED',completed_at=clock_timestamp(),updated_at=clock_timestamp() where id=appt;
+      insert into public.appointment_events(appointment_id,from_status,to_status,actor_kind,actor_id,reason)
+      values(appt,old_appt,'COMPLETED','USER',public.current_profile_id(),'CONSULTATION_FINISHED');
+    end if;
+  end if;
+  perform public.emit_audit_event('ENCOUNTER_COMPLETED','encounters',encounter_key,null);
+  return next_version;
+end $$;
+
+
+--
+-- Name: grant_health_subject_access(uuid, uuid, public.subject_authority, text); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.grant_health_subject_access(subject_key uuid, target_profile uuid, target_authority public.subject_authority, relationship text DEFAULT NULL::text) RETURNS uuid
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+declare caller uuid:=public.current_profile_id(); caller_authority subject_authority; result uuid;
+begin
+  if caller is null then raise exception 'AUTHENTICATION_REQUIRED' using errcode='42501'; end if;
+  if target_authority='CARE_MANAGER' then raise exception 'CARE_MANAGER_NOT_P0' using errcode='0A000'; end if;
+  select a.authority into caller_authority from public.health_subject_access a
+  where a.health_subject_id=subject_key and a.profile_id=caller and a.authority in ('SELF','GUARDIAN')
+    and public.is_live_edge(a.effective_from,a.expires_at,a.revoked_at)
+  order by case when a.authority='SELF' then 0 else 1 end limit 1;
+  if caller_authority is null then raise exception 'SUBJECT_ACCESS_REQUIRED' using errcode='42501'; end if;
+  if target_authority='SELF' then
+    if caller_authority<>'SELF' or target_profile<>caller or not exists(select 1 from public.health_subjects hs where hs.id=subject_key and hs.claimed_profile_id=target_profile) then
+      raise exception 'SELF_AUTHORITY_INVALID' using errcode='42501';
+    end if;
+  end if;
+  insert into public.health_subject_access(health_subject_id,profile_id,authority,relationship_label,granted_by_profile_id)
+  values(subject_key,target_profile,target_authority,nullif(btrim(coalesce(relationship,'')),''),caller)
+  returning id into result;
+  insert into public.health_subject_access_events(health_subject_access_id,to_state,actor_kind,actor_id,reason)
+  values(result,'ACTIVE','USER',caller,'GRANTED');
+  return result;
+exception when unique_violation then raise exception 'SUBJECT_ACCESS_ALREADY_LIVE' using errcode='P0001';
+end $$;
+
+
+--
+-- Name: handover_prescription(uuid); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.handover_prescription(prescription_key uuid) RETURNS jsonb
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+declare rx public.prescriptions%rowtype;
+begin
+  if public.current_profile_id() is null then raise exception 'AUTHENTICATION_REQUIRED' using errcode='42501'; end if;
+  select * into rx from public.prescriptions where id=prescription_key and status='FINALIZED';
+  if not found or not public.may_hand_over_prescription(prescription_key) then raise exception 'PRESCRIPTION_NOT_FOUND' using errcode='42501'; end if;
+  insert into public.prescription_events(prescription_id,event,actor_kind,actor_id) values(prescription_key,'HANDED_OVER','USER',public.current_profile_id());
+  perform public.emit_audit_event('PRESCRIPTION_HANDED_OVER','prescriptions',prescription_key,null);
+  return jsonb_build_object('id',rx.id,'finalizedAt',rx.finalized_at,'reviewDigest',rx.review_digest,'bundle',rx.review_bundle_snapshot,'signatureAssetPath',rx.signature_asset_path);
 end $$;
 
 
@@ -1915,6 +2510,104 @@ end $$;
 
 
 --
+-- Name: may_hand_over_prescription(uuid); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.may_hand_over_prescription(target uuid) RETURNS boolean
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+  select exists (
+    select 1 from public.prescriptions p
+    where p.id=target and p.status='FINALIZED' and (
+      (p.owner_doctor_id=public.current_doctor_id()
+       and public.has_capability(public.current_profile_id(),'DOCTOR')
+       and public.doctor_active_at(p.practice_location_id,p.owner_doctor_id))
+      or exists (select 1 from public.practice_memberships pm
+        where pm.practice_location_id=p.practice_location_id
+          and pm.profile_id=public.current_profile_id()
+          and pm.status='ACTIVE' and pm.role in ('RECEPTIONIST','LOCATION_ADMIN'))
+    )
+  )
+$$;
+
+
+--
+-- Name: may_manage_appointment(uuid); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.may_manage_appointment(target uuid) RETURNS boolean
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+  select exists (
+    select 1 from public.appointments a
+    where a.id=target and (
+      (a.owner_doctor_id=public.current_doctor_id()
+       and public.has_capability(public.current_profile_id(),'DOCTOR')
+       and public.doctor_active_at(a.practice_location_id,a.owner_doctor_id))
+      or exists (select 1 from public.practice_memberships pm
+        where pm.practice_location_id=a.practice_location_id
+          and pm.profile_id=public.current_profile_id()
+          and pm.status='ACTIVE' and pm.role in ('RECEPTIONIST','LOCATION_ADMIN'))
+    )
+  )
+$$;
+
+
+--
+-- Name: may_read_prescription_asset(text); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.may_read_prescription_asset(object_name text) RETURNS boolean
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+  select exists(
+    select 1 from public.prescriptions p
+    where p.status='FINALIZED' and p.signature_asset_path=object_name
+      and (p.owner_doctor_id=public.current_doctor_id() or public.may_hand_over_prescription(p.id))
+  )
+$$;
+
+
+--
+-- Name: may_write_doctor_asset(text, text); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.may_write_doctor_asset(bucket_name text, object_name text) RETURNS boolean
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+  select exists(
+    select 1 from public.professional_profiles pp
+    where pp.profile_id=public.current_profile_id() and (
+      (bucket_name='doctor-profile-photos' and pp.professional_photo_path=object_name)
+      or (bucket_name='doctor-signatures' and pp.signature_path=object_name)
+    )
+  )
+$$;
+
+
+--
+-- Name: may_write_prescription_asset(text); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.may_write_prescription_asset(object_name text) RETURNS boolean
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+  select exists(
+    select 1 from public.prescriptions p join public.professional_profiles pp on pp.id=p.owner_doctor_id
+    where p.owner_doctor_id=public.current_doctor_id() and p.status='DRAFT'
+      and public.has_capability(public.current_profile_id(),'DOCTOR')
+      and public.doctor_active_at(p.practice_location_id,p.owner_doctor_id)
+      and object_name=pp.profile_id::text||'/'||p.id::text||'/signature'
+  )
+$$;
+
+
+--
 -- Name: normalize_dd_number(text); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -1953,10 +2646,51 @@ CREATE FUNCTION public.open_encounter(patient_id uuid, location_id uuid) RETURNS
     AS $$
 declare doctor uuid; result uuid;
 begin
-  doctor := public.current_doctor_id();
-  if doctor is null or not public.has_capability(public.current_profile_id(), 'DOCTOR') then raise exception 'PRACTICE_AUTHORITY_REQUIRED' using errcode='42501'; end if;
-  insert into public.encounters(owner_doctor_id, clinical_patient_id, practice_location_id) values (doctor, patient_id, location_id) returning id into result;
+  doctor:=public.current_doctor_id();
+  if doctor is null or not public.has_capability(public.current_profile_id(),'DOCTOR')
+     or not public.doctor_active_at(location_id,doctor) then
+    raise exception 'PRACTICE_AUTHORITY_REQUIRED' using errcode='42501';
+  end if;
+  if not exists(select 1 from public.clinical_patients cp where cp.id=patient_id and cp.owner_doctor_id=doctor and cp.deleted_at is null) then
+    raise exception 'PATIENT_NOT_FOUND' using errcode='42501';
+  end if;
+  insert into public.encounters(owner_doctor_id,clinical_patient_id,practice_location_id)
+  values(doctor,patient_id,location_id) returning id into result;
+  insert into public.encounter_events(encounter_id,owner_doctor_id,event) values(result,doctor,'OPENED');
+  perform public.emit_audit_event('ENCOUNTER_OPENED','encounters',result,null);
   return result;
+exception when unique_violation then
+  raise exception 'ENCOUNTER_DRAFT_ALREADY_EXISTS' using errcode='P0001';
+end $$;
+
+
+--
+-- Name: open_encounter_for_appointment(uuid); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.open_encounter_for_appointment(appointment_key uuid) RETURNS uuid
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+declare doctor uuid:=public.current_doctor_id(); a public.appointments%rowtype; result uuid;
+begin
+  if doctor is null or not public.has_capability(public.current_profile_id(),'DOCTOR') then raise exception 'PRACTICE_AUTHORITY_REQUIRED' using errcode='42501'; end if;
+  select * into a from public.appointments where id=appointment_key and owner_doctor_id=doctor for update;
+  if not found or a.clinical_patient_id is null or a.status<>'IN_CONSULTATION'
+     or not public.doctor_active_at(a.practice_location_id,doctor) then
+    raise exception 'APPOINTMENT_NOT_IN_CONSULTATION' using errcode='42501';
+  end if;
+  select e.id into result from public.encounters e where e.appointment_id=appointment_key and e.status='DRAFT';
+  if result is not null then return result; end if;
+  insert into public.encounters(owner_doctor_id,clinical_patient_id,practice_location_id,appointment_id)
+  values(doctor,a.clinical_patient_id,a.practice_location_id,appointment_key) returning id into result;
+  insert into public.encounter_events(encounter_id,owner_doctor_id,event) values(result,doctor,'OPENED');
+  perform public.emit_audit_event('ENCOUNTER_OPENED','encounters',result,null);
+  return result;
+exception when unique_violation then
+  select e.id into result from public.encounters e where e.appointment_id=appointment_key and e.status='DRAFT';
+  if result is not null then return result; end if;
+  raise;
 end $$;
 
 
@@ -1980,6 +2714,70 @@ end $$;
 
 
 --
+-- Name: prepare_doctor_asset(text); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.prepare_doctor_asset(asset_kind text) RETURNS text
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+declare profile_key uuid:=public.current_profile_id(); doctor uuid:=public.current_doctor_id(); object_path text;
+begin
+  if profile_key is null or doctor is null then raise exception 'DOCTOR_AUTHORITY_REQUIRED' using errcode='42501'; end if;
+  if asset_kind not in ('PHOTO','SIGNATURE') then raise exception 'ASSET_KIND_INVALID' using errcode='22023'; end if;
+  object_path:=profile_key::text||'/'||extensions.gen_random_uuid()::text;
+  if asset_kind='PHOTO' then update public.professional_profiles set professional_photo_path=object_path,updated_at=clock_timestamp() where id=doctor;
+  else update public.professional_profiles set signature_path=object_path,updated_at=clock_timestamp() where id=doctor; end if;
+  return object_path;
+end $$;
+
+
+--
+-- Name: prepare_prescription_signature_asset(uuid); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.prepare_prescription_signature_asset(prescription_key uuid) RETURNS text
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+declare doctor uuid:=public.current_doctor_id(); profile_key uuid; object_path text;
+begin
+  if doctor is null or not public.has_capability(public.current_profile_id(),'DOCTOR') then raise exception 'PRACTICE_AUTHORITY_REQUIRED' using errcode='42501'; end if;
+  if not exists(select 1 from public.prescriptions p where p.id=prescription_key and p.owner_doctor_id=doctor and p.status='DRAFT') then raise exception 'PRESCRIPTION_NOT_FOUND' using errcode='42501'; end if;
+  select pp.profile_id into profile_key from public.professional_profiles pp where pp.id=doctor;
+  object_path:=profile_key::text||'/'||prescription_key::text||'/signature';
+  return object_path;
+end $$;
+
+
+--
+-- Name: prescription_review_bundle(uuid); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.prescription_review_bundle(prescription_key uuid) RETURNS jsonb
+    LANGUAGE plpgsql STABLE SECURITY DEFINER
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+declare doctor uuid:=public.current_doctor_id(); rx public.prescriptions%rowtype; bundle jsonb; expected_path text; profile_id uuid;
+begin
+  if doctor is null or not public.has_capability(public.current_profile_id(),'DOCTOR') then raise exception 'PRACTICE_AUTHORITY_REQUIRED' using errcode='42501'; end if;
+  select * into rx from public.prescriptions where id=prescription_key and owner_doctor_id=doctor and status='DRAFT';
+  if not found then raise exception 'PRESCRIPTION_NOT_FOUND' using errcode='42501'; end if;
+  select pp.profile_id into profile_id from public.professional_profiles pp where pp.id=doctor;
+  expected_path:=profile_id::text||'/'||rx.id::text||'/signature';
+  select jsonb_build_object(
+    'schemaVersion','P0','prescriptionId',rx.id,'encounterId',rx.encounter_id,
+    'doctor',(select jsonb_build_object('id',pp.id,'displayName',pp.display_name,'designation',pp.designation,'qualification',pp.qualification) from public.professional_profiles pp where pp.id=doctor),
+    'location',(select jsonb_build_object('id',pl.id,'name',pl.name,'type',pl.location_type,'countryCode',pl.country_code) from public.practice_locations pl where pl.id=rx.practice_location_id),
+    'patient',(select jsonb_build_object('id',cp.id,'patientNumber',cp.patient_number,'fullName',cp.full_name,'dob',cp.dob,'sex',cp.sex,'bloodGroup',cp.blood_group) from public.clinical_patients cp where cp.id=rx.clinical_patient_id and cp.owner_doctor_id=doctor),
+    'items',coalesce((select jsonb_agg(to_jsonb(i)-'prescription_id' order by i.position) from public.prescription_items i where i.prescription_id=rx.id),'[]'::jsonb),
+    'signature',jsonb_build_object('path',expected_path)
+  ) into bundle;
+  return jsonb_build_object('bundle',bundle,'digest',encode(extensions.digest(convert_to(bundle::text,'UTF8'),'sha256'),'hex'),'expectedSignaturePath',expected_path,'version',rx.version);
+end $$;
+
+
+--
 -- Name: prevent_append_only_change(); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -1988,6 +2786,21 @@ CREATE FUNCTION public.prevent_append_only_change() RETURNS trigger
     AS $$
 begin
   raise exception 'APPEND_ONLY_RECORD' using errcode='P0001';
+end $$;
+
+
+--
+-- Name: prevent_dd_allocation_reactivation(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.prevent_dd_allocation_reactivation() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+begin
+  if old.allocation_state = 'RETIRED' and new.allocation_state = 'LIVE' then
+    raise exception 'DD_NUMBER_REACTIVATION_FORBIDDEN' using errcode='P0001';
+  end if;
+  return new;
 end $$;
 
 
@@ -2385,6 +3198,106 @@ end $$;
 
 
 --
+-- Name: rebuild_metric_rollups(date); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.rebuild_metric_rollups(target_day date) RETURNS integer
+    LANGUAGE plpgsql
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+declare
+  month_start date := date_trunc('month', target_day)::date;
+  month_end date := (date_trunc('month', target_day) + interval '1 month')::date;
+  written integer := 0;
+  month_written integer := 0;
+begin
+  if target_day is null then
+    raise exception 'METRIC_PERIOD_REQUIRED' using errcode='22023';
+  end if;
+
+  perform pg_advisory_xact_lock(hashtextextended('dd:metric:month:' || month_start::text, 0));
+  perform pg_advisory_xact_lock(hashtextextended('dd:metric:day:' || target_day::text, 0));
+
+  delete from public.metric_rollups mr
+  where (mr.period_kind = 'DAY' and mr.period_start = target_day)
+     or (mr.period_kind = 'MONTH' and mr.period_start = month_start);
+
+  insert into public.metric_rollups(
+    metric_code, period_kind, period_start, doctor_id,
+    practice_location_id, count_value, updated_at
+  )
+  select mc.metric_code, 'DAY'::public.metric_period_kind, target_day,
+         mc.doctor_id, mc.practice_location_id, sum(mc.delta)::bigint,
+         clock_timestamp()
+  from public.metric_contributions mc
+  where mc.period_day = target_day
+  group by mc.metric_code, mc.doctor_id, mc.practice_location_id;
+  get diagnostics written = row_count;
+
+  insert into public.metric_rollups(
+    metric_code, period_kind, period_start, doctor_id,
+    practice_location_id, count_value, updated_at
+  )
+  select mc.metric_code, 'MONTH'::public.metric_period_kind, month_start,
+         mc.doctor_id, mc.practice_location_id, sum(mc.delta)::bigint,
+         clock_timestamp()
+  from public.metric_contributions mc
+  where mc.period_day >= month_start and mc.period_day < month_end
+  group by mc.metric_code, mc.doctor_id, mc.practice_location_id;
+  get diagnostics month_written = row_count;
+  written := written + month_written;
+
+  return written;
+end $$;
+
+
+--
+-- Name: record_p0_metric_contribution(text, public.metric_source_object_kind, uuid, text, integer, date, uuid, uuid, integer, text); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.record_p0_metric_contribution(metric_name text, source_kind public.metric_source_object_kind, source_object uuid, transition_code text, source_transition_seq integer, business_day date, metric_doctor_id uuid, metric_location_id uuid, metric_delta integer, metric_classification text DEFAULT NULL::text) RETURNS void
+    LANGUAGE plpgsql
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+declare
+  source_key uuid;
+begin
+  if metric_delta not in (-1, 1) then
+    raise exception 'METRIC_DELTA_INVALID' using errcode='22023';
+  end if;
+  if business_day is null then
+    raise exception 'METRIC_PERIOD_DAY_REQUIRED' using errcode='22023';
+  end if;
+
+  insert into public.metric_source_refs(
+    object_kind, object_id, transition, transition_seq
+  ) values (
+    source_kind, source_object, transition_code, source_transition_seq
+  )
+  on conflict (object_kind, object_id, transition, transition_seq) do nothing
+  returning source_ref into source_key;
+
+  if source_key is null then
+    select msr.source_ref into source_key
+    from public.metric_source_refs msr
+    where msr.object_kind = source_kind
+      and msr.object_id = source_object
+      and msr.transition = transition_code
+      and msr.transition_seq = source_transition_seq;
+  end if;
+
+  insert into public.metric_contributions(
+    metric_code, source_event_key, period_day, doctor_id,
+    practice_location_id, delta, classification_code
+  ) values (
+    metric_name, source_key, business_day, metric_doctor_id,
+    metric_location_id, metric_delta::smallint, metric_classification
+  )
+  on conflict (metric_code, source_event_key) do nothing;
+end $$;
+
+
+--
 -- Name: record_public_ingress_failure(text, uuid, uuid); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -2395,7 +3308,9 @@ CREATE FUNCTION public.record_public_ingress_failure(target_rpc text, session_re
 declare
   result uuid;
 begin
-  if session_user <> 'dd_public_ingress' then
+  if session_user = 'dd_public_ingress' then
+    null;
+  else
     raise exception 'TRUSTED_PUBLIC_INGRESS_REQUIRED' using errcode='42501';
   end if;
 
@@ -2454,6 +3369,20 @@ CREATE FUNCTION public.refresh_capability_trigger() RETURNS trigger
     AS $$
 begin
   perform public.refresh_profile_capabilities((select profile_id from public.professional_profiles where id = coalesce(new.professional_profile_id, old.professional_profile_id)));
+  return new;
+end $$;
+
+
+--
+-- Name: refresh_metric_rollups_after_contribution(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.refresh_metric_rollups_after_contribution() RETURNS trigger
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+begin
+  perform public.rebuild_metric_rollups(new.period_day);
   return new;
 end $$;
 
@@ -2704,7 +3633,9 @@ declare
   public_source text;
   request_key text;
 begin
-  if session_user <> 'dd_public_ingress' then
+  if session_user = 'dd_public_ingress' then
+    null;
+  else
     raise exception 'TRUSTED_PUBLIC_INGRESS_REQUIRED' using errcode='42501';
   end if;
 
@@ -2736,11 +3667,47 @@ begin
      or session_started::timestamptz <= clock_timestamp() - interval '24 hours'
      or length(session_digest) <> 64
      or length(network_digest) <> 64
-     or length(resource_digest) <> 64
-     or public_source not in ('PUBLIC_WEB','PUBLIC_APP') then
+     or length(resource_digest) <> 64 then
+    raise exception 'TRUSTED_PUBLIC_CONTEXT_INVALID' using errcode='42501';
+  end if;
+
+  if public_source in ('PUBLIC_WEB','PUBLIC_APP') then
+    null;
+  else
     raise exception 'TRUSTED_PUBLIC_CONTEXT_INVALID' using errcode='42501';
   end if;
 end $_$;
+
+
+--
+-- Name: reschedule_appointment(uuid, timestamp with time zone); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.reschedule_appointment(appointment_key uuid, requested_slot timestamp with time zone) RETURNS uuid
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+declare old public.appointments%rowtype; caller uuid:=public.current_profile_id(); tz text; local_start timestamp; local_end timestamp; result uuid;
+begin
+  if caller is null or requested_slot is null or requested_slot<=clock_timestamp() then raise exception 'APPOINTMENT_INVALID' using errcode='22023'; end if;
+  select * into old from public.appointments where id=appointment_key for update;
+  if not found or not public.may_manage_appointment(appointment_key) or old.status in ('COMPLETED','CANCELLED','NO_SHOW') then raise exception 'APPOINTMENT_NOT_RESCHEDULABLE' using errcode='42501'; end if;
+  if old.clinical_patient_id is null or old.doctor_chamber_id is null then raise exception 'APPOINTMENT_NOT_RESCHEDULABLE' using errcode='P0001'; end if;
+  perform 1 from public.doctor_chambers dc where dc.id=old.doctor_chamber_id for update;
+  select pl.timezone into tz from public.practice_locations pl where pl.id=old.practice_location_id and pl.is_active;
+  local_start:=requested_slot at time zone tz; local_end:=local_start+interval '30 minutes';
+  if not exists(select 1 from public.doctor_chamber_hours h where h.doctor_chamber_id=old.doctor_chamber_id and h.weekday=extract(dow from local_start)::int and local_start::time>=h.start_time and local_end::date=local_start::date and local_end::time<=h.end_time and mod(extract(epoch from(local_start::time-h.start_time))::bigint,1800)=0) then raise exception 'SLOT_UNAVAILABLE' using errcode='P0001'; end if;
+  if exists(select 1 from public.appointments a where a.doctor_chamber_id=old.doctor_chamber_id and a.id<>old.id and a.status not in ('CANCELLED','NO_SHOW') and a.scheduled_at<requested_slot+interval '30 minutes' and a.scheduled_at+pg_catalog.make_interval(mins=>a.duration_minutes)>requested_slot) then raise exception 'SLOT_UNAVAILABLE' using errcode='P0001'; end if;  update public.appointments set status='CANCELLED',cancellation_reason='RESCHEDULED',cancelled_at=clock_timestamp(),updated_at=clock_timestamp() where id=old.id;
+  insert into public.appointment_events(appointment_id,from_status,to_status,actor_kind,actor_id,reason)
+  values(old.id,old.status,'CANCELLED','USER',caller,'RESCHEDULED');
+  insert into public.appointments(owner_doctor_id,practice_location_id,doctor_chamber_id,clinical_patient_id,health_subject_id,booked_by_profile_id,scheduled_at,session_date,duration_minutes,visit_type,mode,source_channel,status,rescheduled_from_id)
+  values(old.owner_doctor_id,old.practice_location_id,old.doctor_chamber_id,old.clinical_patient_id,old.health_subject_id,caller,requested_slot,local_start::date,30,old.visit_type,old.mode,
+    case when old.owner_doctor_id=public.current_doctor_id() then 'DOCTOR'::appointment_source else 'RECEPTIONIST'::appointment_source end,'SCHEDULED',old.id)
+  returning id into result;
+  insert into public.appointment_events(appointment_id,to_status,actor_kind,actor_id,reason)
+  values(result,'SCHEDULED','USER',caller,'RESCHEDULED');
+  return result;
+end $$;
 
 
 --
@@ -2917,6 +3884,30 @@ end $$;
 
 
 --
+-- Name: revoke_health_subject_access(uuid, text); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.revoke_health_subject_access(access_key uuid, reason text DEFAULT NULL::text) RETURNS void
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+declare caller uuid:=public.current_profile_id(); target public.health_subject_access%rowtype;
+begin
+  if caller is null then raise exception 'AUTHENTICATION_REQUIRED' using errcode='42501'; end if;
+  select * into target from public.health_subject_access where id=access_key and revoked_at is null for update;
+  if not found then raise exception 'SUBJECT_ACCESS_NOT_FOUND' using errcode='42501'; end if;
+  if target.authority='SELF' then raise exception 'LAST_SELF_CANNOT_BE_REVOKED' using errcode='P0001'; end if;
+  if not exists(select 1 from public.health_subject_access a where a.health_subject_id=target.health_subject_id and a.profile_id=caller
+      and a.authority in ('SELF','GUARDIAN') and public.is_live_edge(a.effective_from,a.expires_at,a.revoked_at)) then
+    raise exception 'SUBJECT_ACCESS_REQUIRED' using errcode='42501';
+  end if;
+  update public.health_subject_access set revoked_at=clock_timestamp(),revoked_by=caller,revoke_reason=nullif(btrim(coalesce(reason,'')),'') where id=access_key;
+  insert into public.health_subject_access_events(health_subject_access_id,from_state,to_state,actor_kind,actor_id,reason)
+  values(access_key,'ACTIVE','REVOKED','USER',caller,nullif(btrim(coalesce(reason,'')),''));
+end $$;
+
+
+--
 -- Name: search_public_booking_patient_candidates(uuid, text, text); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -3050,6 +4041,40 @@ end $_$;
 
 
 --
+-- Name: set_appointment_status(uuid, public.appointment_status, text); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.set_appointment_status(appointment_key uuid, target_status public.appointment_status, note text DEFAULT NULL::text) RETURNS public.appointment_status
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+declare a public.appointments%rowtype; caller uuid:=public.current_profile_id();
+begin
+  if caller is null then raise exception 'AUTHENTICATION_REQUIRED' using errcode='42501'; end if;
+  select * into a from public.appointments where id=appointment_key for update;
+  if not found or not public.may_manage_appointment(appointment_key) then
+    raise exception 'APPOINTMENT_NOT_FOUND' using errcode='42501';
+  end if;
+  if a.status in ('COMPLETED','CANCELLED','NO_SHOW') then raise exception 'APPOINTMENT_TERMINAL' using errcode='P0001'; end if;
+  if target_status='COMPLETED' then raise exception 'USE_FINISH_CONSULTATION' using errcode='42501'; end if;
+  if target_status='IN_CONSULTATION' and (a.owner_doctor_id is distinct from public.current_doctor_id() or not public.has_capability(caller,'DOCTOR')) then
+    raise exception 'DOCTOR_AUTHORITY_REQUIRED' using errcode='42501';
+  end if;
+  if not ((a.status='SCHEDULED' and target_status in ('CONFIRMED','ARRIVED','CANCELLED','NO_SHOW'))
+       or (a.status='CONFIRMED' and target_status in ('ARRIVED','CANCELLED','NO_SHOW'))
+       or (a.status='ARRIVED' and target_status in ('IN_CONSULTATION','CANCELLED'))) then
+    raise exception 'APPOINTMENT_TRANSITION_INVALID' using errcode='P0001';
+  end if;
+  update public.appointments set status=target_status, arrived_at=case when target_status='ARRIVED' then coalesce(arrived_at,clock_timestamp()) else arrived_at end,
+    consultation_started_at=case when target_status='IN_CONSULTATION' then coalesce(consultation_started_at,clock_timestamp()) else consultation_started_at end,
+    cancelled_at=case when target_status='CANCELLED' then clock_timestamp() else cancelled_at end, updated_at=clock_timestamp() where id=appointment_key;
+  insert into public.appointment_events(appointment_id,from_status,to_status,actor_kind,actor_id,reason)
+  values(appointment_key,a.status,target_status,'USER',caller,nullif(btrim(coalesce(note,'')),''));
+  return target_status;
+end $$;
+
+
+--
 -- Name: set_public_ingress_context(uuid, timestamp with time zone, bytea, bytea, bytea, public.appointment_source, uuid); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -3058,7 +4083,9 @@ CREATE FUNCTION public.set_public_ingress_context(session_ref uuid, session_star
     SET search_path TO 'pg_catalog', 'pg_temp'
     AS $_$
 begin
-  if session_user <> 'dd_public_ingress' then
+  if session_user = 'dd_public_ingress' then
+    null;
+  else
     raise exception 'TRUSTED_PUBLIC_INGRESS_REQUIRED' using errcode='42501';
   end if;
 
@@ -3091,7 +4118,9 @@ begin
     raise exception 'PUBLIC_RATE_DIGEST_INVALID' using errcode='22023';
   end if;
 
-  if public_source not in ('PUBLIC_WEB','PUBLIC_APP') then
+  if public_source in ('PUBLIC_WEB','PUBLIC_APP') then
+    null;
+  else
     raise exception 'PUBLIC_SOURCE_INVALID' using errcode='22023';
   end if;
 
@@ -3104,6 +4133,100 @@ begin
   perform pg_catalog.set_config('dd.public_request_id', request_key::text, true);
   perform pg_catalog.set_config('dd.public_ingress_ready', '1', true);
 end $_$;
+
+
+--
+-- Name: set_queue_priority(uuid, public.priority_reason, text); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.set_queue_priority(appointment_key uuid, priority_reason_value public.priority_reason, note text DEFAULT NULL::text) RETURNS void
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+declare a public.appointments%rowtype;
+begin
+  select * into a from public.appointments where id=appointment_key;
+  if not found or a.status<>'ARRIVED' or not public.may_manage_appointment(appointment_key) then raise exception 'QUEUE_ENTRY_NOT_AVAILABLE' using errcode='42501'; end if;
+  if priority_reason_value is null then raise exception 'QUEUE_PRIORITY_REASON_REQUIRED' using errcode='22023'; end if;
+  update public.queue_entries set priority=1 where appointment_id=appointment_key;
+  if not found then raise exception 'QUEUE_ENTRY_NOT_AVAILABLE' using errcode='P0001'; end if;
+  insert into public.queue_events(appointment_id,practice_location_id,event_type,reason,note,actor_id)
+  values(appointment_key,a.practice_location_id,'PRIORITY_SET',priority_reason_value,nullif(btrim(coalesce(note,'')),''),public.current_profile_id());
+end $$;
+
+
+--
+-- Name: skip_patient(uuid, text); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.skip_patient(appointment_key uuid, note text DEFAULT NULL::text) RETURNS void
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+declare a public.appointments%rowtype;
+begin
+  select * into a from public.appointments where id=appointment_key;
+  if not found or a.status<>'ARRIVED' or not public.may_manage_appointment(appointment_key) then raise exception 'QUEUE_ENTRY_NOT_AVAILABLE' using errcode='42501'; end if;
+  if not exists(select 1 from public.queue_entries qe where qe.appointment_id=appointment_key) then raise exception 'QUEUE_ENTRY_NOT_AVAILABLE' using errcode='P0001'; end if;
+  insert into public.queue_events(appointment_id,practice_location_id,event_type,note,actor_id)
+  values(appointment_key,a.practice_location_id,'SKIPPED',nullif(btrim(coalesce(note,'')),''),public.current_profile_id());
+end $$;
+
+
+--
+-- Name: update_encounter_sections(uuid, integer, text, text, text, text, text, text); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.update_encounter_sections(encounter_key uuid, expected_version integer, chief text, illness text, history text, exam text, assessment_text text, advice_text text) RETURNS integer
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+declare doctor uuid:=public.current_doctor_id(); next_version integer;
+begin
+  if doctor is null or not public.has_capability(public.current_profile_id(),'DOCTOR') then raise exception 'PRACTICE_AUTHORITY_REQUIRED' using errcode='42501'; end if;
+  update public.encounters set chief_complaints=chief,present_illness=illness,past_history=history,
+    examination=exam,assessment=assessment_text,advice=advice_text,version=version+1
+  where id=encounter_key and owner_doctor_id=doctor and status='DRAFT' and version=expected_version
+  returning version into next_version;
+  if next_version is null then raise exception 'ENCOUNTER_VERSION_OR_STATE_CONFLICT' using errcode='P0001'; end if;
+  insert into public.encounter_events(encounter_id,owner_doctor_id,event) values(encounter_key,doctor,'UPDATED');
+  return next_version;
+end $$;
+
+
+--
+-- Name: update_prescription_template(uuid, text, jsonb, boolean); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.update_prescription_template(template_key uuid, template_name text, template_body jsonb, active boolean) RETURNS void
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+declare doctor uuid:=public.current_doctor_id();
+begin
+  if doctor is null or not public.has_capability(public.current_profile_id(),'DOCTOR') then raise exception 'PRACTICE_AUTHORITY_REQUIRED' using errcode='42501'; end if;
+  if nullif(btrim(template_name),'') is null then raise exception 'TEMPLATE_NAME_REQUIRED' using errcode='22023'; end if;
+  update public.prescription_templates set name=btrim(template_name),template=coalesce(template_body,'{}'::jsonb),is_active=coalesce(active,true)
+  where id=template_key and doctor_id=doctor;
+  if not found then raise exception 'TEMPLATE_NOT_FOUND' using errcode='42501'; end if;
+end $$;
+
+
+--
+-- Name: update_professional_profile(text, text, text, text, text); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.update_professional_profile(display_name_value text, designation_value text, qualification_value text, bio_value text, visibility_value text) RETURNS void
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+declare doctor uuid:=public.current_doctor_id();
+begin
+  if doctor is null then raise exception 'DOCTOR_PROFILE_REQUIRED' using errcode='42501'; end if;
+  if nullif(btrim(display_name_value),'') is null then raise exception 'DISPLAY_NAME_REQUIRED' using errcode='22023'; end if;
+  if visibility_value not in ('PRIVATE','PUBLIC') then raise exception 'PROFILE_VISIBILITY_INVALID' using errcode='22023'; end if;
+  update public.professional_profiles set display_name=btrim(display_name_value),designation=nullif(btrim(coalesce(designation_value,'')),''),qualification=nullif(btrim(coalesce(qualification_value,'')),''),bio=nullif(btrim(coalesce(bio_value,'')),''),profile_visibility=visibility_value,updated_at=clock_timestamp() where id=doctor;
+end $$;
 
 
 --
@@ -5818,10 +6941,19 @@ CREATE TABLE public.appointments (
     mode public.appointment_mode DEFAULT 'IN_PERSON'::public.appointment_mode NOT NULL,
     source_channel public.appointment_source NOT NULL,
     status public.appointment_status DEFAULT 'SCHEDULED'::public.appointment_status NOT NULL,
+    reason text,
+    arrived_at timestamp with time zone,
+    consultation_started_at timestamp with time zone,
+    completed_at timestamp with time zone,
+    cancelled_at timestamp with time zone,
+    cancellation_reason public.cancellation_reason,
+    cancellation_note text,
+    rescheduled_from_id uuid,
     fee_amount_minor bigint,
     currency_code text,
     public_booking_ref uuid,
     created_at timestamp with time zone DEFAULT clock_timestamp() NOT NULL,
+    updated_at timestamp with time zone DEFAULT clock_timestamp() NOT NULL,
     CONSTRAINT appointments_check CHECK ((((source_channel = 'INTERNAL'::public.appointment_source) AND (public_booking_ref IS NULL) AND ((clinical_patient_id IS NOT NULL) OR (health_subject_id IS NOT NULL))) OR ((source_channel = ANY (ARRAY['DOCTOR'::public.appointment_source, 'RECEPTIONIST'::public.appointment_source, 'ASSISTANT'::public.appointment_source])) AND (public_booking_ref IS NULL) AND (booked_by_profile_id IS NOT NULL) AND ((clinical_patient_id IS NOT NULL) OR (health_subject_id IS NOT NULL))) OR ((source_channel = 'WALK_IN'::public.appointment_source) AND (public_booking_ref IS NULL) AND (clinical_patient_id IS NOT NULL)) OR ((source_channel = ANY (ARRAY['PUBLIC_WEB'::public.appointment_source, 'PUBLIC_APP'::public.appointment_source])) AND (public_booking_ref IS NOT NULL) AND (doctor_chamber_id IS NOT NULL) AND (booked_by_profile_id IS NULL)))),
     CONSTRAINT appointments_owner_profession_check CHECK ((owner_profession = 'DOCTOR'::public.profession))
 );
@@ -6126,7 +7258,7 @@ CREATE TABLE public.health_subject_access (
     revoked_by uuid,
     revoke_reason text,
     CONSTRAINT health_subject_access_check CHECK (((expires_at IS NULL) OR (expires_at > effective_from))),
-    CONSTRAINT health_subject_access_check1 CHECK (((authority <> 'CARE_MANAGER'::public.subject_authority) OR (granted_via_consent_id IS NOT NULL)))
+    CONSTRAINT health_subject_access_check1 CHECK (((authority = ANY (ARRAY['SELF'::public.subject_authority, 'GUARDIAN'::public.subject_authority])) OR (granted_via_consent_id IS NOT NULL)))
 );
 
 ALTER TABLE ONLY public.health_subject_access FORCE ROW LEVEL SECURITY;
@@ -6316,7 +7448,7 @@ CREATE TABLE public.metric_definitions (
     metric_code text NOT NULL,
     display_name text NOT NULL,
     unit text NOT NULL,
-    allowed_dimensions text[] NOT NULL,
+    allowed_dimensions public.metric_dimension[] NOT NULL,
     is_active boolean DEFAULT true NOT NULL
 );
 
@@ -6347,10 +7479,12 @@ ALTER TABLE ONLY public.metric_rollups FORCE ROW LEVEL SECURITY;
 
 CREATE TABLE public.metric_source_refs (
     source_ref uuid DEFAULT gen_random_uuid() NOT NULL,
-    object_kind text NOT NULL,
+    object_kind public.metric_source_object_kind NOT NULL,
     object_id uuid NOT NULL,
     transition text NOT NULL,
-    transition_seq integer DEFAULT 0 NOT NULL
+    transition_seq integer DEFAULT 0 NOT NULL,
+    CONSTRAINT metric_source_refs_transition_check CHECK ((transition ~ '^[A-Z][A-Z0-9_]{1,47}$'::text)),
+    CONSTRAINT metric_source_refs_transition_seq_check CHECK ((transition_seq >= 0))
 );
 
 ALTER TABLE ONLY public.metric_source_refs FORCE ROW LEVEL SECURITY;
@@ -6508,7 +7642,9 @@ CREATE TABLE public.prescriptions (
     created_at timestamp with time zone DEFAULT clock_timestamp() NOT NULL,
     finalized_at timestamp with time zone,
     CONSTRAINT prescriptions_check CHECK (((status <> 'FINALIZED'::public.prescription_status) OR ((review_bundle_snapshot IS NOT NULL) AND (review_digest IS NOT NULL) AND (signature_asset_path IS NOT NULL)))),
-    CONSTRAINT prescriptions_owner_profession_check CHECK ((owner_profession = 'DOCTOR'::public.profession))
+    CONSTRAINT prescriptions_check1 CHECK (((replaces_prescription_id IS NULL) OR (replacement_reason IS NOT NULL))),
+    CONSTRAINT prescriptions_owner_profession_check CHECK ((owner_profession = 'DOCTOR'::public.profession)),
+    CONSTRAINT prescriptions_replacement_reason_check CHECK (((replacement_reason IS NULL) OR ((char_length(btrim(replacement_reason)) >= 1) AND (char_length(btrim(replacement_reason)) <= 500))))
 );
 
 ALTER TABLE ONLY public.prescriptions FORCE ROW LEVEL SECURITY;
@@ -6656,11 +7792,60 @@ CREATE TABLE public.queue_entries (
     practice_location_id uuid NOT NULL,
     session_date date NOT NULL,
     queue_token integer NOT NULL,
+    called_at timestamp with time zone,
+    call_count integer DEFAULT 0 NOT NULL,
+    skipped_at timestamp with time zone,
+    skip_count integer DEFAULT 0 NOT NULL,
     priority integer DEFAULT 0 NOT NULL,
-    created_at timestamp with time zone DEFAULT clock_timestamp() NOT NULL
+    priority_reason public.priority_reason,
+    priority_note text,
+    priority_set_by uuid,
+    created_at timestamp with time zone DEFAULT clock_timestamp() NOT NULL,
+    updated_at timestamp with time zone DEFAULT clock_timestamp() NOT NULL,
+    CONSTRAINT queue_entries_call_count_check CHECK ((call_count >= 0)),
+    CONSTRAINT queue_entries_priority_check CHECK ((priority = ANY (ARRAY[0, 1]))),
+    CONSTRAINT queue_entries_skip_count_check CHECK ((skip_count >= 0))
 );
 
 ALTER TABLE ONLY public.queue_entries FORCE ROW LEVEL SECURITY;
+
+
+--
+-- Name: queue_events; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.queue_events (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    appointment_id uuid NOT NULL,
+    practice_location_id uuid NOT NULL,
+    event_type public.queue_event_type NOT NULL,
+    reason public.priority_reason,
+    note text,
+    actor_id uuid,
+    created_at timestamp with time zone DEFAULT clock_timestamp() NOT NULL,
+    seq bigint NOT NULL
+);
+
+ALTER TABLE ONLY public.queue_events FORCE ROW LEVEL SECURITY;
+
+
+--
+-- Name: queue_events_seq_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.queue_events_seq_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: queue_events_seq_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.queue_events_seq_seq OWNED BY public.queue_events.seq;
 
 
 --
@@ -6765,10 +7950,10 @@ PARTITION BY RANGE (inserted_at);
 
 
 --
--- Name: messages_2026_09_03; Type: TABLE; Schema: realtime; Owner: -
+-- Name: messages_DD_P0_DAY_0; Type: TABLE; Schema: realtime; Owner: -
 --
 
-CREATE TABLE realtime.messages_2026_09_03 (
+CREATE TABLE realtime.messages_DD_P0_DAY_0 (
     topic text NOT NULL,
     extension text NOT NULL,
     payload jsonb,
@@ -6783,10 +7968,10 @@ CREATE TABLE realtime.messages_2026_09_03 (
 
 
 --
--- Name: messages_2026_09_04; Type: TABLE; Schema: realtime; Owner: -
+-- Name: messages_DD_P0_DAY_1; Type: TABLE; Schema: realtime; Owner: -
 --
 
-CREATE TABLE realtime.messages_2026_09_04 (
+CREATE TABLE realtime.messages_DD_P0_DAY_1 (
     topic text NOT NULL,
     extension text NOT NULL,
     payload jsonb,
@@ -6801,10 +7986,10 @@ CREATE TABLE realtime.messages_2026_09_04 (
 
 
 --
--- Name: messages_2026_09_05; Type: TABLE; Schema: realtime; Owner: -
+-- Name: messages_DD_P0_DAY_2; Type: TABLE; Schema: realtime; Owner: -
 --
 
-CREATE TABLE realtime.messages_2026_09_05 (
+CREATE TABLE realtime.messages_DD_P0_DAY_2 (
     topic text NOT NULL,
     extension text NOT NULL,
     payload jsonb,
@@ -6819,10 +8004,10 @@ CREATE TABLE realtime.messages_2026_09_05 (
 
 
 --
--- Name: messages_2026_09_06; Type: TABLE; Schema: realtime; Owner: -
+-- Name: messages_DD_P0_DAY_3; Type: TABLE; Schema: realtime; Owner: -
 --
 
-CREATE TABLE realtime.messages_2026_09_06 (
+CREATE TABLE realtime.messages_DD_P0_DAY_3 (
     topic text NOT NULL,
     extension text NOT NULL,
     payload jsonb,
@@ -6837,10 +8022,10 @@ CREATE TABLE realtime.messages_2026_09_06 (
 
 
 --
--- Name: messages_2026_09_07; Type: TABLE; Schema: realtime; Owner: -
+-- Name: messages_DD_P0_DAY_4; Type: TABLE; Schema: realtime; Owner: -
 --
 
-CREATE TABLE realtime.messages_2026_09_07 (
+CREATE TABLE realtime.messages_DD_P0_DAY_4 (
     topic text NOT NULL,
     extension text NOT NULL,
     payload jsonb,
@@ -7132,38 +8317,38 @@ CREATE TABLE supabase_functions.migrations (
 
 
 --
--- Name: messages_2026_09_03; Type: TABLE ATTACH; Schema: realtime; Owner: -
+-- Name: messages_DD_P0_DAY_0; Type: TABLE ATTACH; Schema: realtime; Owner: -
 --
 
-ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_2026_09_03 FOR VALUES FROM ('2026-09-03 00:00:00') TO ('2026-09-04 00:00:00');
-
-
---
--- Name: messages_2026_09_04; Type: TABLE ATTACH; Schema: realtime; Owner: -
---
-
-ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_2026_09_04 FOR VALUES FROM ('2026-09-04 00:00:00') TO ('2026-09-05 00:00:00');
+ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_DD_P0_DAY_0 FOR VALUES FROM ('DD_P0_DAY_0_START') TO ('DD_P0_DAY_1_START');
 
 
 --
--- Name: messages_2026_09_05; Type: TABLE ATTACH; Schema: realtime; Owner: -
+-- Name: messages_DD_P0_DAY_1; Type: TABLE ATTACH; Schema: realtime; Owner: -
 --
 
-ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_2026_09_05 FOR VALUES FROM ('2026-09-05 00:00:00') TO ('2026-09-06 00:00:00');
-
-
---
--- Name: messages_2026_09_06; Type: TABLE ATTACH; Schema: realtime; Owner: -
---
-
-ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_2026_09_06 FOR VALUES FROM ('2026-09-06 00:00:00') TO ('2026-09-07 00:00:00');
+ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_DD_P0_DAY_1 FOR VALUES FROM ('DD_P0_DAY_1_START') TO ('DD_P0_DAY_2_START');
 
 
 --
--- Name: messages_2026_09_07; Type: TABLE ATTACH; Schema: realtime; Owner: -
+-- Name: messages_DD_P0_DAY_2; Type: TABLE ATTACH; Schema: realtime; Owner: -
 --
 
-ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_2026_09_07 FOR VALUES FROM ('2026-09-07 00:00:00') TO ('2026-09-08 00:00:00');
+ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_DD_P0_DAY_2 FOR VALUES FROM ('DD_P0_DAY_2_START') TO ('DD_P0_DAY_3_START');
+
+
+--
+-- Name: messages_DD_P0_DAY_3; Type: TABLE ATTACH; Schema: realtime; Owner: -
+--
+
+ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_DD_P0_DAY_3 FOR VALUES FROM ('DD_P0_DAY_3_START') TO ('DD_P0_DAY_4_START');
+
+
+--
+-- Name: messages_DD_P0_DAY_4; Type: TABLE ATTACH; Schema: realtime; Owner: -
+--
+
+ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_DD_P0_DAY_4 FOR VALUES FROM ('DD_P0_DAY_4_START') TO ('DD_P0_DAY_5_START');
 
 
 --
@@ -7220,6 +8405,13 @@ ALTER TABLE ONLY public.metric_contributions ALTER COLUMN contribution_seq SET D
 --
 
 ALTER TABLE ONLY public.prescription_events ALTER COLUMN seq SET DEFAULT nextval('public.prescription_events_seq_seq'::regclass);
+
+
+--
+-- Name: queue_events seq; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.queue_events ALTER COLUMN seq SET DEFAULT nextval('public.queue_events_seq_seq'::regclass);
 
 
 --
@@ -7845,14 +9037,6 @@ ALTER TABLE ONLY public.metric_definitions
 
 
 --
--- Name: metric_rollups metric_rollups_metric_code_period_kind_period_start_doctor__key; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.metric_rollups
-    ADD CONSTRAINT metric_rollups_metric_code_period_kind_period_start_doctor__key UNIQUE (metric_code, period_kind, period_start, doctor_id, practice_location_id);
-
-
---
 -- Name: metric_rollups metric_rollups_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -8045,6 +9229,22 @@ ALTER TABLE ONLY public.queue_entries
 
 
 --
+-- Name: queue_events queue_events_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.queue_events
+    ADD CONSTRAINT queue_events_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: queue_events queue_events_seq_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.queue_events
+    ADD CONSTRAINT queue_events_seq_key UNIQUE (seq);
+
+
+--
 -- Name: queue_token_counters queue_token_counters_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -8109,43 +9309,43 @@ ALTER TABLE ONLY realtime.messages
 
 
 --
--- Name: messages_2026_09_03 messages_2026_09_03_pkey; Type: CONSTRAINT; Schema: realtime; Owner: -
+-- Name: messages_DD_P0_DAY_0 messages_DD_P0_DAY_0_pkey; Type: CONSTRAINT; Schema: realtime; Owner: -
 --
 
-ALTER TABLE ONLY realtime.messages_2026_09_03
-    ADD CONSTRAINT messages_2026_09_03_pkey PRIMARY KEY (id, inserted_at);
-
-
---
--- Name: messages_2026_09_04 messages_2026_09_04_pkey; Type: CONSTRAINT; Schema: realtime; Owner: -
---
-
-ALTER TABLE ONLY realtime.messages_2026_09_04
-    ADD CONSTRAINT messages_2026_09_04_pkey PRIMARY KEY (id, inserted_at);
+ALTER TABLE ONLY realtime.messages_DD_P0_DAY_0
+    ADD CONSTRAINT messages_DD_P0_DAY_0_pkey PRIMARY KEY (id, inserted_at);
 
 
 --
--- Name: messages_2026_09_05 messages_2026_09_05_pkey; Type: CONSTRAINT; Schema: realtime; Owner: -
+-- Name: messages_DD_P0_DAY_1 messages_DD_P0_DAY_1_pkey; Type: CONSTRAINT; Schema: realtime; Owner: -
 --
 
-ALTER TABLE ONLY realtime.messages_2026_09_05
-    ADD CONSTRAINT messages_2026_09_05_pkey PRIMARY KEY (id, inserted_at);
-
-
---
--- Name: messages_2026_09_06 messages_2026_09_06_pkey; Type: CONSTRAINT; Schema: realtime; Owner: -
---
-
-ALTER TABLE ONLY realtime.messages_2026_09_06
-    ADD CONSTRAINT messages_2026_09_06_pkey PRIMARY KEY (id, inserted_at);
+ALTER TABLE ONLY realtime.messages_DD_P0_DAY_1
+    ADD CONSTRAINT messages_DD_P0_DAY_1_pkey PRIMARY KEY (id, inserted_at);
 
 
 --
--- Name: messages_2026_09_07 messages_2026_09_07_pkey; Type: CONSTRAINT; Schema: realtime; Owner: -
+-- Name: messages_DD_P0_DAY_2 messages_DD_P0_DAY_2_pkey; Type: CONSTRAINT; Schema: realtime; Owner: -
 --
 
-ALTER TABLE ONLY realtime.messages_2026_09_07
-    ADD CONSTRAINT messages_2026_09_07_pkey PRIMARY KEY (id, inserted_at);
+ALTER TABLE ONLY realtime.messages_DD_P0_DAY_2
+    ADD CONSTRAINT messages_DD_P0_DAY_2_pkey PRIMARY KEY (id, inserted_at);
+
+
+--
+-- Name: messages_DD_P0_DAY_3 messages_DD_P0_DAY_3_pkey; Type: CONSTRAINT; Schema: realtime; Owner: -
+--
+
+ALTER TABLE ONLY realtime.messages_DD_P0_DAY_3
+    ADD CONSTRAINT messages_DD_P0_DAY_3_pkey PRIMARY KEY (id, inserted_at);
+
+
+--
+-- Name: messages_DD_P0_DAY_4 messages_DD_P0_DAY_4_pkey; Type: CONSTRAINT; Schema: realtime; Owner: -
+--
+
+ALTER TABLE ONLY realtime.messages_DD_P0_DAY_4
+    ADD CONSTRAINT messages_DD_P0_DAY_4_pkey PRIMARY KEY (id, inserted_at);
 
 
 --
@@ -8711,6 +9911,27 @@ CREATE UNIQUE INDEX anon_rate_limit_policies_one_active ON public.anon_rate_limi
 
 
 --
+-- Name: appointments_one_successor; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX appointments_one_successor ON public.appointments USING btree (rescheduled_from_id) WHERE (rescheduled_from_id IS NOT NULL);
+
+
+--
+-- Name: encounters_one_draft_per_appointment; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX encounters_one_draft_per_appointment ON public.encounters USING btree (appointment_id) WHERE ((status = 'DRAFT'::public.encounter_status) AND (appointment_id IS NOT NULL));
+
+
+--
+-- Name: encounters_one_unscheduled_draft_at_location; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX encounters_one_unscheduled_draft_at_location ON public.encounters USING btree (owner_doctor_id, clinical_patient_id, practice_location_id) WHERE ((status = 'DRAFT'::public.encounter_status) AND (appointment_id IS NULL));
+
+
+--
 -- Name: health_subject_access_live_key; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -8725,10 +9946,24 @@ CREATE UNIQUE INDEX health_subject_access_self_key ON public.health_subject_acce
 
 
 --
+-- Name: metric_rollups_identity_key; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX metric_rollups_identity_key ON public.metric_rollups USING btree (metric_code, period_kind, period_start, COALESCE(doctor_id, '00000000-0000-0000-0000-000000000000'::uuid), COALESCE(practice_location_id, '00000000-0000-0000-0000-000000000000'::uuid));
+
+
+--
 -- Name: prescriptions_one_draft; Type: INDEX; Schema: public; Owner: -
 --
 
 CREATE UNIQUE INDEX prescriptions_one_draft ON public.prescriptions USING btree (encounter_id) WHERE (status = 'DRAFT'::public.prescription_status);
+
+
+--
+-- Name: prescriptions_one_replacement; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX prescriptions_one_replacement ON public.prescriptions USING btree (replaces_prescription_id) WHERE (replaces_prescription_id IS NOT NULL);
 
 
 --
@@ -8746,6 +9981,20 @@ CREATE UNIQUE INDEX professional_credentials_verified_key ON public.professional
 
 
 --
+-- Name: queue_entries_live_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX queue_entries_live_idx ON public.queue_entries USING btree (doctor_chamber_id, session_date, priority DESC, queue_token);
+
+
+--
+-- Name: queue_events_appointment_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX queue_events_appointment_idx ON public.queue_events USING btree (appointment_id, seq);
+
+
+--
 -- Name: ix_realtime_subscription_entity; Type: INDEX; Schema: realtime; Owner: -
 --
 
@@ -8760,38 +10009,38 @@ CREATE INDEX messages_inserted_at_topic_index ON ONLY realtime.messages USING bt
 
 
 --
--- Name: messages_2026_09_03_inserted_at_topic_idx; Type: INDEX; Schema: realtime; Owner: -
+-- Name: messages_DD_P0_DAY_0_inserted_at_topic_idx; Type: INDEX; Schema: realtime; Owner: -
 --
 
-CREATE INDEX messages_2026_09_03_inserted_at_topic_idx ON realtime.messages_2026_09_03 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
-
-
---
--- Name: messages_2026_09_04_inserted_at_topic_idx; Type: INDEX; Schema: realtime; Owner: -
---
-
-CREATE INDEX messages_2026_09_04_inserted_at_topic_idx ON realtime.messages_2026_09_04 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
+CREATE INDEX messages_DD_P0_DAY_0_inserted_at_topic_idx ON realtime.messages_DD_P0_DAY_0 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
 
 
 --
--- Name: messages_2026_09_05_inserted_at_topic_idx; Type: INDEX; Schema: realtime; Owner: -
+-- Name: messages_DD_P0_DAY_1_inserted_at_topic_idx; Type: INDEX; Schema: realtime; Owner: -
 --
 
-CREATE INDEX messages_2026_09_05_inserted_at_topic_idx ON realtime.messages_2026_09_05 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
-
-
---
--- Name: messages_2026_09_06_inserted_at_topic_idx; Type: INDEX; Schema: realtime; Owner: -
---
-
-CREATE INDEX messages_2026_09_06_inserted_at_topic_idx ON realtime.messages_2026_09_06 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
+CREATE INDEX messages_DD_P0_DAY_1_inserted_at_topic_idx ON realtime.messages_DD_P0_DAY_1 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
 
 
 --
--- Name: messages_2026_09_07_inserted_at_topic_idx; Type: INDEX; Schema: realtime; Owner: -
+-- Name: messages_DD_P0_DAY_2_inserted_at_topic_idx; Type: INDEX; Schema: realtime; Owner: -
 --
 
-CREATE INDEX messages_2026_09_07_inserted_at_topic_idx ON realtime.messages_2026_09_07 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
+CREATE INDEX messages_DD_P0_DAY_2_inserted_at_topic_idx ON realtime.messages_DD_P0_DAY_2 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
+
+
+--
+-- Name: messages_DD_P0_DAY_3_inserted_at_topic_idx; Type: INDEX; Schema: realtime; Owner: -
+--
+
+CREATE INDEX messages_DD_P0_DAY_3_inserted_at_topic_idx ON realtime.messages_DD_P0_DAY_3 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
+
+
+--
+-- Name: messages_DD_P0_DAY_4_inserted_at_topic_idx; Type: INDEX; Schema: realtime; Owner: -
+--
+
+CREATE INDEX messages_DD_P0_DAY_4_inserted_at_topic_idx ON realtime.messages_DD_P0_DAY_4 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
 
 
 --
@@ -8893,73 +10142,73 @@ CREATE INDEX supabase_functions_hooks_request_id_idx ON supabase_functions.hooks
 
 
 --
--- Name: messages_2026_09_03_inserted_at_topic_idx; Type: INDEX ATTACH; Schema: realtime; Owner: -
+-- Name: messages_DD_P0_DAY_0_inserted_at_topic_idx; Type: INDEX ATTACH; Schema: realtime; Owner: -
 --
 
-ALTER INDEX realtime.messages_inserted_at_topic_index ATTACH PARTITION realtime.messages_2026_09_03_inserted_at_topic_idx;
-
-
---
--- Name: messages_2026_09_03_pkey; Type: INDEX ATTACH; Schema: realtime; Owner: -
---
-
-ALTER INDEX realtime.messages_pkey ATTACH PARTITION realtime.messages_2026_09_03_pkey;
+ALTER INDEX realtime.messages_inserted_at_topic_index ATTACH PARTITION realtime.messages_DD_P0_DAY_0_inserted_at_topic_idx;
 
 
 --
--- Name: messages_2026_09_04_inserted_at_topic_idx; Type: INDEX ATTACH; Schema: realtime; Owner: -
+-- Name: messages_DD_P0_DAY_0_pkey; Type: INDEX ATTACH; Schema: realtime; Owner: -
 --
 
-ALTER INDEX realtime.messages_inserted_at_topic_index ATTACH PARTITION realtime.messages_2026_09_04_inserted_at_topic_idx;
-
-
---
--- Name: messages_2026_09_04_pkey; Type: INDEX ATTACH; Schema: realtime; Owner: -
---
-
-ALTER INDEX realtime.messages_pkey ATTACH PARTITION realtime.messages_2026_09_04_pkey;
+ALTER INDEX realtime.messages_pkey ATTACH PARTITION realtime.messages_DD_P0_DAY_0_pkey;
 
 
 --
--- Name: messages_2026_09_05_inserted_at_topic_idx; Type: INDEX ATTACH; Schema: realtime; Owner: -
+-- Name: messages_DD_P0_DAY_1_inserted_at_topic_idx; Type: INDEX ATTACH; Schema: realtime; Owner: -
 --
 
-ALTER INDEX realtime.messages_inserted_at_topic_index ATTACH PARTITION realtime.messages_2026_09_05_inserted_at_topic_idx;
-
-
---
--- Name: messages_2026_09_05_pkey; Type: INDEX ATTACH; Schema: realtime; Owner: -
---
-
-ALTER INDEX realtime.messages_pkey ATTACH PARTITION realtime.messages_2026_09_05_pkey;
+ALTER INDEX realtime.messages_inserted_at_topic_index ATTACH PARTITION realtime.messages_DD_P0_DAY_1_inserted_at_topic_idx;
 
 
 --
--- Name: messages_2026_09_06_inserted_at_topic_idx; Type: INDEX ATTACH; Schema: realtime; Owner: -
+-- Name: messages_DD_P0_DAY_1_pkey; Type: INDEX ATTACH; Schema: realtime; Owner: -
 --
 
-ALTER INDEX realtime.messages_inserted_at_topic_index ATTACH PARTITION realtime.messages_2026_09_06_inserted_at_topic_idx;
-
-
---
--- Name: messages_2026_09_06_pkey; Type: INDEX ATTACH; Schema: realtime; Owner: -
---
-
-ALTER INDEX realtime.messages_pkey ATTACH PARTITION realtime.messages_2026_09_06_pkey;
+ALTER INDEX realtime.messages_pkey ATTACH PARTITION realtime.messages_DD_P0_DAY_1_pkey;
 
 
 --
--- Name: messages_2026_09_07_inserted_at_topic_idx; Type: INDEX ATTACH; Schema: realtime; Owner: -
+-- Name: messages_DD_P0_DAY_2_inserted_at_topic_idx; Type: INDEX ATTACH; Schema: realtime; Owner: -
 --
 
-ALTER INDEX realtime.messages_inserted_at_topic_index ATTACH PARTITION realtime.messages_2026_09_07_inserted_at_topic_idx;
+ALTER INDEX realtime.messages_inserted_at_topic_index ATTACH PARTITION realtime.messages_DD_P0_DAY_2_inserted_at_topic_idx;
 
 
 --
--- Name: messages_2026_09_07_pkey; Type: INDEX ATTACH; Schema: realtime; Owner: -
+-- Name: messages_DD_P0_DAY_2_pkey; Type: INDEX ATTACH; Schema: realtime; Owner: -
 --
 
-ALTER INDEX realtime.messages_pkey ATTACH PARTITION realtime.messages_2026_09_07_pkey;
+ALTER INDEX realtime.messages_pkey ATTACH PARTITION realtime.messages_DD_P0_DAY_2_pkey;
+
+
+--
+-- Name: messages_DD_P0_DAY_3_inserted_at_topic_idx; Type: INDEX ATTACH; Schema: realtime; Owner: -
+--
+
+ALTER INDEX realtime.messages_inserted_at_topic_index ATTACH PARTITION realtime.messages_DD_P0_DAY_3_inserted_at_topic_idx;
+
+
+--
+-- Name: messages_DD_P0_DAY_3_pkey; Type: INDEX ATTACH; Schema: realtime; Owner: -
+--
+
+ALTER INDEX realtime.messages_pkey ATTACH PARTITION realtime.messages_DD_P0_DAY_3_pkey;
+
+
+--
+-- Name: messages_DD_P0_DAY_4_inserted_at_topic_idx; Type: INDEX ATTACH; Schema: realtime; Owner: -
+--
+
+ALTER INDEX realtime.messages_inserted_at_topic_index ATTACH PARTITION realtime.messages_DD_P0_DAY_4_inserted_at_topic_idx;
+
+
+--
+-- Name: messages_DD_P0_DAY_4_pkey; Type: INDEX ATTACH; Schema: realtime; Owner: -
+--
+
+ALTER INDEX realtime.messages_pkey ATTACH PARTITION realtime.messages_DD_P0_DAY_4_pkey;
 
 
 --
@@ -8977,6 +10226,13 @@ CREATE TRIGGER audit_events_append_only BEFORE DELETE OR UPDATE ON public.audit_
 
 
 --
+-- Name: dd_number_allocations dd_number_allocations_no_reactivation; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER dd_number_allocations_no_reactivation BEFORE UPDATE ON public.dd_number_allocations FOR EACH ROW EXECUTE FUNCTION public.prevent_dd_allocation_reactivation();
+
+
+--
 -- Name: health_subjects health_subject_dd_number_immutable; Type: TRIGGER; Schema: public; Owner: -
 --
 
@@ -8988,6 +10244,48 @@ CREATE TRIGGER health_subject_dd_number_immutable BEFORE UPDATE ON public.health
 --
 
 CREATE TRIGGER health_subject_origins_append_only BEFORE DELETE OR UPDATE ON public.health_subject_origins FOR EACH ROW EXECUTE FUNCTION public.prevent_append_only_change();
+
+
+--
+-- Name: metric_contributions metric_contributions_refresh_rollups; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER metric_contributions_refresh_rollups AFTER INSERT ON public.metric_contributions FOR EACH ROW EXECUTE FUNCTION public.refresh_metric_rollups_after_contribution();
+
+
+--
+-- Name: appointments p0_metric_appointment; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER p0_metric_appointment AFTER INSERT OR UPDATE ON public.appointments FOR EACH ROW EXECUTE FUNCTION public.emit_p0_appointment_metric();
+
+
+--
+-- Name: encounters p0_metric_encounter; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER p0_metric_encounter AFTER UPDATE ON public.encounters FOR EACH ROW EXECUTE FUNCTION public.emit_p0_encounter_metric();
+
+
+--
+-- Name: prescriptions p0_metric_prescription; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER p0_metric_prescription AFTER UPDATE ON public.prescriptions FOR EACH ROW EXECUTE FUNCTION public.emit_p0_prescription_metric();
+
+
+--
+-- Name: professional_credentials p0_metric_professional_credential; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER p0_metric_professional_credential AFTER INSERT OR UPDATE ON public.professional_credentials FOR EACH ROW EXECUTE FUNCTION public.emit_p0_credential_metric();
+
+
+--
+-- Name: professional_profiles p0_metric_professional_profile; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER p0_metric_professional_profile AFTER INSERT ON public.professional_profiles FOR EACH ROW EXECUTE FUNCTION public.emit_p0_profile_metric();
 
 
 --
@@ -9263,6 +10561,14 @@ ALTER TABLE ONLY public.appointments
 
 
 --
+-- Name: appointments appointments_rescheduled_from_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.appointments
+    ADD CONSTRAINT appointments_rescheduled_from_id_fkey FOREIGN KEY (rescheduled_from_id) REFERENCES public.appointments(id) ON DELETE RESTRICT;
+
+
+--
 -- Name: clinical_patients clinical_patients_merged_into_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -9527,14 +10833,6 @@ ALTER TABLE ONLY public.metric_contributions
 
 
 --
--- Name: metric_contributions metric_contributions_source_event_key_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.metric_contributions
-    ADD CONSTRAINT metric_contributions_source_event_key_fkey FOREIGN KEY (source_event_key) REFERENCES public.metric_source_refs(source_ref);
-
-
---
 -- Name: metric_rollups metric_rollups_doctor_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -9767,6 +11065,38 @@ ALTER TABLE ONLY public.queue_entries
 
 
 --
+-- Name: queue_entries queue_entries_priority_set_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.queue_entries
+    ADD CONSTRAINT queue_entries_priority_set_by_fkey FOREIGN KEY (priority_set_by) REFERENCES public.profiles(id);
+
+
+--
+-- Name: queue_events queue_events_actor_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.queue_events
+    ADD CONSTRAINT queue_events_actor_id_fkey FOREIGN KEY (actor_id) REFERENCES public.profiles(id) ON DELETE SET NULL;
+
+
+--
+-- Name: queue_events queue_events_appointment_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.queue_events
+    ADD CONSTRAINT queue_events_appointment_id_fkey FOREIGN KEY (appointment_id) REFERENCES public.appointments(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: queue_events queue_events_practice_location_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.queue_events
+    ADD CONSTRAINT queue_events_practice_location_id_fkey FOREIGN KEY (practice_location_id) REFERENCES public.practice_locations(id) ON DELETE RESTRICT;
+
+
+--
 -- Name: queue_token_counters queue_token_counters_doctor_chamber_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -9992,6 +11322,15 @@ CREATE POLICY appointment_events_owner_read ON public.appointment_events FOR SEL
 ALTER TABLE public.appointments ENABLE ROW LEVEL SECURITY;
 
 --
+-- Name: appointments appointments_operational_staff_read; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY appointments_operational_staff_read ON public.appointments FOR SELECT USING ((EXISTS ( SELECT 1
+   FROM public.practice_memberships pm
+  WHERE ((pm.practice_location_id = appointments.practice_location_id) AND (pm.profile_id = public.current_profile_id()) AND (pm.status = 'ACTIVE'::text) AND (pm.role = ANY (ARRAY['RECEPTIONIST'::public.practice_role, 'LOCATION_ADMIN'::public.practice_role]))))));
+
+
+--
 -- Name: appointments appointments_owner_read; Type: POLICY; Schema: public; Owner: -
 --
 
@@ -10040,9 +11379,9 @@ ALTER TABLE public.consent_records ENABLE ROW LEVEL SECURITY;
 -- Name: consent_records consent_subject_read; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY consent_subject_read ON public.consent_records FOR SELECT USING ((EXISTS ( SELECT 1
+CREATE POLICY consent_subject_read ON public.consent_records FOR SELECT USING ((public.is_live_edge(effective_from, expires_at, revoked_at) AND (EXISTS ( SELECT 1
    FROM public.health_subject_access a
-  WHERE ((a.health_subject_id = consent_records.health_subject_id) AND (a.profile_id = public.current_profile_id()) AND public.is_live_edge(a.effective_from, a.expires_at, a.revoked_at)))));
+  WHERE ((a.health_subject_id = consent_records.health_subject_id) AND (a.profile_id = public.current_profile_id()) AND public.is_live_edge(a.effective_from, a.expires_at, a.revoked_at))))));
 
 
 --
@@ -10147,7 +11486,7 @@ ALTER TABLE public.health_subject_access_events ENABLE ROW LEVEL SECURITY;
 -- Name: health_subject_access health_subject_access_self_read; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY health_subject_access_self_read ON public.health_subject_access FOR SELECT USING ((profile_id = public.current_profile_id()));
+CREATE POLICY health_subject_access_self_read ON public.health_subject_access FOR SELECT USING (((profile_id = public.current_profile_id()) AND public.is_live_edge(effective_from, expires_at, revoked_at)));
 
 
 --
@@ -10196,6 +11535,13 @@ ALTER TABLE public.metric_classification_registry ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.metric_contributions ENABLE ROW LEVEL SECURITY;
 
 --
+-- Name: metric_contributions metric_contributions_rollup_read; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY metric_contributions_rollup_read ON public.metric_contributions FOR SELECT TO dd_metrics_rollup USING (true);
+
+
+--
 -- Name: metric_definitions; Type: ROW SECURITY; Schema: public; Owner: -
 --
 
@@ -10208,10 +11554,17 @@ ALTER TABLE public.metric_definitions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.metric_rollups ENABLE ROW LEVEL SECURITY;
 
 --
--- Name: metric_rollups metric_rollups_no_direct_read; Type: POLICY; Schema: public; Owner: -
+-- Name: metric_rollups metric_rollups_reader_read; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY metric_rollups_no_direct_read ON public.metric_rollups FOR SELECT USING (false);
+CREATE POLICY metric_rollups_reader_read ON public.metric_rollups FOR SELECT TO dd_metrics_reader USING (true);
+
+
+--
+-- Name: metric_rollups metric_rollups_rollup_manage; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY metric_rollups_rollup_manage ON public.metric_rollups TO dd_metrics_rollup USING (true) WITH CHECK (true);
 
 
 --
@@ -10285,6 +11638,13 @@ CREATE POLICY prescription_items_owner_read ON public.prescription_items FOR SEL
 ALTER TABLE public.prescription_templates ENABLE ROW LEVEL SECURITY;
 
 --
+-- Name: prescription_templates prescription_templates_owner_read; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY prescription_templates_owner_read ON public.prescription_templates FOR SELECT USING ((doctor_id = public.current_doctor_id()));
+
+
+--
 -- Name: prescriptions; Type: ROW SECURITY; Schema: public; Owner: -
 --
 
@@ -10302,6 +11662,15 @@ CREATE POLICY prescriptions_owner_read ON public.prescriptions FOR SELECT USING 
 --
 
 ALTER TABLE public.professional_credentials ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: professional_credentials professional_credentials_self_read; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY professional_credentials_self_read ON public.professional_credentials FOR SELECT USING ((EXISTS ( SELECT 1
+   FROM public.professional_profiles pp
+  WHERE ((pp.id = professional_credentials.professional_profile_id) AND (pp.profile_id = public.current_profile_id())))));
+
 
 --
 -- Name: professional_profiles; Type: ROW SECURITY; Schema: public; Owner: -
@@ -10355,12 +11724,38 @@ CREATE POLICY public_booking_contacts_operational_read ON public.public_booking_
 ALTER TABLE public.queue_entries ENABLE ROW LEVEL SECURITY;
 
 --
+-- Name: queue_entries queue_entries_operational_staff_read; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY queue_entries_operational_staff_read ON public.queue_entries FOR SELECT USING ((EXISTS ( SELECT 1
+   FROM public.practice_memberships pm
+  WHERE ((pm.practice_location_id = queue_entries.practice_location_id) AND (pm.profile_id = public.current_profile_id()) AND (pm.status = 'ACTIVE'::text) AND (pm.role = ANY (ARRAY['RECEPTIONIST'::public.practice_role, 'LOCATION_ADMIN'::public.practice_role]))))));
+
+
+--
 -- Name: queue_entries queue_entries_owner_read; Type: POLICY; Schema: public; Owner: -
 --
 
 CREATE POLICY queue_entries_owner_read ON public.queue_entries FOR SELECT USING ((EXISTS ( SELECT 1
    FROM public.appointments a
   WHERE ((a.id = queue_entries.appointment_id) AND (a.owner_doctor_id = public.current_doctor_id())))));
+
+
+--
+-- Name: queue_events; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.queue_events ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: queue_events queue_events_operational_read; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY queue_events_operational_read ON public.queue_events FOR SELECT USING ((EXISTS ( SELECT 1
+   FROM public.appointments a
+  WHERE ((a.id = queue_events.appointment_id) AND ((a.owner_doctor_id = public.current_doctor_id()) OR (EXISTS ( SELECT 1
+           FROM public.practice_memberships pm
+          WHERE ((pm.practice_location_id = a.practice_location_id) AND (pm.profile_id = public.current_profile_id()) AND (pm.status = 'ACTIVE'::text) AND (pm.role = ANY (ARRAY['RECEPTIONIST'::public.practice_role, 'LOCATION_ADMIN'::public.practice_role]))))))))));
 
 
 --
@@ -10412,13 +11807,6 @@ ALTER TABLE storage.buckets_analytics ENABLE ROW LEVEL SECURITY;
 ALTER TABLE storage.buckets_vectors ENABLE ROW LEVEL SECURITY;
 
 --
--- Name: objects frozen_prescription_assets_no_delete; Type: POLICY; Schema: storage; Owner: -
---
-
-CREATE POLICY frozen_prescription_assets_no_delete ON storage.objects FOR DELETE TO authenticated USING (false);
-
-
---
 -- Name: iceberg_namespaces; Type: ROW SECURITY; Schema: storage; Owner: -
 --
 
@@ -10443,24 +11831,38 @@ ALTER TABLE storage.migrations ENABLE ROW LEVEL SECURITY;
 ALTER TABLE storage.objects ENABLE ROW LEVEL SECURITY;
 
 --
+-- Name: objects p0_doctor_assets_delete; Type: POLICY; Schema: storage; Owner: -
+--
+
+CREATE POLICY p0_doctor_assets_delete ON storage.objects FOR DELETE TO authenticated USING (((bucket_id = ANY (ARRAY['doctor-profile-photos'::text, 'doctor-signatures'::text])) AND public.may_write_doctor_asset(bucket_id, name)));
+
+
+--
+-- Name: objects p0_doctor_assets_insert; Type: POLICY; Schema: storage; Owner: -
+--
+
+CREATE POLICY p0_doctor_assets_insert ON storage.objects FOR INSERT TO authenticated WITH CHECK (((bucket_id = ANY (ARRAY['doctor-profile-photos'::text, 'doctor-signatures'::text])) AND public.may_write_doctor_asset(bucket_id, name)));
+
+
+--
+-- Name: objects p0_doctor_assets_read; Type: POLICY; Schema: storage; Owner: -
+--
+
+CREATE POLICY p0_doctor_assets_read ON storage.objects FOR SELECT TO authenticated USING (public.may_write_doctor_asset(bucket_id, name));
+
+
+--
+-- Name: objects p0_prescription_assets_read; Type: POLICY; Schema: storage; Owner: -
+--
+
+CREATE POLICY p0_prescription_assets_read ON storage.objects FOR SELECT TO authenticated USING (((bucket_id = 'prescription-assets'::text) AND public.may_read_prescription_asset(name)));
+
+
+--
 -- Name: objects private_objects_no_anon; Type: POLICY; Schema: storage; Owner: -
 --
 
 CREATE POLICY private_objects_no_anon ON storage.objects TO anon USING (false) WITH CHECK (false);
-
-
---
--- Name: objects private_objects_owner_path; Type: POLICY; Schema: storage; Owner: -
---
-
-CREATE POLICY private_objects_owner_path ON storage.objects FOR SELECT TO authenticated USING (((bucket_id = ANY (ARRAY['doctor-profile-photos'::text, 'doctor-signatures'::text])) AND (split_part(name, '/'::text, 1) = (auth.uid())::text)));
-
-
---
--- Name: objects private_objects_owner_write; Type: POLICY; Schema: storage; Owner: -
---
-
-CREATE POLICY private_objects_owner_write ON storage.objects FOR INSERT TO authenticated WITH CHECK (((bucket_id = ANY (ARRAY['doctor-profile-photos'::text, 'doctor-signatures'::text])) AND (split_part(name, '/'::text, 1) = (auth.uid())::text)));
 
 
 --

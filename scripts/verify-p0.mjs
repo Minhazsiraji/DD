@@ -120,8 +120,9 @@ if (process.argv[2]) {
     if (!audit.some((item) => item.column_name === 'action') || !audit.some((item) => item.column_name === 'resource_id')) throw new Error('audit foundation incomplete');
     const appendOnly = await sql`select tgname from pg_trigger t join pg_class c on c.oid=t.tgrelid where c.relname in ('audit_events','health_subject_origins') and not t.tgisinternal and tgname like '%append_only%'`;
     if (appendOnly.length !== 2) throw new Error('append-only audit/origin triggers incomplete');
-    const buckets = await sql`select id, public from storage.buckets where id in ('doctor-profile-photos','doctor-signatures','prescription-assets','clinical-documents','personal-health-documents','community-media','verification-evidence')`;
-    if (buckets.length !== 7 || buckets.some((item) => item.public)) throw new Error('private storage bucket boundary incomplete');
+    const buckets = await sql`select id, public from storage.buckets where id in ('doctor-profile-photos','doctor-signatures','prescription-assets','clinical-documents','personal-health-documents','community-media','verification-evidence') order by id`;
+    const p0Buckets = new Set(['doctor-profile-photos','doctor-signatures','prescription-assets']);
+    if (buckets.length !== 3 || buckets.some((item) => !p0Buckets.has(item.id) || item.public)) throw new Error('P0 private storage bucket boundary incomplete or later-phase bucket present');
     const finalizedTrigger = await sql`select 1 from pg_trigger t join pg_class c on c.oid=t.tgrelid where c.relname='prescriptions' and t.tgname='prescriptions_finalized_immutable'`;
     const itemTrigger = await sql`select 1 from pg_trigger t join pg_class c on c.oid=t.tgrelid where c.relname='prescription_items' and t.tgname='prescription_items_finalized_immutable'`;
     if (!finalizedTrigger.length || !itemTrigger.length) throw new Error('prescription immutability triggers missing');

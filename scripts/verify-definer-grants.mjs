@@ -1,39 +1,7 @@
 import { assert, openLocalDatabase } from "./p0-b2-lib.mjs";
+import { P0_DEFINER_EXECUTE as expected } from "./p0-definer-contract.mjs";
 
 const sql = openLocalDatabase();
-
-const expected = new Map([
-  ["allocate_dd_patient_number()", new Set(["authenticated"])],
-  ["current_profile_id()", new Set(["authenticated"])],
-  ["current_doctor_id()", new Set(["authenticated"])],
-  ["has_capability(uuid,capability)", new Set(["authenticated"])],
-  ["refresh_profile_capabilities(uuid)", new Set(["dd_metrics_rollup"])],
-  ["refresh_capability_trigger()", new Set()],
-  ["create_professional_profile(text,profession)", new Set(["authenticated"])],
-  ["emit_audit_event(text,text,uuid,uuid)", new Set(["authenticated"])],
-  ["create_health_subject(text,subject_kind,text)", new Set(["authenticated"])],
-  ["create_clinical_patient(text,uuid)", new Set(["authenticated"])],
-  ["open_encounter(uuid,uuid)", new Set(["authenticated"])],
-  ["open_prescription(uuid)", new Set(["authenticated"])],
-  ["finalize_prescription(uuid,integer,jsonb,text,text)", new Set(["authenticated"])],
-  ["allocate_queue_token(uuid,date,uuid)", new Set(["authenticated"])],
-
-  ["consume_anon_rate_limit(text)", new Set()],
-  ["emit_anon_audit_event(text,text,text,uuid)", new Set()],
-  ["record_public_ingress_failure(text,uuid,uuid)", new Set(["dd_public_ingress"])],
-  ["public_chamber_is_eligible(uuid)", new Set()],
-  ["public_slot_is_open(uuid,timestampwithtimezone,timestampwithtimezone)", new Set()],
-  ["lock_public_booking_chamber(uuid)", new Set()],
-  ["public_chamber_availability(uuid,date,date)", new Set(["anon", "dd_public_ingress"])],
-  ["create_public_booking(uuid,timestampwithtimezone,text,text,text,text)", new Set(["anon", "dd_public_ingress"])],
-  ["public_booking_status(uuid)", new Set(["anon", "dd_public_ingress"])],
-
-  ["can_read_public_booking_contact(uuid)", new Set(["authenticated"])],
-  ["correct_public_booking_contact(uuid,text,text,text,text)", new Set(["authenticated"])],
-  ["search_public_booking_patient_candidates(uuid,text,text)", new Set(["authenticated"])],
-  ["resolve_public_booking_patient(uuid,uuid)", new Set(["authenticated"])],
-  ["register_public_booking_patient(uuid,text,text,text)", new Set(["authenticated"])],
-]);
 
 try {
   const definers = await sql`

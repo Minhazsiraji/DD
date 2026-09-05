@@ -1384,39 +1384,35 @@ try {
           ),
     );
 
+  const expectedAppointmentWriters = new Set([
+    "create_public_booking",
+    "create_internal_appointment",
+    "create_walkin_appointment",
+    "reschedule_appointment",
+  ]);
   assert(
-    appointmentWriters.length === 1 &&
-      appointmentWriters[0].proname ===
-        "create_public_booking",
+    appointmentWriters.length === expectedAppointmentWriters.size &&
+      appointmentWriters.every((row) => expectedAppointmentWriters.has(row.proname)),
     `unexpected current P0 appointment writer inventory: ${
-      appointmentWriters
-        .map(
-          (row) =>
-            `${row.proname}(${row.identity_args})`,
-        )
-        .join(",")
+      appointmentWriters.map((row) => `${row.proname}(${row.identity_args})`).join(",")
     }`,
   );
 
-  const normalizedWriter =
-    appointmentWriters[0]
-      .definition
-      .toLowerCase()
-      .replace(/\s+/g, " ");
-
-  assert(
-    normalizedWriter.includes(
-      "lock_public_booking_chamber",
-    ),
-    "create_public_booking does not use canonical chamber serialization lock",
-  );
-
-  assert(
-    normalizedWriter.includes(
-      "public_slot_is_open",
-    ),
-    "create_public_booking does not recheck slot availability",
-  );
+  for (const writer of appointmentWriters) {
+    const normalizedWriter = writer.definition.toLowerCase().replace(/\s+/g, " ");
+    if (writer.proname === "create_public_booking") {
+      assert(normalizedWriter.includes("lock_public_booking_chamber"),
+        "create_public_booking does not use canonical chamber serialization lock");
+      assert(normalizedWriter.includes("public_slot_is_open"),
+        "create_public_booking does not recheck slot availability");
+    } else {
+      assert(normalizedWriter.includes("doctor_chambers") && normalizedWriter.includes("for update"),
+        `${writer.proname} does not serialize on the exact chamber row`);
+      assert(normalizedWriter.includes("public.appointments") &&
+        (normalizedWriter.includes("status not in ('cancelled','no_show')") || normalizedWriter.includes("status in ('scheduled','confirmed','arrived','in_consultation','completed')")),
+        `${writer.proname} does not recheck shared chamber capacity`);
+    }
+  }
 
   const directAppointmentWrites =
     await sql`
@@ -1967,6 +1963,32 @@ try {
           where doctor_chamber_id =
             ${raceFixture.chamberId}
         )
+      `;
+
+      // Domain-L contributions are committed with the race fixtures and keep
+      // doctor/location FKs by design. Remove the fixture's aggregate/raw rows
+      // before deleting the clinical-side source rows they summarize.
+      await raceSql`
+        delete from public.metric_rollups
+        where doctor_id = ${raceFixture.professionalId}
+           or practice_location_id = ${raceFixture.locationId}
+      `;
+      await raceSql`
+        delete from public.metric_contributions
+        where doctor_id = ${raceFixture.professionalId}
+           or practice_location_id = ${raceFixture.locationId}
+      `;
+      await raceSql`
+        delete from public.metric_source_refs
+        where (object_kind = 'APPOINTMENT' and object_id in (
+                 select id from public.appointments
+                 where doctor_chamber_id = ${raceFixture.chamberId}
+               ))
+           or (object_kind = 'PROFESSIONAL_PROFILE' and object_id = ${raceFixture.professionalId})
+           or (object_kind = 'CREDENTIAL' and object_id in (
+                 select id from public.professional_credentials
+                 where professional_profile_id = ${raceFixture.professionalId}
+               ))
       `;
 
       await raceSql`

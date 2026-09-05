@@ -11,34 +11,34 @@ architecture_sha256 = "fb28a7985702d3a8975ad5dd3804e6072b9775f67e5b9315603bbe258
 id = "0001"
 kind = "schema"
 file = "db/schema/0001_p0_baseline.sql"
-sha256 = "6c30d4d2b727c6c41577088e09510bafe7bcb7a85f3e0df8c616e231fab2a105"
+sha256 = "3072d21c2c6500ed89fd339f56edbca8212534a92d1d0fd7ea9eb3f610d38a06"
 
 [[step]]
 id = "0002"
 kind = "functions"
 file = "db/functions/0002_p0_core.sql"
-sha256 = "7f03bf084f0130c8b12052f4c3dbf421a55e56f211662f764151754360d09b5c"
+sha256 = "162ddd5ba548c96b2648702b1ae892319113b2bfa60019e2a5507c1ce1bd613f"
 
 [[step]]
 id = "0003"
 kind = "policies"
 file = "db/policies/0003_p0_rls.sql"
-sha256 = "44eae215ce879305bcc864d81ac11d2ee583d100532a4871df82c88dff2e0395"
+sha256 = "295fdc5e97c73d14539103ea5a28b0f3a1c1edbaead30ca58f3980b043c6bd61"
 
 [[step]]
 id = "0004"
 kind = "grants"
 file = "db/grants/0004_p0_grants.sql"
-sha256 = "9078f47082e1b9b12ce87cc1a36be4c157a2de91476e574907954a2f9e5dd7c6"
+sha256 = "74d2dd8d0ccfe5e93f8846dd9d709041e11702fc00ce334482d7d0b54617cd94"
 
 [[step]]
 id = "0005"
 kind = "storage"
 file = "db/storage/0005_p0_buckets.sql"
-sha256 = "4e0cd8698aab9e771743aa337de28fe33292c2c9cf4e17a02e3c2c8163cbc47a"
+sha256 = "6d0a8ac7852a9c4386f8cfc507114f3ee6a76d3c2539a917525599725a3683a3"
 
 [[step]]
 id = "0006"
 kind = "seed"
 file = "db/seed/0006_p0_reference.sql"
-sha256 = "3e5dcf628806031d03078292cbc46b2b4316ce22e8891c68fb80052da74eaeb6"
+sha256 = "1651b77c0677ed1d6182a8494ae2f37025cbb83647a90d81e8dd86be00f3c279"

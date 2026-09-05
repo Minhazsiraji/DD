@@ -1,4 +1,5 @@
 import { assert, openLocalDatabase } from "./p0-b2-lib.mjs";
+import { P0_DEFINER_EXECUTE } from "./p0-definer-contract.mjs";
 
 const sql = openLocalDatabase();
 
@@ -16,8 +17,8 @@ try {
     order by p.proname
   `;
 
-  assert(definers.length === 28,
-    `expected 28 P0 SECURITY DEFINER functions, found ${definers.length}`);
+  assert(definers.length === P0_DEFINER_EXECUTE.size,
+    `expected ${P0_DEFINER_EXECUTE.size} P0 SECURITY DEFINER functions, found ${definers.length}`);
 
   const paths = new Map();
 
