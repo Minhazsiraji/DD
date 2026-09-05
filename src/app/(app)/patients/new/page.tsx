@@ -19,6 +19,7 @@ export default async function NewPatientPage(props: PageProps<"/patients/new">) 
 
   const params = await props.searchParams;
   const prefillName = typeof params.name === "string" ? params.name : undefined;
+  const prefillPhone = typeof params.phone === "string" ? params.phone : undefined;
 
   // Only a doctor owns patients. Staff registering on a doctor's behalf is a
   // Phase 5 (reception) flow and needs its own explicit design.
@@ -52,7 +53,7 @@ export default async function NewPatientPage(props: PageProps<"/patients/new">) 
       />
 
       <PatientForm
-        defaults={{ fullName: prefillName }}
+        defaults={{ fullName: prefillName, phone: prefillPhone }}
         todayLocal={locationDate?.localDate}
       />
     </div>

@@ -1,7 +1,7 @@
 "use server";
 
 import { searchPatients } from "./queries";
-import { rankFinderPatients } from "./finder-ranking";
+import { classifyFinderTerm, rankFinderPatients } from "./finder-ranking";
 import {
   getM1DoctorAuthority,
   getPatientAppointmentContexts,
@@ -36,7 +36,7 @@ export type FinderOutcome =
 
 export async function findPatientsAction(term: string): Promise<FinderOutcome> {
   const q = term.trim();
-  if (q.length < 2) {
+  if (q.length < 2 || classifyFinderTerm(q) === "INVALID") {
     return { ok: true, patients: [], canRegister: false, operationalOnly: false };
   }
 

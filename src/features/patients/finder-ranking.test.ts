@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { finderRank, rankFinderPatients } from "./finder-ranking";
+import { classifyFinderTerm, finderRank, rankFinderPatients } from "./finder-ranking";
 
 const patient = (over: Partial<{ id: string; patientNumber: string; fullName: string; phone: string | null }> = {}) => ({
   id: "p1",
@@ -9,31 +9,32 @@ const patient = (over: Partial<{ id: string; patientNumber: string; fullName: st
   ...over,
 });
 
-describe("Universal Patient Finder ranking", () => {
-  it("ranks an exact patient number first", () => {
+describe("Universal Patient Finder identifier matching", () => {
+  it("accepts patient numbers and normalized Bangladeshi phones", () => {
+    expect(classifyFinderTerm("DD-000123")).toBe("PATIENT_NUMBER");
+    expect(classifyFinderTerm("+880 1711 000124")).toBe("PHONE");
+    expect(classifyFinderTerm("Rahim Hossain")).toBe("INVALID");
+  });
+
+  it("ranks exact patient number matches first", () => {
     expect(finderRank(patient(), "DD-000123")).toBe(0);
   });
 
-  it("ranks an exact normalized Bangladeshi phone second", () => {
-    expect(finderRank(patient(), "01711000124")).toBe(1);
+  it("ranks exact normalized phone matches first", () => {
+    expect(finderRank(patient(), "01711000124")).toBe(0);
   });
 
-  it("ranks an exact normalized full name third", () => {
-    expect(finderRank(patient(), "Rahim Hossain")).toBe(2);
+  it("allows identifier prefixes but never name-only matches", () => {
+    expect(finderRank(patient(), "DD-000")).toBe(1);
+    expect(finderRank(patient(), "01711")).toBe(1);
+    expect(finderRank(patient(), "Rahim")).toBe(Number.POSITIVE_INFINITY);
+    expect(rankFinderPatients([patient()], "Rahim Hossain")).toEqual([]);
   });
 
-  it("ranks strong prefixes ahead of remaining matches", () => {
-    expect(finderRank(patient(), "DD-000")).toBe(3);
-    expect(finderRank(patient(), "01711")).toBe(3);
-    expect(finderRank(patient(), "Rahim")).toBe(3);
-  });
-
-  it("ranks similar names ahead of unrelated remaining matches", () => {
-    expect(finderRank(patient(), "Rahim Karim")).toBeLessThan(finderRank(patient(), "Completely Different"));
-  });
-
-  it("caps first suggestions at six", () => {
-    const rows = Array.from({ length: 10 }, (_, index) => patient({ id: `p${index}`, patientNumber: `DD-${index}` }));
-    expect(rankFinderPatients(rows, "DD")).toHaveLength(6);
+  it("caps identifier suggestions at six", () => {
+    const rows = Array.from({ length: 10 }, (_, index) =>
+      patient({ id: `p${index}`, patientNumber: `DD-000${index + 10}` }),
+    );
+    expect(rankFinderPatients(rows, "DD-00")).toHaveLength(6);
   });
 });

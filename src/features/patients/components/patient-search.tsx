@@ -9,7 +9,7 @@ import { Search, X, Loader } from "lucide-react";
  *
  * Pushes the query into the URL rather than holding it in component state, so a
  * search is shareable, survives a refresh, and the results are rendered on the
- * server. Debounced, because a doctor types a name faster than a round trip.
+ * server. Debounced, because a doctor types an identifier faster than a round trip.
  */
 export function PatientSearch({ initialQuery }: { initialQuery: string }) {
   const router = useRouter();
@@ -39,7 +39,7 @@ export function PatientSearch({ initialQuery }: { initialQuery: string }) {
   return (
     <div className="relative">
       <label htmlFor="patient-search" className="sr-only">
-        Search patients by name, phone or patient number
+        Search patients by phone or patient number
       </label>
 
       <Search
@@ -55,7 +55,7 @@ export function PatientSearch({ initialQuery }: { initialQuery: string }) {
         autoComplete="off"
         value={value}
         onChange={(e) => setValue(e.target.value)}
-        placeholder="Name, phone or patient number…"
+        placeholder="Phone number or patient number…"
         /* h-12 and text-base: a 16px font stops iOS zooming on focus, and this
            is the control a doctor uses one-handed more than any other. */
         className="h-12 w-full rounded-glass border border-hairline bg-white pr-11 pl-11 text-base text-ink shadow-soft placeholder:text-ink-muted focus-visible:focus-ring"

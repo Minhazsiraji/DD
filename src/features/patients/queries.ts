@@ -121,11 +121,11 @@ export type SearchOutcome =
   | { ok: false; reason: string };
 
 /**
- * Search a doctor's own patients by number, phone or name.
+ * Search a doctor's own patients by patient number or phone.
  *
- * The query is normalised the same way the stored columns are, so "Md. Rahim"
- * finds "Rahim Hossain" and "+8801711000124" finds "01711000124". Backed by
- * trigram indexes, so the leading-wildcard ILIKE stays fast.
+ * Names are deliberately not lookup identifiers: duplicate names are common and
+ * should never decide which clinical record opens. The phone query uses the same
+ * Bangladesh normalisation as stored data, so +8801711000124 finds 01711000124.
  */
 export async function searchPatients(
   query: string,
@@ -155,14 +155,10 @@ export async function searchPatients(
   request = request.order("created_at", { ascending: false }).limit(limit);
 
   if (q.length > 0) {
-    const name = normalizeName(q);
     const phone = normalizePhone(q);
     const escaped = q.replace(/[%,()]/g, " ").trim();
 
-    const clauses = [
-      `patient_number.ilike.%${escaped}%`,
-      `name_normalized.ilike.%${name || escaped}%`,
-    ];
+    const clauses = [`patient_number.ilike.%${escaped}%`];
     if (phone) clauses.push(`phone_normalized.ilike.%${phone}%`);
 
     request = request.or(clauses.join(","));

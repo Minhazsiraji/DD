@@ -38,9 +38,15 @@ describe("M1 doctor repository and finder security", () => {
 
   it("6 suppresses registration while finder search is unavailable", () => {
     const source = finder();
-    const errorBranch = source.slice(source.indexOf("{error ?"), source.indexOf(": patients.length > 0"));
+    const errorBranch = source.slice(source.indexOf(": error ? ("), source.indexOf(": patients.length > 0 ?"));
     expect(errorBranch).not.toContain("/patients/new");
     expect(errorBranch).toContain("Retry");
+  });
+
+  it("uses phone/patient number as Finder identifiers and never name-only lookup", () => {
+    expect(finder()).toContain("Find patients by phone or patient number");
+    expect(finder()).toContain("Names are shown after a matching identifier is found");
+    expect(finderActions()).toContain("classifyFinderTerm(q)");
   });
 
   it("27 keeps shared Top Bar clinical actions capability-safe", () => {

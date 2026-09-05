@@ -9,6 +9,7 @@ import { DoctorConsultationLauncher } from "./doctor-consultation-launcher";
 import { formatAge } from "../identity";
 import { SEX_LABEL } from "../schema";
 import { cn } from "@/lib/utils";
+import { classifyFinderTerm, type FinderIdentifierKind } from "../finder-ranking";
 
 const DEBOUNCE_MS = 225;
 
@@ -35,12 +36,14 @@ export function GlobalPatientFinder() {
   const [retryKey, setRetryKey] = React.useState(0);
 
   const trimmed = term.trim();
-  const showResults = trimmed.length >= 2;
+  const identifierKind = classifyFinderTerm(trimmed);
+  const showPanel = trimmed.length >= 2;
+  const canSearch = showPanel && identifierKind !== "INVALID";
   const selected = patients[selectedIndex] ?? null;
 
   function updateTerm(next: string) {
     setTerm(next);
-    if (next.trim().length < 2) {
+    if (next.trim().length < 2 || classifyFinderTerm(next) === "INVALID") {
       requestSeq.current += 1;
       setPatients([]);
       setError(null);
@@ -52,7 +55,7 @@ export function GlobalPatientFinder() {
   }
 
   React.useEffect(() => {
-    if (trimmed.length < 2) {
+    if (!canSearch) {
       requestSeq.current += 1;
       return;
     }
@@ -79,7 +82,7 @@ export function GlobalPatientFinder() {
     }, DEBOUNCE_MS);
 
     return () => window.clearTimeout(timer);
-  }, [trimmed, retryKey]);
+  }, [canSearch, trimmed, retryKey]);
 
   React.useEffect(() => {
     function onShortcut(event: KeyboardEvent) {
@@ -99,7 +102,7 @@ export function GlobalPatientFinder() {
   }, [pathname]);
 
   const handleKeyDown = React.useCallback((event: React.KeyboardEvent<HTMLInputElement>) => {
-    if (!showResults) return;
+    if (!canSearch) return;
     if (event.key === "ArrowDown") {
       event.preventDefault();
       setSelectedIndex((index) => Math.min(index + 1, Math.max(0, patients.length - 1)));
@@ -115,7 +118,7 @@ export function GlobalPatientFinder() {
       updateTerm("");
       setMobileOpen(false);
     }
-  }, [patients.length, router, selected, showResults]);
+  }, [canSearch, patients.length, router, selected]);
 
   const refreshCurrentSearch = React.useCallback(() => setRetryKey((key) => key + 1), []);
 
@@ -123,7 +126,7 @@ export function GlobalPatientFinder() {
     id,
     role: "combobox" as const,
     "aria-autocomplete": "list" as const,
-    "aria-expanded": showResults,
+    "aria-expanded": showPanel,
     "aria-controls": `${id}-listbox`,
     "aria-activedescendant": selected ? `${id}-option-${selected.id}` : undefined,
     value: term,
@@ -137,18 +140,18 @@ export function GlobalPatientFinder() {
     <>
       <div className="relative hidden min-w-0 flex-1 sm:block">
         <label htmlFor="global-patient-finder" className="sr-only">
-          Find patients by name, phone or patient number
+          Find patients by phone or patient number
         </label>
         <Search className="pointer-events-none absolute left-3 top-1/2 z-10 size-4 -translate-y-1/2 text-ink-muted" aria-hidden="true" />
         <input
           ref={desktopRef}
           type="search"
-          placeholder="Find patient…  /"
+          placeholder="Phone or patient number…  /"
           className="dd-input h-10 min-w-0 w-full rounded-xl border border-hairline bg-white/80 pr-10 pl-9 text-base text-ink placeholder:text-ink-muted focus-visible:focus-ring sm:max-w-xl"
           {...inputProps("global-patient-finder")}
         />
         <InputTail loading={loading} term={term} onClear={() => updateTerm("")} />
-        {showResults ? (
+        {showPanel ? (
           <FinderPanel
             id="global-patient-finder"
             term={trimmed}
@@ -160,6 +163,7 @@ export function GlobalPatientFinder() {
             error={error}
             canRegister={canRegister}
             operationalOnly={operationalOnly}
+            identifierKind={identifierKind}
             onRetry={() => setRetryKey((key) => key + 1)}
             onContextChanged={refreshCurrentSearch}
             className="absolute left-0 top-[calc(100%+8px)] z-50 w-[min(680px,calc(100vw-2rem))]"
@@ -189,7 +193,7 @@ export function GlobalPatientFinder() {
                 <input
                   ref={mobileRef}
                   type="search"
-                  placeholder="Name, phone or patient number…"
+                  placeholder="Phone number or patient number…"
                   className="dd-input h-12 w-full rounded-xl border border-hairline bg-white pr-10 pl-9 text-base text-ink placeholder:text-ink-muted focus-visible:focus-ring"
                   {...inputProps("mobile-patient-finder")}
                 />
@@ -205,7 +209,7 @@ export function GlobalPatientFinder() {
               </button>
             </div>
             <div className="mt-3 min-h-0 flex-1 overflow-y-auto">
-              {showResults ? (
+              {showPanel ? (
                 <FinderPanel
                   id="mobile-patient-finder"
                   term={trimmed}
@@ -217,11 +221,12 @@ export function GlobalPatientFinder() {
                   error={error}
                   canRegister={canRegister}
                   operationalOnly={operationalOnly}
+                  identifierKind={identifierKind}
                   onRetry={() => setRetryKey((key) => key + 1)}
                   onContextChanged={refreshCurrentSearch}
                 />
               ) : (
-                <p className="px-2 py-6 text-center text-sm text-ink-secondary">Type at least 2 characters to search.</p>
+                <p className="px-2 py-6 text-center text-sm text-ink-secondary">Enter a phone number or patient number to search.</p>
               )}
             </div>
           </div>
@@ -252,6 +257,7 @@ function FinderPanel({
   error,
   canRegister,
   operationalOnly,
+  identifierKind,
   onRetry,
   onContextChanged,
   className,
@@ -266,13 +272,19 @@ function FinderPanel({
   error: string | null;
   canRegister: boolean;
   operationalOnly: boolean;
+  identifierKind: FinderIdentifierKind;
   onRetry: () => void;
   onContextChanged: () => void;
   className?: string;
 }) {
   return (
     <div className={cn("dd-app-panel overflow-hidden rounded-2xl border border-hairline bg-white/95 shadow-xl", className)}>
-      {error ? (
+      {identifierKind === "INVALID" ? (
+        <div className="p-4">
+          <p className="text-sm font-semibold text-ink">Search by phone number or patient number</p>
+          <p className="mt-1 text-xs text-ink-muted">Names are shown after a matching identifier is found, but names are not used to choose a clinical record.</p>
+        </div>
+      ) : error ? (
         <div className="p-4">
           <p className="flex items-start gap-2 text-[13px] font-semibold text-danger">
             <TriangleAlert className="mt-px size-4 shrink-0" aria-hidden="true" />
@@ -338,12 +350,12 @@ function FinderPanel({
         </>
       ) : !loading ? (
         <div className="p-4">
-          <p className="text-sm font-semibold text-ink">No patient matches “{term}”</p>
-          <p className="mt-1 text-xs text-ink-muted">Check the spelling, phone number or patient number.</p>
+          <p className="text-sm font-semibold text-ink">No patient matches this {identifierKind === "PHONE" ? "phone number" : "patient number"}</p>
+          <p className="mt-1 text-xs text-ink-muted">Check the identifier before creating a new record.</p>
           {canRegister ? (
-            <Link href={`/patients/new?name=${encodeURIComponent(term)}`} className="mt-3 inline-flex min-h-11 items-center justify-center gap-1.5 rounded-xl bg-brand px-3.5 text-[13px] font-semibold text-white shadow-soft focus-visible:focus-ring">
+            <Link href={identifierKind === "PHONE" ? `/patients/new?phone=${encodeURIComponent(term)}` : "/patients/new"} className="mt-3 inline-flex min-h-11 items-center justify-center gap-1.5 rounded-xl bg-brand px-3.5 text-[13px] font-semibold text-white shadow-soft focus-visible:focus-ring">
               <UserPlus className="size-4" aria-hidden="true" />
-              Register “{term}”
+              Register a new patient
             </Link>
           ) : operationalOnly ? (
             <p className="mt-3 text-xs text-ink-secondary">Use Appointments to add a walk-in through the authorised desk workflow.</p>
