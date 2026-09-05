@@ -24,7 +24,7 @@ export function TopBar({ doctorName, locations, activeLocationId }: TopBarProps)
       data-print-hidden
       className="dd-topbar glass sticky top-0 z-30 min-w-0 border-b border-glass-border"
     >
-      <div className="flex h-16 min-w-0 items-center gap-1.5 px-3 sm:gap-3 sm:px-6">
+      <div className="grid h-16 min-w-0 grid-cols-5 items-center justify-items-center px-3 sm:flex sm:gap-3 sm:px-6">
         {/* Brand — mobile only; the sidebar carries it from lg up. */}
         <Link
           href="/dashboard"
@@ -61,7 +61,7 @@ export function TopBar({ doctorName, locations, activeLocationId }: TopBarProps)
           <Bell className="size-5" aria-hidden="true" />
         </button>
 
-        <div className="flex shrink-0 items-center gap-1 sm:gap-2">
+        <div className="contents sm:flex sm:shrink-0 sm:items-center sm:gap-2">
           <span
             className="flex size-9 items-center justify-center rounded-full bg-brand-soft text-[13px] font-semibold text-brand xl:hidden"
             aria-hidden="true"

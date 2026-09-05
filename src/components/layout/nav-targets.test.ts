@@ -105,4 +105,11 @@ describe("Top Bar identity treatment", () => {
     expect(topbar).toContain("text-brand xl:hidden");
     expect(topbar).toContain("hidden min-w-0 xl:block");
   });
+
+  it("distributes the five mobile top-bar controls evenly", () => {
+    const topbar = readFileSync(path.resolve("src/components/layout/top-bar.tsx"), "utf8");
+    expect(topbar).toContain("grid-cols-5");
+    expect(topbar).toContain("justify-items-center");
+    expect(topbar).toContain("contents sm:flex");
+  });
 });
