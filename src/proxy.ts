@@ -97,7 +97,8 @@ export async function proxy(request: NextRequest) {
     !pathname.startsWith("/contact") &&
     !pathname.startsWith("/dr/") &&
     !pathname.startsWith("/auth/") &&
-    !pathname.startsWith("/api/")
+    !pathname.startsWith("/api/") &&
+    pathname !== "/reset-password"
   ) {
     const url = request.nextUrl.clone();
     url.pathname = "/dashboard";

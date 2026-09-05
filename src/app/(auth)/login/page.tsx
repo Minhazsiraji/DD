@@ -4,8 +4,12 @@ import { LoginForm } from "@/features/auth/components/login-form";
 export const metadata: Metadata = { title: "Sign in" };
 
 const ERRORS: Record<string, string> = {
-  link_expired: "That link has expired. Request a new one.",
-  missing_code: "That link was incomplete. Try again.",
+  link_expired:
+    "That link is no longer valid — it may have been used already, or it timed out. Request a new one below.",
+  link_denied: "That link could not be accepted. Request a new one below.",
+  link_missing:
+    "That link did not carry any sign-in details. Open the most recent email and try the link there.",
+  missing_code: "That link was incomplete. Request a new one below.",
 };
 
 export default async function LoginPage(props: PageProps<"/login">) {

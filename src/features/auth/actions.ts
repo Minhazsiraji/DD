@@ -8,8 +8,8 @@ import {
   SHARED_DEVICE_COOKIE,
   requiresMfaChallenge,
 } from "@/features/security/policy";
-import { publicEnv } from "@/lib/env";
 import { emitAudit } from "@/lib/audit/emit";
+import { authRedirectOrigin } from "./site-url";
 import {
   signUpSchema,
   signInSchema,
@@ -59,7 +59,7 @@ export async function signUpAction(
     password: parsed.data.password,
     options: {
       data: { full_name: parsed.data.fullName },
-      emailRedirectTo: `${publicEnv().NEXT_PUBLIC_SITE_URL}/auth/callback?next=/onboarding`,
+      emailRedirectTo: `${authRedirectOrigin()}/auth/confirm?next=/onboarding`,
     },
   });
 
@@ -167,7 +167,7 @@ export async function forgotPasswordAction(
 
   const supabase = await createSupabaseServerClient();
   await supabase.auth.resetPasswordForEmail(parsed.data.email, {
-    redirectTo: `${publicEnv().NEXT_PUBLIC_SITE_URL}/auth/callback?next=/reset-password`,
+    redirectTo: `${authRedirectOrigin()}/auth/confirm?next=/reset-password`,
   });
 
   await emitAudit({
