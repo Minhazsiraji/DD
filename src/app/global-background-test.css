@@ -1,0 +1,66 @@
+/* Doctor's Diary — isolated organ-image background preview.
+   Same liquid/glass component system as the approved 90% pass.
+   The organ artwork is now softened behind the live UI so it supports the
+   glass material without competing with clinical/marketing text. */
+
+:root {
+  --dd-organ-bg: url("/dd-global-bg.webp");
+}
+
+html,
+body {
+  min-height: 100%;
+  background-color: #e8e3ee !important;
+}
+
+body {
+  position: relative;
+  isolation: isolate;
+  background-image: none !important;
+}
+
+/* Background image lives on its own layer so only the artwork is blurred —
+   never the cards, typography, buttons or interactive UI. 8px gives roughly
+   a 50% visual softening versus the current sharp preview. */
+body::before {
+  content: "";
+  position: fixed;
+  inset: -18px;
+  z-index: 0;
+  pointer-events: none;
+  background-image:
+    linear-gradient(rgb(246 243 250 / 0.28), rgb(246 243 250 / 0.28)),
+    var(--dd-organ-bg);
+  background-size: cover;
+  background-position: center center;
+  background-repeat: no-repeat;
+  filter: blur(8px);
+  transform: scale(1.02);
+  transform-origin: center;
+}
+
+/* Keep every real app surface above the blurred background layer. */
+body > * {
+  position: relative;
+  z-index: 1;
+}
+
+.dd-public-stage,
+.dd-auth-shell,
+body > div[class*="min-h-dvh"],
+body > main[class*="min-h-dvh"] {
+  background-color: transparent !important;
+  background-image: none !important;
+}
+
+.dd-public-stage-light {
+  display: none !important;
+}
+
+@media (max-width: 767px) {
+  body::before {
+    background-position: center top;
+    filter: blur(7px);
+    transform: scale(1.035);
+  }
+}

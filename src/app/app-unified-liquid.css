@@ -1,0 +1,372 @@
+/*
+ * Doctor's Diary — canonical application liquid layer.
+ * Imported LAST. Presentation only: no routing, data, role, security or clinical
+ * authority changes. Existing component placement and hover movement remain.
+ */
+
+:root {
+  --dd-app-ink: #211b4a;
+  --dd-app-body: #3f4968;
+  --dd-app-muted: #59637d;
+  --dd-app-rim: rgba(255,255,255,.95);
+}
+
+/* -------------------------------------------------------------------------
+   SHARED CHROME — same refractive family as the approved public header
+   ------------------------------------------------------------------------- */
+.dd-topbar,
+.dd-sidebar,
+nav.glass-strong {
+  position: relative;
+  isolation: isolate;
+  border: 1px solid rgba(255,255,255,.92) !important;
+  background:
+    radial-gradient(22% 95% at 0% 62%, rgba(126,226,236,.18), transparent 72%),
+    radial-gradient(22% 92% at 100% 8%, rgba(238,150,216,.16), transparent 74%),
+    radial-gradient(24% 90% at 76% 100%, rgba(134,230,232,.14), transparent 74%),
+    rgba(255,255,255,.035) !important;
+  -webkit-backdrop-filter: blur(20px) saturate(118%) !important;
+  backdrop-filter: blur(20px) saturate(118%) !important;
+  box-shadow:
+    inset 0 0 0 1px rgba(255,255,255,.95),
+    inset 0 2px 1px -1px rgba(255,255,255,1),
+    inset 0 6px 10px -5px rgba(255,255,255,.95),
+    inset 3px 0 7px -4px rgba(255,255,255,.88),
+    inset 0 -9px 16px -8px rgba(104,88,152,.34),
+    inset -3px 0 7px -4px rgba(104,88,152,.20),
+    inset 0 -1.5px 0 rgba(255,255,255,.74),
+    inset 0 0 9px rgba(255,255,255,.76),
+    0 0 0 1px rgba(255,255,255,.78),
+    0 0 12px rgba(255,255,255,.34),
+    0 0 24px rgba(126,226,236,.10),
+    0 10px 22px -12px rgba(78,64,128,.22),
+    0 24px 44px -28px rgba(110,92,172,.28) !important;
+}
+
+.dd-sidebar {
+  margin-left: 10px;
+  border-radius: 28px !important;
+}
+
+.dd-nav-item:not([aria-current="page"]) {
+  background: transparent !important;
+  border: 1px solid transparent;
+  transition: transform .18s ease, background-color .18s ease, border-color .18s ease;
+}
+
+.dd-nav-item:not([aria-current="page"]):hover {
+  transform: translateX(2px);
+  border-color: rgba(255,255,255,.72);
+  background: rgba(255,255,255,.12) !important;
+}
+
+.dd-assistant-link {
+  color: var(--dd-aqua-text) !important;
+  border: 1px solid rgba(255,255,255,.84);
+  background:
+    radial-gradient(90% 140% at 18% -20%, rgba(255,255,255,.72), transparent 58%),
+    linear-gradient(100deg, rgba(188,255,248,.44), rgba(128,237,239,.34), rgba(171,224,255,.34)) !important;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.86), 0 5px 13px rgba(73,152,176,.10);
+}
+
+/* -------------------------------------------------------------------------
+   APPROVED TRANSPARENT APP PANEL
+   Reused by Recent Patients, Quick Actions, Work Now, Timeline, Safety Lists,
+   contact panels and similar shell/summary surfaces.
+   ------------------------------------------------------------------------- */
+.dd-app-panel {
+  position: relative !important;
+  isolation: isolate;
+  overflow: hidden;
+  border: 0 !important;
+  border-radius: 28px !important;
+  background: rgba(255,255,255,.018) !important;
+  -webkit-backdrop-filter: blur(20px) saturate(112%) !important;
+  backdrop-filter: blur(20px) saturate(112%) !important;
+  box-shadow:
+    inset 0 0 0 1px rgba(255,255,255,.95),
+    inset 0 2px 1px -1px rgba(255,255,255,1),
+    inset 0 6px 10px -5px rgba(255,255,255,.96),
+    inset 3px 0 7px -4px rgba(255,255,255,.90),
+    inset 0 -9px 16px -8px rgba(104,88,152,.34),
+    inset -3px 0 7px -4px rgba(104,88,152,.22),
+    inset -1px -2px 3px -2px rgba(104,88,152,.26),
+    inset 0 -1.5px 0 rgba(255,255,255,.74),
+    inset 0 0 9px rgba(255,255,255,.82),
+    0 0 0 1px rgba(255,255,255,.80),
+    0 0 12px rgba(255,255,255,.42),
+    0 0 25px 1px rgba(255,255,255,.18),
+    0 10px 22px -12px rgba(78,64,128,.20),
+    0 25px 46px -30px rgba(110,92,172,.28) !important;
+}
+
+.dd-app-panel::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  border-radius: inherit;
+  background:
+    radial-gradient(5% 30% at 0% 62%, rgba(126,226,236,.62), transparent 70%),
+    radial-gradient(9% 20% at 78% 100%, rgba(134,230,232,.52), transparent 70%),
+    radial-gradient(4.5% 22% at 100% 46%, rgba(150,238,208,.48), transparent 70%),
+    radial-gradient(7% 22% at 93% 0%, rgba(238,150,216,.46), transparent 70%),
+    radial-gradient(7% 20% at 5% 100%, rgba(240,158,216,.40), transparent 70%),
+    radial-gradient(5% 20% at 0% 16%, rgba(178,166,248,.38), transparent 70%),
+    linear-gradient(116deg,
+      transparent 0%, transparent 18%, rgba(255,255,255,.08) 22%,
+      rgba(255,255,255,.42) 26%, rgba(255,255,255,.66) 29%,
+      rgba(255,255,255,.30) 32%, rgba(255,255,255,.06) 36%,
+      transparent 41%, transparent 100%);
+}
+
+.dd-app-panel::after {
+  content: "";
+  position: absolute;
+  inset: 7px;
+  z-index: 1;
+  pointer-events: none;
+  border-radius: 21px;
+  box-shadow:
+    0 0 0 1px rgba(255,255,255,.94),
+    0 1px 2px rgba(112,96,158,.22),
+    inset 0 1px 0 rgba(112,96,158,.12),
+    inset 0 -1px 0 rgba(255,255,255,.66);
+}
+
+.dd-app-panel > * {
+  position: relative;
+  z-index: 3;
+}
+
+.dd-section-header {
+  border-bottom-color: rgba(255,255,255,.44) !important;
+  background: rgba(255,255,255,.035) !important;
+}
+
+/* Dashboard #2 — Recent Patients: panel transparent, only list scrolls. */
+.dd-dashboard-recent {
+  min-height: 0;
+}
+
+.dd-dashboard-recent-list {
+  max-height: 238px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(111,91,225,.28) transparent;
+}
+
+.dd-dashboard-recent-row {
+  background: rgba(255,255,255,.035) !important;
+  border: 1px solid rgba(255,255,255,.26);
+  border-left: 0;
+  border-right: 0;
+}
+
+.dd-dashboard-recent-row:hover {
+  background: rgba(255,255,255,.12) !important;
+}
+
+/* Dashboard #3 — Quick Actions panel stays transparent; aqua rows remain. */
+.dd-quick-row {
+  border: 1px solid transparent !important;
+  color: var(--dd-aqua-text) !important;
+  background:
+    radial-gradient(88% 128% at 25% -20%, rgba(255,255,255,.92) 0%, rgba(255,255,255,.32) 31%, transparent 58%),
+    radial-gradient(72% 180% at 103% 54%, rgba(171,214,255,.62) 0%, transparent 64%),
+    linear-gradient(100deg, var(--dd-aqua-a) 0%, var(--dd-aqua-b) 48%, var(--dd-aqua-c) 100%) padding-box,
+    linear-gradient(118deg, rgba(255,255,255,.99) 0%, rgba(221,255,252,.99) 28%, rgba(155,244,246,.99) 68%, rgba(216,228,255,.98) 100%) border-box !important;
+  box-shadow:
+    0 0 0 1px rgba(255,255,255,.70),
+    0 0 12px rgba(89,231,232,.24),
+    0 6px 14px rgba(73,152,176,.14),
+    inset 0 2px 1px rgba(255,255,255,.94),
+    inset 0 -2px 4px rgba(59,144,167,.11) !important;
+}
+
+/* -------------------------------------------------------------------------
+   SUMMARY CARDS — transparent, but preserve their existing hover movement.
+   ------------------------------------------------------------------------- */
+.glass,
+.glass-strong,
+.glass-flat,
+.glass-flat-strong,
+.dd-dashboard-card,
+.dd-patient-card,
+.dd-profile-chip {
+  border-color: rgba(255,255,255,.90) !important;
+  background:
+    radial-gradient(34% 90% at 0% 62%, rgba(126,226,236,.10), transparent 72%),
+    radial-gradient(32% 84% at 100% 8%, rgba(238,150,216,.10), transparent 74%),
+    rgba(255,255,255,.08) !important;
+  box-shadow:
+    inset 0 0 0 1px rgba(255,255,255,.90),
+    inset 0 2px 1px -1px rgba(255,255,255,.96),
+    inset 0 5px 9px -5px rgba(255,255,255,.86),
+    inset 2px 0 6px -4px rgba(255,255,255,.76),
+    inset 0 -7px 13px -8px rgba(104,88,152,.22),
+    inset 0 -1px 0 rgba(255,255,255,.65),
+    0 0 0 1px rgba(255,255,255,.68),
+    0 0 11px rgba(255,255,255,.26),
+    0 8px 18px -11px rgba(76,62,122,.22),
+    0 18px 34px -26px rgba(102,84,164,.26) !important;
+}
+
+.glass,
+.glass-strong {
+  -webkit-backdrop-filter: blur(18px) saturate(116%) !important;
+  backdrop-filter: blur(18px) saturate(116%) !important;
+}
+
+.glass-flat:hover,
+.glass-flat-strong:hover,
+.dd-dashboard-card:hover,
+.dd-patient-card:hover {
+  box-shadow:
+    inset 0 0 0 1px rgba(255,255,255,.96),
+    inset 0 2px 1px -1px rgba(255,255,255,1),
+    inset 0 6px 10px -5px rgba(255,255,255,.92),
+    inset 0 -8px 15px -8px rgba(104,88,152,.28),
+    0 0 0 1px rgba(255,255,255,.76),
+    0 0 15px rgba(126,226,236,.16),
+    0 14px 27px -15px rgba(78,64,128,.30),
+    0 26px 48px -32px rgba(110,92,172,.32) !important;
+}
+
+/* -------------------------------------------------------------------------
+   PATIENT PROFILE SAFETY BAR
+   Fix overlap with sticky top header; keep safety colours, but use the approved
+   transparent glass shell so the background is blurred rather than visually
+   colliding with text.
+   ------------------------------------------------------------------------- */
+.clinical-surface.sticky.top-16 {
+  top: 82px !important;
+  z-index: 30 !important;
+  isolation: isolate;
+  border-top: 1px solid rgba(255,255,255,.94) !important;
+  border-right: 1px solid rgba(255,255,255,.94) !important;
+  border-bottom: 1px solid rgba(255,255,255,.94) !important;
+  border-left-width: 4px !important;
+  border-left-style: solid !important;
+  background:
+    radial-gradient(22% 90% at 0% 60%, rgba(126,226,236,.12), transparent 72%),
+    radial-gradient(24% 86% at 100% 8%, rgba(238,150,216,.11), transparent 74%),
+    rgba(255,255,255,.10) !important;
+  -webkit-backdrop-filter: blur(24px) saturate(112%) !important;
+  backdrop-filter: blur(24px) saturate(112%) !important;
+  box-shadow:
+    inset 0 0 0 1px rgba(255,255,255,.92),
+    inset 0 2px 1px -1px rgba(255,255,255,.96),
+    inset 0 -7px 13px -8px rgba(104,88,152,.22),
+    0 0 0 1px rgba(255,255,255,.62),
+    0 9px 22px -13px rgba(65,54,102,.20),
+    0 20px 38px -28px rgba(104,88,152,.24) !important;
+}
+
+/* Semantic safety strips remain visibly semantic and more solid than chrome. */
+.clinical-surface.sticky.top-16 .bg-danger-soft,
+.dd-app-panel .bg-danger-soft {
+  background: rgba(253,234,234,.88) !important;
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+}
+
+/* Timeline/safety/contact rows inherit the transparent parent instead of old
+   opaque white blocks. */
+.dd-app-panel > ul,
+.dd-app-panel > ol,
+.dd-app-panel > dl,
+.dd-app-panel > div:not(.dd-section-header) {
+  background-color: transparent;
+}
+
+.dd-app-panel li,
+.dd-app-panel dl > div {
+  border-color: rgba(255,255,255,.30) !important;
+}
+
+.dd-app-panel a:hover:not(.dd-primary):not(.dd-secondary):not(.dd-quick-row),
+.dd-app-panel button:hover:not(.dd-primary):not(.dd-secondary) {
+  background-color: rgba(255,255,255,.10) !important;
+}
+
+/* Dense prescription/consultation editors stay clearer than surrounding chrome. */
+.dd-consultation-identity,
+.dd-rx-row,
+.dd-rx-editor,
+.dd-finalized-sheet {
+  border: 1px solid rgba(255,255,255,.94) !important;
+  background: rgba(255,255,255,.70) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,.95),
+    0 7px 17px -11px rgba(65,54,102,.18) !important;
+}
+
+/* Inputs stay bright/readable on transparent panels. */
+.dd-input,
+input:not([type="checkbox"]):not([type="radio"]),
+select,
+textarea {
+  border-color: rgba(255,255,255,.92) !important;
+  background: linear-gradient(145deg, rgba(255,255,255,.80), rgba(250,248,252,.64)) !important;
+  box-shadow:
+    inset 0 1.5px 1px rgba(255,255,255,.96),
+    inset 0 -1px 2px rgba(100,90,150,.08),
+    0 0 0 1px rgba(255,255,255,.46),
+    0 5px 12px rgba(66,57,96,.07) !important;
+}
+
+/* Existing aqua treatment for ordinary secondary clinical controls. */
+.clinical-surface a.border-hairline:not(.text-danger):not(.bg-danger),
+.clinical-surface button.border-hairline:not(.text-danger):not(.bg-danger) {
+  border: 1px solid transparent !important;
+  color: var(--dd-aqua-text) !important;
+  background:
+    radial-gradient(88% 128% at 25% -20%, rgba(255,255,255,.92) 0%, rgba(255,255,255,.32) 31%, transparent 58%),
+    linear-gradient(100deg, var(--dd-aqua-a) 0%, var(--dd-aqua-b) 48%, var(--dd-aqua-c) 100%) padding-box,
+    linear-gradient(118deg, rgba(255,255,255,.99), rgba(221,255,252,.99), rgba(155,244,246,.99), rgba(216,228,255,.98)) border-box !important;
+}
+
+/* Never recolour semantic states with brand material. */
+.bg-danger,
+.bg-warning,
+.bg-success,
+.text-danger,
+.text-warning,
+.text-success,
+[class*="border-l-danger"],
+[class*="border-l-warning"] {
+  filter: none !important;
+}
+
+@media (max-width: 1279px) {
+  .dd-dashboard-recent-list { max-height: 260px; }
+}
+
+@media (max-width: 767px) {
+  .dd-sidebar { margin-left: 0; }
+  .dd-topbar,
+  nav.glass-strong { border-radius: 22px !important; }
+  .dd-app-panel { border-radius: 24px !important; }
+  .dd-app-panel::after { inset: 6px; border-radius: 18px; }
+  .clinical-surface.sticky.top-16 { top: 74px !important; border-radius: 22px !important; }
+  .dd-dashboard-recent-list { max-height: 320px; }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .dd-topbar,
+  .dd-sidebar,
+  .glass,
+  .glass-strong,
+  .glass-flat,
+  .glass-flat-strong,
+  .dd-patient-card,
+  .dd-app-panel,
+  .clinical-surface.sticky.top-16 {
+    background: rgba(255,255,255,.94) !important;
+    -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
+  }
+}

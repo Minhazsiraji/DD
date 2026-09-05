@@ -8,11 +8,20 @@ import { PatientSearch } from "@/features/patients/components/patient-search";
 import { PatientList } from "@/features/patients/components/patient-list";
 import { SectionSkeleton } from "@/components/common/skeletons";
 import { searchPatients } from "@/features/patients/queries";
+import { getM1DoctorAuthority } from "@/features/patients/m1-context";
 
 export const metadata: Metadata = { title: "Patients" };
 
-async function Results({ query }: { query: string }) {
-  const result = await searchPatients(query);
+async function Results({
+  query,
+  doctorId,
+  canRegister,
+}: {
+  query: string;
+  doctorId: string | null;
+  canRegister: boolean;
+}) {
+  const result = await searchPatients(query, 30, doctorId ?? undefined);
 
   /**
    * An outage must never render as "no patient found". That reads as "this
@@ -46,7 +55,7 @@ async function Results({ query }: { query: string }) {
           ? `${patients.length} ${patients.length === 1 ? "match" : "matches"} for “${query}”`
           : `${patients.length} ${patients.length === 1 ? "patient" : "patients"}`}
       </p>
-      <PatientList patients={patients} query={query} />
+      <PatientList patients={patients} query={query} canRegister={canRegister} />
     </>
   );
 }
@@ -54,21 +63,29 @@ async function Results({ query }: { query: string }) {
 export default async function PatientsPage(props: PageProps<"/patients">) {
   const params = await props.searchParams;
   const query = typeof params.q === "string" ? params.q : "";
+  const authority = await getM1DoctorAuthority();
+  const doctorRepository = Boolean(authority.doctorId);
 
   return (
     <div className="space-y-4 sm:space-y-5">
       <PageHeader
-        eyebrow="Your repository"
+        eyebrow={doctorRepository ? "Your repository" : "Operational patient search"}
         title="Patients"
-        subtitle="Every patient here belongs to you. Another doctor never sees them."
+        subtitle={
+          doctorRepository
+            ? "Every patient here belongs to your doctor repository."
+            : "Patients available through your authorised location workflow."
+        }
         actions={
-          <Link
-            href="/patients/new"
-            className="inline-flex h-10 items-center gap-2 rounded-xl bg-brand px-4 text-sm font-semibold text-white shadow-soft transition-[background-color,transform] duration-200 hover:bg-brand-hover active:scale-[0.985] focus-visible:focus-ring motion-reduce:active:scale-100"
-          >
-            <UserPlus className="size-4" aria-hidden="true" />
-            New patient
-          </Link>
+          authority.canClinical ? (
+            <Link
+              href="/patients/new"
+              className="inline-flex h-11 items-center gap-2 rounded-xl bg-brand px-4 text-sm font-semibold text-white shadow-soft transition-[background-color,transform] duration-200 hover:bg-brand-hover active:scale-[0.985] focus-visible:focus-ring motion-reduce:active:scale-100"
+            >
+              <UserPlus className="size-4" aria-hidden="true" />
+              New patient
+            </Link>
+          ) : null
         }
       />
 
@@ -77,7 +94,11 @@ export default async function PatientsPage(props: PageProps<"/patients">) {
       {/* Keyed on the query so a new search shows the skeleton rather than
           stale results while the server round-trips. */}
       <Suspense key={query} fallback={<SectionSkeleton rows={5} />}>
-        <Results query={query} />
+        <Results
+          query={query}
+          doctorId={authority.doctorId}
+          canRegister={authority.canClinical}
+        />
       </Suspense>
     </div>
   );

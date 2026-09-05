@@ -21,13 +21,13 @@ import {
   getRecentPatients,
   getPatientCount,
   clinicToday,
-  getCurrentDoctorId,
 } from "@/features/patients/queries";
 import { getDayCounts } from "@/features/appointments/queries";
 import { todayInDhaka } from "@/features/appointments/schema";
 import { getQueue } from "@/features/queue/queries";
 import { groupQueue } from "@/features/queue/schema";
 import { WorkNow } from "@/features/dashboard/components/work-now";
+import { getM1DoctorAuthority } from "@/features/patients/m1-context";
 
 export const metadata: Metadata = { title: "Dashboard" };
 
@@ -59,7 +59,8 @@ export default async function DashboardPage() {
   const supabase = await createSupabaseServerClient();
   const sessionDate = todayInDhaka();
 
-  const myDoctorId = await getCurrentDoctorId();
+  const authority = await getM1DoctorAuthority();
+  const myDoctorId = authority.doctorId;
 
   /**
    * Every repository read is scoped to this doctor IN THE DATABASE.
@@ -217,6 +218,7 @@ export default async function DashboardPage() {
             failed={!queue.ok}
             waitingCount={groups.waiting.length}
             locationName={ctx.locationName}
+            canClinical={authority.canClinical}
           />
 
           {myRecent.length > 0 ? (
@@ -318,7 +320,7 @@ function QuickAction({
   return (
     <Link
       href={href}
-      className="flex min-h-11 items-center gap-2.5 rounded-xl border border-hairline px-3 text-sm font-semibold text-ink transition-colors hover:bg-surface-muted focus-visible:focus-ring"
+      className="dd-quick-row flex min-h-11 items-center gap-2.5 rounded-xl border border-hairline px-3 text-sm font-semibold text-ink transition-colors hover:bg-surface-muted focus-visible:focus-ring"
     >
       {icon}
       {label}

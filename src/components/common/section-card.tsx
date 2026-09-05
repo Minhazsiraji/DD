@@ -11,7 +11,7 @@ import { cn } from "@/lib/utils";
 export function SectionCard({ className, ...props }: React.ComponentProps<"section">) {
   return (
     <section
-      className={cn("clinical-surface min-w-0 rounded-glass-lg shadow-soft", className)}
+      className={cn("clinical-surface min-w-0 dd-app-panel rounded-glass-lg shadow-soft", className)}
       {...props}
     />
   );
@@ -35,7 +35,7 @@ export function SectionHeader({
   return (
     <div
       className={cn(
-        "flex min-w-0 flex-wrap items-center justify-between gap-3 border-b border-hairline px-4 py-3 sm:flex-nowrap sm:px-5",
+        "dd-section-header flex min-w-0 flex-wrap items-center justify-between gap-3 border-b border-hairline px-4 py-3 sm:flex-nowrap sm:px-5",
         className,
       )}
       {...props}

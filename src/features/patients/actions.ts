@@ -9,8 +9,9 @@ import { emitAudit } from "@/lib/audit/emit";
 import type { ActionState } from "@/features/auth/schema";
 import { patientFormSchema, splitList } from "./schema";
 import { normalizeName, normalizePhone, computeAge } from "./identity";
-import { clinicToday, findPossibleDuplicates, getCurrentDoctorId } from "./queries";
+import { findPossibleDuplicates, getCurrentDoctorId } from "./queries";
 import type { DuplicateMatch } from "./identity";
+import { getLocationLocalDate } from "./m1-context";
 
 /**
  * Patient writes.
@@ -101,8 +102,23 @@ export async function createPatientAction(
     };
   }
 
-  const today = clinicToday();
+  const locationDate = await getLocationLocalDate(ctx.locationId);
+  if (!locationDate) {
+    return {
+      ok: false,
+      values: echo(formData),
+      message: "The clinic date could not be verified. Patient registration was not saved.",
+    };
+  }
+  const today = locationDate.localDate;
   const isDob = v.ageMode === "DOB";
+  if (isDob && v.dob && v.dob > today) {
+    return {
+      ok: false,
+      values: echo(formData),
+      fieldErrors: { dob: ["Date of birth cannot be in the future"] },
+    };
+  }
   const ageYears = computeAge(
     {
       dob: isDob ? v.dob : null,
@@ -123,6 +139,7 @@ export async function createPatientAction(
       fullName: v.fullName,
       phone: v.phone,
       ageYears,
+      todayISO: today,
     });
 
     /**
@@ -242,8 +259,19 @@ export async function updatePatientAction(
   const user = await requireUser();
   const ctx = await requireLocationContext();
   const supabase = await createSupabaseServerClient();
-  const today = clinicToday();
+  const locationDate = await getLocationLocalDate(ctx.locationId);
+  if (!locationDate) {
+    return { ok: false, values: echo(formData), message: "The clinic date could not be verified." };
+  }
+  const today = locationDate.localDate;
   const isDob = v.ageMode === "DOB";
+  if (isDob && v.dob && v.dob > today) {
+    return {
+      ok: false,
+      values: echo(formData),
+      fieldErrors: { dob: ["Date of birth cannot be in the future"] },
+    };
+  }
 
   const { error } = await supabase
     .from("patients")

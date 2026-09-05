@@ -241,9 +241,10 @@ export async function findPossibleDuplicates(input: {
   fullName: string;
   phone?: string | null;
   ageYears?: number | null;
+  todayISO?: string;
 }): Promise<DuplicateOutcome> {
   const supabase = await createSupabaseServerClient();
-  const today = clinicToday();
+  const today = input.todayISO ?? clinicToday();
 
   const nameNormalized = normalizeName(input.fullName);
   const phoneNormalized = normalizePhone(input.phone);

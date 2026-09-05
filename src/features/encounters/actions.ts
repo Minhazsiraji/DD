@@ -12,6 +12,7 @@ import {
   acceptVersion,
 } from "./version-contract";
 import { saveInputSchema, type SaveInput, type SaveResult } from "./schema";
+import { getM1DoctorAuthority } from "@/features/patients/m1-context";
 
 /**
  * Consultation writes.
@@ -36,36 +37,136 @@ export type OpenResult =
   | { ok: true; encounterId: string }
   | { ok: false; message: string };
 
-/**
- * Open the consultation for an appointment, or resume the one already open.
- *
- * The appointment must already be IN_CONSULTATION — the doctor starts it from
- * the queue, and this deliberately does not do that for them. One way to move a
- * patient through their day (ADR 0009); the encounter records what happened in
- * it, and never drives it.
- */
-export async function openConsultationAction(input: {
-  patientId: string;
-  appointmentId: string | null;
-}): Promise<OpenResult> {
-  const ctx = await requireLocationContext();
+async function scopedAppointmentIsAvailable(
+  appointmentId: string,
+  locationId: string,
+): Promise<boolean> {
   const supabase = await createSupabaseServerClient();
+  const { data, error } = await supabase
+    .from("appointments")
+    .select("id")
+    .eq("id", appointmentId)
+    .eq("practice_location_id", locationId)
+    .maybeSingle();
+  if (error) {
+    console.error("[encounters] appointment scope read failed", error.message);
+    return false;
+  }
+  return Boolean(data);
+}
 
-  const { data, error } = await supabase.rpc("open_encounter", {
-    p_patient_id: input.patientId,
-    p_practice_location_id: ctx.locationId,
-    p_appointment_id: input.appointmentId,
+/**
+ * Appointment-linked entry is deliberately separate from unscheduled entry.
+ * The appointment itself is the authority and must already be IN_CONSULTATION.
+ */
+export async function openAppointmentConsultationAction(input: {
+  appointmentId: string;
+}): Promise<OpenResult> {
+  const parsed = z.object({ appointmentId: z.uuid() }).safeParse(input);
+  if (!parsed.success) return { ok: false, message: "That appointment could not be opened." };
+
+  const ctx = await requireLocationContext();
+  if (!(await scopedAppointmentIsAvailable(parsed.data.appointmentId, ctx.locationId))) {
+    return { ok: false, message: "That appointment is no longer available at this location." };
+  }
+
+  const supabase = await createSupabaseServerClient();
+  const { data, error } = await supabase.rpc("open_encounter_for_appointment", {
+    appointment_key: parsed.data.appointmentId,
   });
 
-  if (error) return { ok: false, message: safeMessage("open_encounter", error.message).message };
+  if (error) {
+    return { ok: false, message: safeMessage("open_encounter_for_appointment", error.message).message };
+  }
   if (!data) {
-    console.error("[encounters] open_encounter returned no id");
-    return { ok: false, message: "The consultation could not be opened. Try again." };
+    console.error("[encounters] open_encounter_for_appointment returned no id");
+    return { ok: false, message: "The clinical workspace did not open. Try Resume consultation." };
   }
 
   revalidatePath("/queue");
   revalidatePath("/dashboard");
   return { ok: true, encounterId: data as string };
+}
+
+type DraftColumn = "clinical_patient_id" | "patient_id";
+
+async function findExistingUnscheduledDraft(input: {
+  patientId: string;
+  locationId: string;
+  doctorId: string;
+}): Promise<{ id: string } | null> {
+  const supabase = await createSupabaseServerClient();
+
+  const read = async (patientColumn: DraftColumn) =>
+    supabase
+      .from("encounters")
+      .select("id")
+      .eq("owner_doctor_id", input.doctorId)
+      .eq("practice_location_id", input.locationId)
+      .eq(patientColumn, input.patientId)
+      .eq("status", "DRAFT")
+      .is("appointment_id", null)
+      .maybeSingle();
+
+  // Database V2 first; accepted main keeps patient_id until the later cutover.
+  let result = await read("clinical_patient_id");
+  if (result.error && /clinical_patient_id|column .* does not exist/i.test(result.error.message)) {
+    result = await read("patient_id");
+  }
+  if (result.error) {
+    console.error("[encounters] unscheduled draft lookup failed", result.error.message);
+    return null;
+  }
+  return result.data ? { id: String(result.data.id) } : null;
+}
+
+/**
+ * Doctor-owned unscheduled entry. No appointment, queue row or token is made.
+ * The pre/post reads turn the accepted unique-draft invariant into a safe
+ * idempotent user experience, including concurrent double clicks.
+ */
+export async function openUnscheduledConsultationAction(input: {
+  patientId: string;
+}): Promise<OpenResult> {
+  const parsed = z.object({ patientId: z.uuid() }).safeParse(input);
+  if (!parsed.success) return { ok: false, message: "That patient could not be opened." };
+
+  const authority = await getM1DoctorAuthority();
+  if (!authority.canClinical || !authority.doctorId) {
+    return { ok: false, message: "Only an authorised doctor can start a consultation." };
+  }
+
+  const existing = await findExistingUnscheduledDraft({
+    patientId: parsed.data.patientId,
+    locationId: authority.locationId,
+    doctorId: authority.doctorId,
+  });
+  if (existing) return { ok: true, encounterId: existing.id };
+
+  const supabase = await createSupabaseServerClient();
+  const { data, error } = await supabase.rpc("open_encounter", {
+    patient_id: parsed.data.patientId,
+    location_id: authority.locationId,
+  });
+
+  if (!error && data) {
+    revalidatePath("/dashboard");
+    revalidatePath(`/patients/${parsed.data.patientId}`);
+    return { ok: true, encounterId: data as string };
+  }
+
+  if (error && /ENCOUNTER_DRAFT_ALREADY_EXISTS|unique/i.test(error.message)) {
+    const raced = await findExistingUnscheduledDraft({
+      patientId: parsed.data.patientId,
+      locationId: authority.locationId,
+      doctorId: authority.doctorId,
+    });
+    if (raced) return { ok: true, encounterId: raced.id };
+  }
+
+  if (error) return { ok: false, message: safeMessage("open_encounter", error.message).message };
+  console.error("[encounters] open_encounter returned no id");
+  return { ok: false, message: "The consultation could not be opened. Try again." };
 }
 
 /**

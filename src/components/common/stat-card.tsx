@@ -58,7 +58,7 @@ export function StatCard({
     return (
       <GlassCard
         interactive
-        className={cn("focus-within:focus-ring p-5", className)}
+        className={cn("dd-dashboard-card focus-within:focus-ring p-5", className)}
       >
         <Link href={href} className="block outline-none">
           {body}
@@ -67,5 +67,5 @@ export function StatCard({
     );
   }
 
-  return <GlassCard className={cn("p-5", className)}>{body}</GlassCard>;
+  return <GlassCard className={cn("dd-dashboard-card p-5", className)}>{body}</GlassCard>;
 }

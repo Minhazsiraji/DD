@@ -1,11 +1,12 @@
 import * as React from "react";
 import Link from "next/link";
-import { Search, Bell, Stethoscope, Sparkles, LogOut } from "lucide-react";
+import { Bell, Sparkles, LogOut } from "lucide-react";
 import { QuickActionMenu } from "./quick-action-menu";
 import { LocationSwitcher, type LocationOption } from "./location-switcher";
-import { IconOrb } from "@/components/common/icon-orb";
+import { BrandMark } from "@/components/brand/brand-mark";
 import { initials } from "@/lib/format";
 import { signOutAction } from "@/features/auth/actions";
+import { GlobalPatientFinder } from "@/features/patients/components/global-patient-finder";
 
 interface TopBarProps {
   doctorName: string;
@@ -21,7 +22,7 @@ export function TopBar({ doctorName, locations, activeLocationId }: TopBarProps)
   return (
     <header
       data-print-hidden
-      className="glass sticky top-0 z-30 min-w-0 border-b border-glass-border"
+      className="dd-topbar glass sticky top-0 z-30 min-w-0 border-b border-glass-border"
     >
       <div className="flex h-16 min-w-0 items-center gap-1.5 px-3 sm:gap-3 sm:px-6">
         {/* Brand — mobile only; the sidebar carries it from lg up. */}
@@ -29,9 +30,7 @@ export function TopBar({ doctorName, locations, activeLocationId }: TopBarProps)
           href="/dashboard"
           className="flex shrink-0 items-center gap-2 rounded-lg lg:hidden focus-visible:focus-ring"
         >
-          <IconOrb accent="brand" size="md">
-            <Stethoscope className="size-[18px]" />
-          </IconOrb>
+          <BrandMark className="h-8 w-10" />
           <span className="sr-only">Doctor&apos;s Diary — Dashboard</span>
         </Link>
 
@@ -41,24 +40,7 @@ export function TopBar({ doctorName, locations, activeLocationId }: TopBarProps)
           className="shrink-0"
         />
 
-        {/* Search — the fastest route to a patient, so it owns the space. */}
-        <div className="min-w-0 flex-1">
-          <label htmlFor="global-search" className="sr-only">
-            Search patients by name, phone or patient number
-          </label>
-          <div className="relative min-w-0">
-            <Search
-              className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-ink-muted"
-              aria-hidden="true"
-            />
-            <input
-              id="global-search"
-              type="search"
-              placeholder="Search patients…"
-              className="h-10 min-w-0 w-full rounded-xl border border-hairline bg-white/80 pr-2 pl-9 text-sm text-ink placeholder:text-ink-muted focus-visible:focus-ring sm:max-w-md sm:pr-3"
-            />
-          </div>
-        </div>
+        <GlobalPatientFinder />
 
         <Link
           href="/assistant"

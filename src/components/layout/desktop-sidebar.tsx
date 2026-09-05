@@ -3,9 +3,9 @@
 import * as React from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Stethoscope, Sparkles } from "lucide-react";
+import { Sparkles } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { IconOrb } from "@/components/common/icon-orb";
+import { BrandMark, BrandWordmark } from "@/components/brand/brand-mark";
 import { PRIMARY_NAV, SECONDARY_NAV, type NavItem } from "./nav-config";
 
 /**
@@ -24,22 +24,17 @@ export function DesktopSidebar({
 
   return (
     <aside
-      className="glass sticky top-0 hidden h-dvh shrink-0 flex-col border-r border-glass-border lg:flex lg:w-[76px] xl:w-[248px]"
+      className="dd-sidebar glass sticky top-3 hidden h-[calc(100dvh-1.5rem)] shrink-0 flex-col border-r border-glass-border lg:flex lg:w-[76px] xl:w-[248px]"
       aria-label="Main navigation"
     >
-      <div className="flex h-16 items-center gap-2.5 px-4 xl:px-5">
-        <IconOrb accent="brand" size="md">
-          <Stethoscope className="size-[18px]" />
-        </IconOrb>
-        <span className="hidden min-w-0 xl:block">
-          <span className="block truncate text-[15px] leading-tight font-semibold text-ink">
-            Doctor&apos;s Diary
-          </span>
-          <span className="block truncate text-[11px] text-ink-muted">
-            Clinical workspace
-          </span>
-        </span>
-      </div>
+      <Link
+        href="/dashboard"
+        className="flex h-16 items-center gap-2.5 rounded-2xl px-4 focus-visible:focus-ring xl:px-5"
+        aria-label="Doctor's Diary — Dashboard"
+      >
+        <BrandMark className="h-9 w-11" />
+        <BrandWordmark className="hidden min-w-0 text-[15px] xl:block" tagline />
+      </Link>
 
       <nav className="flex-1 overflow-y-auto px-3 pb-3">
         <ul className="space-y-1">
@@ -57,7 +52,7 @@ export function DesktopSidebar({
       <div className="border-t border-glass-border px-3 py-3">
         <Link
           href="/assistant"
-          className="flex items-center gap-3 rounded-xl bg-brand-soft px-3 py-2.5 text-brand transition-colors hover:bg-[#d8e5fd] focus-visible:focus-ring xl:px-3"
+          className="dd-assistant-link flex items-center gap-3 rounded-xl px-3 py-2.5 text-brand transition-colors focus-visible:focus-ring xl:px-3"
         >
           <Sparkles className="size-[18px] shrink-0" aria-hidden="true" />
           <span className="hidden min-w-0 xl:block">
@@ -100,10 +95,10 @@ function SidebarLink({
         aria-current={active ? "page" : undefined}
         title={item.label}
         className={cn(
-          "group flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors focus-visible:focus-ring",
+          "dd-nav-item group flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors focus-visible:focus-ring",
           "lg:justify-center xl:justify-start",
           active
-            ? "bg-white text-brand shadow-soft"
+            ? "dd-nav-active text-brand shadow-soft"
             : "text-ink-secondary hover:bg-white/60 hover:text-ink",
         )}
       >

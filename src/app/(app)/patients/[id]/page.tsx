@@ -13,6 +13,8 @@ import { formatAge } from "@/features/patients/identity";
 import { SEX_LABEL, BLOOD_GROUP_LABEL } from "@/features/patients/schema";
 import { cn } from "@/lib/utils";
 import { SafetyList } from "@/features/patients/components/safety-list";
+import { DoctorConsultationLauncher } from "@/features/patients/components/doctor-consultation-launcher";
+import { getM1DoctorAuthority, getPatientAppointmentContexts } from "@/features/patients/m1-context";
 
 export async function generateMetadata(
   props: PageProps<"/patients/[id]">,
@@ -38,10 +40,23 @@ export default async function PatientProfilePage(props: PageProps<"/patients/[id
     : "all";
   const activeLocationId = typeof params.loc === "string" ? params.loc : "all";
 
-  const history = await getPatientTimeline(id, {
-    type: activeType,
-    locationId: activeLocationId,
-  });
+  const [history, authority] = await Promise.all([
+    getPatientTimeline(id, {
+      type: activeType,
+      locationId: activeLocationId,
+    }),
+    getM1DoctorAuthority(),
+  ]);
+
+  const ownsPatient = Boolean(
+    authority.canClinical &&
+      authority.doctorId &&
+      patient.ownerDoctorId === authority.doctorId,
+  );
+  const appointmentContexts = ownsPatient
+    ? await getPatientAppointmentContexts([id], authority)
+    : new Map();
+  const appointmentContext = appointmentContexts?.get(id) ?? null;
 
   const age = formatAge({ years: patient.ageYears, isApproximate: patient.ageApproximate });
   const hasAllergies = patient.allergies.length > 0;
@@ -79,6 +94,21 @@ export default async function PatientProfilePage(props: PageProps<"/patients/[id
             Edit
           </Link>
         </div>
+
+        {ownsPatient && appointmentContext ? (
+          <div className="border-t border-hairline px-4 py-3 sm:px-5">
+            <DoctorConsultationLauncher
+              patientId={patient.id}
+              patientName={patient.fullName}
+              patientNumber={patient.patientNumber}
+              state={appointmentContext.state}
+              appointmentId={appointmentContext.appointmentId}
+              tokenNumber={appointmentContext.tokenNumber}
+              locationName={authority.locationName}
+              canMarkArrived={authority.canMarkArrived}
+            />
+          </div>
+        ) : null}
 
         <div className="px-4 pt-2 pb-3 sm:px-5">
           {hasAllergies ? (

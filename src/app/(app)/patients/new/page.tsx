@@ -6,6 +6,7 @@ import { PatientForm } from "@/features/patients/components/patient-form";
 import { requireLocationContext } from "@/lib/auth/session";
 import { getCurrentDoctorId } from "@/features/patients/queries";
 import { SectionCard } from "@/components/common/section-card";
+import { getLocationLocalDate } from "@/features/patients/m1-context";
 import { EmptyState } from "@/components/common/empty-state";
 import { Stethoscope } from "lucide-react";
 
@@ -14,6 +15,7 @@ export const metadata: Metadata = { title: "New patient" };
 export default async function NewPatientPage(props: PageProps<"/patients/new">) {
   const ctx = await requireLocationContext();
   const doctorId = await getCurrentDoctorId();
+  const locationDate = await getLocationLocalDate(ctx.locationId);
 
   const params = await props.searchParams;
   const prefillName = typeof params.name === "string" ? params.name : undefined;
@@ -46,10 +48,13 @@ export default async function NewPatientPage(props: PageProps<"/patients/new">) 
       <PageHeader
         eyebrow="New patient"
         title="Register a patient"
-        subtitle={`Added to your repository, at ${ctx.locationName}. Name, age, sex and phone are enough to start.`}
+        subtitle={`Added to your repository at ${ctx.locationName}. Name and age are required. Add phone if available.`}
       />
 
-      <PatientForm defaults={{ fullName: prefillName }} />
+      <PatientForm
+        defaults={{ fullName: prefillName }}
+        todayLocal={locationDate?.localDate}
+      />
     </div>
   );
 }

@@ -144,7 +144,7 @@ export function QueueCard({
               worse than not offering one at all.
             */}
             {currentDoctorId && row.ownerDoctorId === currentDoctorId ? (
-              <OpenConsultation patientId={row.patientId} appointmentId={row.appointmentId} />
+              <OpenConsultation appointmentId={row.appointmentId} />
             ) : null}
           </div>
         ) : (
@@ -276,7 +276,6 @@ function Actions({
         appointmentId={row.appointmentId}
         patientName={row.patientName}
         tokenNumber={row.tokenNumber}
-        onStarted={onChanged}
       />
 
       {state?.message ? (

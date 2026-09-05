@@ -19,9 +19,11 @@ import { Users, UserPlus } from "lucide-react";
 export function PatientList({
   patients,
   query,
+  canRegister = true,
 }: {
   patients: PatientListItem[];
   query: string;
+  canRegister?: boolean;
 }) {
   if (patients.length === 0) {
     return (
@@ -32,13 +34,15 @@ export function PatientList({
             title={`No patient matches “${query}”`}
             description="Try a phone number or patient number. Spelling variations of a name are handled, but a different person may simply not be registered yet."
             action={
-              <Link
-                href={`/patients/new?name=${encodeURIComponent(query)}`}
-                className="inline-flex h-11 items-center gap-2 rounded-xl bg-brand px-4 text-sm font-semibold text-white shadow-soft transition-colors hover:bg-brand-hover focus-visible:focus-ring"
-              >
-                <UserPlus className="size-4" aria-hidden="true" />
-                Register “{query}”
-              </Link>
+              canRegister ? (
+                <Link
+                  href={`/patients/new?name=${encodeURIComponent(query)}`}
+                  className="inline-flex h-11 items-center gap-2 rounded-xl bg-brand px-4 text-sm font-semibold text-white shadow-soft transition-colors hover:bg-brand-hover focus-visible:focus-ring"
+                >
+                  <UserPlus className="size-4" aria-hidden="true" />
+                  Register “{query}”
+                </Link>
+              ) : undefined
             }
           />
         ) : (
@@ -47,13 +51,15 @@ export function PatientList({
             title="No patients yet"
             description="Patients you register are yours alone — another doctor using Doctor's Diary never sees them."
             action={
-              <Link
-                href="/patients/new"
-                className="inline-flex h-11 items-center gap-2 rounded-xl bg-brand px-4 text-sm font-semibold text-white shadow-soft transition-colors hover:bg-brand-hover focus-visible:focus-ring"
-              >
-                <UserPlus className="size-4" aria-hidden="true" />
-                Register your first patient
-              </Link>
+              canRegister ? (
+                <Link
+                  href="/patients/new"
+                  className="inline-flex h-11 items-center gap-2 rounded-xl bg-brand px-4 text-sm font-semibold text-white shadow-soft transition-colors hover:bg-brand-hover focus-visible:focus-ring"
+                >
+                  <UserPlus className="size-4" aria-hidden="true" />
+                  Register your first patient
+                </Link>
+              ) : undefined
             }
           />
         )}

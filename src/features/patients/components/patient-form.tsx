@@ -38,9 +38,11 @@ interface Defaults {
 export function PatientForm({
   mode = "create",
   defaults = {},
+  todayLocal,
 }: {
   mode?: "create" | "edit";
   defaults?: Defaults;
+  todayLocal?: string;
 }) {
   const action = mode === "edit" ? updatePatientAction : createPatientAction;
   const [state, formAction] = useActionState(action, initial);
@@ -120,7 +122,7 @@ export function PatientForm({
                   href={`/patients/${d.id}`}
                   className="shrink-0 rounded-lg px-2.5 py-1.5 text-[13px] font-semibold text-brand hover:bg-brand-soft focus-visible:focus-ring"
                 >
-                  Open
+                  Use this patient
                 </Link>
               </li>
             ))}
@@ -132,7 +134,7 @@ export function PatientForm({
               className="mt-0.5 size-4 shrink-0 rounded border-hairline text-brand focus-visible:focus-ring"
             />
             <span>
-              This is a different person — register anyway
+              I checked — this is a different person
               <span className="block text-xs text-ink-muted">
                 Records are never merged automatically. Two people can share a name
                 and a household phone.
@@ -203,6 +205,7 @@ export function PatientForm({
                 id="field-dob"
                 name="dob"
                 type="date"
+                max={todayLocal}
                 defaultValue={val("dob", defaults.dob)}
                 aria-label="Date of birth"
                 className="h-11 w-full rounded-xl border border-hairline bg-white px-3 text-base text-ink focus-visible:focus-ring"

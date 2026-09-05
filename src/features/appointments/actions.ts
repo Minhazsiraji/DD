@@ -28,6 +28,14 @@ const empty = (v: FormDataEntryValue | null) => {
   return s.length > 0 ? s : null;
 };
 
+function missingRpcSignature(error: { code?: string; message?: string } | null): boolean {
+  if (!error) return false;
+  return (
+    error.code === "PGRST202" ||
+    /could not find the function|function .* does not exist/i.test(error.message ?? "")
+  );
+}
+
 function echo(formData: FormData): Record<string, string> {
   const out: Record<string, string> = {};
   for (const [k, v] of formData.entries()) {
@@ -173,15 +181,49 @@ export async function changeStatusAction(
     return { ok: false, message: "That appointment is no longer available to you." };
   }
 
-  const { error } = await supabase.rpc("set_appointment_status", {
-    p_appointment_id: v.appointmentId,
-    p_to_status: v.toStatus,
-    p_reason: v.reason ?? null,
-    p_note: empty(formData.get("note")),
-  });
+  const note = empty(formData.get("note"));
+  let mutationError: { code?: string; message: string } | null = null;
 
-  if (error) {
-    return { ok: false, message: translate(error.message) };
+  if (v.toStatus === "CANCELLED" && v.reason) {
+    const v2 = await supabase.rpc("cancel_appointment", {
+      appointment_key: v.appointmentId,
+      cancel_reason: v.reason,
+      note,
+    });
+    mutationError = v2.error;
+
+    // Accepted main is still pre-cutover in Preview. Fall back only when the
+    // exact V2 signature is absent — never when V2 itself refused the write.
+    if (missingRpcSignature(mutationError)) {
+      const legacy = await supabase.rpc("set_appointment_status", {
+        p_appointment_id: v.appointmentId,
+        p_to_status: v.toStatus,
+        p_reason: v.reason,
+        p_note: note,
+      });
+      mutationError = legacy.error;
+    }
+  } else {
+    const v2 = await supabase.rpc("set_appointment_status", {
+      appointment_key: v.appointmentId,
+      target_status: v.toStatus,
+      note,
+    });
+    mutationError = v2.error;
+
+    if (missingRpcSignature(mutationError)) {
+      const legacy = await supabase.rpc("set_appointment_status", {
+        p_appointment_id: v.appointmentId,
+        p_to_status: v.toStatus,
+        p_reason: v.reason ?? null,
+        p_note: note,
+      });
+      mutationError = legacy.error;
+    }
+  }
+
+  if (mutationError) {
+    return { ok: false, message: translate(mutationError.message) };
   }
 
   await emitAudit({

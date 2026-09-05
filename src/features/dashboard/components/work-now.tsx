@@ -2,10 +2,10 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { ListChecks, ChevronRight, Stethoscope, Clock, CircleAlert } from "lucide-react";
 import { SectionCard, SectionHeader } from "@/components/common/section-card";
 import { StartConsultation } from "@/features/queue/components/start-consultation";
+import { OpenConsultation } from "@/features/encounters/components/open-consultation";
 import { timeInZone } from "@/features/appointments/schema";
 import { PRIORITY_REASON_LABEL, type QueueRow } from "@/features/queue/schema";
 
@@ -24,6 +24,7 @@ export function WorkNow({
   failed,
   waitingCount,
   locationName,
+  canClinical,
 }: {
   current: QueueRow | null;
   next: QueueRow | null;
@@ -31,10 +32,8 @@ export function WorkNow({
   failed: boolean;
   waitingCount: number;
   locationName: string;
+  canClinical: boolean;
 }) {
-  const router = useRouter();
-  const refresh = React.useCallback(() => router.refresh(), [router]);
-
   return (
     <SectionCard className="overflow-hidden">
       <SectionHeader
@@ -74,10 +73,14 @@ export function WorkNow({
             label="With you now"
             tone="current"
             footer={
-              <span className="inline-flex items-center gap-1.5 rounded-lg bg-brand-soft px-2.5 py-1 text-xs font-semibold text-brand">
-                <Stethoscope className="size-3.5" aria-hidden="true" />
-                In consultation
-              </span>
+              canClinical ? (
+                <OpenConsultation appointmentId={current.appointmentId} size="full" />
+              ) : (
+                <span className="inline-flex items-center gap-1.5 rounded-lg bg-brand-soft px-2.5 py-1 text-xs font-semibold text-brand">
+                  <Stethoscope className="size-3.5" aria-hidden="true" />
+                  With doctor
+                </span>
+              )
             }
           />
         ) : null}
@@ -88,13 +91,16 @@ export function WorkNow({
             label={current ? "Next for you" : "Ready for you"}
             tone="next"
             footer={
-              <StartConsultation
-                appointmentId={next.appointmentId}
-                patientName={next.patientName}
-                tokenNumber={next.tokenNumber}
-                onStarted={refresh}
-                size="full"
-              />
+              canClinical ? (
+                <StartConsultation
+                  appointmentId={next.appointmentId}
+                  patientName={next.patientName}
+                  tokenNumber={next.tokenNumber}
+                  size="full"
+                />
+              ) : (
+                <p className="text-xs font-medium text-ink-secondary">Ready for doctor</p>
+              )
             }
           />
         ) : null}
