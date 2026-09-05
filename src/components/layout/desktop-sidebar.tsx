@@ -3,6 +3,7 @@
 import * as React from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { Sparkles } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { BrandMark, BrandWordmark } from "@/components/brand/brand-mark";
 import { PRIMARY_NAV, SECONDARY_NAV, type NavItem } from "./nav-config";
@@ -16,13 +17,13 @@ export function DesktopSidebar({
 
   return (
     <aside
-      className="dd-sidebar sticky top-3 hidden h-[calc(100dvh-1.5rem)] shrink-0 flex-col lg:flex lg:w-[74px] xl:w-[220px]"
+      className="dd-sidebar sticky top-3 hidden h-[calc(100dvh-1.5rem)] shrink-0 flex-col lg:flex lg:w-[76px] xl:w-[248px]"
       aria-label="Main navigation"
     >
       <Link
         href="/dashboard"
         className="mx-2.5 mt-2.5 flex h-[60px] items-center gap-2 rounded-[18px] px-2 focus-visible:focus-ring xl:px-2.5"
-        aria-label="Doctor's Diary — Today"
+        aria-label="Doctor's Diary — Dashboard"
       >
         <BrandMark className="h-9 w-11 shrink-0" />
         <BrandWordmark className="hidden min-w-0 text-[15.5px] xl:block" tagline />
@@ -43,15 +44,27 @@ export function DesktopSidebar({
         </ul>
       </nav>
 
-      {SECONDARY_NAV.length > 0 ? (
-        <div className="border-t border-white/60 px-2.5 py-2.5">
-          <ul className="space-y-1.5">
+      <div className="border-t border-white/60 px-2.5 py-2.5">
+        <Link
+          href="/assistant"
+          className="dd-assistant-link flex min-h-12 items-center gap-2.5 rounded-[15px] px-3 py-2 text-[12.5px] font-medium focus-visible:focus-ring lg:justify-center xl:justify-start"
+        >
+          <Sparkles className="size-[18px] shrink-0" aria-hidden="true" />
+          <span className="hidden min-w-0 xl:block">
+            <span className="block leading-tight font-semibold">AI Assistant</span>
+            <span className="block truncate text-[10px] opacity-70">Mock mode — no live AI</span>
+          </span>
+          <span className="sr-only xl:hidden">AI Assistant</span>
+        </Link>
+
+        {SECONDARY_NAV.length > 0 ? (
+          <ul className="mt-1.5 space-y-1.5">
             {SECONDARY_NAV.map((item) => (
               <SidebarLink key={item.href} item={item} pathname={pathname} />
             ))}
           </ul>
-        </div>
-      ) : null}
+        ) : null}
+      </div>
     </aside>
   );
 }
