@@ -7,14 +7,13 @@ import type { RecentPatient } from "@/mocks/types";
 
 export function RecentPatients({ patients }: { patients: RecentPatient[] }) {
   return (
-    <SectionCard className="overflow-hidden">
+    <SectionCard className="dd-dashboard-recent overflow-hidden">
       <SectionHeader
         title="Recent patients"
         icon={<Users className="size-4" />}
         action={
           <Link
             href="/patients"
-            // min-h-11 so the "see all" shortcut is a real touch target too.
             className="inline-flex min-h-11 items-center gap-1 rounded-lg px-2 py-1 text-[13px] font-semibold text-brand hover:bg-brand-soft focus-visible:focus-ring"
           >
             All
@@ -23,12 +22,12 @@ export function RecentPatients({ patients }: { patients: RecentPatient[] }) {
         }
       />
 
-      <ul className="divide-y divide-hairline">
+      <ul className="dd-dashboard-recent-list divide-y divide-hairline">
         {patients.map((p) => (
           <li key={p.id}>
             <Link
               href={`/patients/${p.id}`}
-              className="flex items-center gap-3 px-4 py-3 transition-colors hover:bg-surface-muted focus-visible:focus-ring sm:px-5"
+              className="dd-dashboard-recent-row flex items-center gap-3 px-4 py-3 transition-colors focus-visible:focus-ring sm:px-5"
             >
               <span
                 className="flex size-9 shrink-0 items-center justify-center rounded-full bg-brand-soft text-xs font-semibold text-brand"
@@ -47,16 +46,12 @@ export function RecentPatients({ patients }: { patients: RecentPatient[] }) {
 
               <div className="hidden shrink-0 text-right sm:block">
                 <p className="text-xs text-ink-secondary">{p.reason}</p>
-                {/* Where the visit happened — one record, wherever seen. */}
                 <p className="text-xs text-ink-muted tabular-nums">
                   {formatDateShort(p.seenOn)} · {p.locationName}
                 </p>
               </div>
 
-              <ChevronRight
-                className="size-4 shrink-0 text-ink-muted"
-                aria-hidden="true"
-              />
+              <ChevronRight className="size-4 shrink-0 text-ink-muted" aria-hidden="true" />
             </Link>
           </li>
         ))}
