@@ -89,4 +89,13 @@ describe("P0 mobile responsive boundaries", () => {
     expect(stat).toContain("dd-dashboard-card w-full min-w-0");
   });
 
+  it("does not let the visual material layer override fixed/sticky app chrome positioning", () => {
+    const visual = source("src/app/app-unified-liquid.css");
+    const sharedChrome = visual.slice(
+      visual.indexOf(".dd-topbar,"),
+      visual.indexOf(".dd-sidebar {"),
+    );
+    expect(sharedChrome).not.toContain("position: relative");
+  });
+
 });

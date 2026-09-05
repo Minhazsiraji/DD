@@ -17,7 +17,6 @@
 .dd-topbar,
 .dd-sidebar,
 nav.glass-strong {
-  position: relative;
   isolation: isolate;
   border: 1px solid rgba(255,255,255,.92) !important;
   background:
