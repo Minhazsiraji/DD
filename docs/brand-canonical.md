@@ -35,6 +35,7 @@ Use the implementation in:
 
 - `src/app/approved-liquid-material.css`
 - `src/app/organ-bg-polish.css`
+- `src/app/app-unified-liquid.css`
 
 Core visual rules:
 
@@ -45,7 +46,7 @@ Core visual rules:
 - soft floating depth/shadow;
 - glossy highlight/streak on the rim;
 - clinical text remains high contrast and readable;
-- the same material family must be used across Home, Login, Signup, public pages, and later application shell/components.
+- the same material family must be used across Home, Login, Signup, public pages, and the authenticated application shell/components.
 
 ## 4. Header is a shared canonical component
 
@@ -64,6 +65,8 @@ Canonical header contains:
 - aqua secondary `Sign in` action;
 - violet primary `Start free` action;
 - same glass slab, rim, contour, blur, lighting, spacing, and responsive behavior everywhere.
+
+For authenticated pages, the existing left sidebar + top bar information architecture remains. Only the visual material changes to the same canonical liquid-glass family.
 
 ## 5. Canonical action hierarchy
 
@@ -124,9 +127,54 @@ Priority remains:
 
 For dense clinical workflows, reduce decorative glass intensity before sacrificing readability or consultation speed.
 
-## 8. Implementation authority
+## 8. Authenticated application layout lock
 
-- `src/app/canonical-brand.css` is loaded last to keep brand/action lock authoritative.
+The authenticated application keeps the existing placement / information architecture from `main`.
+
+Do not move modules merely to make the liquid design look different.
+
+Examples:
+
+- Dashboard keeps the same `main` placement: greeting -> 4 summary cards -> Work now + Recent patients on the left -> Quick actions on the right.
+- Left sidebar stays in its current desktop position.
+- Top context/search bar stays in its current position.
+- Patients / Appointments / Queue / Consultation / Prescription retain their accepted workflow order and responsive placement.
+
+The UI task is to **skin the existing application**, not rearrange it.
+
+## 9. Hover / interaction lock
+
+Existing card interaction behavior is part of the approved UX.
+
+- interactive dashboard / patient / summary cards keep their current upward hover movement;
+- do not remove or neutralize the existing `hover:-translate-y-*` / raised-card behavior;
+- the liquid-glass styling may change rim light, shadow, gloss, or colour on hover, but must not remove the movement;
+- reduced-motion preferences remain respected.
+
+## 10. App-wide presentation implementation
+
+`src/app/app-unified-liquid.css` is the shared authenticated-app skin. It is presentation-only and must not change page logic, routing, clinical rules, permissions, or data behavior.
+
+It applies the canonical language to:
+
+- app top bar;
+- left sidebar;
+- mobile bottom navigation;
+- dashboard summary cards;
+- patient cards;
+- section cards;
+- clinical surfaces;
+- inputs/search/select/textarea;
+- quick actions;
+- primary/secondary actions;
+- consultation/prescription containers.
+
+Clinical/dense content uses a more opaque version of the same material so readability and safety remain stronger than decoration.
+
+## 11. Implementation authority
+
+- `src/app/canonical-brand.css` owns canonical brand/action colours.
+- `src/app/app-unified-liquid.css` owns the authenticated app-wide visual skin.
 - `src/components/brand/brand-mark.tsx` renders the canonical DD mark.
 - `src/components/marketing/marketing-shell.tsx` owns the canonical public/auth header.
 - `src/app/approved-liquid-material.css` owns the canonical refractive glass construction.
