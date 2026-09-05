@@ -63,7 +63,7 @@ export function TopBar({ doctorName, locations, activeLocationId }: TopBarProps)
 
         <div className="flex shrink-0 items-center gap-1 sm:gap-2">
           <span
-            className="hidden size-9 items-center justify-center rounded-full bg-brand-soft text-[13px] font-semibold text-brand sm:flex"
+            className="flex size-9 items-center justify-center rounded-full bg-brand-soft text-[13px] font-semibold text-brand xl:hidden"
             aria-hidden="true"
           >
             {initials(doctorName)}

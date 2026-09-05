@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { existsSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { PRIMARY_NAV, SECONDARY_NAV, MOBILE_NAV, QUICK_ACTIONS } from "./nav-config";
 
@@ -95,5 +95,14 @@ describe("navigation goes somewhere", () => {
     for (const action of QUICK_ACTIONS) {
       expect(action.href).not.toMatch(/^\/(consultation|prescription)\/new$/);
     }
+  });
+});
+
+
+describe("Top Bar identity treatment", () => {
+  it("shows one identity treatment at a time: compact below xl, text at xl+", () => {
+    const topbar = readFileSync(path.resolve("src/components/layout/top-bar.tsx"), "utf8");
+    expect(topbar).toContain("text-brand xl:hidden");
+    expect(topbar).toContain("hidden min-w-0 xl:block");
   });
 });
