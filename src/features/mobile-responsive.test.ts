@@ -96,6 +96,16 @@ describe("P0 mobile responsive boundaries", () => {
     expect(visual).toContain(".dd-patient-finder-input::-webkit-search-cancel-button");
   });
 
+  it("keeps the mobile Finder to one visual sheet and one close control", () => {
+    const finder = source("src/features/patients/components/global-patient-finder.tsx");
+    expect(finder).toContain("embedded");
+    expect(finder).toContain("allowClear={false}");
+    expect(finder.match(/aria-label=\"Close patient finder\"/g)?.length).toBe(1);
+    expect(finder).toMatch(/const closeMobileFinder[\s\S]{0,220}updateTerm\(\"\"\)/);
+    expect(finder).toContain("mobileTriggerRef.current?.focus()");
+    expect(finder).toMatch(/const openMobileFinder[\s\S]{0,220}updateTerm\(\"\"\)/);
+  });
+
   it("keeps Finder result glass readable without a second loading strip", () => {
     const finder = source("src/features/patients/components/global-patient-finder.tsx");
     const visual = source("src/app/app-unified-liquid.css");

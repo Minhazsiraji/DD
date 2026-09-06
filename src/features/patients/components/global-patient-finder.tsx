@@ -25,6 +25,7 @@ export function GlobalPatientFinder() {
   const router = useRouter();
   const desktopRef = React.useRef<HTMLInputElement>(null);
   const mobileRef = React.useRef<HTMLInputElement>(null);
+  const mobileTriggerRef = React.useRef<HTMLButtonElement>(null);
   const requestSeq = React.useRef(0);
   const [term, setTerm] = React.useState("");
   const [patients, setPatients] = React.useState<FinderPatientResult[]>([]);
@@ -64,6 +65,18 @@ export function GlobalPatientFinder() {
     resetForNewRequest(canSearch);
     setRetryKey((key) => key + 1);
   }, [canSearch, resetForNewRequest]);
+
+  const openMobileFinder = React.useCallback(() => {
+    updateTerm("");
+    setMobileOpen(true);
+    window.setTimeout(() => mobileRef.current?.focus(), 0);
+  }, [updateTerm]);
+
+  const closeMobileFinder = React.useCallback(() => {
+    updateTerm("");
+    setMobileOpen(false);
+    window.setTimeout(() => mobileTriggerRef.current?.focus(), 0);
+  }, [updateTerm]);
 
   React.useEffect(() => {
     if (!canSearch) {
@@ -106,15 +119,20 @@ export function GlobalPatientFinder() {
       if (window.matchMedia("(min-width: 640px)").matches) {
         desktopRef.current?.focus();
       } else {
-        setMobileOpen(true);
-        window.setTimeout(() => mobileRef.current?.focus(), 0);
+        openMobileFinder();
       }
     }
     window.addEventListener("keydown", onShortcut);
     return () => window.removeEventListener("keydown", onShortcut);
-  }, [pathname]);
+  }, [openMobileFinder, pathname]);
 
   const handleKeyDown = React.useCallback((event: React.KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      if (mobileOpen) closeMobileFinder();
+      else updateTerm("");
+      return;
+    }
     if (!canSearch) return;
     if (event.key === "ArrowDown") {
       event.preventDefault();
@@ -125,13 +143,12 @@ export function GlobalPatientFinder() {
     } else if (event.key === "Enter" && selected) {
       event.preventDefault();
       router.push(`/patients/${selected.id}`);
-      setMobileOpen(false);
-    } else if (event.key === "Escape") {
-      event.preventDefault();
-      updateTerm("");
-      setMobileOpen(false);
+      if (mobileOpen) {
+        updateTerm("");
+        setMobileOpen(false);
+      }
     }
-  }, [canSearch, patients.length, router, selected, updateTerm]);
+  }, [canSearch, closeMobileFinder, mobileOpen, patients.length, router, selected, updateTerm]);
 
   const refreshCurrentSearch = retryCurrentSearch;
 
@@ -184,11 +201,9 @@ export function GlobalPatientFinder() {
       </div>
 
       <button
+        ref={mobileTriggerRef}
         type="button"
-        onClick={() => {
-          setMobileOpen(true);
-          window.setTimeout(() => mobileRef.current?.focus(), 0);
-        }}
+        onClick={openMobileFinder}
         aria-label="Find patient"
         className="dd-icon-btn inline-flex size-10 shrink-0 items-center justify-center rounded-xl border border-hairline bg-white/80 text-ink-secondary focus-visible:focus-ring sm:hidden"
       >
@@ -196,7 +211,18 @@ export function GlobalPatientFinder() {
       </button>
 
       {mobileOpen && typeof document !== "undefined" ? createPortal(
-        <div className="dd-mobile-finder-overlay sm:hidden" role="dialog" aria-modal="true" aria-label="Find patient">
+        <div
+          className="dd-mobile-finder-overlay sm:hidden"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Find patient"
+          onKeyDown={(event) => {
+            if (event.key === "Escape" && !event.defaultPrevented) {
+              event.preventDefault();
+              closeMobileFinder();
+            }
+          }}
+        >
           <div className="dd-app-panel dd-mobile-finder-shell flex w-full max-w-lg flex-col overflow-hidden rounded-[24px] p-3 shadow-2xl">
             <div className="flex items-center gap-2">
               <div className="relative min-w-0 flex-1">
@@ -209,11 +235,11 @@ export function GlobalPatientFinder() {
                   className="dd-patient-finder-input dd-input h-12 w-full rounded-xl border border-hairline bg-white pr-10 pl-9 text-base text-ink placeholder:text-ink-muted focus-visible:focus-ring"
                   {...inputProps("mobile-patient-finder")}
                 />
-                <InputTail loading={loading} term={term} onClear={() => updateTerm("")} />
+                <InputTail loading={loading} term={term} onClear={() => updateTerm("")} allowClear={false} />
               </div>
               <button
                 type="button"
-                onClick={() => setMobileOpen(false)}
+                onClick={closeMobileFinder}
                 className="inline-flex size-11 shrink-0 items-center justify-center rounded-xl border border-hairline bg-white text-ink-secondary focus-visible:focus-ring"
                 aria-label="Close patient finder"
               >
@@ -236,6 +262,7 @@ export function GlobalPatientFinder() {
                     identifierKind={identifierKind}
                     onRetry={retryCurrentSearch}
                     onContextChanged={refreshCurrentSearch}
+                    embedded
                   />
                 ) : null
               ) : (
@@ -250,9 +277,9 @@ export function GlobalPatientFinder() {
   );
 }
 
-function InputTail({ loading, term, onClear }: { loading: boolean; term: string; onClear: () => void }) {
+function InputTail({ loading, term, onClear, allowClear = true }: { loading: boolean; term: string; onClear: () => void; allowClear?: boolean }) {
   if (loading) return <Loader2 className="absolute right-3 top-1/2 size-4 -translate-y-1/2 animate-spin text-ink-muted" aria-hidden="true" />;
-  if (!term) return null;
+  if (!term || !allowClear) return null;
   return (
     <button type="button" onClick={onClear} aria-label="Clear patient search" className="absolute right-1.5 top-1/2 inline-flex size-8 -translate-y-1/2 items-center justify-center rounded-lg text-ink-muted hover:bg-surface-muted focus-visible:focus-ring">
       <X className="size-4" aria-hidden="true" />
@@ -274,6 +301,7 @@ function FinderPanel({
   onRetry,
   onContextChanged,
   className,
+  embedded = false,
 }: {
   id: string;
   term: string;
@@ -288,9 +316,13 @@ function FinderPanel({
   onRetry: () => void;
   onContextChanged: () => void;
   className?: string;
+  embedded?: boolean;
 }) {
   return (
-    <div className={cn("dd-app-panel dd-finder-results overflow-hidden rounded-2xl border border-hairline shadow-xl", className)}>
+    <div className={cn(
+      embedded ? "dd-mobile-finder-results overflow-hidden" : "dd-app-panel dd-finder-results overflow-hidden rounded-2xl border border-hairline shadow-xl",
+      className,
+    )}>
       {identifierKind === "INVALID" ? (
         <div className="p-4">
           <p className="text-sm font-semibold text-ink">Enter a name, phone number or patient number</p>

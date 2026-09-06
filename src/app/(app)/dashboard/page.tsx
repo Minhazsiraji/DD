@@ -320,7 +320,7 @@ function QuickAction({
   return (
     <Link
       href={href}
-      className="dd-quick-row flex min-h-11 items-center gap-2.5 rounded-xl border border-hairline px-3 text-sm font-semibold text-ink transition-colors hover:bg-surface-muted focus-visible:focus-ring"
+      className="dd-quick-row flex min-h-11 items-center gap-2.5 rounded-xl border border-hairline px-3 text-sm font-semibold text-ink focus-visible:focus-ring"
     >
       {icon}
       {label}

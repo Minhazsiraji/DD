@@ -36,7 +36,7 @@ export function DesktopSidebar({
         <BrandWordmark className="hidden min-w-0 text-[15px] xl:block" tagline />
       </Link>
 
-      <nav className="flex-1 overflow-y-auto px-3 pb-3">
+      <nav className="flex-1 overflow-y-auto px-3 pt-4 pb-3 xl:pt-5">
         <ul className="space-y-1">
           {PRIMARY_NAV.map((item) => (
             <SidebarLink

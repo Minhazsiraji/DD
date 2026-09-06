@@ -47,6 +47,12 @@ nav.glass-strong {
   border-radius: 28px !important;
 }
 
+/* Desktop header stays flush to the viewport while gaining the same rounded
+   lower glass edge language as the rest of the application chrome. */
+.dd-topbar {
+  border-radius: 0 0 24px 24px !important;
+}
+
 .dd-nav-item:not([aria-current="page"]) {
   background: transparent !important;
   border: 1px solid transparent;
@@ -238,6 +244,26 @@ nav.glass-strong {
     0 6px 14px rgba(73,152,176,.14),
     inset 0 2px 1px rgba(255,255,255,.94),
     inset 0 -2px 4px rgba(59,144,167,.11) !important;
+  transition: transform .18s ease, filter .18s ease, box-shadow .18s ease;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .dd-quick-row:hover {
+    transform: translateY(-2px);
+    filter: brightness(1.025) saturate(1.025);
+    box-shadow:
+      0 0 0 1px rgba(255,255,255,.78),
+      0 0 16px rgba(89,231,232,.28),
+      0 10px 18px rgba(73,152,176,.18),
+      inset 0 2px 1px rgba(255,255,255,.96),
+      inset 0 -2px 4px rgba(59,144,167,.11) !important;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dd-quick-row:hover {
+    transform: none !important;
+  }
 }
 
 /* -------------------------------------------------------------------------

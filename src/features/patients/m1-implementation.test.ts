@@ -267,8 +267,19 @@ describe("M1 Universal Finder interaction and mobile contract", () => {
   it("32 retains approved hover/lift visual behavior", () => {
     const brand = read("src/app/canonical-brand.css");
     const app = read("src/app/app-unified-liquid.css");
+    const dashboard = read("src/app/(app)/dashboard/page.tsx");
     expect(brand).toMatch(/transform:\s*translateY\(-1px\)/);
     expect(app).toMatch(/dd-dashboard-card:hover/);
+    expect(dashboard).toContain("dd-quick-row");
+    expect(app).toMatch(/@media \(hover: hover\) and \(pointer: fine\)[\s\S]{0,500}\.dd-quick-row:hover[\s\S]{0,160}translateY\(-2px\)/);
+    expect(app).toMatch(/@media \(prefers-reduced-motion: reduce\)[\s\S]{0,180}\.dd-quick-row:hover[\s\S]{0,100}transform: none/);
+  });
+
+  it("keeps final desktop chrome polish narrow and structural", () => {
+    const sidebar = read("src/components/layout/desktop-sidebar.tsx");
+    const app = read("src/app/app-unified-liquid.css");
+    expect(sidebar).toContain("px-3 pt-4 pb-3 xl:pt-5");
+    expect(app).toMatch(/\.dd-topbar\s*\{[\s\S]{0,100}border-radius:\s*0 0 24px 24px/);
   });
 });
 
