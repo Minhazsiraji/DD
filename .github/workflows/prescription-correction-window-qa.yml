@@ -97,6 +97,46 @@ jobs:
           git diff --exit-code b985c3c79ce9d75ef93715437d077dd571c40cb6 -- db/p1/0014_p1_prescription_correction_window.sql
           echo "PASS isolated P1 follow-on is stable at exact candidate SHA"
 
+      - name: Configure manifest-only local Supabase substrate
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx supabase init --force
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('supabase/config.toml')
+          s = p.read_text()
+          block = '[db.migrations]'
+          if block in s:
+              head, tail = s.split(block, 1)
+              lines = tail.splitlines()
+              out = []
+              replaced = False
+              for line in lines:
+                  if not replaced and line.strip().startswith('enabled ='):
+                      out.append('enabled = false')
+                      replaced = True
+                  else:
+                      out.append(line)
+              if not replaced:
+                  out.insert(1, 'enabled = false')
+              s = head + block + '\n'.join(out)
+          else:
+              s += '\n\n[db.migrations]\nenabled = false\n'
+          p.write_text(s)
+          PY
+          grep -A4 '^\[db.migrations\]' supabase/config.toml
+          python3 - <<'PY'
+          import re
+          from pathlib import Path
+          s = Path('supabase/config.toml').read_text()
+          m = re.search(r'\[db\.migrations\][\s\S]*?(?=\n\[|$)', s)
+          assert m and re.search(r'^\s*enabled\s*=\s*false\s*$', m.group(0), re.M)
+          print('PASS temporary QA config disables legacy migrations')
+          PY
+          test ! -e supabase/.temp/project-ref
+          test ! -e supabase/.temp/pooler-url
+
       - name: Start local Supabase substrate for P0 determinism
         shell: bash
         run: npx supabase start
