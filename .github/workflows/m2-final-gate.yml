@@ -1,0 +1,64 @@
+name: M2 Final Quality Gate
+
+on:
+  push:
+    branches:
+      - qa/m2-final-gate
+
+jobs:
+  quality-gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout QA checkpoint
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Focused M2 tests
+        run: npm test -- --run src/features/encounters/m2-consultation-workspace.test.ts src/features/encounters/follow-up-dates.test.ts src/features/encounters/fast-entry.test.ts
+
+      - name: Relevant M1 regression
+        run: npm test -- --run src/features/patients/m1-implementation.test.ts src/features/patients/finder-ranking.test.ts src/features/mobile-responsive.test.ts src/components/layout/nav-targets.test.ts
+
+      - name: Full test suite
+        run: npm test
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Build
+        run: npm run build
+
+      - name: Diff whitespace check
+        run: git diff --check da622f91289ad840d040761448dcd653105aaec1..7598a32a5a357e026d83b7dd6ff5c5633ec43c19
+
+      - name: Protected DB drift check
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE=da622f91289ad840d040761448dcd653105aaec1
+          TARGET=7598a32a5a357e026d83b7dd6ff5c5633ec43c19
+          drift="$(git diff --name-only "$BASE..$TARGET" -- db/schema db/functions db/policies db/grants db/storage db/seed db/manifest.toml db/golden-p0.sql)"
+          test -z "$drift" || { echo "Protected DB drift:"; echo "$drift"; exit 1; }
+          sql="$(git diff --name-only "$BASE..$TARGET" -- '*.sql')"
+          test -z "$sql" || { echo "SQL changes:"; echo "$sql"; exit 1; }
+          added_service_role="$(git diff -U0 "$BASE..$TARGET" -- 'src/**' ':!**/*.test.ts' ':!**/*.test.tsx' | grep -E '^\+.*service_role' || true)"
+          test -z "$added_service_role" || { echo "service_role added in runtime source:"; echo "$added_service_role"; exit 1; }
+
+      - name: Preserve Seoul region
+        shell: bash
+        run: |
+          node -e 'const v=require("./vercel.json"); if(JSON.stringify(v.regions)!==JSON.stringify(["icn1"])) { console.error(v.regions); process.exit(1) }'
