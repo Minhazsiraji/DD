@@ -136,10 +136,26 @@ nav.glass-strong {
   position: absolute !important;
 }
 
-/* Finder candidates need a little more visual density than summary glass so
-   identity details stay readable over the app background without losing glass. */
+/* Finder identity surfaces are intentionally denser than summary glass.
+   Clinical identity details must remain readable over the dashboard beneath. */
 .dd-app-panel.dd-finder-results {
-  background: rgba(255,255,255,.13) !important;
+  background:
+    radial-gradient(34% 90% at 0% 58%, rgba(126,226,236,.10), transparent 72%),
+    radial-gradient(30% 84% at 100% 8%, rgba(238,150,216,.08), transparent 74%),
+    rgba(250,251,255,.92) !important;
+  -webkit-backdrop-filter: blur(22px) saturate(116%) !important;
+  backdrop-filter: blur(22px) saturate(116%) !important;
+}
+
+/* Mobile Finder is a real workspace sheet, not a transparent summary panel.
+   Keep the liquid treatment while visually separating search/results from the page. */
+.dd-app-panel.dd-mobile-finder-shell {
+  background:
+    radial-gradient(42% 72% at 0% 8%, rgba(126,226,236,.10), transparent 72%),
+    radial-gradient(40% 68% at 100% 0%, rgba(238,150,216,.09), transparent 74%),
+    rgba(248,249,255,.96) !important;
+  -webkit-backdrop-filter: blur(24px) saturate(118%) !important;
+  backdrop-filter: blur(24px) saturate(118%) !important;
 }
 
 .dd-app-panel::after {

@@ -196,7 +196,7 @@ export function GlobalPatientFinder() {
 
       {mobileOpen ? (
         <div className="fixed inset-0 z-[90] bg-[#211b4a]/20 p-2 backdrop-blur-sm sm:hidden" role="dialog" aria-modal="true" aria-label="Find patient">
-          <div className="dd-app-panel mx-auto flex h-full max-w-lg flex-col overflow-hidden rounded-[24px] bg-white/90 p-3 shadow-2xl">
+          <div className="dd-app-panel dd-mobile-finder-shell mx-auto flex h-full max-w-lg flex-col overflow-hidden rounded-[24px] p-3 shadow-2xl">
             <div className="flex items-center gap-2">
               <div className="relative min-w-0 flex-1">
                 <label htmlFor="mobile-patient-finder" className="sr-only">Find patient</label>
