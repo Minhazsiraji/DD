@@ -68,6 +68,22 @@ export function ConsultationWorkspace({
     [moduleConfig, consultation],
   );
 
+  /**
+   * The only previous-visit values that may be copied into today's encounter.
+   * Momentary vitals and visit-specific findings never enter this object.
+   */
+  const carryForward = React.useMemo(
+    () =>
+      previousVisit
+        ? {
+            heightCm: previousVisit.vitals.heightCm,
+            weightKg: previousVisit.vitals.weightKg,
+            pastHistory: previousVisit.pastHistory,
+          }
+        : undefined,
+    [previousVisit],
+  );
+
   const notesConflict = s.conflict?.notes ?? null;
   const finishBlockedReason = s.desynced
     ? "Reload the consultation state before finishing this visit."
@@ -241,7 +257,7 @@ export function ConsultationWorkspace({
               errors={s.vitalErrors}
               disabled={readOnly}
               onChange={s.setField}
-              previous={previousVisit ? { heightCm: previousVisit.vitals.heightCm, weightKg: previousVisit.vitals.weightKg } : undefined}
+              previous={carryForward ? { heightCm: carryForward.heightCm, weightKg: carryForward.weightKg } : undefined}
               shownBecauseFilled={visibility.VITALS.shownBecauseFilled}
             />
           ) : null}
@@ -252,7 +268,7 @@ export function ConsultationWorkspace({
             disabled={readOnly}
             onChange={s.setField}
             visibility={visibility}
-            previousVisit={previousVisit}
+            carryForward={carryForward}
           />
 
           {visibility.DIAGNOSIS.visible ? (
