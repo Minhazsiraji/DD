@@ -20,6 +20,7 @@ export interface SessionUser {
 export interface Membership {
   locationId: string;
   locationName: string;
+  timeZone: string | null;
   /** A user may hold several roles at one clinic — permission is the union. */
   roles: LocationRole[];
 }
@@ -28,6 +29,7 @@ export interface LocationContext {
   user: SessionUser;
   locationId: string;
   locationName: string;
+  timeZone: string | null;
   roles: LocationRole[];
   memberships: Membership[];
 }
@@ -89,7 +91,7 @@ export const getMemberships = cache(async function getMemberships(): Promise<Mem
    */
   const { data, error } = await supabase
     .from("practice_location_members")
-    .select("practice_location_id, role, practice_locations(name)")
+    .select("practice_location_id, role, practice_locations(name, timezone)")
     .eq("user_id", user.id)
     .eq("status", "ACTIVE");
 
@@ -102,10 +104,12 @@ export const getMemberships = cache(async function getMemberships(): Promise<Mem
     // PostgREST returns an embedded relation as an object or a single-element
     // array depending on the inferred cardinality; handle both.
     const rel = row.practice_locations as unknown;
-    const name = Array.isArray(rel)
-      ? (rel[0] as { name?: string })?.name
-      : (rel as { name?: string } | null)?.name;
+    const location = Array.isArray(rel)
+      ? (rel[0] as { name?: string; timezone?: string | null } | undefined)
+      : (rel as { name?: string; timezone?: string | null } | null);
+    const name = location?.name;
     if (!name) continue;
+    const timeZone = location?.timezone ?? null;
 
     const locationId = row.practice_location_id as string;
     const existing = byLocation.get(locationId);
@@ -116,6 +120,7 @@ export const getMemberships = cache(async function getMemberships(): Promise<Mem
       byLocation.set(locationId, {
         locationId,
         locationName: name,
+        timeZone,
         roles: [row.role as LocationRole],
       });
     }
@@ -152,6 +157,7 @@ export async function requireLocationContext(): Promise<LocationContext> {
     user,
     locationId: active.locationId,
     locationName: active.locationName,
+    timeZone: active.timeZone,
     roles: active.roles,
     memberships,
   };

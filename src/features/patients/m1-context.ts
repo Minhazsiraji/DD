@@ -5,7 +5,6 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { requireLocationContext } from "@/lib/auth/session";
 import { getQueue } from "@/features/queue/queries";
 import type { AppointmentStatus } from "@/features/appointments/schema";
-import { getCurrentDoctorId } from "./queries";
 
 export type M1PatientState =
   | "IN_CONSULTATION"
@@ -116,56 +115,86 @@ export async function getLocationLocalDate(locationId: string): Promise<{
  * Any real RPC error fails closed, and every clinical mutation is still
  * re-authorised inside its database RPC.
  */
-export const getM1DoctorAuthority = cache(async function getM1DoctorAuthority(): Promise<M1DoctorAuthority> {
-  const ctx = await requireLocationContext();
+type M1FinderScope = {
+  doctorId: string | null;
+  locationId: string;
+  locationName: string;
+  timeZone: string | null;
+  roles: readonly string[];
+  userId: string;
+};
+
+/**
+ * Shared, per-request M1 scope. The verified location context and
+ * current_doctor_id() RPC are independent after the auth cookie is available,
+ * so resolve them concurrently instead of serially on every Finder request.
+ */
+export const getM1FinderScope = cache(async function getM1FinderScope(): Promise<M1FinderScope> {
   const supabase = await createSupabaseServerClient();
-  const [locationDate, doctorId] = await Promise.all([
-    getLocationLocalDate(ctx.locationId),
-    getCurrentDoctorId(),
+  const [ctx, doctorResult] = await Promise.all([
+    requireLocationContext(),
+    supabase.rpc("current_doctor_id"),
   ]);
-  const timeZone = locationDate?.timeZone ?? null;
-  const localDate = locationDate?.localDate ?? null;
-
-  const roleAllowsDoctor = ctx.roles.includes("DOCTOR");
-  let capability = false;
-  let activeAtLocation = false;
-
-  if (doctorId && roleAllowsDoctor) {
-    const [capabilityResult, activeResult] = await Promise.all([
-      supabase.rpc("has_capability", {
-        subject_profile_id: ctx.user.id,
-        requested: "DOCTOR",
-      }),
-      supabase.rpc("doctor_active_at", {
-        location_key: ctx.locationId,
-        doctor_key: doctorId,
-      }),
-    ]);
-
-    capability = capabilityResult.error
-      ? missingRpc(capabilityResult.error)
-        ? roleAllowsDoctor
-        : false
-      : capabilityResult.data === true;
-
-    activeAtLocation = activeResult.error
-      ? missingRpc(activeResult.error)
-        ? roleAllowsDoctor
-        : false
-      : activeResult.data === true;
-  }
-
-  const canClinical = Boolean(doctorId && roleAllowsDoctor && capability && activeAtLocation);
+  const doctorId = doctorResult.error ? null : ((doctorResult.data as string | null) ?? null);
 
   return {
     doctorId,
-    canClinical,
-    canMarkArrived: canClinical,
     locationId: ctx.locationId,
     locationName: ctx.locationName,
-    timeZone,
-    localDate,
+    timeZone: ctx.timeZone,
     roles: ctx.roles,
+    userId: ctx.user.id,
+  };
+});
+
+export const getM1DoctorAuthority = cache(async function getM1DoctorAuthority(): Promise<M1DoctorAuthority> {
+  const scope = await getM1FinderScope();
+  const supabase = await createSupabaseServerClient();
+  const roleAllowsDoctor = scope.roles.includes("DOCTOR");
+
+  const locationDatePromise = scope.timeZone
+    ? Promise.resolve({ timeZone: scope.timeZone, localDate: localDateInTimeZone(scope.timeZone) })
+    : getLocationLocalDate(scope.locationId);
+
+  const [locationDate, capabilityResult, activeResult] = await Promise.all([
+    locationDatePromise,
+    scope.doctorId && roleAllowsDoctor
+      ? supabase.rpc("has_capability", {
+          subject_profile_id: scope.userId,
+          requested: "DOCTOR",
+        })
+      : Promise.resolve({ data: false, error: null }),
+    scope.doctorId && roleAllowsDoctor
+      ? supabase.rpc("doctor_active_at", {
+          location_key: scope.locationId,
+          doctor_key: scope.doctorId,
+        })
+      : Promise.resolve({ data: false, error: null }),
+  ]);
+
+  const capability = capabilityResult.error
+    ? missingRpc(capabilityResult.error)
+      ? roleAllowsDoctor
+      : false
+    : capabilityResult.data === true;
+
+  const activeAtLocation = activeResult.error
+    ? missingRpc(activeResult.error)
+      ? roleAllowsDoctor
+      : false
+    : activeResult.data === true;
+
+  const canClinical = Boolean(scope.doctorId && roleAllowsDoctor && capability && activeAtLocation);
+
+  return {
+    doctorId: scope.doctorId,
+    canClinical,
+    canMarkArrived: canClinical,
+    locationId: scope.locationId,
+    locationName: scope.locationName,
+    timeZone: locationDate?.timeZone ?? null,
+    localDate: locationDate?.localDate ?? null,
+    roles: scope.roles,
   };
 });
 
@@ -233,12 +262,13 @@ export async function getPatientAppointmentContexts(
   const unique = [...new Set(patientIds)].filter(Boolean);
   const localDate = authority.localDate;
   if (authority.doctorId && !localDate) return null;
-  const rows = await readAppointmentRows(unique, authority);
+  const [rows, queue] = await Promise.all([
+    readAppointmentRows(unique, authority),
+    authority.doctorId
+      ? getQueue(authority.locationId, localDate!)
+      : Promise.resolve({ ok: true as const, rows: [] }),
+  ]);
   if (!rows) return null;
-
-  const queue = authority.doctorId
-    ? await getQueue(authority.locationId, localDate!)
-    : { ok: true as const, rows: [] };
   if (!queue.ok) {
     console.error("[m1] queue context read failed", queue.reason);
     return null;

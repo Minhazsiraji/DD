@@ -66,6 +66,10 @@ const LIST_COLUMNS =
   `${CORE_COLUMNS}, patient_allergies(id),` +
   " patient_location_links(practice_locations(id, name))";
 
+// Finder suggestions do not need the location-history embed. Keeping the
+// identity projection small avoids an unnecessary join on every keystroke.
+const FINDER_COLUMNS = `${CORE_COLUMNS}, patient_allergies(id)`;
+
 const DETAIL_COLUMNS =
   `${CORE_COLUMNS}, email, address, district, weight_kg, height_cm,` +
   // Notes live in their own doctor-only table — RLS filters rows, not columns.
@@ -171,6 +175,45 @@ export async function searchPatients(
   const { data, error } = await request;
   if (error) {
     console.error("[patients] search failed", error.message);
+    return { ok: false, reason: error.message };
+  }
+  return { ok: true, patients: (data ?? []).map((row) => toListItem(row, today)) };
+}
+
+
+/** Lightweight repository search for the universal Finder hot path. */
+export async function searchFinderPatients(
+  query: string,
+  limit = 30,
+  ownerDoctorId?: string | null,
+): Promise<SearchOutcome> {
+  const supabase = await createSupabaseServerClient();
+  const today = clinicToday();
+  const q = query.trim();
+
+  let request = supabase
+    .from("patients")
+    .select(FINDER_COLUMNS)
+    .is("deleted_at", null);
+
+  if (ownerDoctorId) request = request.eq("owner_doctor_id", ownerDoctorId);
+  request = request.order("created_at", { ascending: false }).limit(limit);
+
+  if (q.length > 0) {
+    const name = normalizeName(q);
+    const phone = normalizePhone(q);
+    const escaped = q.replace(/[%,()]/g, " ").trim();
+    const clauses = [
+      `patient_number.ilike.%${escaped}%`,
+      `name_normalized.ilike.%${name || escaped}%`,
+    ];
+    if (phone) clauses.push(`phone_normalized.ilike.%${phone}%`);
+    request = request.or(clauses.join(","));
+  }
+
+  const { data, error } = await request;
+  if (error) {
+    console.error("[patients] finder search failed", error.message);
     return { ok: false, reason: error.message };
   }
   return { ok: true, patients: (data ?? []).map((row) => toListItem(row, today)) };

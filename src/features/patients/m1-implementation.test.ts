@@ -78,7 +78,7 @@ describe("M1 doctor repository and finder security", () => {
   });
 
   it("24 receptionist-only sessions cannot start unscheduled consultations", () => {
-    expect(context()).toMatch(/ctx\.roles\.includes\("DOCTOR"\)/);
+    expect(context()).toMatch(/scope\.roles\.includes\("DOCTOR"\)/);
     expect(launcher()).not.toContain("RECEPTIONIST");
   });
 
@@ -90,6 +90,25 @@ describe("M1 doctor repository and finder security", () => {
   it("26 operational-only finder results never render Resume/Open Notes", () => {
     expect(finder()).toMatch(/selected\.canClinical && !operationalOnly/);
     expect(finder()).not.toContain("Open notes");
+  });
+
+  it("keeps Finder hot-path authority and search reads concurrent without weakening server scope", () => {
+    const actions = finderActions();
+    const ctx = context();
+    expect(actions).toContain("const authorityPromise = getM1DoctorAuthority()");
+    expect(actions).toContain("const scope = await getM1FinderScope()");
+    expect(actions).toMatch(/Promise\.all\(\[\s*searchFinderPatients/);
+    expect(ctx).toMatch(/Promise\.all\(\[\s*requireLocationContext\(\),\s*supabase\.rpc\("current_doctor_id"\)/);
+    expect(ctx).toMatch(/Promise\.all\(\[\s*readAppointmentRows/);
+  });
+
+  it("uses the already-loaded location timezone and a lightweight Finder projection", () => {
+    const session = code("src/lib/auth/session.ts");
+    const queries = patientQueries();
+    expect(session).toContain("practice_locations(name, timezone)");
+    expect(context()).toContain("scope.timeZone");
+    expect(queries).toContain("const FINDER_COLUMNS");
+    expect(queries).toContain("searchFinderPatients");
   });
 });
 
