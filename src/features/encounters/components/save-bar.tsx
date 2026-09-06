@@ -30,7 +30,7 @@ export function SaveBar({
     <div
       data-print-hidden
       data-mobile-save-bar
-      className="dd-app-panel sticky bottom-0 z-30 -mx-4 mt-4 flex min-w-0 flex-col items-stretch gap-2 px-4 py-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] sm:-mx-6 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:gap-x-4 sm:px-6"
+      className="dd-app-panel glass-strong sticky bottom-0 z-30 -mx-4 mt-4 flex min-w-0 flex-col items-stretch gap-2 px-4 py-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] sm:-mx-6 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:gap-x-4 sm:px-6"
     >
       <p
         role="status"
