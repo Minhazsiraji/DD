@@ -10,6 +10,9 @@ import type { SaveState } from "../draft-state";
  * M2 autosave status. There is intentionally no routine "Save notes" action.
  * A button appears only after a definite save failure, where an explicit retry
  * is safer than silently looping against a failing connection or validation.
+ *
+ * The global status deliberately names every lifecycle state so a field-level
+ * Pending badge never appears to simply vanish after a successful autosave.
  */
 export function SaveBar({
   state,
@@ -30,6 +33,7 @@ export function SaveBar({
     <div
       data-print-hidden
       data-mobile-save-bar
+      data-save-state={state.kind}
       className="dd-app-panel glass-strong sticky bottom-0 z-30 -mx-4 mt-4 flex min-w-0 flex-col items-stretch gap-2 px-4 py-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] sm:-mx-6 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:gap-x-4 sm:px-6"
     >
       <p
@@ -76,7 +80,7 @@ function describe(
     case "saved":
       return {
         icon: <Check className="mt-px size-4 shrink-0 sm:mt-0" aria-hidden="true" />,
-        text: `Saved at ${formatInstantTime(state.at)}`,
+        text: `All changes saved at ${formatInstantTime(state.at)}`,
         tone: "text-success",
       };
     case "error":
@@ -95,17 +99,17 @@ function describe(
       if (hasVitalErrors) {
         return {
           icon: <CircleAlert className="mt-px size-4 shrink-0 sm:mt-0" aria-hidden="true" />,
-          text: "Changes pending — check the highlighted vitals before autosave can continue.",
+          text: "Pending save — check the highlighted vitals before autosave can continue.",
           tone: "text-warning",
         };
       }
       return {
         icon: <Pencil className="mt-px size-4 shrink-0 sm:mt-0" aria-hidden="true" />,
         text: blocked
-          ? "Changes pending — waiting for the current clinical update."
+          ? "Pending save — waiting for the current clinical update."
           : dirtyCount === 1
-            ? "1 change pending — autosaving shortly…"
-            : `${dirtyCount} changes pending — autosaving shortly…`,
+            ? "Pending save — 1 change waiting; autosaving shortly…"
+            : `Pending save — ${dirtyCount} changes waiting; autosaving shortly…`,
         tone: "text-ink-secondary",
       };
     default:
