@@ -56,14 +56,7 @@ jobs:
         run: npm ci
 
       - name: Static correction-window proof
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p src/__qa
-          cp scripts/prescription-correction-window.test.ts src/__qa/prescription-correction-window.test.ts
-          cmp scripts/prescription-correction-window.test.ts src/__qa/prescription-correction-window.test.ts
-          npx vitest run src/__qa/prescription-correction-window.test.ts src/features/prescriptions/prescription-correction-window-boundary.test.ts
-          rm -rf src/__qa
+        run: npx vitest run src/features/prescriptions/correction-window-security.test.ts
 
       - name: Exact PostgreSQL boundary proof
         run: node scripts/verify-prescription-correction-window-boundary.mjs
