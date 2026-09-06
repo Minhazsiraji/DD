@@ -87,7 +87,7 @@ export function FinalizedPrescription({
 
         <p
           role="status"
-          className="clinical-surface flex min-w-0 items-start gap-2 rounded-glass border-l-4 border-l-success px-4 py-3 text-[13px] text-ink-secondary"
+          className="dd-material-panel dd-panel-pearl dd-panel-rim flex min-w-0 items-start gap-2 rounded-glass border-l-4 border-l-success px-4 py-3 text-[13px] text-ink-secondary"
         >
           <Lock className="mt-px size-4 shrink-0 text-success" aria-hidden="true" />
           <span className="min-w-0 break-words">

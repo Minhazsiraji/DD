@@ -74,25 +74,12 @@ export function WriteCorrection({ prescriptionId }: { prescriptionId: string }) 
   }
 
   if (!open) {
-    /*
-      Closed, this is ONE BUTTON — not a titled card.
-
-      It used to be a full-width panel headed "Something wrong with this one?"
-      explaining that a correction is a new prescription. The sentence is
-      already in the approval line directly above it, so the card spent a
-      document-sized block of a document-viewing screen repeating it, and the
-      finalised prescription competed with two panels for attention.
-
-      The explanation belongs where the decision is actually made — the form
-      below says it again when the doctor opens it, which is the moment it
-      matters.
-    */
     return (
       <button
         data-print-hidden
         type="button"
         onClick={() => setOpen(true)}
-        className="inline-flex h-11 shrink-0 items-center justify-center gap-1.5 rounded-xl border border-hairline bg-white px-4 text-[13px] font-semibold text-ink transition-colors hover:bg-surface-muted focus-visible:focus-ring"
+        className="dd-primary inline-flex h-11 shrink-0 items-center justify-center gap-1.5 px-4 text-[13px] font-semibold focus-visible:focus-ring"
       >
         <FilePlus2 className="size-4" aria-hidden="true" />
         Write corrected prescription
@@ -101,22 +88,12 @@ export function WriteCorrection({ prescriptionId }: { prescriptionId: string }) 
   }
 
   return (
-    <SectionCard data-print-hidden>
+    <SectionCard data-print-hidden className="dd-panel-pearl dd-panel-rim">
       <div className="space-y-3 p-4 sm:p-5">
         <div>
           <h2 className="text-[15px] font-semibold text-ink">
             Why is this prescription being corrected?
           </h2>
-          {/*
-            It has to say what it DOES, at the moment the doctor commits to it.
-
-            This sentence used to live on the closed trigger card. Collapsing
-            that card to a button dropped it, and `correction.test.ts` caught
-            it — rightly: "correct" can be read as "edit this one", and the
-            whole immutability contract is that it never is. The status line
-            above the paper says it too, but a control must not depend on
-            another component's wording to be honest.
-          */}
           <p className="mt-1 text-[13px] text-ink-secondary">
             A correction is a new prescription. The original stays in the record exactly as it is,
             and this note is part of the clinical correction history — it is never printed on paper.
@@ -155,17 +132,12 @@ export function WriteCorrection({ prescriptionId }: { prescriptionId: string }) 
         ) : null}
 
         <div className="flex flex-wrap gap-2">
-          {/*
-            Hidden entirely once the outcome is unconfirmed. A disabled button
-            invites a reload-and-retry; the message says to reload and check,
-            and a second correction is the thing being prevented.
-          */}
           {error?.blocking ? null : (
             <button
               type="button"
               onClick={start}
               disabled={busy || trimmed === ""}
-              className="inline-flex h-11 items-center justify-center gap-1.5 rounded-xl bg-brand px-4 text-[13px] font-semibold text-white shadow-soft transition-colors hover:bg-brand-hover disabled:cursor-not-allowed disabled:opacity-55 focus-visible:focus-ring"
+              className="dd-primary inline-flex h-11 items-center justify-center gap-1.5 px-4 text-[13px] font-semibold disabled:cursor-not-allowed disabled:opacity-55 focus-visible:focus-ring"
             >
               {busy ? (
                 <Loader2 className="size-4 animate-spin" aria-hidden="true" />
@@ -183,7 +155,7 @@ export function WriteCorrection({ prescriptionId }: { prescriptionId: string }) 
               setError(null);
             }}
             disabled={busy}
-            className="inline-flex h-11 items-center justify-center rounded-xl border border-hairline bg-white px-4 text-[13px] font-semibold text-ink hover:bg-surface-muted disabled:opacity-55 focus-visible:focus-ring"
+            className="dd-secondary inline-flex h-11 items-center justify-center px-4 text-[13px] font-semibold disabled:opacity-55 focus-visible:focus-ring"
           >
             Keep original prescription
           </button>

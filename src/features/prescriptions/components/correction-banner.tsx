@@ -30,7 +30,7 @@ export function CorrectionLineage({
       <p
         data-print-hidden
         role="status"
-        className="clinical-surface flex items-start gap-2 rounded-glass border-l-4 border-l-warning px-4 py-3 text-[13px] text-ink-secondary"
+        className="dd-material-panel dd-panel-pearl dd-panel-rim flex items-start gap-2 rounded-glass border-l-4 border-l-warning px-4 py-3 text-[13px] text-ink-secondary"
       >
         <FileWarning className="mt-px size-4 shrink-0 text-warning" aria-hidden="true" />
         <span>
@@ -50,7 +50,7 @@ export function CorrectionLineage({
       {replacedBy ? (
         <p
           role="status"
-          className="clinical-surface flex flex-wrap items-start gap-2 rounded-glass border-l-4 border-l-warning px-4 py-3 text-[13px] text-ink-secondary"
+          className="dd-material-panel dd-panel-pearl dd-panel-rim flex flex-wrap items-start gap-2 rounded-glass border-l-4 border-l-warning px-4 py-3 text-[13px] text-ink-secondary"
         >
           <FileWarning className="mt-px size-4 shrink-0 text-warning" aria-hidden="true" />
           <span className="min-w-0 flex-1">
@@ -82,7 +82,7 @@ export function CorrectionLineage({
           {replacedBy.id ? (
             <Link
               href={`/prescription/${replacedBy.id}`}
-              className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-lg border border-hairline bg-white px-3 text-[12px] font-semibold text-ink hover:bg-surface-muted focus-visible:focus-ring"
+              className="dd-secondary inline-flex min-h-11 shrink-0 items-center gap-1.5 px-3 text-[12px] font-semibold focus-visible:focus-ring"
             >
               Open the current one
               <ArrowRight className="size-3.5" aria-hidden="true" />
@@ -94,7 +94,7 @@ export function CorrectionLineage({
       {replaces ? (
         <p
           role="status"
-          className="clinical-surface flex flex-wrap items-start gap-2 rounded-glass border-l-4 border-l-info px-4 py-3 text-[13px] text-ink-secondary"
+          className="dd-material-panel dd-panel-pearl dd-panel-rim flex flex-wrap items-start gap-2 rounded-glass border-l-4 border-l-info px-4 py-3 text-[13px] text-ink-secondary"
         >
           <History className="mt-px size-4 shrink-0 text-info" aria-hidden="true" />
           <span className="min-w-0 flex-1">
@@ -112,7 +112,7 @@ export function CorrectionLineage({
           {replaces.id ? (
             <Link
               href={`/prescription/${replaces.id}`}
-              className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-lg border border-hairline bg-white px-3 text-[12px] font-semibold text-ink hover:bg-surface-muted focus-visible:focus-ring"
+              className="dd-secondary inline-flex min-h-11 shrink-0 items-center gap-1.5 px-3 text-[12px] font-semibold focus-visible:focus-ring"
             >
               See the original
               <ArrowRight className="size-3.5" aria-hidden="true" />
