@@ -41,20 +41,20 @@ jobs:
       - name: Checkout exact proof candidate
         uses: actions/checkout@v4
         with:
-          ref: 8e050abeabe29aef2cd1372f8252f0ec89ce6465
+          ref: 58eb93bf4c641fc7be87dccf471c6c880ff4c03a
           fetch-depth: 0
 
       - name: Exact SHA and product-diff guard
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = "8e050abeabe29aef2cd1372f8252f0ec89ce6465"
+          test "$(git rev-parse HEAD)" = "58eb93bf4c641fc7be87dccf471c6c880ff4c03a"
           git diff --check 1147e993158f9abee80a5307cf9932ff95cb43bb..HEAD
           printf '%s\n' \
             db/p1/0014_p1_prescription_correction_window.sql \
-            scripts/prescription-correction-window.test.ts \
             scripts/verify-prescription-correction-window-boundary.mjs \
             scripts/verify-prescription-correction-window.mjs \
+            src/features/prescriptions/correction-window-security.test.ts \
             supabase/policies/0041_prescription_correction_window.sql \
             > /tmp/expected-files
           git diff --name-only 1147e993158f9abee80a5307cf9932ff95cb43bb..HEAD | sort > /tmp/actual-files
@@ -72,7 +72,7 @@ jobs:
         run: npm ci
 
       - name: Committed correction-window static proof
-        run: npx vitest run scripts/prescription-correction-window.test.ts
+        run: npx vitest run src/features/prescriptions/correction-window-security.test.ts
 
       - name: PostgreSQL exact boundary proof
         run: node scripts/verify-prescription-correction-window-boundary.mjs
