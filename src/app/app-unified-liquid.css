@@ -142,7 +142,7 @@ nav.glass-strong {
   background:
     radial-gradient(34% 90% at 0% 58%, rgba(126,226,236,.10), transparent 72%),
     radial-gradient(30% 84% at 100% 8%, rgba(238,150,216,.08), transparent 74%),
-    rgba(250,251,255,.92) !important;
+    rgba(250,251,255,.82) !important;
   -webkit-backdrop-filter: blur(22px) saturate(116%) !important;
   backdrop-filter: blur(22px) saturate(116%) !important;
 }
@@ -153,7 +153,7 @@ nav.glass-strong {
   background:
     radial-gradient(42% 72% at 0% 8%, rgba(126,226,236,.10), transparent 72%),
     radial-gradient(40% 68% at 100% 0%, rgba(238,150,216,.09), transparent 74%),
-    rgba(248,249,255,.96) !important;
+    rgba(248,249,255,.90) !important;
   -webkit-backdrop-filter: blur(24px) saturate(118%) !important;
   backdrop-filter: blur(24px) saturate(118%) !important;
 }

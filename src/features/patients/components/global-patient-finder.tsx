@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import Link from "next/link";
+import { createPortal } from "react-dom";
 import { usePathname, useRouter } from "next/navigation";
 import { Search, X, Loader2, TriangleAlert, UserPlus, ExternalLink } from "lucide-react";
 import { findPatientsAction, type FinderPatientResult } from "../finder-actions";
@@ -194,7 +195,7 @@ export function GlobalPatientFinder() {
         <Search className="size-4" aria-hidden="true" />
       </button>
 
-      {mobileOpen ? (
+      {mobileOpen && typeof document !== "undefined" ? createPortal(
         <div className="fixed inset-0 z-[90] bg-[#211b4a]/20 p-2 backdrop-blur-sm sm:hidden" role="dialog" aria-modal="true" aria-label="Find patient">
           <div className="dd-app-panel dd-mobile-finder-shell mx-auto flex h-full max-w-lg flex-col overflow-hidden rounded-[24px] p-3 shadow-2xl">
             <div className="flex items-center gap-2">
@@ -242,7 +243,8 @@ export function GlobalPatientFinder() {
               )}
             </div>
           </div>
-        </div>
+        </div>,
+        document.body,
       ) : null}
     </>
   );
