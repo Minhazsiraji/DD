@@ -43,7 +43,7 @@ export function AppointmentCard({
   const finished = isTerminal(a.status);
 
   return (
-    <li className="clinical-surface min-w-0 rounded-glass p-4 sm:px-5">
+    <li className="dd-material-record min-w-0 rounded-2xl p-4 sm:px-5">
       <div className="flex min-w-0 flex-wrap items-start gap-3">
         <div className="flex w-14 shrink-0 flex-col items-center">
           <span className="text-sm font-semibold tabular-nums text-ink">

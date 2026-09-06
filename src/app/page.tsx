@@ -30,45 +30,45 @@ export default function RootPage() {
     <MarketingShell>
       <section className="mx-auto grid max-w-7xl gap-12 px-5 pb-20 pt-16 lg:grid-cols-[1.05fr_.95fr] lg:px-8 lg:pb-28 lg:pt-24">
         <div className="self-center">
-          <p className="inline-flex rounded-full border border-teal-200 bg-teal-50 px-3 py-1 text-sm font-medium text-teal-800">
+          <p className="dd-material-record inline-flex rounded-full px-3 py-1 text-sm font-medium text-brand">
             Built around the doctor, not the data-entry screen
           </p>
-          <h1 className="mt-6 max-w-3xl text-5xl font-semibold tracking-tight text-slate-950 sm:text-6xl">
+          <h1 className="mt-6 max-w-3xl text-5xl font-semibold tracking-tight text-ink sm:text-6xl">
             Less screen.
             <br />
             More patient.
           </h1>
-          <p className="mt-6 max-w-2xl text-lg leading-8 text-slate-600">
+          <p className="mt-6 max-w-2xl text-lg leading-8 text-ink-secondary">
             Doctor&apos;s Diary is a doctor productivity workspace for patient history,
             consultations, prescriptions, chambers and follow-up — designed to reduce
             repetitive work instead of adding more forms.
           </p>
           <div className="mt-8 flex flex-wrap gap-3">
-            <Link href="/signup" className="rounded-xl bg-teal-600 px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-teal-700">
+            <Link href="/signup" className="inline-flex min-h-11 items-center rounded-xl bg-brand px-5 py-3 text-sm font-semibold text-white shadow-soft transition hover:bg-brand-hover focus-visible:focus-ring">
               Start free
             </Link>
-            <Link href="/pricing" className="rounded-xl border border-slate-300 bg-white px-5 py-3 text-sm font-semibold text-slate-800 transition hover:bg-slate-50">
+            <Link href="/pricing" className="dd-material-record inline-flex min-h-11 items-center rounded-xl px-5 py-3 text-sm font-semibold text-ink focus-visible:focus-ring">
               See founding plan
             </Link>
           </div>
-          <p className="mt-4 text-sm text-slate-500">
+          <p className="mt-4 text-sm text-ink-muted">
             No public “verified doctor” claim is made until credential verification is actually available.
           </p>
         </div>
 
-        <div className="rounded-[2rem] border border-slate-200 bg-white p-5 shadow-[0_24px_80px_rgba(15,23,42,.08)] sm:p-7">
-          <div className="rounded-3xl bg-[#edf4ff] p-6">
+        <div className="dd-material-panel dd-public-card p-5 sm:p-7">
+          <div className="rounded-3xl bg-white/20 p-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Today</p>
+                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-ink-muted">Today</p>
                 <p className="mt-1 text-xl font-semibold">Doctor workspace</p>
               </div>
-              <span className="rounded-full bg-white px-3 py-1 text-xs font-medium text-teal-700">Private clinical workspace</span>
+              <span className="dd-material-record rounded-full px-3 py-1 text-xs font-medium text-brand">Private clinical workspace</span>
             </div>
             <div className="mt-6 grid gap-3">
               {workflow.map((item, i) => (
-                <div key={item} className="flex items-center gap-3 rounded-2xl bg-white px-4 py-3 text-sm text-slate-700 shadow-sm">
-                  <span className="grid size-7 shrink-0 place-items-center rounded-full bg-teal-50 font-semibold text-teal-700">{i + 1}</span>
+                <div key={item} className="dd-material-record flex items-center gap-3 rounded-2xl px-4 py-3 text-sm text-ink-secondary">
+                  <span className="grid size-7 shrink-0 place-items-center rounded-full bg-brand-soft font-semibold text-brand">{i + 1}</span>
                   {item}
                 </div>
               ))}
@@ -77,27 +77,27 @@ export default function RootPage() {
         </div>
       </section>
 
-      <section className="border-y border-slate-200 bg-white">
+      <section className="border-y border-white/45">
         <div className="mx-auto grid max-w-7xl gap-5 px-5 py-16 md:grid-cols-3 lg:px-8">
           {benefits.map((benefit) => (
-            <article key={benefit.title} className="rounded-3xl border border-slate-200 bg-[#fbfdff] p-6">
+            <article key={benefit.title} className="dd-material-record rounded-3xl p-6">
               <h2 className="text-lg font-semibold">{benefit.title}</h2>
-              <p className="mt-3 leading-7 text-slate-600">{benefit.body}</p>
+              <p className="mt-3 leading-7 text-ink-secondary">{benefit.body}</p>
             </article>
           ))}
         </div>
       </section>
 
       <section className="mx-auto max-w-7xl px-5 py-20 lg:px-8">
-        <div className="rounded-[2rem] bg-slate-950 px-6 py-10 text-white sm:px-10 lg:flex lg:items-center lg:justify-between">
+        <div className="dd-material-panel rounded-[2rem] px-6 py-10 text-ink sm:px-10 lg:flex lg:items-center lg:justify-between">
           <div>
-            <p className="text-sm font-semibold uppercase tracking-[0.18em] text-teal-300">Founding doctors</p>
+            <p className="text-sm font-semibold uppercase tracking-[0.18em] text-brand">Founding doctors</p>
             <h2 className="mt-3 text-3xl font-semibold tracking-tight">Help shape the workflow before the wider launch.</h2>
-            <p className="mt-3 max-w-2xl text-slate-300">
+            <p className="mt-3 max-w-2xl text-ink-secondary">
               Early doctors get high-touch onboarding and an early-user commercial plan. Exact pricing remains configurable until pilot evidence is complete.
             </p>
           </div>
-          <Link href="/pricing" className="mt-6 inline-flex rounded-xl bg-white px-5 py-3 text-sm font-semibold text-slate-950 lg:mt-0">
+          <Link href="/pricing" className="dd-material-record mt-6 inline-flex min-h-11 items-center rounded-xl px-5 py-3 text-sm font-semibold text-ink focus-visible:focus-ring lg:mt-0">
             View the plan
           </Link>
         </div>

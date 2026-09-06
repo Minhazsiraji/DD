@@ -84,7 +84,7 @@ export default async function PatientProfilePage(props: PageProps<"/patients/[id
       {/* ---- SAFETY HEADER ----
           Sticky and opaque. This is the highest-value information on the screen
           and must stay legible while scrolling a long record. Never glass. */}
-      <div className="clinical-surface sticky top-16 z-20 overflow-hidden rounded-glass-lg border-l-4 shadow-soft"
+      <div className="dd-material-clinical dd-profile-summary sticky top-16 z-20 overflow-hidden border-l-4 shadow-soft"
         style={{ borderLeftColor: hasAllergies || criticalAlerts.length ? "var(--dd-danger)" : "var(--dd-brand)" }}
       >
         <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 px-4 pt-3 sm:px-5">

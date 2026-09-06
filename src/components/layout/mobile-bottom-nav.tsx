@@ -28,7 +28,7 @@ export function MobileBottomNav() {
     <nav
       aria-label="Primary"
       data-print-hidden
-      className="glass-strong fixed inset-x-0 bottom-0 z-40 border-t border-glass-border pb-[env(safe-area-inset-bottom)] lg:hidden"
+      className="dd-material-chrome glass-strong fixed inset-x-0 bottom-0 z-40 border-t border-glass-border pb-[env(safe-area-inset-bottom)] lg:hidden"
     >
       <ul className="mx-auto flex max-w-lg items-stretch justify-between px-2">
         {left.map((item) => (

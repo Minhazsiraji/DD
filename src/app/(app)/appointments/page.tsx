@@ -105,7 +105,7 @@ export default async function AppointmentsPage({
               ? ` · ${appointments.length - active.length} cancelled`
               : ""}
           </p>
-          <ul className="space-y-3">
+          <ul className="dd-material-panel dd-record-stack rounded-[28px] p-3 sm:p-4">
             {appointments.map((a) => (
               <AppointmentCard key={a.id} appointment={a} canManage={canManage} />
             ))}

@@ -20,7 +20,7 @@ describe("P0 mobile responsive boundaries", () => {
 
     expect(header).toContain("w-full min-w-0 flex-col items-stretch");
     expect(header).toContain("sm:flex-row");
-    expect(card).toContain("clinical-surface min-w-0");
+    expect(card).toContain("dd-material-panel min-w-0");
     expect(card).toContain("flex-wrap");
     expect(card).toContain("w-full min-w-0 sm:w-auto");
   });

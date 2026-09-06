@@ -135,7 +135,7 @@ export function PatientTimeline({
           description="Appointments, consultations and prescriptions will appear on this timeline as they happen."
         />
       ) : (
-        <ol className="divide-y divide-hairline">
+        <ol className="dd-record-stack p-3 sm:p-4">
           {events.map((e) => {
             const body = (
               <>
@@ -188,12 +188,13 @@ export function PatientTimeline({
                 {e.href ? (
                   <Link
                     href={e.href}
-                    className="flex min-w-0 gap-3 px-4 py-3.5 transition-colors hover:bg-surface-muted focus-visible:focus-ring sm:px-5"
+                    data-interactive="true"
+                    className="dd-material-record flex min-w-0 gap-3 rounded-2xl px-4 py-3.5 focus-visible:focus-ring sm:px-5"
                   >
                     {body}
                   </Link>
                 ) : (
-                  <div className="flex min-w-0 gap-3 px-4 py-3.5 sm:px-5">{body}</div>
+                  <div className="dd-material-record flex min-w-0 gap-3 rounded-2xl px-4 py-3.5 sm:px-5">{body}</div>
                 )}
               </li>
             );

@@ -1,5 +1,6 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
+import { BrandMark, BrandWordmark } from "@/components/brand/brand-mark";
 
 const nav = [
   ["Features", "/features"],
@@ -11,32 +12,29 @@ const nav = [
 
 export function MarketingShell({ children }: { children: ReactNode }) {
   return (
-    <div className="min-h-screen bg-[#f6f9ff] text-slate-950">
-      <header className="sticky top-0 z-40 border-b border-slate-200/80 bg-white/90 backdrop-blur">
+    <div className="dd-public-stage min-h-screen text-ink">
+      <header className="dd-material-chrome sticky top-0 z-40 rounded-b-[28px] border-b border-white/80">
         <div className="mx-auto flex max-w-7xl items-center justify-between gap-6 px-5 py-4 lg:px-8">
           <Link href="/" className="flex items-center gap-3 font-semibold tracking-tight">
-            <span className="grid size-10 place-items-center rounded-2xl bg-teal-600 text-lg text-white shadow-sm">✚</span>
-            <span>
-              <span className="block text-base leading-none">Doctor&apos;s Diary</span>
-              <span className="mt-1 block text-xs font-normal text-slate-500">Doctor Productivity OS</span>
-            </span>
+            <BrandMark className="h-9 w-11" />
+            <BrandWordmark className="text-[15px]" tagline />
           </Link>
-          <nav className="hidden items-center gap-6 text-sm text-slate-600 lg:flex" aria-label="Main navigation">
+          <nav className="hidden items-center gap-6 text-sm text-ink-secondary lg:flex" aria-label="Main navigation">
             {nav.map(([label, href]) => (
-              <Link key={href} href={href} className="transition hover:text-slate-950">{label}</Link>
+              <Link key={href} href={href} className="rounded-lg transition hover:text-ink focus-visible:focus-ring">{label}</Link>
             ))}
           </nav>
           <div className="flex items-center gap-2">
-            <Link href="/login" className="hidden rounded-xl px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 sm:inline-flex">Sign in</Link>
-            <Link href="/signup" className="inline-flex rounded-xl bg-teal-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-teal-700">Start free</Link>
+            <Link href="/login" className="hidden h-11 items-center rounded-xl px-4 text-sm font-medium text-ink-secondary hover:bg-white/40 focus-visible:focus-ring sm:inline-flex">Sign in</Link>
+            <Link href="/signup" className="inline-flex h-11 items-center rounded-xl bg-brand px-4 text-sm font-semibold text-white shadow-soft transition hover:bg-brand-hover focus-visible:focus-ring">Start free</Link>
           </div>
         </div>
       </header>
       <main>{children}</main>
-      <footer className="border-t border-slate-200 bg-white">
-        <div className="mx-auto grid max-w-7xl gap-8 px-5 py-10 text-sm text-slate-600 md:grid-cols-[1.5fr_1fr_1fr] lg:px-8">
+      <footer className="dd-material-panel mt-8 rounded-t-[32px] border-t border-white/80">
+        <div className="mx-auto grid max-w-7xl gap-8 px-5 py-10 text-sm text-ink-secondary md:grid-cols-[1.5fr_1fr_1fr] lg:px-8">
           <div>
-            <p className="font-semibold text-slate-950">Doctor&apos;s Diary</p>
+            <p className="font-semibold text-ink">Doctor&apos;s Diary</p>
             <p className="mt-2 max-w-md">Less typing. Less searching. Less remembering. More patient.</p>
           </div>
           <div className="grid gap-2">
@@ -60,9 +58,9 @@ export function MarketingPage({ eyebrow, title, intro, children }: { eyebrow: st
     <MarketingShell>
       <section className="mx-auto max-w-7xl px-5 pb-20 pt-16 lg:px-8 lg:pt-24">
         <div className="max-w-3xl">
-          <p className="text-sm font-semibold uppercase tracking-[0.18em] text-teal-700">{eyebrow}</p>
-          <h1 className="mt-4 text-4xl font-semibold tracking-tight text-slate-950 sm:text-5xl">{title}</h1>
-          <p className="mt-5 text-lg leading-8 text-slate-600">{intro}</p>
+          <p className="text-sm font-semibold uppercase tracking-[0.18em] text-brand">{eyebrow}</p>
+          <h1 className="mt-4 text-4xl font-semibold tracking-tight text-ink sm:text-5xl">{title}</h1>
+          <p className="mt-5 text-lg leading-8 text-ink-secondary">{intro}</p>
         </div>
         <div className="mt-12">{children}</div>
       </section>

@@ -1,0 +1,143 @@
+/* Doctor's Diary — canonical material system.
+   Variants: chrome / panel / record / clinical.
+   Major containers own blur; child records never add another backdrop blur. */
+:root {
+  --dd-mat-rim: rgba(255,255,255,.92);
+  --dd-mat-panel-fill: rgba(248,249,255,.46);
+  --dd-mat-record-fill: rgba(255,255,255,.58);
+  --dd-mat-clinical-fill: rgba(255,255,255,.94);
+  --dd-mat-shadow: 0 18px 44px -28px rgba(74,58,126,.34);
+}
+
+.dd-material-chrome,
+.dd-material-panel,
+.dd-material-record,
+.dd-material-clinical {
+  color: var(--dd-app-ink, #211b4a);
+  border: 1px solid var(--dd-mat-rim) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,.96),
+    inset 0 0 0 1px rgba(255,255,255,.52),
+    var(--dd-mat-shadow) !important;
+}
+
+.dd-material-chrome {
+  background:
+    radial-gradient(24% 110% at 0% 60%, rgba(126,226,236,.16), transparent 72%),
+    radial-gradient(24% 100% at 100% 0%, rgba(238,150,216,.14), transparent 74%),
+    rgba(255,255,255,.18) !important;
+  -webkit-backdrop-filter: blur(20px) saturate(118%);
+  backdrop-filter: blur(20px) saturate(118%);
+}
+
+.dd-material-panel {
+  position: relative;
+  isolation: isolate;
+  background:
+    radial-gradient(30% 95% at 0% 65%, rgba(126,226,236,.10), transparent 74%),
+    radial-gradient(30% 90% at 100% 0%, rgba(238,150,216,.09), transparent 75%),
+    var(--dd-mat-panel-fill) !important;
+  -webkit-backdrop-filter: blur(18px) saturate(114%);
+  backdrop-filter: blur(18px) saturate(114%);
+}
+
+.dd-material-record {
+  background:
+    linear-gradient(118deg, rgba(255,255,255,.78), rgba(248,251,255,.50)),
+    var(--dd-mat-record-fill) !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+  transition: transform .18s ease, background-color .18s ease, border-color .18s ease, box-shadow .18s ease;
+}
+
+.dd-material-record:hover {
+  background: rgba(255,255,255,.72) !important;
+  border-color: rgba(255,255,255,.98) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,1),
+    0 10px 24px -18px rgba(70,54,125,.30) !important;
+}
+
+.dd-material-clinical {
+  background: var(--dd-mat-clinical-fill) !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,1),
+    0 14px 34px -24px rgba(54,42,104,.28) !important;
+}
+
+.dd-material-panel > *,
+.dd-material-clinical > * {
+  position: relative;
+  z-index: 1;
+}
+
+.dd-record-stack {
+  display: grid;
+  gap: .7rem;
+}
+
+.dd-profile-summary {
+  border-radius: 24px !important;
+}
+
+.dd-auth-card {
+  border-radius: 28px !important;
+}
+
+.dd-public-card {
+  border-radius: 28px !important;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .dd-material-record[data-interactive="true"]:hover {
+    transform: translateY(-2px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dd-material-record {
+    transition: none !important;
+  }
+  .dd-material-record[data-interactive="true"]:hover {
+    transform: none !important;
+  }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  :root {
+    --dd-mat-panel-fill: rgba(250,250,253,.96);
+    --dd-mat-record-fill: rgba(255,255,255,.98);
+    --dd-mat-clinical-fill: #fff;
+  }
+  .dd-material-chrome,
+  .dd-material-panel {
+    -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
+    background: rgba(250,250,253,.97) !important;
+  }
+}
+
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .dd-material-chrome,
+  .dd-material-panel {
+    background: rgba(250,250,253,.97) !important;
+  }
+}
+
+/* Inputs derive from the high-readability clinical token without becoming a
+   blurred panel. */
+.dd-auth-field {
+  background: rgba(255,255,255,.88) !important;
+  border-color: rgba(255,255,255,.94) !important;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.98), 0 5px 14px -12px rgba(55,43,103,.34);
+}
+
+.dd-auth-field:focus {
+  background: rgba(255,255,255,.97) !important;
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .dd-auth-field { background: #fff !important; }
+}

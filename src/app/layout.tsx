@@ -5,6 +5,7 @@ import "./branding-logo.css";
 import "./canonical-brand.css";
 import "./global-background-test.css";
 import "./app-unified-liquid.css";
+import "./dd-material-system.css";
 
 /**
  * Fonts are self-hosted by next/font at build time — no runtime request to a

@@ -40,15 +40,16 @@ export default async function HandoverPage() {
           </div>
         </SectionCard>
       ) : (
-        <ul className="min-w-0 space-y-2">
+        <ul className="dd-material-panel dd-record-stack min-w-0 rounded-[28px] p-3 sm:p-4">
           {outcome.items.map((item) => (
             <li key={item.prescriptionId} className="min-w-0">
               <Link
                 href={`/prescription/${item.prescriptionId}`}
-                className={`flex min-h-16 min-w-0 items-start gap-3 rounded-glass px-4 py-3 transition-colors focus-visible:focus-ring sm:items-center sm:justify-between sm:gap-4 ${
+                data-interactive="true"
+                className={`flex min-h-16 min-w-0 items-start gap-3 rounded-2xl px-4 py-3 focus-visible:focus-ring sm:items-center sm:justify-between sm:gap-4 ${
                   item.isSuperseded
-                    ? "border border-dashed border-hairline bg-surface-muted/40 hover:bg-surface-muted"
-                    : "clinical-surface hover:bg-surface-muted"
+                    ? "dd-material-record border-dashed opacity-80 hover:opacity-100"
+                    : "dd-material-record"
                 }`}
               >
                 <span className="min-w-0 flex-1">

@@ -11,7 +11,7 @@ import { cn } from "@/lib/utils";
 export function SectionCard({ className, ...props }: React.ComponentProps<"section">) {
   return (
     <section
-      className={cn("clinical-surface min-w-0 dd-app-panel rounded-glass-lg shadow-soft", className)}
+      className={cn("dd-app-panel dd-material-panel min-w-0 rounded-glass-lg shadow-soft", className)}
       {...props}
     />
   );

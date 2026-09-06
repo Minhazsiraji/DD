@@ -57,7 +57,7 @@ export function Field({
             .join(" ") || undefined
         }
         className={cn(
-          "h-11 w-full rounded-xl border bg-white px-3 text-sm text-ink placeholder:text-ink-muted focus-visible:focus-ring",
+          "dd-auth-field h-11 w-full rounded-xl border px-3 text-sm text-ink placeholder:text-ink-muted focus-visible:focus-ring",
           hasError ? "border-danger" : "border-hairline",
         )}
       />
@@ -136,7 +136,7 @@ export function AuthCard({
   footer?: React.ReactNode;
 }) {
   return (
-    <div className="clinical-surface rounded-glass-lg p-6 shadow-raised sm:p-7">
+    <div className="dd-material-panel dd-auth-card p-6 shadow-raised sm:p-7">
       <h1 className="text-xl font-semibold text-ink">{title}</h1>
       {subtitle ? (
         <p className="mt-1 text-sm text-ink-secondary">{subtitle}</p>
