@@ -134,9 +134,11 @@ export function FinalizedPrescription({
         </div>
       </div>
 
-      <div className="mt-5 min-w-0 overflow-hidden rounded-glass bg-surface-muted px-2 py-4 sm:px-6 sm:py-8">
-        <ReviewSheet view={doc} signatureUrl={frozen ? signatureUrl : null} />
-      </div>
+      <ReviewSheet
+        className="mt-5"
+        view={doc}
+        signatureUrl={frozen ? signatureUrl : null}
+      />
 
       {viewerIsOwner ? (
         <p data-print-hidden className={digestClass}>{digest}</p>
