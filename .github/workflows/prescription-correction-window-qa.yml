@@ -56,7 +56,22 @@ jobs:
         run: npm ci
 
       - name: Static correction-window proof
-        run: npx vitest run scripts/prescription-correction-window.test.ts src/features/prescriptions/prescription-correction-window-boundary.test.ts
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > /tmp/vitest-correction.config.mjs <<'EOF'
+          export default {
+            root: process.cwd(),
+            test: {
+              environment: "node",
+              include: [
+                "scripts/prescription-correction-window.test.ts",
+                "src/features/prescriptions/prescription-correction-window-boundary.test.ts",
+              ],
+            },
+          };
+          EOF
+          npx vitest run --config /tmp/vitest-correction.config.mjs
 
       - name: Exact PostgreSQL boundary proof
         run: node scripts/verify-prescription-correction-window-boundary.mjs
@@ -68,7 +83,7 @@ jobs:
         run: node scripts/verify-prescription-correction-window.mjs
 
       - name: Existing prescription regression tests
-        run: npx vitest run "src/features/prescriptions/**/*.test.ts" "src/features/prescriptions/*.test.ts"
+        run: npx vitest run src/features/prescriptions
 
       - name: Lint
         run: npm run lint
