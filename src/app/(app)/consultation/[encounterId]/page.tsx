@@ -9,6 +9,7 @@ import {
   getPreviousVisit,
   getVisitType,
 } from "@/features/encounters/previous-visit";
+import { getFollowUpShortcuts } from "@/features/encounters/follow-up-dates";
 import {
   safeConsultationReturn,
   withConsultationReturn,
@@ -19,11 +20,6 @@ import { getRxModulesAction } from "@/features/doctor/rx-module-actions";
 
 export const metadata: Metadata = { title: "Consultation" };
 
-/**
- * One consultation. Historical records may be opened from today's visit with a
- * tightly allow-listed `returnTo` path so the doctor can inspect old notes/Rx
- * and get back to the unfinished current consultation without browser history.
- */
 export default async function ConsultationPage({
   params,
   searchParams,
@@ -35,30 +31,23 @@ export default async function ConsultationPage({
   const outcome = await getConsultation(encounterId, ctx.locationId);
 
   if (!outcome.ok && outcome.reason === "wrong-location") {
-    const home = ctx.memberships.find((m) => m.locationId === outcome.locationId);
+    const home = ctx.memberships.find((membership) => membership.locationId === outcome.locationId);
     return (
       <div className="mx-auto max-w-md py-16 text-center">
         <MapPinOff className="mx-auto size-8 text-ink-muted" aria-hidden="true" />
-        <h1 className="mt-3 text-lg font-semibold text-ink">
-          This consultation belongs to another location
-        </h1>
+        <h1 className="mt-3 text-lg font-semibold text-ink">This consultation belongs to another location</h1>
         <p className="mt-2 text-[13px] text-ink-secondary">
-          You are working at <strong className="font-semibold text-ink">{ctx.locationName}</strong>,
-          and these notes were started
+          You are working at <strong className="font-semibold text-ink">{ctx.locationName}</strong>, and these notes were started
           {home ? (
-            <>
-              {" "}
-              at <strong className="font-semibold text-ink">{home.locationName}</strong>
-            </>
+            <> at <strong className="font-semibold text-ink">{home.locationName}</strong></>
           ) : (
             " somewhere else"
-          )}
-          . Switch location from the top bar to open them — a consultation stays with the place it
-          happened.
+          )}.
+          Switch location from the top bar to open them — a consultation stays with the place it happened.
         </p>
         <Link
           href={returnTo ?? "/queue"}
-          className="mt-5 inline-flex h-11 items-center justify-center gap-1.5 rounded-xl border border-hairline bg-white px-4 text-[13px] font-semibold text-ink hover:bg-surface-muted focus-visible:focus-ring"
+          className="dd-secondary mt-5 inline-flex h-11 items-center justify-center gap-1.5 px-4 text-[13px] font-semibold focus-visible:focus-ring"
         >
           <ArrowLeft className="size-4" aria-hidden="true" />
           {returnTo ? "Return to current consultation" : "Back to the queue"}
@@ -71,16 +60,13 @@ export default async function ConsultationPage({
     return (
       <div className="mx-auto max-w-md py-16 text-center">
         <CloudOff className="mx-auto size-8 text-ink-muted" aria-hidden="true" />
-        <h1 className="mt-3 text-lg font-semibold text-ink">
-          This consultation could not be loaded
-        </h1>
+        <h1 className="mt-3 text-lg font-semibold text-ink">This consultation could not be loaded</h1>
         <p className="mt-2 text-[13px] text-ink-secondary">
-          The record exists — we simply could not reach it just now. Do not start a new
-          consultation for this patient; try again in a moment so their notes stay in one place.
+          The record exists — we simply could not reach it just now. Do not start a new consultation for this patient; try again in a moment so their notes stay in one place.
         </p>
         <Link
           href={returnTo ?? "/queue"}
-          className="mt-5 inline-flex h-11 items-center justify-center gap-1.5 rounded-xl border border-hairline bg-white px-4 text-[13px] font-semibold text-ink hover:bg-surface-muted focus-visible:focus-ring"
+          className="dd-secondary mt-5 inline-flex h-11 items-center justify-center gap-1.5 px-4 text-[13px] font-semibold focus-visible:focus-ring"
         >
           <ArrowLeft className="size-4" aria-hidden="true" />
           {returnTo ? "Return to current consultation" : "Back to the queue"}
@@ -99,13 +85,14 @@ export default async function ConsultationPage({
       ? Promise.resolve(null)
       : getEncounterFinalizedPrescription(outcome.consultation.patient.id, encounterId),
   ]);
+  const followUpShortcuts = getFollowUpShortcuts(ctx.timeZone);
 
   return (
     <div className="space-y-3">
       {returnTo ? (
         <Link
           href={returnTo}
-          className="inline-flex min-h-11 items-center gap-1.5 rounded-xl border border-hairline bg-white px-3.5 text-[13px] font-semibold text-ink hover:bg-surface-muted focus-visible:focus-ring"
+          className="dd-secondary inline-flex min-h-11 items-center gap-1.5 px-3.5 text-[13px] font-semibold focus-visible:focus-ring"
         >
           <ArrowLeft className="size-4" aria-hidden="true" />
           Return to current consultation
@@ -113,7 +100,7 @@ export default async function ConsultationPage({
       ) : null}
 
       {encounterPrescription ? (
-        <div className="clinical-surface flex min-w-0 flex-col gap-2 rounded-glass px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="dd-material-clinical flex min-w-0 flex-col gap-2 rounded-glass px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="min-w-0">
             <p className="text-[13px] font-semibold text-ink">Prescription from this consultation</p>
             <p className="text-[12px] text-ink-secondary">
@@ -122,11 +109,8 @@ export default async function ConsultationPage({
             </p>
           </div>
           <Link
-            href={withConsultationReturn(
-              `/prescription/${encounterPrescription.id}`,
-              returnTo,
-            )}
-            className="inline-flex min-h-11 w-full items-center justify-center gap-1.5 rounded-xl border border-hairline bg-white px-3.5 text-[13px] font-semibold text-ink hover:bg-surface-muted focus-visible:focus-ring sm:w-auto"
+            href={withConsultationReturn(`/prescription/${encounterPrescription.id}`, returnTo)}
+            className="dd-secondary inline-flex min-h-11 w-full items-center justify-center gap-1.5 px-3.5 text-[13px] font-semibold focus-visible:focus-ring sm:w-auto"
           >
             <FileText className="size-4" aria-hidden="true" />
             Open prescription
@@ -140,6 +124,7 @@ export default async function ConsultationPage({
         previousVisit={previousVisit}
         expandPreviousVisit={opensPreviousVisit(visitType)}
         moduleConfig={modules.ok ? modules.modules : null}
+        followUpShortcuts={followUpShortcuts}
       />
     </div>
   );
