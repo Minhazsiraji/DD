@@ -36,7 +36,7 @@ export default function RootPage() {
           <h1 className="mt-6 max-w-3xl text-5xl font-semibold tracking-tight text-brand sm:text-6xl">
             Less screen.
             <br />
-            <span className="dd-brand-emphasis">More patient.</span>
+            <span className="dd-brand-teal">More patient.</span>
           </h1>
           <p className="mt-6 max-w-2xl text-lg leading-8 text-ink-secondary">
             Doctor&apos;s Diary is a doctor productivity workspace for patient history,
@@ -56,7 +56,7 @@ export default function RootPage() {
           </p>
         </div>
 
-        <div className="dd-material-panel dd-panel-pearl dd-panel-rim dd-public-card p-5 sm:p-7">
+        <div className="dd-app-panel dd-material-panel dd-panel-pearl dd-public-card p-5 sm:p-7">
           <div className="rounded-3xl bg-white/10 p-6">
             <div className="flex items-center justify-between">
               <div>
