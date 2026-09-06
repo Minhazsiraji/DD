@@ -19,6 +19,7 @@ export function FinalizedPrescription({
   encounterId,
   viewerIsOwner,
   finalizedAt,
+  correctionUiEligible,
   digest,
   bundle,
   lineage,
@@ -29,6 +30,8 @@ export function FinalizedPrescription({
   encounterId: string;
   viewerIsOwner: boolean;
   finalizedAt: string | null;
+  /** Presentation policy only; authoritative correction enforcement belongs to MD. */
+  correctionUiEligible: boolean;
   digest: string;
   bundle: ReviewBundle;
   lineage: PrescriptionLineage | null;
@@ -68,6 +71,8 @@ export function FinalizedPrescription({
     : viewerIsOwner
       ? "Back to the consultation"
       : "Back to the queue";
+  const showCorrectionAction = viewerIsOwner && !lineage?.replacedBy && correctionUiEligible;
+  const showHistoricalReadOnly = viewerIsOwner && !lineage?.replacedBy && !correctionUiEligible;
 
   return (
     <div className="min-w-0 overflow-x-clip pb-2">
@@ -107,11 +112,25 @@ export function FinalizedPrescription({
 
         <CorrectionLineage lineage={lineage} unavailable={lineageUnavailable} />
 
+        {showHistoricalReadOnly ? (
+          <p
+            data-print-hidden
+            role="status"
+            className="dd-material-record dd-record-pearl flex min-w-0 items-start gap-2 rounded-glass px-4 py-3 text-[13px] text-ink-secondary"
+          >
+            <Lock className="mt-px size-4 shrink-0 text-ink-muted" aria-hidden="true" />
+            <span>
+              <strong className="font-semibold text-ink">Historical prescription.</strong>{" "}
+              The normal correction action is no longer offered after 48 hours. This finalized
+              prescription remains read-only; return to the current consultation workflow if the
+              patient needs a new prescription.
+            </span>
+          </p>
+        ) : null}
+
         <div className="flex min-w-0 flex-col items-stretch gap-2 sm:flex-row sm:items-start sm:gap-3">
           <PrintPrescription prescriptionId={prescriptionId} view={doc} />
-          {viewerIsOwner && !lineage?.replacedBy ? (
-            <WriteCorrection prescriptionId={prescriptionId} />
-          ) : null}
+          {showCorrectionAction ? <WriteCorrection prescriptionId={prescriptionId} /> : null}
         </div>
       </div>
 
