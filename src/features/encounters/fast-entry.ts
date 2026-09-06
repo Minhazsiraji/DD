@@ -129,17 +129,17 @@ export function directJumpTarget(
   action: DirectAction,
   visibility: VisibilityMap,
 ): JumpTarget | null {
-  const module = DIRECT_MODULE[action];
-  if (!visibility[module]?.visible) return null;
-  const elementId = FOCUS_TARGET[module];
+  const rxModule = DIRECT_MODULE[action];
+  if (!visibility[rxModule]?.visible) return null;
+  const elementId = FOCUS_TARGET[rxModule];
   if (!elementId) return null;
-  return { module, label: RX_MODULE_LABEL[module], elementId };
+  return { module: rxModule, label: RX_MODULE_LABEL[rxModule], elementId };
 }
 
 export function filterTargets(targets: JumpTarget[], query: string): JumpTarget[] {
   const q = query.trim().toLowerCase();
   if (q === "") return targets;
-  return targets.filter((t) => t.label.toLowerCase().includes(q));
+  return targets.filter((target) => target.label.toLowerCase().includes(q));
 }
 
 export const FOCUS_TARGET_KEYS = Object.keys(FOCUS_TARGET) as RxModule[];
