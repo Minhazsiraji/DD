@@ -6,7 +6,6 @@ import { SectionCard, SectionHeader } from "@/components/common/section-card";
 import { cn } from "@/lib/utils";
 import { MODULE_BY_DRAFT_KEY, type VisibilityMap } from "../module-visibility";
 import type { DraftKey, DraftValues, SectionKey } from "../schema";
-import type { PreviousVisit } from "../previous-visit";
 import {
   COMMON_COMPLAINT_SUGGESTIONS,
   COMMON_SYMPTOM_SUGGESTIONS,
@@ -26,14 +25,15 @@ export function M2ClinicalNotes({
   disabled,
   onChange,
   visibility,
-  previousVisit,
+  carryForward,
 }: {
   values: DraftValues;
   dirtyKeys: DraftKey[];
   disabled: boolean;
   onChange: (key: DraftKey, value: string) => void;
   visibility: VisibilityMap;
-  previousVisit: PreviousVisit | null;
+  /** The workspace is the single place that decides what historical value is reusable. */
+  carryForward?: { pastHistory: string | null };
 }) {
   const visible = React.useCallback(
     (key: DraftKey) => {
@@ -90,14 +90,6 @@ export function M2ClinicalNotes({
                   )
                 }
               />
-              {previousVisit?.chiefComplaints ? (
-                <PreviousTextSuggestion
-                  label="Use previous complaint"
-                  value={previousVisit.chiefComplaints}
-                  disabled={disabled}
-                  onUse={() => onChange("chiefComplaints", previousVisit.chiefComplaints!)}
-                />
-              ) : null}
             </ClinicalTextarea>
           ) : null}
 
@@ -169,12 +161,12 @@ export function M2ClinicalNotes({
                 spellCheck={false}
                 className="w-full resize-y rounded-xl border border-hairline bg-white/88 px-3 py-2.5 text-[15px] leading-relaxed text-ink placeholder:text-ink-muted focus-visible:focus-ring disabled:bg-surface-muted"
               />
-              {previousVisit?.pastHistory && values.pastHistory === "" ? (
+              {carryForward?.pastHistory && values.pastHistory === "" ? (
                 <PreviousTextSuggestion
                   label="Use previous history"
-                  value={previousVisit.pastHistory}
+                  value={carryForward.pastHistory}
                   disabled={disabled}
-                  onUse={() => onChange("pastHistory", previousVisit.pastHistory!)}
+                  onUse={() => onChange("pastHistory", carryForward.pastHistory!)}
                 />
               ) : null}
             </div>
