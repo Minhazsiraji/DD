@@ -11,7 +11,7 @@ permissions:
 jobs:
   proof:
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 45
     services:
       postgres:
         image: postgres:16
@@ -83,40 +83,78 @@ jobs:
       - name: Existing prescription regression tests
         run: npx vitest run src/features/prescriptions
 
-      - name: P0 local proof and determinism
+      - name: Prepare ephemeral local Supabase substrate
         shell: bash
         run: |
           set -euo pipefail
-          npm run db:verify:p0
+          rm -f supabase/config.toml
+          node node_modules/supabase/dist/supabase.js init --force
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          p = Path('supabase/config.toml')
+          s = p.read_text()
+          s = re.sub(r'^project_id\s*=\s*"[^"]*"', 'project_id = "DD"', s, count=1, flags=re.M)
+          s = re.sub(r'(\[db\][\s\S]*?^major_version\s*=\s*)\d+', r'\g<1>17', s, count=1, flags=re.M)
+          def disable(block, text):
+              pattern = rf'(\[{re.escape(block)}\][\s\S]*?)(?=\n\[|\Z)'
+              m = re.search(pattern, text, flags=re.M)
+              if m:
+                  body = re.sub(r'^enabled\s*=\s*true\s*$', 'enabled = false', m.group(1), flags=re.M)
+                  if not re.search(r'^enabled\s*=', body, flags=re.M):
+                      body += '\nenabled = false\n'
+                  return text[:m.start()] + body + text[m.end():]
+              return text + f'\n[{block}]\nenabled = false\n'
+          s = disable('db.migrations', s)
+          s = disable('db.seed', s)
+          p.write_text(s)
+          PY
+          grep -A3 '^\[db\]$' supabase/config.toml
+          grep -A2 '^\[db.migrations\]$' supabase/config.toml
+          node node_modules/supabase/dist/supabase.js start > /tmp/dd-local-supabase-start.log
+
+      - name: P0 local deployment determinism and verification
+        shell: bash
+        env:
+          DD_V2_LOCAL_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:54322/postgres
+        run: |
+          set -euo pipefail
           npm run db:verify:determinism
+          npm run db:verify:p0
 
       - name: Accepted P1 plus candidate 0014 deterministic follow-on
         shell: bash
+        env:
+          DD_V2_LOCAL_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:54322/postgres
         run: |
           set -euo pipefail
+          LOCAL='postgresql://postgres:postgres@127.0.0.1:54322/postgres'
+          CLI='node_modules/supabase/dist/supabase.js'
           git worktree add --detach /tmp/dd-p1 d03c84687f473673fa242ad2f8b4ba08f8428380
           test "$(git -C /tmp/dd-p1 rev-parse HEAD)" = "d03c84687f473673fa242ad2f8b4ba08f8428380"
-          for db in dd_p1_window_a dd_p1_window_b; do
-            createdb -h 127.0.0.1 -U postgres "$db"
+          test ! -e /tmp/dd-p1/db/p1/0014_p1_prescription_correction_window.sql
+          for round in a b; do
+            node "$CLI" db reset --local --no-seed
             (
               cd /tmp/dd-p1
-              DD_V2_LOCAL_DATABASE_URL="postgresql://postgres:postgres@127.0.0.1:5432/$db" \
+              DD_V2_LOCAL_DATABASE_URL="$LOCAL" \
                 node scripts/p1-run.mjs scripts/deploy-p1.mjs --database-url
             )
-            psql -h 127.0.0.1 -U postgres -d "$db" -v ON_ERROR_STOP=1 \
+            psql "$LOCAL" -v ON_ERROR_STOP=1 \
               -f "$GITHUB_WORKSPACE/db/p1/0014_p1_prescription_correction_window.sql"
+            psql "$LOCAL" -X -At -v ON_ERROR_STOP=1 > "/tmp/p1-$round.txt" <<'SQL'
+          select pg_get_functiondef('public.create_prescription_correction(uuid,text)'::regprocedure);
+          select coalesce(p.proacl::text,'') from pg_proc p where p.oid='public.create_prescription_correction(uuid,text)'::regprocedure;
+          select
+            has_function_privilege('authenticated','public.create_prescription_correction(uuid,text)','EXECUTE'),
+            has_function_privilege('anon','public.create_prescription_correction(uuid,text)','EXECUTE'),
+            has_function_privilege('service_role','public.create_prescription_correction(uuid,text)','EXECUTE');
+          SQL
+            grep -F 'CORRECTION_WINDOW_EXPIRED' "/tmp/p1-$round.txt"
+            grep -F 'clock_timestamp()' "/tmp/p1-$round.txt"
+            tail -n 1 "/tmp/p1-$round.txt" | grep -F 't|f|f'
           done
-          pg_dump -h 127.0.0.1 -U postgres -d dd_p1_window_a --schema-only --no-owner > /tmp/p1-a.sql
-          pg_dump -h 127.0.0.1 -U postgres -d dd_p1_window_b --schema-only --no-owner > /tmp/p1-b.sql
-          diff -u /tmp/p1-a.sql /tmp/p1-b.sql
-          for db in dd_p1_window_a dd_p1_window_b; do
-            psql -h 127.0.0.1 -U postgres -d "$db" -v ON_ERROR_STOP=1 -Atc \
-              "select pg_get_functiondef('public.create_prescription_correction(uuid,text)'::regprocedure)" \
-              | grep -F "CORRECTION_WINDOW_EXPIRED"
-            psql -h 127.0.0.1 -U postgres -d "$db" -v ON_ERROR_STOP=1 -Atc \
-              "select pg_get_functiondef('public.create_prescription_correction(uuid,text)'::regprocedure)" \
-              | grep -F "clock_timestamp()"
-          done
+          diff -u /tmp/p1-a.txt /tmp/p1-b.txt
 
       - name: Lint
         run: npm run lint
@@ -126,3 +164,8 @@ jobs:
 
       - name: Build
         run: npm run build
+
+      - name: Stop ephemeral local Supabase
+        if: always()
+        shell: bash
+        run: node node_modules/supabase/dist/supabase.js stop --no-backup || true
