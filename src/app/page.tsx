@@ -67,8 +67,8 @@ export default function RootPage() {
             </div>
             <div className="mt-6 grid gap-3">
               {workflow.map((item, i) => (
-                <div key={item} className="dd-quick-control dd-workflow-step flex min-h-11 items-center gap-3 px-4 py-3 text-sm font-semibold focus-visible:focus-ring">
-                  <span className="grid size-7 shrink-0 place-items-center rounded-full bg-brand-soft font-semibold text-brand">{i + 1}</span>
+                <div key={item} className="dd-quick-row dd-quick-control flex min-h-11 items-center gap-2.5 rounded-xl px-3 text-sm font-semibold focus-visible:focus-ring">
+                  <span className="grid size-4 shrink-0 place-items-center text-[11px] font-bold text-brand">{i + 1}</span>
                   {item}
                 </div>
               ))}

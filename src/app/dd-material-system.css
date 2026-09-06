@@ -81,9 +81,6 @@
   border-radius: 24px !important;
 }
 
-.dd-workflow-step {
-  border-radius: 18px !important;
-}
 
 .dd-brand-emphasis {
   color: var(--dd-action-violet-deep, #654bd6);

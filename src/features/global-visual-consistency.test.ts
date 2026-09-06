@@ -36,7 +36,6 @@ describe("Doctor's Diary shared visual system reconciliation", () => {
     expect(css).toContain(".dd-material-record.dd-record-pearl");
     expect(css).toContain(".dd-material-panel.dd-panel-pearl");
     expect(css).toContain(".dd-public-feature-card");
-    expect(css).toContain(".dd-workflow-step");
     expect(css).toContain("prefers-reduced-transparency: reduce");
     expect(css).toContain("prefers-reduced-motion: reduce");
     expect(css).toContain("@supports not ((backdrop-filter");
@@ -70,7 +69,7 @@ describe("Doctor's Diary shared visual system reconciliation", () => {
     expect(home).toContain("dd-primary inline-flex min-h-11");
     expect(home).toContain("dd-secondary inline-flex min-h-11");
     expect(home).toContain("dd-material-panel dd-panel-pearl dd-public-card");
-    expect(home).toContain("dd-quick-control dd-workflow-step");
+    expect(home).toContain("dd-quick-row dd-quick-control flex min-h-11 items-center gap-2.5 rounded-xl px-3");
     expect(home).toContain("dd-record-pearl dd-public-feature-card");
     expect(home).toContain("dd-material-panel dd-panel-pearl rounded-[2rem]");
   });
@@ -131,8 +130,9 @@ describe("Doctor's Diary shared visual system reconciliation", () => {
     expect(liquid).toContain(".dd-quick-control:hover");
     expect(read("src/app/(app)/dashboard/page.tsx")).toContain("dd-quick-row dd-quick-control");
     const home = read("src/app/page.tsx");
-    expect(home).toContain("dd-quick-control dd-workflow-step");
-    expect(home).not.toContain("dd-record-pearl dd-workflow-step");
+    expect(home).toContain("dd-quick-row dd-quick-control flex min-h-11 items-center gap-2.5 rounded-xl px-3");
+    expect(home).not.toContain("dd-workflow-step");
+    expect(home).toContain("size-4 shrink-0 place-items-center text-[11px] font-bold text-brand");
   });
 
   it("keeps Finder candidate glass neutral and removes the visible development footer", () => {
