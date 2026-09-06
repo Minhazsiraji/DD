@@ -373,12 +373,12 @@ function FinderPanel({
           {selected ? (
             <div className="border-t border-hairline p-3.5">
               <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-                <Link href={`/patients/${selected.id}`} className="inline-flex min-h-11 items-center justify-center gap-1.5 rounded-xl border border-hairline bg-white px-3 text-[13px] font-semibold text-ink hover:bg-surface-muted focus-visible:focus-ring">
+                <Link href={`/patients/${selected.id}`} className="inline-flex min-h-11 w-full items-center justify-center gap-1.5 rounded-xl border border-hairline bg-white px-3 text-[13px] font-semibold text-ink hover:bg-surface-muted focus-visible:focus-ring sm:w-auto">
                   <ExternalLink className="size-3.5" aria-hidden="true" />
                   Open patient
                 </Link>
                 {selected.canClinical && !operationalOnly ? (
-                  <div className="min-w-0 flex-1">
+                  <div className="min-w-0 w-full flex-1 [&_button]:w-full sm:w-auto sm:[&_button]:w-auto">
                     <DoctorConsultationLauncher
                       patientId={selected.id}
                       patientName={selected.fullName}
