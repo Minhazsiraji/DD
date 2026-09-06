@@ -141,9 +141,18 @@ jobs:
         shell: bash
         run: npx supabase start
 
+      - name: Install PostgreSQL 17 client for deterministic dump
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client-17
+          /usr/lib/postgresql/17/bin/pg_dump --version
+
       - name: Full P0 deployment determinism
         env:
           DD_V2_LOCAL_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:54322/postgres
+          PATH: /usr/lib/postgresql/17/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
         run: npm run db:verify:determinism
 
       - name: Stop local Supabase substrate
