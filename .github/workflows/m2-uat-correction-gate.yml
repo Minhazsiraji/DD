@@ -19,12 +19,12 @@ jobs:
       NOTIFICATION_MODE: mock
       PAYMENT_MODE: mock
       M2_BASE: a6ead21013ef60f617d81b45f28cd1047d551af8
-      M2_TARGET: f966f227110b4b4cc755d7b411fd7b559b5f87cd
+      M2_TARGET: e242bac9240cbc8af1dfb5ff31362d771c18b3dc
     steps:
       - name: Checkout exact M2 visual candidate
         uses: actions/checkout@v4
         with:
-          ref: f966f227110b4b4cc755d7b411fd7b559b5f87cd
+          ref: e242bac9240cbc8af1dfb5ff31362d771c18b3dc
           fetch-depth: 0
 
       - name: Confirm exact candidate
