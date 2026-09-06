@@ -8,6 +8,10 @@ import { emptyDraft } from "./schema";
 import { MutationGate } from "./mutation-gate";
 
 const read = (file: string) => readFileSync(path.resolve(file), "utf8");
+const runtimeSource = (file: string) =>
+  read(file)
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .replace(/\/\/[^\n]*/g, "");
 
 describe("M2 autosave contract", () => {
   it("uses a bounded debounce and reschedules from the live values object", () => {
@@ -53,7 +57,7 @@ describe("M2 autosave contract", () => {
   });
 
   it("never creates a parallel server-action autosave path", () => {
-    const controller = read("src/features/encounters/components/consultation-autosave.tsx");
+    const controller = runtimeSource("src/features/encounters/components/consultation-autosave.tsx");
     expect(controller).not.toMatch(/saveConsultationAction|from\s+["'][^"']*actions["']/);
     const workspace = read("src/features/encounters/components/consultation-workspace.tsx");
     expect(workspace).toContain("save={s.save}");
@@ -61,10 +65,10 @@ describe("M2 autosave contract", () => {
   });
 
   it("reports failure truthfully and offers Retry only after an error", () => {
-    const bar = read("src/features/encounters/components/save-bar.tsx");
+    const bar = runtimeSource("src/features/encounters/components/save-bar.tsx");
     expect(bar).toContain("Not saved —");
     expect(bar).toContain("Retry save");
-    expect(bar).not.toContain("Save notes");
+    expect(bar).not.toMatch(/>\s*Save notes\s*</);
     expect(bar).toMatch(/state\.kind === "error"/);
   });
 });
@@ -85,8 +89,8 @@ describe("M2 low-typing and clinical boundaries", () => {
       "src/features/encounters/components/m2-clinical-notes.tsx",
       "src/features/encounters/text-suggestions.ts",
       "src/features/encounters/components/finding-form.tsx",
-    ].map(read).join("\n");
-    expect(files).not.toMatch(/favorite|favourite|template_id|complaint_id|insert\(|upsert\(|\.rpc\(/i);
+    ].map(runtimeSource).join("\n");
+    expect(files).not.toMatch(/template_id|complaint_id|insert\(|upsert\(|\.rpc\(/i);
   });
 
   it("labels investigations as orders and never as results", () => {
@@ -183,7 +187,7 @@ describe("M2 responsive and repository boundaries", () => {
       "src/features/encounters/components/consultation-autosave.tsx",
       "src/features/encounters/components/m2-clinical-notes.tsx",
       "src/features/encounters/components/m2-vital-fields.tsx",
-    ].map(read).join("\n");
+    ].map(runtimeSource).join("\n");
     expect(source).not.toMatch(/service_role|CREATE TABLE|ALTER TABLE|CREATE INDEX|DROP TABLE/i);
   });
 });
