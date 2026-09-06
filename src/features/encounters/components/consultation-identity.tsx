@@ -25,13 +25,15 @@ function toSeverity(value: string): Severity {
  * Who this consultation is about — pinned to the top of the screen for its
  * whole duration.
  *
- * Not decoration. A doctor moving between patients at speed needs the name,
- * number and allergies in the same place every time, and the single worst
- * outcome this screen can produce is notes written into the wrong record. It is
- * sticky and opaque for that reason: it must stay legible over scrolling text,
- * in a bright chamber, on a cheap screen.
+ * This is a major DD glass container, not a flat admin card. The shared
+ * `dd-profile-summary` primitive owns the one backdrop blur; semantic allergy
+ * strips inside remain opaque enough for safety and never inherit decorative
+ * colour as meaning.
+ *
+ * The component is memoized because consultation typing updates the parent on
+ * every keystroke while identity itself is static for the visit.
  */
-export function ConsultationIdentity({
+export const ConsultationIdentity = React.memo(function ConsultationIdentity({
   patient,
   locationName,
   className,
@@ -50,7 +52,7 @@ export function ConsultationIdentity({
   return (
     <div
       className={cn(
-        "clinical-surface rounded-glass overflow-hidden border-l-4",
+        "dd-material-clinical dd-profile-summary rounded-glass overflow-hidden border-l-4",
         flagged ? "border-l-danger" : "border-l-brand",
         className,
       )}
@@ -83,7 +85,7 @@ export function ConsultationIdentity({
       </div>
 
       {(patient.bloodGroup || patient.conditions.length > 0) && (
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 border-t border-hairline px-4 py-2 text-[13px]">
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 border-t border-white/45 px-4 py-2 text-[13px]">
           {/*
             Through the label map, never raw. The database stores B_POS; a
             clinical strip that prints "B_POS" is showing a doctor a column
@@ -107,7 +109,7 @@ export function ConsultationIdentity({
       )}
 
       {alerts.length > 0 ? (
-        <ul className="divide-y divide-hairline border-t border-hairline">
+        <ul className="divide-y divide-white/45 border-t border-white/45">
           {alerts.map((alert) => (
             <li key={alert.id} className="flex items-center gap-2 px-4 py-2 text-[13px] text-ink">
               {severityIcon(toSeverity(alert.severity), "size-4 shrink-0")}
@@ -118,4 +120,4 @@ export function ConsultationIdentity({
       ) : null}
     </div>
   );
-}
+});
