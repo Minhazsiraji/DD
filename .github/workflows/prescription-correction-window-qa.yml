@@ -141,18 +141,37 @@ jobs:
         shell: bash
         run: npx supabase start
 
-      - name: Install PostgreSQL 17 client for deterministic dump
+      - name: Use PostgreSQL 17 pg_dump from local Supabase DB container
         shell: bash
         run: |
           set -euo pipefail
-          sudo apt-get update
-          sudo apt-get install -y postgresql-client-17
-          /usr/lib/postgresql/17/bin/pg_dump --version
+          wrapper_dir="$RUNNER_TEMP/dd-pg17-bin"
+          mkdir -p "$wrapper_dir"
+          cat > "$wrapper_dir/pg_dump" <<'SH'
+          #!/usr/bin/env bash
+          set -euo pipefail
+          container_id="$(docker ps --format '{{.ID}} {{.Ports}}' | awk '/54322->5432\/tcp/ {print $1; exit}')"
+          test -n "$container_id"
+          if [[ "$#" -eq 1 && "$1" == "--version" ]]; then
+            exec docker exec "$container_id" pg_dump --version
+          fi
+          expected='postgresql://postgres:postgres@127.0.0.1:54322/postgres'
+          target="${!#}"
+          if [[ "$target" != "$expected" ]]; then
+            echo "Refusing non-local or unexpected pg_dump target: $target" >&2
+            exit 64
+          fi
+          args=("${@:1:$#-1}")
+          exec docker exec "$container_id" pg_dump "${args[@]}" -U postgres -d postgres
+          SH
+          chmod +x "$wrapper_dir/pg_dump"
+          echo "$wrapper_dir" >> "$GITHUB_PATH"
+          "$wrapper_dir/pg_dump" --version
+          echo "PASS PostgreSQL 17-compatible pg_dump wrapper is container-local and target-locked"
 
       - name: Full P0 deployment determinism
         env:
           DD_V2_LOCAL_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:54322/postgres
-          PATH: /usr/lib/postgresql/17/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
         run: npm run db:verify:determinism
 
       - name: Stop local Supabase substrate
