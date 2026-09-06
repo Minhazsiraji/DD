@@ -22,12 +22,11 @@ import type { PreviousVisit } from "../previous-visit";
  *
  * So this shows; today's fields stay blank and stay the doctor's.
  *
- * Historical links remember the consultation the doctor came FROM. That means
- * "open previous prescription" and "view full previous consultation" can be
- * explored without forcing the doctor to use browser history to find today's
- * unfinished visit again.
+ * The whole rail uses the shared pearl panel/rim material. It owns one major
+ * container blur; rows inside add none. Memoization also keeps this historical
+ * subtree out of the current-visit keystroke render path.
  */
-export function PreviousVisitCard({
+export const PreviousVisitCard = React.memo(function PreviousVisitCard({
   visit,
   expandedByDefault,
 }: {
@@ -58,7 +57,7 @@ export function PreviousVisitCard({
 
   return (
     <section
-      className="clinical-surface rounded-glass border-l-4 border-l-brand"
+      className="dd-material-panel dd-panel-pearl dd-panel-rim overflow-hidden rounded-glass-lg border-l-4 border-l-brand"
       aria-labelledby="previous-visit-heading"
     >
       <button
@@ -86,12 +85,12 @@ export function PreviousVisitCard({
       </button>
 
       {open ? (
-        <div className="space-y-3 border-t border-hairline px-4 py-3 text-[13px]">
+        <div className="space-y-3 border-t border-white/45 px-4 py-3 text-[13px]">
           <Field label="Chief complaint" value={visit.chiefComplaints} />
           <Field label="History of present illness" value={visit.presentIllness} />
 
           {vitals.length > 0 ? (
-            <div>
+            <div className="dd-material-record dd-record-pearl rounded-xl p-3">
               <Label>Vitals</Label>
               <dl className="mt-1 flex flex-wrap gap-x-5 gap-y-1">
                 {vitals.map(([name, value, unit]) => (
@@ -179,7 +178,7 @@ export function PreviousVisitCard({
       ) : null}
     </section>
   );
-}
+});
 
 function Label({ children }: { children: React.ReactNode }) {
   return (
@@ -203,7 +202,7 @@ function Open({ href, children }: { href: string; children: React.ReactNode }) {
   return (
     <Link
       href={href}
-      className="inline-flex min-h-11 items-center gap-1.5 rounded-lg border border-hairline bg-white px-3 text-[12px] font-semibold text-ink hover:bg-surface-muted focus-visible:focus-ring"
+      className="dd-secondary inline-flex min-h-11 items-center gap-1.5 px-3 text-[12px] font-semibold focus-visible:focus-ring"
     >
       <FileText className="size-3.5" aria-hidden="true" />
       {children}
