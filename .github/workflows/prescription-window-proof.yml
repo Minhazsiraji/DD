@@ -1,0 +1,128 @@
+name: Prescription Correction Window Exact-SHA QA
+
+on:
+  push:
+    branches:
+      - qa/prescription-window-proof-8e050abe
+
+permissions:
+  contents: read
+
+jobs:
+  proof:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      PGPASSWORD: postgres
+      DD_CORRECTION_WINDOW_LOCAL_URL: postgresql://postgres:postgres@127.0.0.1:5432/postgres
+      DD_V2_LOCAL_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/postgres
+      NEXT_PUBLIC_SUPABASE_URL: http://127.0.0.1:54321
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: local-proof-anon-key
+      NEXT_PUBLIC_SITE_URL: http://localhost:3000
+      AI_MODE: mock
+      NOTIFICATION_MODE: mock
+      PAYMENT_MODE: mock
+
+    steps:
+      - name: Checkout exact proof candidate
+        uses: actions/checkout@v4
+        with:
+          ref: 8e050abeabe29aef2cd1372f8252f0ec89ce6465
+          fetch-depth: 0
+
+      - name: Exact SHA and product-diff guard
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "8e050abeabe29aef2cd1372f8252f0ec89ce6465"
+          git diff --check 1147e993158f9abee80a5307cf9932ff95cb43bb..HEAD
+          printf '%s\n' \
+            db/p1/0014_p1_prescription_correction_window.sql \
+            scripts/prescription-correction-window.test.ts \
+            scripts/verify-prescription-correction-window-boundary.mjs \
+            scripts/verify-prescription-correction-window.mjs \
+            supabase/policies/0041_prescription_correction_window.sql \
+            > /tmp/expected-files
+          git diff --name-only 1147e993158f9abee80a5307cf9932ff95cb43bb..HEAD | sort > /tmp/actual-files
+          diff -u /tmp/expected-files /tmp/actual-files
+
+      - name: P0 protected drift guard
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -z "$(git diff --name-only 5d58f154a8fd18129e28614ccc038f0a6af66b8f..HEAD -- \
+            db/schema db/functions db/policies db/grants db/storage db/seed \
+            db/manifest.toml db/golden-p0.sql)"
+
+      - name: Install required Node dependencies
+        run: npm ci
+
+      - name: Committed correction-window static proof
+        run: npx vitest run scripts/prescription-correction-window.test.ts
+
+      - name: PostgreSQL exact boundary proof
+        run: node scripts/verify-prescription-correction-window-boundary.mjs
+
+      - name: PostgreSQL runtime and V2 dynamic proof
+        run: node scripts/verify-prescription-correction-window.mjs
+
+      - name: Existing prescription regression tests
+        run: npx vitest run src/features/prescriptions
+
+      - name: P0 local proof and determinism
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm run db:verify:p0
+          npm run db:verify:determinism
+
+      - name: Accepted P1 plus candidate 0014 deterministic follow-on
+        shell: bash
+        run: |
+          set -euo pipefail
+          git worktree add --detach /tmp/dd-p1 d03c84687f473673fa242ad2f8b4ba08f8428380
+          test "$(git -C /tmp/dd-p1 rev-parse HEAD)" = "d03c84687f473673fa242ad2f8b4ba08f8428380"
+          for db in dd_p1_window_a dd_p1_window_b; do
+            createdb -h 127.0.0.1 -U postgres "$db"
+            (
+              cd /tmp/dd-p1
+              DD_V2_LOCAL_DATABASE_URL="postgresql://postgres:postgres@127.0.0.1:5432/$db" \
+                node scripts/p1-run.mjs scripts/deploy-p1.mjs --database-url
+            )
+            psql -h 127.0.0.1 -U postgres -d "$db" -v ON_ERROR_STOP=1 \
+              -f "$GITHUB_WORKSPACE/db/p1/0014_p1_prescription_correction_window.sql"
+          done
+          pg_dump -h 127.0.0.1 -U postgres -d dd_p1_window_a --schema-only --no-owner > /tmp/p1-a.sql
+          pg_dump -h 127.0.0.1 -U postgres -d dd_p1_window_b --schema-only --no-owner > /tmp/p1-b.sql
+          diff -u /tmp/p1-a.sql /tmp/p1-b.sql
+          for db in dd_p1_window_a dd_p1_window_b; do
+            psql -h 127.0.0.1 -U postgres -d "$db" -v ON_ERROR_STOP=1 -Atc \
+              "select pg_get_functiondef('public.create_prescription_correction(uuid,text)'::regprocedure)" \
+              | grep -F "CORRECTION_WINDOW_EXPIRED"
+            psql -h 127.0.0.1 -U postgres -d "$db" -v ON_ERROR_STOP=1 -Atc \
+              "select pg_get_functiondef('public.create_prescription_correction(uuid,text)'::regprocedure)" \
+              | grep -F "clock_timestamp()"
+          done
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Build
+        run: npm run build
