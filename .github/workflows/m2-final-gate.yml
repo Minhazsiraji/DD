@@ -1,0 +1,79 @@
+name: M2 Final Quality Gate
+
+on:
+  push:
+    branches:
+      - qa/m2-final-gate-2
+
+jobs:
+  quality-gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: https://qa-placeholder.supabase.co
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: qa-placeholder-anon-key
+      NEXT_PUBLIC_SITE_URL: http://localhost:3000
+      AI_MODE: mock
+      NOTIFICATION_MODE: mock
+      PAYMENT_MODE: mock
+    steps:
+      - name: Checkout QA checkpoint
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Focused M2 tests
+        run: npm test -- --run src/features/encounters/m2-consultation-workspace.test.ts src/features/encounters/follow-up-dates.test.ts src/features/encounters/fast-entry.test.ts
+
+      - name: Relevant M1 regression
+        if: success() || failure()
+        run: npm test -- --run src/features/patients/m1-implementation.test.ts src/features/patients/finder-ranking.test.ts src/features/mobile-responsive.test.ts src/components/layout/nav-targets.test.ts
+
+      - name: Full test suite
+        if: success() || failure()
+        run: npm test
+
+      - name: Lint
+        if: success() || failure()
+        run: npm run lint
+
+      - name: Typecheck
+        if: success() || failure()
+        run: npm run typecheck
+
+      - name: Build
+        if: success() || failure()
+        run: npm run build
+
+      - name: Diff whitespace check
+        if: success() || failure()
+        run: git diff --check da622f91289ad840d040761448dcd653105aaec1..5656887b84458875b79ccf7b34518cb0e207f02f
+
+      - name: Protected DB drift check
+        if: success() || failure()
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE=da622f91289ad840d040761448dcd653105aaec1
+          TARGET=5656887b84458875b79ccf7b34518cb0e207f02f
+          drift="$(git diff --name-only "$BASE..$TARGET" -- db/schema db/functions db/policies db/grants db/storage db/seed db/manifest.toml db/golden-p0.sql)"
+          test -z "$drift" || { echo "Protected DB drift:"; echo "$drift"; exit 1; }
+          sql="$(git diff --name-only "$BASE..$TARGET" -- '*.sql')"
+          test -z "$sql" || { echo "SQL changes:"; echo "$sql"; exit 1; }
+          added_service_role="$(git diff -U0 "$BASE..$TARGET" -- 'src/**' ':!**/*.test.ts' ':!**/*.test.tsx' | grep -E '^\+.*service_role' || true)"
+          test -z "$added_service_role" || { echo "service_role added in runtime source:"; echo "$added_service_role"; exit 1; }
+
+      - name: Preserve Seoul region
+        if: success() || failure()
+        shell: bash
+        run: |
+          node -e 'const v=require("./vercel.json"); if(JSON.stringify(v.regions)!==JSON.stringify(["icn1"])) { console.error(v.regions); process.exit(1) }'
