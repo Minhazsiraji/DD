@@ -33,7 +33,7 @@ export default function RootPage() {
           <p className="dd-material-record dd-record-pearl inline-flex rounded-full px-3 py-1 text-sm font-medium text-brand">
             Built around the doctor, not the data-entry screen
           </p>
-          <h1 className="mt-6 max-w-3xl text-5xl font-semibold tracking-tight text-ink sm:text-6xl">
+          <h1 className="mt-6 max-w-3xl text-5xl font-semibold tracking-tight text-brand sm:text-6xl">
             Less screen.
             <br />
             <span className="dd-brand-emphasis">More patient.</span>
@@ -56,7 +56,7 @@ export default function RootPage() {
           </p>
         </div>
 
-        <div className="dd-material-panel dd-panel-pearl dd-public-card p-5 sm:p-7">
+        <div className="dd-material-panel dd-panel-pearl dd-panel-rim dd-public-card p-5 sm:p-7">
           <div className="rounded-3xl bg-white/10 p-6">
             <div className="flex items-center justify-between">
               <div>
