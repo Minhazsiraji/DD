@@ -1,0 +1,119 @@
+name: M2 Integrated Freeze Candidate QA
+
+on:
+  push:
+    branches:
+      - qa/m2-integrated-dbae1020-final
+
+permissions:
+  contents: read
+
+jobs:
+  integrated-qa:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      PRODUCT_SHA: dbae1020ff5060041e229e45f9c8c9bf5fb24621
+      PRODUCT_BASE: da622f91289ad840d040761448dcd653105aaec1
+      QA_WORKFLOW: .github/workflows/m2-integrated-freeze-qa.yml
+      NEXT_PUBLIC_SUPABASE_URL: http://127.0.0.1:54321
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: qa-placeholder-anon-key
+      NEXT_PUBLIC_SITE_URL: http://localhost:3000
+      AI_MODE: mock
+      NOTIFICATION_MODE: mock
+      PAYMENT_MODE: mock
+      VERCEL_ENV: preview
+    steps:
+      - name: Checkout detached exact freeze candidate
+        uses: actions/checkout@v4
+        with:
+          ref: dbae1020ff5060041e229e45f9c8c9bf5fb24621
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Prove exact detached product tree and QA isolation
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$PRODUCT_SHA"
+          test -z "$(git symbolic-ref -q HEAD || true)"
+          test ! -e "$QA_WORKFLOW"
+          test -z "${SUPABASE_SERVICE_ROLE_KEY:-}"
+          test -z "${SUPABASE_DB_URL:-}"
+          test -z "${DATABASE_URL:-}"
+          test -z "${POSTGRES_URL:-}"
+          test -z "${DD_V2_LOCAL_DATABASE_URL:-}"
+          test -z "${DD_CORRECTION_WINDOW_LOCAL_URL:-}"
+          test -z "${VERCEL_TOKEN:-}"
+          echo "PASS exact detached product SHA; temporary QA workflow absent; no protected DB/production credential variables supplied"
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Correction-window static security
+        run: npx vitest run src/features/prescriptions/correction-window-security.test.ts
+
+      - name: Prescription regression suite
+        run: npx vitest run src/features/prescriptions
+
+      - name: Complete M2 test set
+        run: npm test -- --run src/features/encounters/m2-consultation-workspace.test.ts src/features/encounters/m2-responsive-widths.test.ts src/features/encounters/follow-up-dates.test.ts src/features/encounters/fast-entry.test.ts
+
+      - name: M1 regression set
+        run: npm test -- --run src/features/patients/m1-implementation.test.ts src/features/patients/finder-ranking.test.ts src/features/mobile-responsive.test.ts src/components/layout/nav-targets.test.ts
+
+      - name: Full repository test suite
+        run: npm test
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Generate Next route types
+        run: npx next typegen
+
+      - name: Standalone typecheck
+        run: npm run typecheck
+
+      - name: Production build and static generation
+        run: npm run build
+
+      - name: Git diff whitespace check
+        run: git diff --check "$PRODUCT_BASE..$PRODUCT_SHA"
+
+      - name: Protected P0 drift check
+        shell: bash
+        run: |
+          set -euo pipefail
+          drift="$(git diff --name-only "$PRODUCT_BASE..$PRODUCT_SHA" -- db/schema db/functions db/policies db/grants db/storage db/seed db/manifest.toml db/golden-p0.sql)"
+          test -z "$drift" || { echo "Protected P0 drift:"; echo "$drift"; exit 1; }
+          echo "PASS protected P0 drift = 0"
+
+      - name: Verify accepted MD blob identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git hash-object supabase/policies/0041_prescription_correction_window.sql)" = "b89f8759d737afee950567788a715ba9a947f175"
+          test "$(git hash-object db/p1/0014_p1_prescription_correction_window.sql)" = "36fbc67a16950475858e2d9d153380c2b08d6cda"
+          test "$(git hash-object scripts/verify-prescription-correction-window.mjs)" = "f1f120c85200c15b4ab098e0c07fae9dbd042764"
+          test "$(git hash-object scripts/verify-prescription-correction-window-boundary.mjs)" = "f3c792aabe8deaaedd0450f69497ffd37006dc8d"
+          test "$(git hash-object src/features/prescriptions/correction-window-security.test.ts)" = "2e6265fc4754b8fbdb4cb4f67c057ee8727440c3"
+          echo "PASS all five accepted MD blobs unchanged"
+
+      - name: Verify Seoul function region
+        run: node -e 'const v=require("./vercel.json"); const e={"$schema":"https://openapi.vercel.sh/vercel.json",regions:["icn1"]}; if(JSON.stringify(v)!==JSON.stringify(e)){console.error(v);process.exit(1)}; console.log("PASS vercel.json exact icn1 configuration")'
+
+      - name: Final product SHA and cleanliness proof
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$PRODUCT_SHA"
+          test -z "$(git symbolic-ref -q HEAD || true)"
+          test ! -e "$QA_WORKFLOW"
+          test -z "$(git status --porcelain)"
+          echo "PASS product SHA unchanged and checked-out product tree clean"
