@@ -173,7 +173,7 @@ function Section({
   children: React.ReactNode;
 }) {
   return (
-    <section className="space-y-3">
+    <section className="dd-material-panel rounded-[28px] p-3 sm:p-4">
       <div className="flex flex-wrap items-baseline gap-2">
         <h2 className="flex items-center gap-2 text-sm font-semibold text-ink">
           <span className="text-ink-muted" aria-hidden="true">
@@ -184,7 +184,7 @@ function Section({
         <span className="text-xs tabular-nums text-ink-secondary">{count}</span>
         {hint ? <p className="basis-full text-xs text-ink-muted">{hint}</p> : null}
       </div>
-      <ul className="space-y-3">{children}</ul>
+      <ul className="dd-record-stack mt-3">{children}</ul>
     </section>
   );
 }

@@ -15,9 +15,9 @@ export default function SecurityPage() {
           ["Private by default", "Professional profiles remain private unless the doctor explicitly chooses to publish them."],
           ["AI remains draft", "Future AI/Copilot output is prepared for doctor review; AI does not become the final clinical authority."],
         ].map(([title, body]) => (
-          <article key={title} className="rounded-3xl border border-slate-200 bg-white p-6">
+          <article key={title} className="dd-material-record dd-record-aqua dd-public-feature-card p-6">
             <h2 className="font-semibold">{title}</h2>
-            <p className="mt-3 leading-7 text-slate-600">{body}</p>
+            <p className="mt-3 leading-7 text-ink-secondary">{body}</p>
           </article>
         ))}
       </div>

@@ -25,13 +25,13 @@ export function MarketingShell({ children }: { children: ReactNode }) {
             ))}
           </nav>
           <div className="flex items-center gap-2">
-            <Link href="/login" className="hidden h-11 items-center rounded-xl px-4 text-sm font-medium text-ink-secondary hover:bg-white/40 focus-visible:focus-ring sm:inline-flex">Sign in</Link>
-            <Link href="/signup" className="inline-flex h-11 items-center rounded-xl bg-brand px-4 text-sm font-semibold text-white shadow-soft transition hover:bg-brand-hover focus-visible:focus-ring">Start free</Link>
+            <Link href="/login" className="dd-secondary hidden h-11 items-center px-4 text-sm font-medium focus-visible:focus-ring sm:inline-flex">Sign in</Link>
+            <Link href="/signup" className="dd-primary inline-flex h-11 items-center px-4 text-sm font-semibold focus-visible:focus-ring">Start free</Link>
           </div>
         </div>
       </header>
       <main>{children}</main>
-      <footer className="dd-material-panel mt-8 rounded-t-[32px] border-t border-white/80">
+      <footer className="dd-material-panel dd-panel-aqua mt-8 rounded-t-[32px] border-t border-white/80">
         <div className="mx-auto grid max-w-7xl gap-8 px-5 py-10 text-sm text-ink-secondary md:grid-cols-[1.5fr_1fr_1fr] lg:px-8">
           <div>
             <p className="font-semibold text-ink">Doctor&apos;s Diary</p>

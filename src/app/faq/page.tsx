@@ -16,9 +16,9 @@ export default function FaqPage() {
     <MarketingPage eyebrow="FAQ" title="Questions doctors should ask before trusting new clinical software." intro="Clear answers matter more than feature claims.">
       <div className="grid gap-4">
         {faq.map(([q, a]) => (
-          <article key={q} className="rounded-3xl border border-slate-200 bg-white p-6">
+          <article key={q} className="dd-material-record dd-record-aqua dd-public-feature-card p-6">
             <h2 className="font-semibold">{q}</h2>
-            <p className="mt-3 leading-7 text-slate-600">{a}</p>
+            <p className="mt-3 leading-7 text-ink-secondary">{a}</p>
           </article>
         ))}
       </div>

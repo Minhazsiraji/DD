@@ -17,11 +17,11 @@ export default function HowItWorksPage() {
     <MarketingPage eyebrow="How it works" title="From patient context to a safe final prescription." intro="The workflow is designed around the doctor’s decision-making instead of forcing the doctor to become a data-entry operator.">
       <div className="grid gap-4">
         {steps.map(([n, title, body]) => (
-          <article key={n} className="grid gap-4 rounded-3xl border border-slate-200 bg-white p-6 sm:grid-cols-[3rem_1fr]">
-            <span className="grid size-12 place-items-center rounded-2xl bg-teal-50 font-semibold text-teal-700">{n}</span>
+          <article key={n} className="dd-material-record dd-record-aqua dd-workflow-step grid gap-4 p-6 sm:grid-cols-[3rem_1fr]">
+            <span className="grid size-12 place-items-center rounded-2xl bg-brand-soft font-semibold text-brand">{n}</span>
             <div>
               <h2 className="text-lg font-semibold">{title}</h2>
-              <p className="mt-2 leading-7 text-slate-600">{body}</p>
+              <p className="mt-2 leading-7 text-ink-secondary">{body}</p>
             </div>
           </article>
         ))}

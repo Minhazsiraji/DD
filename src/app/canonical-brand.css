@@ -51,6 +51,7 @@ button.bg-primary,
     inset 0 2px 1px rgba(255,255,255,.91),
     inset 0 -2px 4px rgba(48,35,128,.23) !important;
   text-shadow: 0 1px 1px rgba(40,27,106,.22);
+  transition: transform .16s ease, filter .16s ease, box-shadow .16s ease !important;
 }
 
 .dd-primary:hover,
@@ -109,12 +110,19 @@ button.bg-primary:active,
     inset 0 2px 1px rgba(255,255,255,.94),
     inset 0 -2px 4px rgba(59,144,167,.13) !important;
   text-shadow: 0 1px 0 rgba(255,255,255,.62);
+  transition: transform .16s ease, filter .16s ease, box-shadow .16s ease !important;
 }
 
 .dd-secondary:hover {
   color: #046b80 !important;
   filter: brightness(1.025) saturate(1.04);
   transform: translateY(-1px);
+  box-shadow:
+    0 0 0 1px rgba(255,255,255,.82),
+    0 0 16px rgba(89,231,232,.42),
+    0 9px 19px rgba(73,152,176,.23),
+    inset 0 2px 1px rgba(255,255,255,.98),
+    inset 0 -2px 4px rgba(59,144,167,.15) !important;
 }
 
 .dd-secondary:active {
@@ -267,6 +275,36 @@ input[type="radio"] { accent-color: var(--dd-action-focus); }
   .dd-auth-card .dd-approved-contour {
     inset: 6px;
     border-radius: 21px;
+  }
+}
+
+
+@media (prefers-reduced-motion: reduce) {
+  .dd-primary,
+  a.bg-brand,
+  button.bg-brand,
+  a.bg-primary,
+  button.bg-primary,
+  .bg-primary,
+  .dd-secondary {
+    transition: none !important;
+  }
+
+  .dd-primary:hover,
+  .dd-primary:active,
+  a.bg-brand:hover,
+  a.bg-brand:active,
+  button.bg-brand:hover,
+  button.bg-brand:active,
+  a.bg-primary:hover,
+  a.bg-primary:active,
+  button.bg-primary:hover,
+  button.bg-primary:active,
+  .bg-primary:hover,
+  .bg-primary:active,
+  .dd-secondary:hover,
+  .dd-secondary:active {
+    transform: none !important;
   }
 }
 

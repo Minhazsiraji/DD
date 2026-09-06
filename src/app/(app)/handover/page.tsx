@@ -48,8 +48,8 @@ export default async function HandoverPage() {
                 data-interactive="true"
                 className={`flex min-h-16 min-w-0 items-start gap-3 rounded-2xl px-4 py-3 focus-visible:focus-ring sm:items-center sm:justify-between sm:gap-4 ${
                   item.isSuperseded
-                    ? "dd-material-record border-dashed opacity-80 hover:opacity-100"
-                    : "dd-material-record"
+                    ? "dd-material-record dd-record-aqua dd-record-interactive border-dashed opacity-80 hover:opacity-100"
+                    : "dd-material-record dd-record-aqua dd-record-interactive"
                 }`}
               >
                 <span className="min-w-0 flex-1">

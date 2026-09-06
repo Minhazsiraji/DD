@@ -42,12 +42,12 @@ export default async function PublicBookingPage(props: PageProps<"/dr/[slug]/boo
   return (
     <MarketingShell>
       <section className="mx-auto min-w-0 max-w-3xl px-4 py-8 sm:px-5 sm:py-12 lg:px-8 lg:py-20">
-        <Link href={`/dr/${encodeURIComponent(slug)}`} className="inline-flex min-h-11 items-center text-sm font-medium text-teal-700">
+        <Link href={`/dr/${encodeURIComponent(slug)}`} className="inline-flex min-h-11 items-center text-sm font-medium text-brand">
           ← Back to doctor profile
         </Link>
-        <div className="mt-3 min-w-0 rounded-[2rem] border border-slate-200 bg-white p-5 shadow-sm sm:mt-5 sm:p-7">
+        <div className="dd-material-panel dd-panel-aqua mt-3 min-w-0 rounded-[2rem] p-5 sm:mt-5 sm:p-7">
           <h1 className="break-words text-2xl font-semibold tracking-tight sm:text-3xl">Book {doctor.fullName}</h1>
-          <p className="mt-2 break-words text-sm text-slate-600 sm:text-base">
+          <p className="mt-2 break-words text-sm text-ink-secondary sm:text-base">
             Choose a chamber and date first. Only currently available sessions are shown.
           </p>
 
@@ -55,16 +55,16 @@ export default async function PublicBookingPage(props: PageProps<"/dr/[slug]/boo
 
           <form method="get" className="mt-6 grid min-w-0 gap-4 sm:mt-7 sm:grid-cols-2">
             <div className="min-w-0">
-              <label className="text-sm font-semibold text-slate-700">Chamber</label>
+              <label className="text-sm font-semibold text-ink-secondary">Chamber</label>
               <select name="loc" defaultValue={chamber.locationId} className={fieldClass}>
                 {bookable.map((c) => <option key={c.locationId} value={c.locationId}>{c.name}</option>)}
               </select>
             </div>
             <div className="min-w-0">
-              <label className="text-sm font-semibold text-slate-700">Date</label>
+              <label className="text-sm font-semibold text-ink-secondary">Date</label>
               <input name="date" type="date" defaultValue={date} required className={fieldClass} />
             </div>
-            <button className="min-h-11 w-full rounded-xl border border-slate-300 px-4 py-3 text-sm font-semibold sm:col-span-2">
+            <button className="dd-secondary min-h-11 w-full px-4 py-3 text-sm font-semibold focus-visible:focus-ring sm:col-span-2">
               Check availability
             </button>
           </form>
@@ -75,7 +75,7 @@ export default async function PublicBookingPage(props: PageProps<"/dr/[slug]/boo
               <input type="hidden" name="date" value={date} />
 
               <fieldset className="min-w-0">
-                <legend className="text-sm font-semibold text-slate-700">Available session/time</legend>
+                <legend className="text-sm font-semibold text-ink-secondary">Available session/time</legend>
                 {slots.length === 0 ? (
                   <p className="mt-3 break-words rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-900">
                     No online availability for this date.
@@ -83,7 +83,7 @@ export default async function PublicBookingPage(props: PageProps<"/dr/[slug]/boo
                 ) : (
                   <div className="mt-3 grid min-w-0 gap-2 sm:grid-cols-2">
                     {slots.map((slot) => (
-                      <label key={slot.localTime} className="flex min-h-11 min-w-0 cursor-pointer items-center gap-3 rounded-xl border border-slate-200 px-4 py-3">
+                      <label key={slot.localTime} className="dd-material-record dd-record-aqua dd-record-interactive flex min-h-11 min-w-0 cursor-pointer items-center gap-3 rounded-xl px-4 py-3 focus-within:focus-ring">
                         <input type="radio" name="localTime" value={slot.localTime} required className="shrink-0" />
                         <span className="min-w-0 break-words">{slot.label}</span>
                       </label>
@@ -95,16 +95,16 @@ export default async function PublicBookingPage(props: PageProps<"/dr/[slug]/boo
               {slots.length > 0 && (
                 <>
                   <div className="min-w-0">
-                    <label className="text-sm font-semibold text-slate-700">Patient name</label>
+                    <label className="text-sm font-semibold text-ink-secondary">Patient name</label>
                     <input name="patientName" required maxLength={120} className={fieldClass} />
                   </div>
                   <div className="grid min-w-0 gap-4 sm:grid-cols-2">
                     <div className="min-w-0">
-                      <label className="text-sm font-semibold text-slate-700">Mobile number</label>
+                      <label className="text-sm font-semibold text-ink-secondary">Mobile number</label>
                       <input name="phone" required inputMode="tel" maxLength={24} className={fieldClass} />
                     </div>
                     <div className="min-w-0">
-                      <label className="text-sm font-semibold text-slate-700">Sex</label>
+                      <label className="text-sm font-semibold text-ink-secondary">Sex</label>
                       <select name="sex" defaultValue="UNKNOWN" className={fieldClass}>
                         <option value="UNKNOWN">Prefer not to say</option>
                         <option value="MALE">Male</option>
@@ -114,11 +114,11 @@ export default async function PublicBookingPage(props: PageProps<"/dr/[slug]/boo
                     </div>
                   </div>
                   <div className="min-w-0">
-                    <label className="text-sm font-semibold text-slate-700">Reason for visit (optional)</label>
+                    <label className="text-sm font-semibold text-ink-secondary">Reason for visit (optional)</label>
                     <textarea name="reason" maxLength={300} rows={3} className={fieldClass} />
-                    <p className="mt-1 break-words text-xs text-slate-500">Please keep this brief. Do not use this form for emergencies.</p>
+                    <p className="mt-1 break-words text-xs text-ink-muted">Please keep this brief. Do not use this form for emergencies.</p>
                   </div>
-                  <button className="min-h-11 w-full rounded-xl bg-teal-600 px-5 py-3 text-sm font-semibold text-white">
+                  <button className="dd-primary min-h-11 w-full px-5 py-3 text-sm font-semibold focus-visible:focus-ring">
                     Confirm booking
                   </button>
                 </>
