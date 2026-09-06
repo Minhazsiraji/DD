@@ -244,6 +244,13 @@ describe("M1 Universal Finder interaction and mobile contract", () => {
     expect(source).toMatch(/role="listbox"/);
   });
 
+  it("clears Finder state before patient navigation so persistent app chrome cannot leak results onto the profile", () => {
+    const source = finder();
+    expect(source).toContain("clearFinderForNavigation");
+    expect(source).toMatch(/onClick=\{onNavigate\}/);
+    expect(source).toMatch(/clearFinderForNavigation\(\);[\s\S]{0,80}router\.push/);
+  });
+
   it("slash shortcut refuses to fire inside typing controls or consultation", () => {
     expect(finder()).toMatch(/input, textarea, select/);
     expect(finder()).toMatch(/pathname\.startsWith\("\/consultation\/"\)/);

@@ -78,6 +78,18 @@ export function GlobalPatientFinder() {
     window.setTimeout(() => mobileTriggerRef.current?.focus(), 0);
   }, [updateTerm]);
 
+  const clearFinderForNavigation = React.useCallback(() => {
+    updateTerm("");
+    setMobileOpen(false);
+  }, [updateTerm]);
+
+  React.useEffect(() => {
+    // The app shell persists across routes. Clear any residual Finder state on
+    // the next task so deeper child navigations cannot carry it onto a new page.
+    const timer = window.setTimeout(clearFinderForNavigation, 0);
+    return () => window.clearTimeout(timer);
+  }, [pathname, clearFinderForNavigation]);
+
   React.useEffect(() => {
     if (!canSearch) {
       requestSeq.current += 1;
@@ -142,13 +154,10 @@ export function GlobalPatientFinder() {
       setSelectedIndex((index) => Math.max(0, index - 1));
     } else if (event.key === "Enter" && selected) {
       event.preventDefault();
+      clearFinderForNavigation();
       router.push(`/patients/${selected.id}`);
-      if (mobileOpen) {
-        updateTerm("");
-        setMobileOpen(false);
-      }
     }
-  }, [canSearch, closeMobileFinder, mobileOpen, patients.length, router, selected, updateTerm]);
+  }, [canSearch, clearFinderForNavigation, closeMobileFinder, mobileOpen, patients.length, router, selected, updateTerm]);
 
   const refreshCurrentSearch = retryCurrentSearch;
 
@@ -195,6 +204,7 @@ export function GlobalPatientFinder() {
             identifierKind={identifierKind}
             onRetry={retryCurrentSearch}
             onContextChanged={refreshCurrentSearch}
+            onNavigate={clearFinderForNavigation}
             className="dd-finder-panel absolute left-0 top-[calc(100%+8px)] z-50 w-[min(680px,calc(100vw-2rem))]"
           />
         ) : null}
@@ -262,6 +272,7 @@ export function GlobalPatientFinder() {
                     identifierKind={identifierKind}
                     onRetry={retryCurrentSearch}
                     onContextChanged={refreshCurrentSearch}
+                    onNavigate={clearFinderForNavigation}
                     embedded
                   />
                 ) : null
@@ -300,6 +311,7 @@ function FinderPanel({
   identifierKind,
   onRetry,
   onContextChanged,
+  onNavigate,
   className,
   embedded = false,
 }: {
@@ -315,6 +327,7 @@ function FinderPanel({
   identifierKind: FinderIdentifierKind;
   onRetry: () => void;
   onContextChanged: () => void;
+  onNavigate: () => void;
   className?: string;
   embedded?: boolean;
 }) {
@@ -373,7 +386,11 @@ function FinderPanel({
           {selected ? (
             <div className="border-t border-hairline p-3.5">
               <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-                <Link href={`/patients/${selected.id}`} className="inline-flex min-h-11 w-full items-center justify-center gap-1.5 rounded-xl border border-hairline bg-white px-3 text-[13px] font-semibold text-ink hover:bg-surface-muted focus-visible:focus-ring sm:w-auto">
+                <Link
+                  href={`/patients/${selected.id}`}
+                  onClick={onNavigate}
+                  className="dd-secondary inline-flex min-h-11 w-full items-center justify-center gap-1.5 rounded-xl px-3 text-[13px] font-semibold focus-visible:focus-ring sm:w-auto"
+                >
                   <ExternalLink className="size-3.5" aria-hidden="true" />
                   Open patient
                 </Link>
@@ -411,7 +428,7 @@ function FinderPanel({
             </>
           )}
           {canRegister ? (
-            <Link href={identifierKind === "PHONE" ? `/patients/new?phone=${encodeURIComponent(term)}` : identifierKind === "NAME" ? `/patients/new?name=${encodeURIComponent(term)}` : "/patients/new"} className="mt-3 inline-flex min-h-11 items-center justify-center gap-1.5 rounded-xl bg-brand px-3.5 text-[13px] font-semibold text-white shadow-soft focus-visible:focus-ring">
+            <Link href={identifierKind === "PHONE" ? `/patients/new?phone=${encodeURIComponent(term)}` : identifierKind === "NAME" ? `/patients/new?name=${encodeURIComponent(term)}` : "/patients/new"} onClick={onNavigate} className="mt-3 inline-flex min-h-11 items-center justify-center gap-1.5 rounded-xl bg-brand px-3.5 text-[13px] font-semibold text-white shadow-soft focus-visible:focus-ring">
               <UserPlus className="size-4" aria-hidden="true" />
               Register a new patient
             </Link>

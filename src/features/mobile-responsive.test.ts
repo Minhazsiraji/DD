@@ -97,6 +97,13 @@ describe("P0 mobile responsive boundaries", () => {
     expect(finder).toContain("sm:w-auto");
   });
 
+  it("uses the approved aqua secondary CTA for Open patient", () => {
+    const finder = source("src/features/patients/components/global-patient-finder.tsx");
+    expect(finder).toContain("dd-secondary inline-flex min-h-11 w-full");
+    expect(finder).toContain("Open patient");
+    expect(finder).toContain("onClick={onNavigate}");
+  });
+
   it("uses one DD-owned clear control in Finder search fields", () => {
     const visual = source("src/app/app-unified-liquid.css");
     const finder = source("src/features/patients/components/global-patient-finder.tsx");
