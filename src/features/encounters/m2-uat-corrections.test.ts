@@ -55,7 +55,8 @@ describe("M2 targeted interaction render containment", () => {
     const workspace = read("src/features/encounters/components/consultation-workspace.tsx");
     const hook = read("src/features/encounters/use-consultation.ts");
     expect(workspace).toContain("const s = useConsultation(consultation)");
-    expect(hook).toContain("const gateRef = React.useRef(new MutationGate())");
-    expect(hook).toMatch(/setValues\(\(prev\) => \(\{ \.\.\.prev, \[key\]: value \}\)\)/);
+    expect(hook).toContain("const gate = React.useRef(new MutationGate()).current");
+    expect(hook).toContain("commitValues({ ...liveValues.current, [key]: value })");
+    expect(hook).toContain('prev.kind === "conflict" || prev.kind === "saving" ? prev : { kind: "dirty" }');
   });
 });
