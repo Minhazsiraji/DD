@@ -53,9 +53,9 @@ describe("M2 section navigation", () => {
     expect(modules).not.toContain("SYMPTOMS");
 
     const all = jumpTargets(allVisible()).map((target) => target.module);
-    for (const module of RX_MODULES) {
-      if (MODULE_SOURCE[module].kind === "patient-record") continue;
-      expect(all).toContain(module);
+    for (const rxModule of RX_MODULES) {
+      if (MODULE_SOURCE[rxModule].kind === "patient-record") continue;
+      expect(all).toContain(rxModule);
     }
   });
 
