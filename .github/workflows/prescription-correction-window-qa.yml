@@ -59,19 +59,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          cat > /tmp/vitest-correction.config.mjs <<'EOF'
-          export default {
-            root: process.cwd(),
-            test: {
-              environment: "node",
-              include: [
-                "scripts/prescription-correction-window.test.ts",
-                "src/features/prescriptions/prescription-correction-window-boundary.test.ts",
-              ],
-            },
-          };
-          EOF
-          npx vitest run --config /tmp/vitest-correction.config.mjs
+          mkdir -p src/__qa
+          cp scripts/prescription-correction-window.test.ts src/__qa/prescription-correction-window.test.ts
+          cmp scripts/prescription-correction-window.test.ts src/__qa/prescription-correction-window.test.ts
+          npx vitest run src/__qa/prescription-correction-window.test.ts src/features/prescriptions/prescription-correction-window-boundary.test.ts
+          rm -rf src/__qa
 
       - name: Exact PostgreSQL boundary proof
         run: node scripts/verify-prescription-correction-window-boundary.mjs
@@ -98,6 +90,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          test -z "$(git status --porcelain)"
           git diff --check 1147e993158f9abee80a5307cf9932ff95cb43bb..HEAD
           test -z "$(git diff --name-only 1147e993158f9abee80a5307cf9932ff95cb43bb..HEAD -- db/schema db/functions db/policies db/grants db/storage db/seed db/manifest.toml db/golden-p0.sql)"
           echo "PASS git diff --check"
