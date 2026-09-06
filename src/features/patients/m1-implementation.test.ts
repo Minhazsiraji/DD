@@ -60,6 +60,18 @@ describe("M1 doctor repository and finder security", () => {
     expect(source.indexOf('request.eq("owner_doctor_id", ownerDoctorId)')).toBeLessThan(source.indexOf('.limit(limit)'));
   });
 
+  it("clears stale Finder candidates and actions immediately for every new request", () => {
+    const source = finder();
+    const reset = source.slice(source.indexOf("const resetForNewRequest"), source.indexOf("const updateTerm"));
+    expect(reset).toContain("requestSeq.current += 1");
+    expect(reset).toContain("setPatients([])");
+    expect(reset).toContain("setSelectedIndex(-1)");
+    expect(reset).toContain("setCanRegister(false)");
+    expect(reset).toContain("setOperationalOnly(false)");
+    expect(source).toContain("const showResultsPanel = showPanel && !loading");
+    expect(source).not.toContain("Searching…");
+  });
+
   it("27 keeps shared Top Bar clinical actions capability-safe", () => {
     expect(finder()).toMatch(/selected\.canClinical && !operationalOnly/);
     expect(context()).toMatch(/doctorId && roleAllowsDoctor && capability && activeAtLocation/);

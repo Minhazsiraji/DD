@@ -31,7 +31,7 @@ export function GlobalPatientFinder() {
   const [operationalOnly, setOperationalOnly] = React.useState(false);
   const [loading, setLoading] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
-  const [selectedIndex, setSelectedIndex] = React.useState(0);
+  const [selectedIndex, setSelectedIndex] = React.useState(-1);
   const [mobileOpen, setMobileOpen] = React.useState(false);
   const [retryKey, setRetryKey] = React.useState(0);
 
@@ -39,20 +39,30 @@ export function GlobalPatientFinder() {
   const identifierKind = classifyFinderTerm(trimmed);
   const showPanel = trimmed.length >= 2;
   const canSearch = showPanel && identifierKind !== "INVALID";
+  const showResultsPanel = showPanel && !loading;
   const selected = patients[selectedIndex] ?? null;
 
-  function updateTerm(next: string) {
+  const resetForNewRequest = React.useCallback((nextLoading: boolean) => {
+    requestSeq.current += 1;
+    setPatients([]);
+    setError(null);
+    setSelectedIndex(-1);
+    setCanRegister(false);
+    setOperationalOnly(false);
+    setLoading(nextLoading);
+  }, []);
+
+  const updateTerm = React.useCallback((next: string) => {
+    const nextTrimmed = next.trim();
+    const nextCanSearch = nextTrimmed.length >= 2 && classifyFinderTerm(nextTrimmed) !== "INVALID";
     setTerm(next);
-    if (next.trim().length < 2 || classifyFinderTerm(next) === "INVALID") {
-      requestSeq.current += 1;
-      setPatients([]);
-      setError(null);
-      setLoading(false);
-      setSelectedIndex(0);
-      setCanRegister(false);
-      setOperationalOnly(false);
-    }
-  }
+    resetForNewRequest(nextCanSearch);
+  }, [resetForNewRequest]);
+
+  const retryCurrentSearch = React.useCallback(() => {
+    resetForNewRequest(canSearch);
+    setRetryKey((key) => key + 1);
+  }, [canSearch, resetForNewRequest]);
 
   React.useEffect(() => {
     if (!canSearch) {
@@ -72,7 +82,7 @@ export function GlobalPatientFinder() {
         setCanRegister(false);
         setOperationalOnly(false);
         setError(result.message);
-        setSelectedIndex(0);
+        setSelectedIndex(-1);
         return;
       }
       setPatients(result.patients);
@@ -120,15 +130,15 @@ export function GlobalPatientFinder() {
       updateTerm("");
       setMobileOpen(false);
     }
-  }, [canSearch, patients.length, router, selected]);
+  }, [canSearch, patients.length, router, selected, updateTerm]);
 
-  const refreshCurrentSearch = React.useCallback(() => setRetryKey((key) => key + 1), []);
+  const refreshCurrentSearch = retryCurrentSearch;
 
   const inputProps = (id: string) => ({
     id,
     role: "combobox" as const,
     "aria-autocomplete": "list" as const,
-    "aria-expanded": showPanel,
+    "aria-expanded": showResultsPanel,
     "aria-controls": `${id}-listbox`,
     "aria-activedescendant": selected ? `${id}-option-${selected.id}` : undefined,
     value: term,
@@ -153,7 +163,7 @@ export function GlobalPatientFinder() {
           {...inputProps("global-patient-finder")}
         />
         <InputTail loading={loading} term={term} onClear={() => updateTerm("")} />
-        {showPanel ? (
+        {showResultsPanel ? (
           <FinderPanel
             id="global-patient-finder"
             term={trimmed}
@@ -161,12 +171,11 @@ export function GlobalPatientFinder() {
             selectedIndex={selectedIndex}
             setSelectedIndex={setSelectedIndex}
             selected={selected}
-            loading={loading}
             error={error}
             canRegister={canRegister}
             operationalOnly={operationalOnly}
             identifierKind={identifierKind}
-            onRetry={() => setRetryKey((key) => key + 1)}
+            onRetry={retryCurrentSearch}
             onContextChanged={refreshCurrentSearch}
             className="dd-finder-panel absolute left-0 top-[calc(100%+8px)] z-50 w-[min(680px,calc(100vw-2rem))]"
           />
@@ -212,21 +221,22 @@ export function GlobalPatientFinder() {
             </div>
             <div className="mt-3 min-h-0 flex-1 overflow-y-auto">
               {showPanel ? (
-                <FinderPanel
-                  id="mobile-patient-finder"
-                  term={trimmed}
-                  patients={patients}
-                  selectedIndex={selectedIndex}
-                  setSelectedIndex={setSelectedIndex}
-                  selected={selected}
-                  loading={loading}
-                  error={error}
-                  canRegister={canRegister}
-                  operationalOnly={operationalOnly}
-                  identifierKind={identifierKind}
-                  onRetry={() => setRetryKey((key) => key + 1)}
-                  onContextChanged={refreshCurrentSearch}
-                />
+                showResultsPanel ? (
+                  <FinderPanel
+                    id="mobile-patient-finder"
+                    term={trimmed}
+                    patients={patients}
+                    selectedIndex={selectedIndex}
+                    setSelectedIndex={setSelectedIndex}
+                    selected={selected}
+                    error={error}
+                    canRegister={canRegister}
+                    operationalOnly={operationalOnly}
+                    identifierKind={identifierKind}
+                    onRetry={retryCurrentSearch}
+                    onContextChanged={refreshCurrentSearch}
+                  />
+                ) : null
               ) : (
                 <p className="px-2 py-6 text-center text-sm text-ink-secondary">Type at least 2 characters to search by name, phone or patient number.</p>
               )}
@@ -255,7 +265,6 @@ function FinderPanel({
   selectedIndex,
   setSelectedIndex,
   selected,
-  loading,
   error,
   canRegister,
   operationalOnly,
@@ -270,7 +279,6 @@ function FinderPanel({
   selectedIndex: number;
   setSelectedIndex: (index: number) => void;
   selected: FinderPatientResult | null;
-  loading: boolean;
   error: string | null;
   canRegister: boolean;
   operationalOnly: boolean;
@@ -280,7 +288,7 @@ function FinderPanel({
   className?: string;
 }) {
   return (
-    <div className={cn("dd-app-panel overflow-hidden rounded-2xl border border-hairline bg-white/95 shadow-xl", className)}>
+    <div className={cn("dd-app-panel dd-finder-results overflow-hidden rounded-2xl border border-hairline shadow-xl", className)}>
       {identifierKind === "INVALID" ? (
         <div className="p-4">
           <p className="text-sm font-semibold text-ink">Enter a name, phone number or patient number</p>
@@ -317,11 +325,11 @@ function FinderPanel({
                   <div className="min-w-0">
                     <p className="truncate text-sm font-semibold text-ink">{patient.fullName}</p>
                     <p className="mt-0.5 flex flex-wrap gap-x-2 text-xs text-ink-secondary">
-                      <span className="font-mono text-ink-muted">{patient.patientNumber}</span>
+                      <span className="font-mono text-ink-secondary">{patient.patientNumber}</span>
                       <span>{formatAge({ years: patient.ageYears, isApproximate: patient.ageApproximate })}</span>
                       <span>{SEX_LABEL[patient.sex as keyof typeof SEX_LABEL] ?? patient.sex}</span>
                     </p>
-                    {patient.phone ? <p className="mt-0.5 text-xs tabular-nums text-ink-muted">{patient.phone}</p> : null}
+                    {patient.phone ? <p className="mt-0.5 text-xs tabular-nums text-ink-secondary">{patient.phone}</p> : null}
                   </div>
                   <StateChip state={patient.contextState} allergyCount={patient.allergyCount} />
                 </div>
@@ -355,7 +363,7 @@ function FinderPanel({
             </div>
           ) : null}
         </>
-      ) : !loading ? (
+      ) : (
         <div className="p-4">
           {identifierKind === "NAME" && operationalOnly ? (
             <>
@@ -377,8 +385,6 @@ function FinderPanel({
             <p className="mt-3 text-xs text-ink-secondary">Use Appointments to add a walk-in through the authorised desk workflow.</p>
           ) : null}
         </div>
-      ) : (
-        <p className="p-4 text-sm text-ink-secondary">Searching…</p>
       )}
     </div>
   );

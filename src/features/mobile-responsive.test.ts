@@ -96,6 +96,14 @@ describe("P0 mobile responsive boundaries", () => {
     expect(visual).toContain(".dd-patient-finder-input::-webkit-search-cancel-button");
   });
 
+  it("keeps Finder result glass readable without a second loading strip", () => {
+    const finder = source("src/features/patients/components/global-patient-finder.tsx");
+    const visual = source("src/app/app-unified-liquid.css");
+    expect(finder).toContain("dd-finder-results");
+    expect(finder).not.toContain("Searching…");
+    expect(visual).toMatch(/\.dd-app-panel\.dd-finder-results\s*\{[^}]*background:\s*rgba\(255,255,255,\.13\)\s*!important/);
+  });
+
   it("keeps the desktop Finder panel absolutely positioned below the search field", () => {
     const visual = source("src/app/app-unified-liquid.css");
     const finder = source("src/features/patients/components/global-patient-finder.tsx");

@@ -136,6 +136,12 @@ nav.glass-strong {
   position: absolute !important;
 }
 
+/* Finder candidates need a little more visual density than summary glass so
+   identity details stay readable over the app background without losing glass. */
+.dd-app-panel.dd-finder-results {
+  background: rgba(255,255,255,.13) !important;
+}
+
 .dd-app-panel::after {
   content: "";
   position: absolute;
