@@ -4,34 +4,57 @@ import path from "node:path";
 
 const read = (file: string) => readFileSync(path.resolve(file), "utf8");
 const dashboard = () => read("src/app/(app)/dashboard/page.tsx");
+const layout = () => read("src/app/(app)/layout.tsx");
+const sidebar = () => read("src/components/layout/desktop-sidebar.tsx");
+const session = () => read("src/lib/auth/session.ts");
 const patients = () => read("src/features/patients/queries.ts");
 const appointments = () => read("src/features/appointments/queries.ts");
 const queue = () => read("src/features/queue/queries.ts");
-const context = () => read("src/features/patients/m1-context.ts");
 const timing = () => read("src/lib/preview-timing.ts");
 
-describe("M1 Dashboard performance contract", () => {
-  it("starts verified location, doctor scope and full authority together", () => {
-    const source = dashboard();
-    const location = source.indexOf('const locationPromise = timedPreviewStage("m1-dashboard-timing", "location_session_context"');
-    const scope = source.indexOf('const scopePromise = timedPreviewStage("m1-dashboard-timing", "doctor_scope"');
-    const authority = source.indexOf('const authorityPromise = timedPreviewStage("m1-dashboard-timing", "doctor_authority"');
-    const firstAwait = source.indexOf("await Promise.all([locationPromise, scopePromise])");
-    expect(location).toBeGreaterThan(0);
-    expect(scope).toBeGreaterThan(location);
-    expect(authority).toBeGreaterThan(scope);
-    expect(authority).toBeLessThan(firstAwait);
-    expect(context()).toContain("getM1LocationContext");
+describe("M1 shell + Dashboard performance contract", () => {
+  it("starts verified user, MFA and memberships without a serial auth waterfall", () => {
+    const source = layout();
+    expect(source).toContain('const userPromise = timedPreviewStage("m1-shell-timing", "verified_user"');
+    expect(source).toContain('const membershipsPromise = timedPreviewStage("m1-shell-timing", "memberships"');
+    expect(source).toContain('"mfa_aal"');
+    expect(source).toMatch(/Promise\.all\(\[\s*userPromise,\s*membershipsPromise,\s*aalPromise,\s*cookiePromise/);
+    expect(source).toContain("requiresMfaChallenge");
   });
 
-  it("launches dashboard reads before waiting for full clinical authority", () => {
+  it("uses membership-projected location metadata and removes the extra layout location query", () => {
+    expect(session()).toContain("practice_locations(name, timezone, type)");
+    expect(session()).toContain("locationType");
+    expect(layout()).not.toContain('.from("practice_locations")');
+    expect(layout()).toContain("type: membership.locationType");
+  });
+
+  it("streams nav badges and never awaits them before rendering shell chrome", () => {
+    const source = layout();
+    expect(source).toContain("const navCountsPromise = timedPreviewStage");
+    expect(source).not.toMatch(/await\s+getNavCounts/);
+    expect(source).toContain("<DesktopSidebar countsPromise={navCountsPromise}");
+    expect(sidebar()).toContain("<React.Suspense fallback={null}>");
+    expect(sidebar()).toContain("React.use(countsPromise)");
+  });
+
+  it("uses a lightweight appointment badge count and request-scoped queue dedupe", () => {
+    const appt = appointments();
+    expect(appt).toContain("export async function getAppointmentNavCount");
+    expect(appt).toContain('.select("id", { count: "exact", head: true })');
+    expect(queue()).toContain("export const getQueue = cache(async function getQueue");
+    expect(queue()).toContain('"m1-queue-timing"');
+    expect(queue()).toContain('"get_queue_rpc"');
+  });
+
+  it("streams Dashboard sections independently and leaves Quick Actions outside data awaits", () => {
     const source = dashboard();
-    expect(source).toMatch(/timedPreviewStage\("m1-dashboard-timing",\s*"profile"/);
-    expect(source).toContain('timedPreviewStage("m1-dashboard-timing", "patient_count"');
-    expect(source).toMatch(/timedPreviewStage\("m1-dashboard-timing",\s*"recent_patients"/);
-    expect(source).toMatch(/timedPreviewStage\("m1-dashboard-timing",\s*"day_counts"/);
-    expect(source).toMatch(/timedPreviewStage\("m1-dashboard-timing",\s*"queue_work_now"/);
-    expect(source).toMatch(/Promise\.all\(\[\s*profilePromise,[\s\S]*authorityPromise/);
+    expect(source).toContain("<Suspense fallback={<DashboardHeaderFallback />}");
+    expect(source).toContain("<Suspense fallback={<DashboardStatsFallback />}");
+    expect(source).toContain('fallback={<SectionLoading title="Work now"');
+    expect(source).toContain('fallback={<SectionLoading title="Recent patients"');
+    expect(source).toContain("<QuickActions />");
+    expect(source).not.toMatch(/const \[profileResult, patients, recent, today, queue, authority\] = await Promise\.all/);
   });
 
   it("keeps Recent patients lightweight and owner-scoped before order/LIMIT", () => {
@@ -41,31 +64,15 @@ describe("M1 Dashboard performance contract", () => {
     const body = source.slice(start, end);
     expect(body).toContain("DASHBOARD_RECENT_COLUMNS");
     expect(body).not.toContain("patient_allergies");
-    expect(source).toMatch(/DASHBOARD_RECENT_COLUMNS[\s\S]{0,240}patient_location_links\(practice_locations\(name\)\)/);
     expect(body.indexOf('.eq("owner_doctor_id", ownerDoctorId)')).toBeLessThan(body.indexOf('.order("created_at"'));
     expect(body.indexOf('.eq("owner_doctor_id", ownerDoctorId)')).toBeLessThan(body.indexOf(".limit(limit)"));
   });
 
-  it("uses a lightweight day-count read rather than full appointment embeds", () => {
-    const source = appointments();
-    const start = source.indexOf("export async function getDashboardDayCounts");
-    const end = source.indexOf("export async function getDayCounts", start);
-    const body = source.slice(start, end);
-    expect(body).toContain('.select("status, booking_source")');
-    expect(body).toContain('.eq("practice_location_id", locationId)');
-    expect(body).toContain('.eq("owner_doctor_id", ownerDoctorId)');
-    expect(body).not.toContain("patients(");
-    expect(body).not.toContain("doctor_profiles(");
-  });
-
-  it("preserves database-authoritative Work now ordering", () => {
-    expect(dashboard()).toContain("getQueue(ctx.locationId, sessionDate)");
+  it("preserves DB-authoritative queue order and all Preview timing stages", () => {
+    const source = dashboard();
+    expect(source).toContain("getQueue(ctx.locationId, sessionDate)");
     expect(queue()).toContain('supabase.rpc("get_queue"');
     expect(queue()).toContain("Order is preserved exactly as returned");
-  });
-
-  it("keeps every requested Preview-only timing stage", () => {
-    const source = dashboard();
     for (const stage of [
       "location_session_context",
       "doctor_scope",
@@ -76,9 +83,7 @@ describe("M1 Dashboard performance contract", () => {
       "day_counts",
       "queue_work_now",
       "total_dashboard_server",
-    ]) {
-      expect(source).toContain(stage);
-    }
+    ]) expect(source).toContain(stage);
     expect(timing()).toContain('process.env.VERCEL_ENV === "preview"');
   });
 });

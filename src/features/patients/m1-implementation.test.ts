@@ -105,7 +105,7 @@ describe("M1 doctor repository and finder security", () => {
   it("uses the already-loaded location timezone and a lightweight Finder projection", () => {
     const session = code("src/lib/auth/session.ts");
     const queries = patientQueries();
-    expect(session).toContain("practice_locations(name, timezone)");
+    expect(session).toContain("practice_locations(name, timezone, type)");
     expect(context()).toContain("scope.timeZone");
     expect(queries).toContain("const FINDER_COLUMNS");
     expect(queries).toContain("searchFinderPatients");

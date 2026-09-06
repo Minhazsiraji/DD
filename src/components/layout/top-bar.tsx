@@ -9,7 +9,8 @@ import { signOutAction } from "@/features/auth/actions";
 import { GlobalPatientFinder } from "@/features/patients/components/global-patient-finder";
 
 interface TopBarProps {
-  doctorName: string;
+  doctorNamePromise: Promise<string>;
+  fallbackDoctorName: string;
   locations: LocationOption[];
   activeLocationId: string;
 }
@@ -18,7 +19,7 @@ interface TopBarProps {
  * Sticky app header. Glass is correct here — it is chrome, and one of the two
  * blurred layers the view is allowed.
  */
-export function TopBar({ doctorName, locations, activeLocationId }: TopBarProps) {
+export function TopBar({ doctorNamePromise, fallbackDoctorName, locations, activeLocationId }: TopBarProps) {
   return (
     <header
       data-print-hidden
@@ -62,20 +63,9 @@ export function TopBar({ doctorName, locations, activeLocationId }: TopBarProps)
         </button>
 
         <div className="contents sm:flex sm:shrink-0 sm:items-center sm:gap-2">
-          <span
-            className="flex size-9 items-center justify-center rounded-full bg-brand-soft text-[13px] font-semibold text-brand xl:hidden"
-            aria-hidden="true"
-          >
-            {initials(doctorName)}
-          </span>
-          <span className="hidden min-w-0 xl:block">
-            <span className="block max-w-[160px] truncate text-[13px] leading-tight font-semibold text-ink">
-              {doctorName}
-            </span>
-            <span className="block truncate text-[11px] text-ink-muted">
-              Signed in
-            </span>
-          </span>
+          <React.Suspense fallback={<DoctorIdentity doctorName={fallbackDoctorName} />}>
+            <AsyncDoctorIdentity doctorNamePromise={doctorNamePromise} />
+          </React.Suspense>
 
           <form action={signOutAction}>
             <button
@@ -90,5 +80,29 @@ export function TopBar({ doctorName, locations, activeLocationId }: TopBarProps)
         </div>
       </div>
     </header>
+  );
+}
+
+async function AsyncDoctorIdentity({ doctorNamePromise }: { doctorNamePromise: Promise<string> }) {
+  const doctorName = await doctorNamePromise;
+  return <DoctorIdentity doctorName={doctorName} />;
+}
+
+function DoctorIdentity({ doctorName }: { doctorName: string }) {
+  return (
+    <>
+      <span
+        className="flex size-9 items-center justify-center rounded-full bg-brand-soft text-[13px] font-semibold text-brand xl:hidden"
+        aria-hidden="true"
+      >
+        {initials(doctorName)}
+      </span>
+      <span className="hidden min-w-0 xl:block">
+        <span className="block max-w-[160px] truncate text-[13px] leading-tight font-semibold text-ink">
+          {doctorName}
+        </span>
+        <span className="block truncate text-[11px] text-ink-muted">Signed in</span>
+      </span>
+    </>
   );
 }

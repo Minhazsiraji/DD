@@ -1,8 +1,7 @@
 import "server-only";
 import { getQueue } from "./queries";
 import { groupQueue } from "./schema";
-import { getAppointmentsForDay } from "@/features/appointments/queries";
-import { todayInDhaka } from "@/features/appointments/schema";
+import { getAppointmentNavCount } from "@/features/appointments/queries";
 
 /**
  * The two numbers on the sidebar.
@@ -37,17 +36,19 @@ export interface NavCounts {
  * screen already refuses to turn an outage into "nobody is waiting". A badge
  * must not undo that from the sidebar.
  */
-export async function getNavCounts(activeLocationId: string): Promise<NavCounts> {
-  const today = todayInDhaka();
+export async function getNavCounts(
+  activeLocationId: string,
+  sessionDate: string,
+): Promise<NavCounts> {
 
   const [queue, appointments] = await Promise.all([
-    getQueue(activeLocationId, today),
-    getAppointmentsForDay(today, activeLocationId),
+    getQueue(activeLocationId, sessionDate),
+    getAppointmentNavCount(sessionDate, activeLocationId),
   ]);
 
   return {
     // `undefined`, not 0, when the read failed — see the note above.
     waiting: queue.ok ? groupQueue(queue.rows).waiting.length : undefined,
-    appointmentsToday: appointments.ok ? appointments.appointments.length : undefined,
+    appointmentsToday: appointments.ok ? appointments.count : undefined,
   };
 }

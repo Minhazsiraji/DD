@@ -47,7 +47,7 @@ describe("no badge is ever a constant", () => {
      * when the read FAILED would be a false claim of an empty waiting room —
      * the one sentence the queue screen already refuses to say.
      */
-    expect(src).toMatch(/typeof count === "number" && count > 0/);
+    expect(src).toMatch(/typeof count !== "number" \|\| count <= 0/);
   });
 });
 
@@ -65,10 +65,10 @@ describe("nothing else in the chrome claims a count either", () => {
 });
 
 describe("the counts come from the caller's own authorised reads", () => {
-  it("reuses the queue RPC and the appointments read, not a new count path", async () => {
+  it("reuses the queue RPC and a lightweight authorized appointment count", async () => {
     const src = strip(await readFile(path.resolve("src/features/queue/nav-counts.ts"), "utf8"));
     expect(src).toMatch(/getQueue\(/);
-    expect(src).toMatch(/getAppointmentsForDay\(/);
+    expect(src).toMatch(/getAppointmentNavCount\(/);
     // No bespoke SQL that could disagree with the screens it points at.
     expect(src).not.toMatch(/\.from\(|\.rpc\(/);
   });
@@ -76,10 +76,10 @@ describe("the counts come from the caller's own authorised reads", () => {
   it("is scoped to the active location and to today", async () => {
     const src = strip(await readFile(path.resolve("src/features/queue/nav-counts.ts"), "utf8"));
     expect(src).toMatch(/activeLocationId/);
-    expect(src).toMatch(/todayInDhaka\(\)/);
-    // Both reads take the location — neither may quietly span all of them.
-    expect(src).toMatch(/getQueue\(activeLocationId, today\)/);
-    expect(src).toMatch(/getAppointmentsForDay\(today, activeLocationId\)/);
+    expect(src).toMatch(/sessionDate/);
+    // Both reads take the same server-derived location/date.
+    expect(src).toMatch(/getQueue\(activeLocationId, sessionDate\)/);
+    expect(src).toMatch(/getAppointmentNavCount\(sessionDate, activeLocationId\)/);
   });
 
   it("counts WAITING the way the queue screen does", async () => {
@@ -97,10 +97,11 @@ describe("the counts come from the caller's own authorised reads", () => {
     expect(src).toMatch(/appointments\.ok \?[\s\S]{0,80}: undefined/);
   });
 
-  it("is resolved per request in the layout, so it cannot be stale", async () => {
+  it("streams per-request counts so badges cannot block the authenticated shell", async () => {
     const src = strip(await readFile(path.resolve("src/app/(app)/layout.tsx"), "utf8"));
-    expect(src).toMatch(/await getNavCounts\(activeLocationId\)/);
-    // Passed down, never cached in a module-level variable.
-    expect(src).toMatch(/<DesktopSidebar counts=\{navCounts\}/);
+    expect(src).toMatch(/const navCountsPromise = timedPreviewStage/);
+    expect(src).toMatch(/getNavCounts\(activeLocationId, sessionDate\)/);
+    expect(src).not.toMatch(/await getNavCounts/);
+    expect(src).toMatch(/<DesktopSidebar countsPromise=\{navCountsPromise\}/);
   });
 });

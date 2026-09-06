@@ -1,6 +1,8 @@
 import "server-only";
+import { cache } from "react";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { requireUser } from "@/lib/auth/session";
+import { timedPreviewStage } from "@/lib/preview-timing";
 import type { QueueRow } from "./schema";
 
 /**
@@ -44,17 +46,21 @@ function toRow(r: any): QueueRow {
 }
 /* eslint-enable @typescript-eslint/no-explicit-any */
 
-export async function getQueue(
+export const getQueue = cache(async function getQueue(
   practiceLocationId: string,
   sessionDate: string,
 ): Promise<QueueOutcome> {
   await requireUser();
   const supabase = await createSupabaseServerClient();
 
-  const { data, error } = await supabase.rpc("get_queue", {
-    p_practice_location_id: practiceLocationId,
-    p_session_date: sessionDate,
-  });
+  const { data, error } = await timedPreviewStage(
+    "m1-queue-timing",
+    "get_queue_rpc",
+    supabase.rpc("get_queue", {
+      p_practice_location_id: practiceLocationId,
+      p_session_date: sessionDate,
+    }),
+  );
 
   if (error) {
     console.error("[queue] get_queue failed", error.message);
@@ -63,4 +69,4 @@ export async function getQueue(
 
   // Order is preserved exactly as returned — see the module comment.
   return { ok: true, rows: ((data as unknown[]) ?? []).map(toRow) };
-}
+});

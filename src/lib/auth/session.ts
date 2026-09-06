@@ -17,10 +17,18 @@ export interface SessionUser {
   email: string | null;
 }
 
+export type PracticeLocationType =
+  | "PERSONAL_CHAMBER"
+  | "CLINIC"
+  | "HOSPITAL"
+  | "TELEMEDICINE"
+  | "OTHER";
+
 export interface Membership {
   locationId: string;
   locationName: string;
   timeZone: string | null;
+  locationType: PracticeLocationType;
   /** A user may hold several roles at one clinic — permission is the union. */
   roles: LocationRole[];
 }
@@ -91,7 +99,7 @@ export const getMemberships = cache(async function getMemberships(): Promise<Mem
    */
   const { data, error } = await supabase
     .from("practice_location_members")
-    .select("practice_location_id, role, practice_locations(name, timezone)")
+    .select("practice_location_id, role, practice_locations(name, timezone, type)")
     .eq("user_id", user.id)
     .eq("status", "ACTIVE");
 
@@ -105,11 +113,12 @@ export const getMemberships = cache(async function getMemberships(): Promise<Mem
     // array depending on the inferred cardinality; handle both.
     const rel = row.practice_locations as unknown;
     const location = Array.isArray(rel)
-      ? (rel[0] as { name?: string; timezone?: string | null } | undefined)
-      : (rel as { name?: string; timezone?: string | null } | null);
+      ? (rel[0] as { name?: string; timezone?: string | null; type?: PracticeLocationType | null } | undefined)
+      : (rel as { name?: string; timezone?: string | null; type?: PracticeLocationType | null } | null);
     const name = location?.name;
     if (!name) continue;
     const timeZone = location?.timezone ?? null;
+    const locationType = location?.type ?? "CLINIC";
 
     const locationId = row.practice_location_id as string;
     const existing = byLocation.get(locationId);
@@ -121,6 +130,7 @@ export const getMemberships = cache(async function getMemberships(): Promise<Mem
         locationId,
         locationName: name,
         timeZone,
+        locationType,
         roles: [row.role as LocationRole],
       });
     }

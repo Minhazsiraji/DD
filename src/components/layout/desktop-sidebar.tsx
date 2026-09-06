@@ -7,6 +7,7 @@ import { Sparkles } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { BrandMark, BrandWordmark } from "@/components/brand/brand-mark";
 import { PRIMARY_NAV, SECONDARY_NAV, type NavItem } from "./nav-config";
+import type { NavCounts } from "@/features/queue/nav-counts";
 
 /**
  * DesktopSidebar — persistent on ≥ xl, an icon rail on lg/tablet.
@@ -16,9 +17,12 @@ import { PRIMARY_NAV, SECONDARY_NAV, type NavItem } from "./nav-config";
  */
 export function DesktopSidebar({
   counts,
+  countsPromise,
 }: {
-  /** Live per-request counts, keyed by `NavItem.badgeKey`. */
+  /** Optional synchronous counts, mainly for deterministic component use/tests. */
   counts?: Partial<Record<NonNullable<NavItem["badgeKey"]>, number>>;
+  /** Server-started per-request counts. Suspended badges must never block the shell. */
+  countsPromise?: Promise<NavCounts>;
 }) {
   const pathname = usePathname();
 
@@ -44,6 +48,7 @@ export function DesktopSidebar({
               item={item}
               pathname={pathname}
               count={item.badgeKey ? counts?.[item.badgeKey] : undefined}
+              countsPromise={countsPromise}
             />
           ))}
         </ul>
@@ -80,11 +85,13 @@ function SidebarLink({
   item,
   pathname,
   count,
+  countsPromise,
 }: {
   item: NavItem;
   pathname: string;
   /** Undefined when there is nothing to count, or nothing to say. */
   count?: number;
+  countsPromise?: Promise<NavCounts>;
 }) {
   const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
 
@@ -113,18 +120,45 @@ function SidebarLink({
           about an empty waiting room. `getNavCounts` returns no count rather
           than a zero in that case.
         */}
-        {typeof count === "number" && count > 0 ? (
-          <span
-            className={cn(
-              "hidden shrink-0 rounded-full px-1.5 py-0.5 text-[11px] font-semibold tabular-nums xl:inline-block",
-              active ? "bg-brand-soft text-brand" : "bg-surface-muted text-ink-muted",
-            )}
-          >
-            {count}
-          </span>
+        {typeof count === "number" ? (
+          <SidebarBadge count={count} active={active} />
+        ) : item.badgeKey && countsPromise ? (
+          <React.Suspense fallback={null}>
+            <AsyncSidebarBadge
+              countsPromise={countsPromise}
+              badgeKey={item.badgeKey}
+              active={active}
+            />
+          </React.Suspense>
         ) : null}
         <span className="sr-only xl:hidden">{item.label}</span>
       </Link>
     </li>
+  );
+}
+function AsyncSidebarBadge({
+  countsPromise,
+  badgeKey,
+  active,
+}: {
+  countsPromise: Promise<NavCounts>;
+  badgeKey: NonNullable<NavItem["badgeKey"]>;
+  active: boolean;
+}) {
+  const counts = React.use(countsPromise);
+  return <SidebarBadge count={counts[badgeKey]} active={active} />;
+}
+
+function SidebarBadge({ count, active }: { count?: number; active: boolean }) {
+  if (typeof count !== "number" || count <= 0) return null;
+  return (
+    <span
+      className={cn(
+        "hidden shrink-0 rounded-full px-1.5 py-0.5 text-[11px] font-semibold tabular-nums xl:inline-block",
+        active ? "bg-brand-soft text-brand" : "bg-surface-muted text-ink-muted",
+      )}
+    >
+      {count}
+    </span>
   );
 }

@@ -293,6 +293,30 @@ export type DayCountsOutcome =
   | { ok: true; counts: DayCounts }
   | { ok: false; reason: string };
 
+export type AppointmentNavCountOutcome =
+  | { ok: true; count: number }
+  | { ok: false; reason: string };
+
+/** Lightweight sidebar badge count: same authorized day/location set, no row embeds. */
+export async function getAppointmentNavCount(
+  sessionDate: string,
+  locationId: string,
+): Promise<AppointmentNavCountOutcome> {
+  await requireUser();
+  const supabase = await createSupabaseServerClient();
+  const { count, error } = await supabase
+    .from("appointments")
+    .select("id", { count: "exact", head: true })
+    .eq("session_date", sessionDate)
+    .eq("practice_location_id", locationId);
+
+  if (error) {
+    console.error("[appointments] nav count failed", error.message);
+    return { ok: false, reason: error.message };
+  }
+  return { ok: true, count: count ?? 0 };
+}
+
 /**
  * Counts for the dashboard.
  *
