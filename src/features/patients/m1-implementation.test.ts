@@ -255,7 +255,7 @@ describe("M1 Universal Finder interaction and mobile contract", () => {
   });
 
   it("30 uses a mobile full-screen/sheet treatment instead of squeezing desktop dropdown", () => {
-    expect(finder()).toMatch(/fixed inset-0/);
+    expect(finder()).toContain("dd-mobile-finder-overlay");
     expect(finder()).toMatch(/sm:hidden/);
     expect(finder()).toMatch(/h-12 w-full/);
   });

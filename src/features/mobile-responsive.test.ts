@@ -105,6 +105,10 @@ describe("P0 mobile responsive boundaries", () => {
     expect(finder).toContain("dd-mobile-finder-shell");
     expect(finder).toContain("createPortal");
     expect(finder).toContain("document.body");
+    expect(finder).toContain("dd-mobile-finder-overlay");
+    expect(visual).toContain("position: fixed !important");
+    expect(visual).toContain("height: calc(100dvh - 16px) !important");
+    expect(visual).toContain("z-index: 9999 !important");
     expect(visual).toContain("rgba(248,249,255,.90) !important");
   });
 

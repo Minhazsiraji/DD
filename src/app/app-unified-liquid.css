@@ -147,6 +147,20 @@ nav.glass-strong {
   backdrop-filter: blur(22px) saturate(116%) !important;
 }
 
+/* Mobile Finder is a real viewport workspace, independent from app-shell stacking. */
+.dd-mobile-finder-overlay {
+  position: fixed !important;
+  inset: 0 !important;
+  z-index: 9999 !important;
+  display: flex !important;
+  align-items: flex-start !important;
+  justify-content: center !important;
+  padding: 8px !important;
+  background: rgba(33,27,74,.20) !important;
+  -webkit-backdrop-filter: blur(10px) !important;
+  backdrop-filter: blur(10px) !important;
+}
+
 /* Mobile Finder is a real workspace sheet, not a transparent summary panel.
    Keep the liquid treatment while visually separating search/results from the page. */
 .dd-app-panel.dd-mobile-finder-shell {
@@ -156,6 +170,9 @@ nav.glass-strong {
     rgba(248,249,255,.90) !important;
   -webkit-backdrop-filter: blur(24px) saturate(118%) !important;
   backdrop-filter: blur(24px) saturate(118%) !important;
+  height: calc(100dvh - 16px) !important;
+  max-height: calc(100dvh - 16px) !important;
+  margin: 0 !important;
 }
 
 .dd-app-panel::after {
