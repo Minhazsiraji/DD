@@ -98,7 +98,7 @@ describe("M1 doctor repository and finder security", () => {
     expect(actions).toContain("const authorityPromise = getM1DoctorAuthority()");
     expect(actions).toContain("const scope = await getM1FinderScope()");
     expect(actions).toMatch(/Promise\.all\(\[\s*searchFinderPatients/);
-    expect(ctx).toMatch(/Promise\.all\(\[\s*requireLocationContext\(\),\s*supabase\.rpc\("current_doctor_id"\)/);
+    expect(ctx).toMatch(/Promise\.all\(\[\s*getM1LocationContext\(\),\s*supabase\.rpc\("current_doctor_id"\)/);
     expect(ctx).toMatch(/Promise\.all\(\[\s*readAppointmentRows/);
   });
 

@@ -300,6 +300,42 @@ export type DayCountsOutcome =
  * tells a doctor their day is empty when the truth is that we could not find
  * out — and that is the version they would act on.
  */
+export async function getDashboardDayCounts(
+  sessionDate: string,
+  locationId: string,
+  ownerDoctorId?: string | null,
+): Promise<DayCountsOutcome> {
+  await requireUser();
+  const supabase = await createSupabaseServerClient();
+
+  let query = supabase
+    .from("appointments")
+    .select("status, booking_source")
+    .eq("session_date", sessionDate)
+    .eq("practice_location_id", locationId);
+
+  if (ownerDoctorId) query = query.eq("owner_doctor_id", ownerDoctorId);
+
+  const { data, error } = await query;
+  if (error) {
+    console.error("[appointments] dashboard counts failed", error.message);
+    return { ok: false, reason: error.message };
+  }
+
+  const rows = data ?? [];
+  return {
+    ok: true,
+    counts: {
+      total: rows.filter((x) => x.status !== "CANCELLED").length,
+      waiting: rows.filter((x) => x.status === "ARRIVED").length,
+      inConsultation: rows.filter((x) => x.status === "IN_CONSULTATION").length,
+      completed: rows.filter((x) => x.status === "COMPLETED").length,
+      cancelled: rows.filter((x) => x.status === "CANCELLED").length,
+      online: rows.filter((x) => x.booking_source === "PUBLIC" && x.status !== "CANCELLED").length,
+    },
+  };
+}
+
 export async function getDayCounts(
   sessionDate: string,
   /**

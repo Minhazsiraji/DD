@@ -8,6 +8,7 @@ import {
   normalizePhone,
   type DuplicateCandidate,
   type DuplicateMatch,
+  type DobPrecision,
 } from "./identity";
 
 /**
@@ -69,6 +70,11 @@ const LIST_COLUMNS =
 // Finder suggestions do not need the location-history embed. Keeping the
 // identity projection small avoids an unnecessary join on every keystroke.
 const FINDER_COLUMNS = `${CORE_COLUMNS}, patient_allergies(id)`;
+
+const DASHBOARD_RECENT_COLUMNS =
+  "id, patient_number, full_name, sex, owner_doctor_id, dob, dob_precision," +
+  " approx_age_years, age_recorded_on, created_at," +
+  " patient_location_links(practice_locations(name))";
 
 const DETAIL_COLUMNS =
   `${CORE_COLUMNS}, email, address, district, weight_kg, height_cm,` +
@@ -231,6 +237,94 @@ export async function getRecentPatients(
   ownerDoctorId?: string | null,
 ): Promise<SearchOutcome> {
   return searchPatients("", limit, ownerDoctorId);
+}
+
+export interface DashboardRecentPatient {
+  id: string;
+  patientNumber: string;
+  fullName: string;
+  sex: string;
+  ownerDoctorId: string;
+  ageYears: number | null;
+  lastSeenLocation: string | null;
+  createdAt: string;
+}
+
+export type DashboardRecentOutcome =
+  | { ok: true; patients: DashboardRecentPatient[] }
+  | { ok: false; reason: string };
+
+type DashboardRecentRow = {
+  id: string;
+  patient_number: string;
+  full_name: string;
+  sex: string;
+  owner_doctor_id: string;
+  dob: string | null;
+  dob_precision: DobPrecision | null;
+  approx_age_years: number | null;
+  age_recorded_on: string | null;
+  created_at: string;
+  patient_location_links: unknown;
+};
+
+function dashboardRecentLocationName(value: unknown): string | null {
+  if (!Array.isArray(value) || value.length === 0) return null;
+  const first = value[0] as { practice_locations?: unknown };
+  const relation = first.practice_locations;
+  const location = Array.isArray(relation) ? relation[0] : relation;
+  if (!location || typeof location !== "object") return null;
+  const name = (location as { name?: unknown }).name;
+  return typeof name === "string" ? name : null;
+}
+
+/** Lightweight Recent Patients projection for the Dashboard hot path. */
+export async function getDashboardRecentPatients(
+  limit = 6,
+  ownerDoctorId?: string | null,
+): Promise<DashboardRecentOutcome> {
+  const supabase = await createSupabaseServerClient();
+  const today = clinicToday();
+
+  let request = supabase
+    .from("patients")
+    .select(DASHBOARD_RECENT_COLUMNS)
+    .is("deleted_at", null);
+
+  // Repository ownership is part of the DB query before ordering/LIMIT.
+  if (ownerDoctorId) request = request.eq("owner_doctor_id", ownerDoctorId);
+  request = request.order("created_at", { ascending: false }).limit(limit);
+
+  const { data, error } = await request;
+  if (error) {
+    console.error("[patients] dashboard recent failed", error.message);
+    return { ok: false, reason: error.message };
+  }
+
+  return {
+    ok: true,
+    patients: ((data ?? []) as unknown as DashboardRecentRow[]).map((row) => {
+      const age = computeAge(
+        {
+          dob: row.dob,
+          dobPrecision: row.dob_precision ?? undefined,
+          approxAgeYears: row.approx_age_years,
+          ageRecordedOn: row.age_recorded_on,
+        },
+        today,
+      );
+      return {
+        id: row.id,
+        patientNumber: row.patient_number,
+        fullName: row.full_name,
+        sex: row.sex,
+        ownerDoctorId: row.owner_doctor_id,
+        ageYears: age.years,
+        lastSeenLocation: dashboardRecentLocationName(row.patient_location_links),
+        createdAt: row.created_at,
+      };
+    }),
+  };
 }
 
 export type CountOutcome = { ok: true; count: number } | { ok: false; reason: string };

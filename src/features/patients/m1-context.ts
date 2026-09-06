@@ -115,6 +115,11 @@ export async function getLocationLocalDate(locationId: string): Promise<{
  * Any real RPC error fails closed, and every clinical mutation is still
  * re-authorised inside its database RPC.
  */
+/** M1-only per-request cache of the verified active-location context. */
+export const getM1LocationContext = cache(async function getM1LocationContext() {
+  return requireLocationContext();
+});
+
 type M1FinderScope = {
   doctorId: string | null;
   locationId: string;
@@ -132,7 +137,7 @@ type M1FinderScope = {
 export const getM1FinderScope = cache(async function getM1FinderScope(): Promise<M1FinderScope> {
   const supabase = await createSupabaseServerClient();
   const [ctx, doctorResult] = await Promise.all([
-    requireLocationContext(),
+    getM1LocationContext(),
     supabase.rpc("current_doctor_id"),
   ]);
   const doctorId = doctorResult.error ? null : ((doctorResult.data as string | null) ?? null);

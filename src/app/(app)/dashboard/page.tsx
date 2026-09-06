@@ -15,19 +15,24 @@ import { EmptyState } from "@/components/common/empty-state";
 import { GlassCard } from "@/components/glass/glass-card";
 import { RecentPatients } from "@/features/dashboard/components/recent-patients";
 import { formatDate } from "@/lib/format";
-import { requireLocationContext } from "@/lib/auth/session";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { logPreviewElapsed, startPreviewTimer, timedPreviewStage } from "@/lib/preview-timing";
 import {
-  getRecentPatients,
+  getDashboardRecentPatients,
   getPatientCount,
   clinicToday,
 } from "@/features/patients/queries";
-import { getDayCounts } from "@/features/appointments/queries";
+import { getDashboardDayCounts } from "@/features/appointments/queries";
 import { todayInDhaka } from "@/features/appointments/schema";
 import { getQueue } from "@/features/queue/queries";
 import { groupQueue } from "@/features/queue/schema";
 import { WorkNow } from "@/features/dashboard/components/work-now";
-import { getM1DoctorAuthority } from "@/features/patients/m1-context";
+import {
+  getM1DoctorAuthority,
+  getM1FinderScope,
+  getM1LocationContext,
+  localDateInTimeZone,
+} from "@/features/patients/m1-context";
 
 export const metadata: Metadata = { title: "Dashboard" };
 
@@ -55,12 +60,18 @@ function greeting(): string {
  * empty state instead of invented numbers.
  */
 export default async function DashboardPage() {
-  const ctx = await requireLocationContext();
-  const supabase = await createSupabaseServerClient();
-  const sessionDate = todayInDhaka();
+  const dashboardStarted = startPreviewTimer();
 
-  const authority = await getM1DoctorAuthority();
-  const myDoctorId = authority.doctorId;
+  // These are independent after the signed-in cookie is available. M1's
+  // request-scoped caches make shared auth/location work execute only once.
+  const locationPromise = timedPreviewStage("m1-dashboard-timing", "location_session_context", getM1LocationContext());
+  const scopePromise = timedPreviewStage("m1-dashboard-timing", "doctor_scope", getM1FinderScope());
+  const authorityPromise = timedPreviewStage("m1-dashboard-timing", "doctor_authority", getM1DoctorAuthority());
+
+  const [ctx, scope] = await Promise.all([locationPromise, scopePromise]);
+  const supabase = await createSupabaseServerClient();
+  const sessionDate = ctx.timeZone ? localDateInTimeZone(ctx.timeZone) : todayInDhaka();
+  const myDoctorId = scope.doctorId;
 
   /**
    * Every repository read is scoped to this doctor IN THE DATABASE.
@@ -70,13 +81,34 @@ export default async function DashboardPage() {
    * asked for explicitly. Reception passes no doctor id and keeps the
    * location-wide view they need.
    */
-  const [{ data: profile }, patients, recent, today, queue] = await Promise.all([
+  const profilePromise = timedPreviewStage("m1-dashboard-timing",
+    "profile",
     supabase.from("profiles").select("full_name").eq("id", ctx.user.id).maybeSingle(),
-    getPatientCount(myDoctorId),
-    getRecentPatients(6, myDoctorId),
-    getDayCounts(sessionDate, myDoctorId),
+  );
+  const patientCountPromise = timedPreviewStage("m1-dashboard-timing", "patient_count", getPatientCount(myDoctorId));
+  const recentPromise = timedPreviewStage("m1-dashboard-timing",
+    "recent_patients",
+    getDashboardRecentPatients(6, myDoctorId),
+  );
+  const dayCountsPromise = timedPreviewStage("m1-dashboard-timing",
+    "day_counts",
+    getDashboardDayCounts(sessionDate, ctx.locationId, myDoctorId),
+  );
+  const queuePromise = timedPreviewStage("m1-dashboard-timing",
+    "queue_work_now",
     getQueue(ctx.locationId, sessionDate),
+  );
+
+  const [profileResult, patients, recent, today, queue, authority] = await Promise.all([
+    profilePromise,
+    patientCountPromise,
+    recentPromise,
+    dayCountsPromise,
+    queuePromise,
+    authorityPromise,
   ]);
+  const profile = profileResult.data;
+  logPreviewElapsed("m1-dashboard-timing", "total_dashboard_server", dashboardStarted);
 
   const doctorName = profile?.full_name ?? ctx.user.email?.split("@")[0] ?? "Doctor";
 
