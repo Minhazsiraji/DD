@@ -56,7 +56,7 @@ export function PatientList({
           <Link
             href={`/patients/${p.id}`}
             data-interactive="true"
-            className="dd-material-record dd-record-aqua dd-record-interactive flex h-full min-w-0 items-start gap-3 rounded-2xl p-4 focus-visible:focus-ring"
+            className="dd-material-record dd-record-pearl dd-record-interactive flex h-full min-w-0 items-start gap-3 rounded-2xl p-4 focus-visible:focus-ring"
           >
             <span className="flex size-11 shrink-0 items-center justify-center rounded-full bg-brand-soft text-[13px] font-semibold text-brand" aria-hidden="true">
               {initials(p.fullName)}

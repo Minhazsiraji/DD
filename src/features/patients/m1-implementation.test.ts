@@ -296,9 +296,9 @@ describe("M1 Universal Finder interaction and mobile contract", () => {
     const dashboard = read("src/app/(app)/dashboard/page.tsx");
     expect(brand).toMatch(/transform:\s*translateY\(-1px\)/);
     expect(app).toMatch(/dd-dashboard-card:hover/);
-    expect(dashboard).toContain("dd-quick-row");
-    expect(app).toMatch(/@media \(hover: hover\) and \(pointer: fine\)[\s\S]{0,500}\.dd-quick-row:hover[\s\S]{0,160}translateY\(-2px\)/);
-    expect(app).toMatch(/@media \(prefers-reduced-motion: reduce\)[\s\S]{0,180}\.dd-quick-row:hover[\s\S]{0,100}transform: none/);
+    expect(dashboard).toContain("dd-quick-row dd-quick-control");
+    expect(app).toMatch(/@media \(hover: hover\) and \(pointer: fine\)[\s\S]{0,500}\.dd-quick-control:hover[\s\S]{0,160}translateY\(-2px\)/);
+    expect(app).toMatch(/@media \(prefers-reduced-motion: reduce\)[\s\S]{0,180}\.dd-quick-control:hover[\s\S]{0,100}transform: none/);
   });
 
   it("keeps final desktop chrome polish narrow and structural", () => {

@@ -15,7 +15,7 @@ export default async function BookingConfirmedPage(props: PageProps<"/dr/[slug]/
   return (
     <MarketingShell>
       <section className="mx-auto min-w-0 max-w-2xl px-4 py-10 sm:px-5 sm:py-16 lg:px-8">
-        <div className="dd-material-panel dd-panel-aqua min-w-0 rounded-[2rem] p-5 text-center sm:p-8">
+        <div className="dd-material-panel dd-panel-pearl min-w-0 rounded-[2rem] p-5 text-center sm:p-8">
           <div className="mx-auto grid size-14 place-items-center rounded-full bg-brand-soft text-2xl text-brand">✓</div>
           <p className="mt-5 text-xs font-semibold uppercase tracking-[0.12em] text-brand sm:text-sm sm:tracking-[0.14em]">
             Booking confirmed
@@ -27,7 +27,7 @@ export default async function BookingConfirmedPage(props: PageProps<"/dr/[slug]/
             Your appointment is in {booking.doctorName}&apos;s schedule.
           </p>
 
-          <dl className="dd-material-record dd-record-aqua mx-auto mt-7 grid min-w-0 max-w-lg gap-3 rounded-2xl p-4 text-left text-sm sm:grid-cols-2 sm:p-5">
+          <dl className="dd-material-record dd-record-pearl mx-auto mt-7 grid min-w-0 max-w-lg gap-3 rounded-2xl p-4 text-left text-sm sm:grid-cols-2 sm:p-5">
             <div className="min-w-0">
               <dt className="text-ink-muted">Chamber</dt>
               <dd className="mt-1 break-words font-semibold text-ink">{booking.chamberName}</dd>

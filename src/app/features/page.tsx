@@ -17,7 +17,7 @@ export default function FeaturesPage() {
     <MarketingPage eyebrow="Features" title="Built to remove work from the doctor." intro="Doctor’s Diary focuses on clinical productivity, continuity and safe final records — not a checklist of disconnected modules.">
       <div className="grid gap-5 md:grid-cols-2 lg:grid-cols-3">
         {features.map(([title, body]) => (
-          <article key={title} className="dd-material-record dd-record-aqua dd-public-feature-card p-6">
+          <article key={title} className="dd-material-record dd-record-pearl dd-public-feature-card p-6">
             <h2 className="text-lg font-semibold">{title}</h2>
             <p className="mt-3 leading-7 text-ink-secondary">{body}</p>
           </article>

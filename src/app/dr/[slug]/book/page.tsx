@@ -45,7 +45,7 @@ export default async function PublicBookingPage(props: PageProps<"/dr/[slug]/boo
         <Link href={`/dr/${encodeURIComponent(slug)}`} className="inline-flex min-h-11 items-center text-sm font-medium text-brand">
           ← Back to doctor profile
         </Link>
-        <div className="dd-material-panel dd-panel-aqua mt-3 min-w-0 rounded-[2rem] p-5 sm:mt-5 sm:p-7">
+        <div className="dd-material-panel dd-panel-pearl mt-3 min-w-0 rounded-[2rem] p-5 sm:mt-5 sm:p-7">
           <h1 className="break-words text-2xl font-semibold tracking-tight sm:text-3xl">Book {doctor.fullName}</h1>
           <p className="mt-2 break-words text-sm text-ink-secondary sm:text-base">
             Choose a chamber and date first. Only currently available sessions are shown.
@@ -83,7 +83,7 @@ export default async function PublicBookingPage(props: PageProps<"/dr/[slug]/boo
                 ) : (
                   <div className="mt-3 grid min-w-0 gap-2 sm:grid-cols-2">
                     {slots.map((slot) => (
-                      <label key={slot.localTime} className="dd-material-record dd-record-aqua dd-record-interactive flex min-h-11 min-w-0 cursor-pointer items-center gap-3 rounded-xl px-4 py-3 focus-within:focus-ring">
+                      <label key={slot.localTime} className="dd-material-record dd-record-pearl dd-record-interactive flex min-h-11 min-w-0 cursor-pointer items-center gap-3 rounded-xl px-4 py-3 focus-within:focus-ring">
                         <input type="radio" name="localTime" value={slot.localTime} required className="shrink-0" />
                         <span className="min-w-0 break-words">{slot.label}</span>
                       </label>

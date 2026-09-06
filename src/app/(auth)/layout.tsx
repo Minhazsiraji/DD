@@ -18,10 +18,6 @@ export default function AuthLayout({ children }: LayoutProps<"/">) {
 
       <main className="w-full max-w-[420px]">{children}</main>
 
-      <p className="mt-6 max-w-[420px] text-center text-xs text-ink-muted">
-        Development build. Use fake data only — this project is not approved for
-        real patient information.
-      </p>
     </div>
   );
 }

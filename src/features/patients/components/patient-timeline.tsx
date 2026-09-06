@@ -189,12 +189,12 @@ export function PatientTimeline({
                   <Link
                     href={e.href}
                     data-interactive="true"
-                    className="dd-material-record dd-record-aqua dd-record-interactive flex min-w-0 gap-3 rounded-2xl px-4 py-3.5 focus-visible:focus-ring sm:px-5"
+                    className="dd-material-record dd-record-pearl dd-record-interactive flex min-w-0 gap-3 rounded-2xl px-4 py-3.5 focus-visible:focus-ring sm:px-5"
                   >
                     {body}
                   </Link>
                 ) : (
-                  <div className="dd-material-record dd-record-aqua flex min-w-0 gap-3 rounded-2xl px-4 py-3.5 sm:px-5">{body}</div>
+                  <div className="dd-material-record dd-record-pearl flex min-w-0 gap-3 rounded-2xl px-4 py-3.5 sm:px-5">{body}</div>
                 )}
               </li>
             );

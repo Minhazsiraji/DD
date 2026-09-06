@@ -33,8 +33,8 @@ describe("Doctor's Diary shared visual system reconciliation", () => {
     for (const variant of ["chrome", "panel", "record", "clinical"]) {
       expect(css).toContain(`.dd-material-${variant}`);
     }
-    expect(css).toContain(".dd-material-record.dd-record-aqua");
-    expect(css).toContain(".dd-material-panel.dd-panel-aqua");
+    expect(css).toContain(".dd-material-record.dd-record-pearl");
+    expect(css).toContain(".dd-material-panel.dd-panel-pearl");
     expect(css).toContain(".dd-public-feature-card");
     expect(css).toContain(".dd-workflow-step");
     expect(css).toContain("prefers-reduced-transparency: reduce");
@@ -44,7 +44,7 @@ describe("Doctor's Diary shared visual system reconciliation", () => {
 
   it("never adds backdrop blur to repeated record variants", () => {
     const css = read("src/app/dd-material-system.css");
-    for (const selector of [".dd-material-record {", ".dd-material-record.dd-record-aqua {"]) {
+    for (const selector of [".dd-material-record {", ".dd-material-record.dd-record-pearl {"]) {
       const start = css.indexOf(selector);
       const end = css.indexOf("}\n", start) + 2;
       const block = css.slice(start, end);
@@ -69,10 +69,10 @@ describe("Doctor's Diary shared visual system reconciliation", () => {
     expect(home).toContain('className="dd-brand-emphasis">More patient.</span>');
     expect(home).toContain("dd-primary inline-flex min-h-11");
     expect(home).toContain("dd-secondary inline-flex min-h-11");
-    expect(home).toContain("dd-material-panel dd-panel-aqua dd-public-card");
-    expect(home).toContain("dd-record-aqua dd-workflow-step");
-    expect(home).toContain("dd-record-aqua dd-public-feature-card");
-    expect(home).toContain("dd-material-panel dd-panel-aqua rounded-[2rem]");
+    expect(home).toContain("dd-material-panel dd-panel-pearl dd-public-card");
+    expect(home).toContain("dd-quick-control dd-workflow-step");
+    expect(home).toContain("dd-record-pearl dd-public-feature-card");
+    expect(home).toContain("dd-material-panel dd-panel-pearl rounded-[2rem]");
   });
 
   it("removes legacy teal/opaque marketing recipes from every public route", () => {
@@ -97,19 +97,52 @@ describe("Doctor's Diary shared visual system reconciliation", () => {
     expect(read("src/features/auth/components/form-parts.tsx")).toContain('className="dd-primary inline-flex h-11 w-full');
   });
 
-  it("propagates the aqua record modifier to every active material-record consumer", () => {
+  it("propagates neutral pearl glass to every active material-record consumer", () => {
     const files = walkTsx("src");
     const offenders: string[] = [];
     for (const file of files) {
       if (file.endsWith(".test.tsx")) continue;
       const lines = read(file).split("\n");
       lines.forEach((line, index) => {
-        if (line.includes("dd-material-record") && !line.includes("dd-record-aqua")) {
+        if (line.includes("dd-material-record") && !line.includes("dd-record-pearl")) {
           offenders.push(`${file}:${index + 1}`);
         }
       });
     }
     expect(offenders).toEqual([]);
+  });
+
+  it("removes broad aqua body modifiers while keeping aqua for true controls", () => {
+    const material = read("src/app/dd-material-system.css");
+    expect(material).not.toContain("dd-record-aqua");
+    expect(material).not.toContain("dd-panel-aqua");
+    expect(material).not.toContain("dd-mat-aqua-record");
+    const recordStart = material.indexOf(".dd-material-record.dd-record-pearl {");
+    const recordEnd = material.indexOf("}\n", recordStart) + 2;
+    expect(material.slice(recordStart, recordEnd)).not.toContain("var(--dd-aqua");
+    const secondary = read("src/app/canonical-brand.css");
+    expect(secondary).toContain(".dd-secondary {");
+    expect(secondary).toContain("var(--dd-aqua-a)");
+  });
+
+  it("shares one Quick Action visual primitive between Dashboard and Homepage workflow rows", () => {
+    const liquid = read("src/app/app-unified-liquid.css");
+    expect(liquid).toContain(".dd-quick-control {");
+    expect(liquid).toContain(".dd-quick-control:hover");
+    expect(read("src/app/(app)/dashboard/page.tsx")).toContain("dd-quick-row dd-quick-control");
+    const home = read("src/app/page.tsx");
+    expect(home).toContain("dd-quick-control dd-workflow-step");
+    expect(home).not.toContain("dd-record-pearl dd-workflow-step");
+  });
+
+  it("keeps Finder candidate glass neutral and removes the visible development footer", () => {
+    const liquid = read("src/app/app-unified-liquid.css");
+    expect(liquid).toContain(".dd-app-panel.dd-finder-results");
+    expect(liquid).toContain("rgba(250,251,255,.72)");
+    expect(liquid).not.toMatch(/dd-finder-results[\s\S]{0,420}var\(--dd-aqua/);
+    const auth = read("src/app/(auth)/layout.tsx");
+    expect(auth).not.toContain("Development build. Use fake data only");
+    expect(auth).not.toContain("not approved for real patient information");
   });
 
   it("uses whole-record lift only where the whole record is an interaction target", () => {
@@ -127,7 +160,7 @@ describe("Doctor's Diary shared visual system reconciliation", () => {
     expect(read("src/features/patients/components/patient-list.tsx")).toContain("dd-material-panel");
     expect(read("src/features/patients/components/patient-timeline.tsx")).toContain("dd-record-stack");
     expect(read("src/features/queue/components/queue-board.tsx")).toContain("dd-material-panel rounded-[28px]");
-    expect(read("src/features/queue/components/queue-card.tsx")).toContain("dd-material-record dd-record-aqua");
+    expect(read("src/features/queue/components/queue-card.tsx")).toContain("dd-material-record dd-record-pearl");
     const profile = read("src/app/(app)/patients/[id]/page.tsx");
     expect(profile).toContain("dd-material-clinical dd-profile-summary");
     expect(profile).toContain("bg-danger-soft");

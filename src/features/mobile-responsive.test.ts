@@ -126,7 +126,8 @@ describe("P0 mobile responsive boundaries", () => {
     const visual = source("src/app/app-unified-liquid.css");
     expect(finder).toContain("dd-finder-results");
     expect(finder).not.toContain("Searching…");
-    expect(visual).toContain("rgba(250,251,255,.82) !important");
+    expect(visual).toContain("rgba(250,251,255,.72) !important");
+    expect(visual).toContain("rgba(248,249,255,.82) !important");
     expect(finder).toContain("dd-mobile-finder-shell");
     expect(finder).toContain("createPortal");
     expect(finder).toContain("document.body");
@@ -134,7 +135,7 @@ describe("P0 mobile responsive boundaries", () => {
     expect(visual).toContain("position: fixed !important");
     expect(visual).toContain("height: calc(100dvh - 16px) !important");
     expect(visual).toContain("z-index: 9999 !important");
-    expect(visual).toContain("rgba(248,249,255,.90) !important");
+    expect(visual).toContain("rgba(248,249,255,.82) !important");
   });
 
   it("keeps the desktop Finder panel absolutely positioned below the search field", () => {

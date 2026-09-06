@@ -59,7 +59,7 @@ export function QueueCard({
   return (
     <li
       className={cn(
-        "dd-material-record dd-record-aqua rounded-2xl p-4 sm:px-5",
+        "dd-material-record dd-record-pearl rounded-2xl p-4 sm:px-5",
         variant === "current" && "ring-2 ring-brand",
         variant === "skipped" && "opacity-90",
       )}

@@ -3,10 +3,9 @@
    Major containers own blur; child records never add another backdrop blur. */
 :root {
   --dd-mat-rim: rgba(255,255,255,.92);
-  --dd-mat-panel-fill: rgba(248,249,255,.46);
-  --dd-mat-record-fill: rgba(255,255,255,.52);
-  --dd-mat-aqua-record: rgba(226,250,250,.68);
-  --dd-mat-aqua-record-hover: rgba(218,248,250,.82);
+  --dd-mat-panel-fill: rgba(255,255,255,.10);
+  --dd-mat-record-fill: rgba(255,255,255,.22);
+  --dd-mat-record-hover: rgba(255,255,255,.32);
   --dd-mat-clinical-fill: rgba(255,255,255,.94);
   --dd-mat-shadow: 0 18px 44px -28px rgba(74,58,126,.34);
 }
@@ -36,8 +35,9 @@
   position: relative;
   isolation: isolate;
   background:
-    radial-gradient(30% 95% at 0% 65%, rgba(126,226,236,.10), transparent 74%),
-    radial-gradient(30% 90% at 100% 0%, rgba(238,150,216,.09), transparent 75%),
+    radial-gradient(30% 95% at 0% 65%, rgba(126,226,236,.08), transparent 74%),
+    radial-gradient(30% 90% at 100% 0%, rgba(238,150,216,.07), transparent 75%),
+    radial-gradient(28% 86% at 74% 100%, rgba(151,180,255,.05), transparent 76%),
     var(--dd-mat-panel-fill) !important;
   -webkit-backdrop-filter: blur(18px) saturate(114%);
   backdrop-filter: blur(18px) saturate(114%);
@@ -45,31 +45,36 @@
 
 .dd-material-record {
   background:
-    linear-gradient(118deg, rgba(255,255,255,.70), rgba(248,251,255,.42)),
+    radial-gradient(76% 135% at 8% -20%, rgba(255,255,255,.48), transparent 58%),
+    radial-gradient(48% 120% at 102% 16%, rgba(238,150,216,.045), transparent 72%),
+    radial-gradient(46% 120% at -2% 84%, rgba(126,226,236,.055), transparent 72%),
+    linear-gradient(118deg, rgba(255,255,255,.28), rgba(248,251,255,.14)),
     var(--dd-mat-record-fill) !important;
   -webkit-backdrop-filter: none !important;
   backdrop-filter: none !important;
   transition: transform .16s ease, background-color .16s ease, border-color .16s ease, box-shadow .16s ease;
 }
 
-/* Shared aqua/pearl record modifier. Repeated records stay lightweight: no blur. */
-.dd-material-record.dd-record-aqua {
+/* Transparent pearl record: DD colour lives at the rim/reflection, never the body. */
+.dd-material-record.dd-record-pearl {
   background:
-    radial-gradient(78% 145% at 8% -18%, rgba(255,255,255,.84), transparent 56%),
-    radial-gradient(68% 150% at 104% 60%, rgba(172,221,255,.24), transparent 68%),
-    linear-gradient(112deg, rgba(233,255,253,.76), rgba(218,248,250,.62), rgba(232,242,255,.58)),
-    var(--dd-mat-aqua-record) !important;
+    radial-gradient(78% 145% at 8% -18%, rgba(255,255,255,.52), transparent 58%),
+    radial-gradient(58% 142% at 103% 12%, rgba(151,180,255,.055), transparent 72%),
+    radial-gradient(52% 132% at -3% 86%, rgba(126,226,236,.06), transparent 72%),
+    radial-gradient(50% 132% at 96% 92%, rgba(238,150,216,.045), transparent 74%),
+    linear-gradient(116deg, rgba(255,255,255,.26), rgba(249,250,255,.13)),
+    var(--dd-mat-record-fill) !important;
   -webkit-backdrop-filter: none !important;
   backdrop-filter: none !important;
 }
 
-/* Shared public/marketing major-panel atmosphere. Blur remains on the parent only. */
-.dd-material-panel.dd-panel-aqua {
+/* Transparent pearl major panel. Only the major container owns blur. */
+.dd-material-panel.dd-panel-pearl {
   background:
-    radial-gradient(34% 100% at 0% 62%, rgba(113,232,235,.18), transparent 72%),
-    radial-gradient(34% 94% at 100% 4%, rgba(151,180,255,.16), transparent 74%),
-    radial-gradient(28% 84% at 82% 100%, rgba(230,164,225,.11), transparent 76%),
-    rgba(242,252,253,.45) !important;
+    radial-gradient(34% 100% at 0% 62%, rgba(126,226,236,.075), transparent 72%),
+    radial-gradient(34% 94% at 100% 4%, rgba(151,180,255,.055), transparent 74%),
+    radial-gradient(28% 84% at 82% 100%, rgba(238,150,216,.05), transparent 76%),
+    rgba(255,255,255,.085) !important;
 }
 
 .dd-public-feature-card {
@@ -118,15 +123,18 @@
 }
 
 @media (hover: hover) and (pointer: fine) {
-  .dd-material-record.dd-record-interactive:hover,
-  .dd-workflow-step:hover {
+  .dd-material-record.dd-record-interactive:hover {
     transform: translateY(-2px);
-    background: var(--dd-mat-aqua-record-hover) !important;
+    background:
+      radial-gradient(78% 145% at 8% -18%, rgba(255,255,255,.60), transparent 58%),
+      radial-gradient(56% 138% at 103% 12%, rgba(126,226,236,.075), transparent 72%),
+      radial-gradient(48% 132% at 96% 92%, rgba(238,150,216,.055), transparent 74%),
+      var(--dd-mat-record-hover) !important;
     border-color: rgba(255,255,255,.99) !important;
     box-shadow:
       inset 0 1px 0 rgba(255,255,255,1),
-      0 0 13px rgba(84,220,225,.18),
-      0 12px 25px -18px rgba(70,54,125,.32) !important;
+      0 0 12px rgba(84,220,225,.09),
+      0 12px 25px -18px rgba(70,54,125,.30) !important;
   }
 }
 
@@ -134,8 +142,7 @@
   .dd-material-record {
     transition: none !important;
   }
-  .dd-material-record.dd-record-interactive:hover,
-  .dd-workflow-step:hover {
+  .dd-material-record.dd-record-interactive:hover {
     transform: none !important;
   }
 }
@@ -144,27 +151,26 @@
   :root {
     --dd-mat-panel-fill: rgba(250,250,253,.96);
     --dd-mat-record-fill: rgba(255,255,255,.98);
-    --dd-mat-aqua-record: rgba(246,253,253,.99);
-    --dd-mat-aqua-record-hover: rgba(242,252,252,.99);
+    --dd-mat-record-hover: rgba(255,255,255,.99);
     --dd-mat-clinical-fill: #fff;
   }
   .dd-material-chrome,
   .dd-material-panel,
-  .dd-material-panel.dd-panel-aqua {
+  .dd-material-panel.dd-panel-pearl {
     -webkit-backdrop-filter: none !important;
     backdrop-filter: none !important;
     background: rgba(250,250,253,.97) !important;
   }
 
-  .dd-material-record.dd-record-aqua {
-    background: rgba(247,253,253,.99) !important;
+  .dd-material-record.dd-record-pearl {
+    background: rgba(255,255,255,.98) !important;
   }
 }
 
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
   .dd-material-chrome,
   .dd-material-panel,
-  .dd-material-panel.dd-panel-aqua {
+  .dd-material-panel.dd-panel-pearl {
     background: rgba(250,250,253,.97) !important;
   }
 }

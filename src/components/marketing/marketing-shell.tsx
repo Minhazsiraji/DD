@@ -31,7 +31,7 @@ export function MarketingShell({ children }: { children: ReactNode }) {
         </div>
       </header>
       <main>{children}</main>
-      <footer className="dd-material-panel dd-panel-aqua mt-8 rounded-t-[32px] border-t border-white/80">
+      <footer className="dd-material-panel dd-panel-pearl mt-8 rounded-t-[32px] border-t border-white/80">
         <div className="mx-auto grid max-w-7xl gap-8 px-5 py-10 text-sm text-ink-secondary md:grid-cols-[1.5fr_1fr_1fr] lg:px-8">
           <div>
             <p className="font-semibold text-ink">Doctor&apos;s Diary</p>

@@ -32,7 +32,7 @@ export default async function PublicDoctorPage(props: PageProps<"/dr/[slug]">) {
   return (
     <MarketingShell>
       <section className="mx-auto min-w-0 max-w-5xl px-4 py-8 sm:px-5 sm:py-12 lg:px-8 lg:py-20">
-        <div className="dd-material-panel dd-panel-aqua min-w-0 rounded-[2rem] p-5 sm:p-8 lg:p-10">
+        <div className="dd-material-panel dd-panel-pearl min-w-0 rounded-[2rem] p-5 sm:p-8 lg:p-10">
           <div className="flex min-w-0 flex-col items-center gap-5 text-center sm:flex-row sm:items-center sm:gap-7 sm:text-left">
             <PublicDoctorAvatar fullName={doctor.fullName} photoUrl={photoUrl} />
 
@@ -62,7 +62,7 @@ export default async function PublicDoctorPage(props: PageProps<"/dr/[slug]">) {
           {doctor.chambers.map((chamber) => (
             <article
               key={chamber.chamberId}
-              className="dd-material-record dd-record-aqua min-w-0 rounded-3xl p-5 sm:p-6"
+              className="dd-material-record dd-record-pearl min-w-0 rounded-3xl p-5 sm:p-6"
             >
               <div className="grid min-w-0 gap-5 md:grid-cols-[minmax(0,1fr)_auto] md:items-stretch">
                 <div className="min-w-0">
@@ -81,7 +81,7 @@ export default async function PublicDoctorPage(props: PageProps<"/dr/[slug]">) {
                       {chamber.sessions.map((s, i) => (
                         <div
                           key={`${s.weekday}-${s.startsAt}-${i}`}
-                          className="dd-material-record dd-record-aqua min-w-0 rounded-xl px-4 py-3 text-sm text-ink-secondary"
+                          className="dd-material-record dd-record-pearl min-w-0 rounded-xl px-4 py-3 text-sm text-ink-secondary"
                         >
                           <span className="font-semibold">{DAYS[s.weekday] ?? "Day"}</span>{" "}
                           <span className="tabular-nums">{s.startsAt}–{s.endsAt}</span>

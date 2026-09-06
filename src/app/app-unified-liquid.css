@@ -146,9 +146,10 @@ nav.glass-strong {
    Clinical identity details must remain readable over the dashboard beneath. */
 .dd-app-panel.dd-finder-results {
   background:
-    radial-gradient(34% 90% at 0% 58%, rgba(126,226,236,.10), transparent 72%),
-    radial-gradient(30% 84% at 100% 8%, rgba(238,150,216,.08), transparent 74%),
-    rgba(250,251,255,.82) !important;
+    radial-gradient(34% 90% at 0% 58%, rgba(126,226,236,.055), transparent 72%),
+    radial-gradient(30% 84% at 100% 8%, rgba(238,150,216,.05), transparent 74%),
+    radial-gradient(28% 82% at 76% 100%, rgba(151,180,255,.04), transparent 76%),
+    rgba(250,251,255,.72) !important;
   -webkit-backdrop-filter: blur(22px) saturate(116%) !important;
   backdrop-filter: blur(22px) saturate(116%) !important;
 }
@@ -171,9 +172,10 @@ nav.glass-strong {
    Keep the liquid treatment while visually separating search/results from the page. */
 .dd-app-panel.dd-mobile-finder-shell {
   background:
-    radial-gradient(42% 72% at 0% 8%, rgba(126,226,236,.10), transparent 72%),
-    radial-gradient(40% 68% at 100% 0%, rgba(238,150,216,.09), transparent 74%),
-    rgba(248,249,255,.90) !important;
+    radial-gradient(42% 72% at 0% 8%, rgba(126,226,236,.055), transparent 72%),
+    radial-gradient(40% 68% at 100% 0%, rgba(238,150,216,.05), transparent 74%),
+    radial-gradient(34% 64% at 70% 100%, rgba(151,180,255,.04), transparent 76%),
+    rgba(248,249,255,.82) !important;
   -webkit-backdrop-filter: blur(24px) saturate(118%) !important;
   backdrop-filter: blur(24px) saturate(118%) !important;
   height: calc(100dvh - 16px) !important;
@@ -229,8 +231,8 @@ nav.glass-strong {
   background: rgba(255,255,255,.12) !important;
 }
 
-/* Dashboard #3 — Quick Actions panel stays transparent; aqua rows remain. */
-.dd-quick-row {
+/* Shared aqua/cyan quick-control family: Dashboard Quick Actions + public workflow rows. */
+.dd-quick-control {
   border: 1px solid transparent !important;
   color: var(--dd-aqua-text) !important;
   background:
@@ -248,7 +250,7 @@ nav.glass-strong {
 }
 
 @media (hover: hover) and (pointer: fine) {
-  .dd-quick-row:hover {
+  .dd-quick-control:hover {
     transform: translateY(-2px);
     filter: brightness(1.025) saturate(1.025);
     box-shadow:
@@ -261,7 +263,7 @@ nav.glass-strong {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .dd-quick-row:hover {
+  .dd-quick-control:hover {
     transform: none !important;
   }
 }
@@ -367,7 +369,7 @@ nav.glass-strong {
   border-color: rgba(255,255,255,.30) !important;
 }
 
-.dd-app-panel a:hover:not(.dd-primary):not(.dd-secondary):not(.dd-quick-row),
+.dd-app-panel a:hover:not(.dd-primary):not(.dd-secondary):not(.dd-quick-row):not(.dd-quick-control),
 .dd-app-panel button:hover:not(.dd-primary):not(.dd-secondary) {
   background-color: rgba(255,255,255,.10) !important;
 }

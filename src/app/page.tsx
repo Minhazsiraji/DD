@@ -30,7 +30,7 @@ export default function RootPage() {
     <MarketingShell>
       <section className="mx-auto grid max-w-7xl gap-12 px-5 pb-20 pt-16 lg:grid-cols-[1.05fr_.95fr] lg:px-8 lg:pb-28 lg:pt-24">
         <div className="self-center">
-          <p className="dd-material-record dd-record-aqua inline-flex rounded-full px-3 py-1 text-sm font-medium text-brand">
+          <p className="dd-material-record dd-record-pearl inline-flex rounded-full px-3 py-1 text-sm font-medium text-brand">
             Built around the doctor, not the data-entry screen
           </p>
           <h1 className="mt-6 max-w-3xl text-5xl font-semibold tracking-tight text-ink sm:text-6xl">
@@ -56,18 +56,18 @@ export default function RootPage() {
           </p>
         </div>
 
-        <div className="dd-material-panel dd-panel-aqua dd-public-card p-5 sm:p-7">
+        <div className="dd-material-panel dd-panel-pearl dd-public-card p-5 sm:p-7">
           <div className="rounded-3xl bg-white/10 p-6">
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-xs font-semibold uppercase tracking-[0.18em] text-ink-muted">Today</p>
                 <p className="mt-1 text-xl font-semibold">Doctor workspace</p>
               </div>
-              <span className="dd-material-record dd-record-aqua rounded-full px-3 py-1 text-xs font-medium text-brand">Private clinical workspace</span>
+              <span className="dd-material-record dd-record-pearl rounded-full px-3 py-1 text-xs font-medium text-brand">Private clinical workspace</span>
             </div>
             <div className="mt-6 grid gap-3">
               {workflow.map((item, i) => (
-                <div key={item} className="dd-material-record dd-record-aqua dd-workflow-step flex items-center gap-3 px-4 py-3 text-sm text-ink-secondary">
+                <div key={item} className="dd-quick-control dd-workflow-step flex min-h-11 items-center gap-3 px-4 py-3 text-sm font-semibold focus-visible:focus-ring">
                   <span className="grid size-7 shrink-0 place-items-center rounded-full bg-brand-soft font-semibold text-brand">{i + 1}</span>
                   {item}
                 </div>
@@ -80,7 +80,7 @@ export default function RootPage() {
       <section className="border-y border-white/45">
         <div className="mx-auto grid max-w-7xl gap-5 px-5 py-16 md:grid-cols-3 lg:px-8">
           {benefits.map((benefit) => (
-            <article key={benefit.title} className="dd-material-record dd-record-aqua dd-public-feature-card p-6">
+            <article key={benefit.title} className="dd-material-record dd-record-pearl dd-public-feature-card p-6">
               <h2 className="text-lg font-semibold">{benefit.title}</h2>
               <p className="mt-3 leading-7 text-ink-secondary">{benefit.body}</p>
             </article>
@@ -89,7 +89,7 @@ export default function RootPage() {
       </section>
 
       <section className="mx-auto max-w-7xl px-5 py-20 lg:px-8">
-        <div className="dd-material-panel dd-panel-aqua rounded-[2rem] px-6 py-10 text-ink sm:px-10 lg:flex lg:items-center lg:justify-between">
+        <div className="dd-material-panel dd-panel-pearl rounded-[2rem] px-6 py-10 text-ink sm:px-10 lg:flex lg:items-center lg:justify-between">
           <div>
             <p className="text-sm font-semibold uppercase tracking-[0.18em] text-brand">Founding doctors</p>
             <h2 className="mt-3 text-3xl font-semibold tracking-tight">Help shape the workflow before the wider launch.</h2>
