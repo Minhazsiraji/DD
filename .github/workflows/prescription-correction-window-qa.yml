@@ -73,11 +73,11 @@ jobs:
       - name: Lint
         run: npm run lint
 
-      - name: Typecheck
-        run: npm run typecheck
-
       - name: Build
         run: npm run build
+
+      - name: Typecheck after generated Next types
+        run: npm run typecheck
 
       - name: Diff and protected P0 drift gates
         shell: bash
