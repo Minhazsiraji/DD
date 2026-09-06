@@ -7,16 +7,9 @@ import { requestGuardedNavigation } from "@/features/encounters/components/unsav
 import { openPrescriptionAction } from "../actions";
 
 /**
- * The way into the prescription composer.
- *
- * Opening is idempotent by design (ADR 0011 §3): one DRAFT per encounter, so
- * pressing this twice — or on a second device — resumes the same prescription
- * rather than starting a rival one. The database enforces that; this button
- * only asks.
- *
- * Navigation goes through `requestGuardedNavigation`, never `router.push`
- * directly: the consultation's unsaved notes are only protected against anchor
- * clicks and Back, and a bare push would drop them without a word.
+ * M2 prescription handoff only. Opening remains idempotent and the Rx screen
+ * loads patient/allergy identity from the encounter-owned prescription. The
+ * return path explicitly brings the doctor back to this same consultation.
  */
 export function OpenPrescriptionButton({ encounterId }: { encounterId: string }) {
   const router = useRouter();
@@ -28,11 +21,6 @@ export function OpenPrescriptionButton({ encounterId }: { encounterId: string })
     setBusy(true);
     setError(null);
 
-    /**
-     * Open BEFORE asking about unsaved notes. A failed open must leave the
-     * consultation exactly as it was — asking first would mark the screen as
-     * departing, and a failure would then leave it unguarded.
-     */
     const result = await openPrescriptionAction({ encounterId });
     if (!result.ok) {
       setBusy(false);
@@ -40,35 +28,39 @@ export function OpenPrescriptionButton({ encounterId }: { encounterId: string })
       return;
     }
 
-    /**
-     * Stays busy while the guard asks — re-enabling mid-question would invite a
-     * second open — but releases if the doctor decides to stay, or the button
-     * sits at "Opening…" for the rest of the consultation.
-     */
+    const returnTo = `/consultation/${encounterId}`;
     requestGuardedNavigation(
-      () => router.push(`/prescription/${result.prescriptionId}`),
+      () =>
+        router.push(
+          `/prescription/${result.prescriptionId}?returnTo=${encodeURIComponent(returnTo)}`,
+        ),
       () => setBusy(false),
     );
   }
 
   return (
-    <div className="clinical-surface rounded-glass p-4 sm:p-5">
-      <button
-        type="button"
-        onClick={() => void open()}
-        disabled={busy}
-        className="inline-flex h-11 items-center justify-center gap-1.5 rounded-xl bg-brand px-4 text-[13px] font-semibold text-white shadow-soft transition-colors hover:bg-brand-hover disabled:cursor-not-allowed disabled:opacity-55 focus-visible:focus-ring"
-      >
-        {busy ? (
-          <Loader2 className="size-4 animate-spin" aria-hidden="true" />
-        ) : (
-          <Pill className="size-4" aria-hidden="true" />
-        )}
-        {busy ? "Opening…" : "Write the prescription"}
-      </button>
-      <p className="mt-2 text-[12px] text-ink-muted">
-        Opens this consultation&rsquo;s prescription — the same one every time, on every device.
-      </p>
+    <div className="dd-app-panel rounded-glass p-4 sm:p-5">
+      <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="min-w-0">
+          <p className="text-[15px] font-semibold text-ink">Prescription</p>
+          <p className="mt-0.5 text-[12px] text-ink-muted">
+            Opens this encounter&rsquo;s same prescription draft. Patient and allergy identity stay visible there.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={() => void open()}
+          disabled={busy}
+          className="dd-primary inline-flex min-h-11 w-full shrink-0 items-center justify-center gap-1.5 px-4 text-[13px] font-semibold disabled:cursor-not-allowed disabled:opacity-55 focus-visible:focus-ring sm:w-auto"
+        >
+          {busy ? (
+            <Loader2 className="size-4 animate-spin" aria-hidden="true" />
+          ) : (
+            <Pill className="size-4" aria-hidden="true" />
+          )}
+          {busy ? "Opening…" : "Write prescription"}
+        </button>
+      </div>
       {error ? (
         <p
           role="status"
