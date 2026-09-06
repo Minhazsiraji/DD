@@ -65,10 +65,10 @@ describe("Doctor's Diary shared visual system reconciliation", () => {
 
   it("reconciles the Homepage hero, workflow, benefits and Founding Doctors from shared variants", () => {
     const home = read("src/app/page.tsx");
-    expect(home).toContain('className="dd-brand-emphasis">More patient.</span>');
+    expect(home).toContain('className="dd-brand-teal">More patient.</span>');
     expect(home).toContain("dd-primary inline-flex min-h-11");
     expect(home).toContain("dd-secondary inline-flex min-h-11");
-    expect(home).toContain("dd-material-panel dd-panel-pearl dd-public-card");
+    expect(home).toContain("dd-app-panel dd-material-panel dd-panel-pearl dd-public-card");
     expect(home).toContain("dd-quick-row dd-quick-control flex min-h-11 items-center gap-2.5 rounded-xl px-3");
     expect(home).toContain("dd-record-pearl dd-public-feature-card");
     expect(home).toContain("dd-material-panel dd-panel-pearl rounded-[2rem]");
