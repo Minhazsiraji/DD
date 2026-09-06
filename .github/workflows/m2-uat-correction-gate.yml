@@ -1,4 +1,4 @@
-name: M2 Prescription Visual Propagation Gate
+name: M2 Prescription Paper Hierarchy Gate
 
 on:
   push:
@@ -18,13 +18,13 @@ jobs:
       AI_MODE: mock
       NOTIFICATION_MODE: mock
       PAYMENT_MODE: mock
-      M2_BASE: a6ead21013ef60f617d81b45f28cd1047d551af8
-      M2_TARGET: e242bac9240cbc8af1dfb5ff31362d771c18b3dc
+      M2_BASE: e242bac9240cbc8af1dfb5ff31362d771c18b3dc
+      M2_TARGET: d00d3c53ac54a67c56d5f222ac96a61dd413857d
     steps:
-      - name: Checkout exact M2 visual candidate
+      - name: Checkout exact M2 paper candidate
         uses: actions/checkout@v4
         with:
-          ref: e242bac9240cbc8af1dfb5ff31362d771c18b3dc
+          ref: d00d3c53ac54a67c56d5f222ac96a61dd413857d
           fetch-depth: 0
 
       - name: Confirm exact candidate
@@ -42,6 +42,7 @@ jobs:
       - name: Focused prescription visual and M2 regression
         run: >-
           npm test -- --run
+          src/features/prescriptions/prescription-paper-hierarchy.test.ts
           src/features/prescriptions/prescription-material.test.ts
           src/features/prescriptions/correction.test.ts
           src/features/prescriptions/correction-window.test.ts
