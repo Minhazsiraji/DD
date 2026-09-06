@@ -10,6 +10,7 @@ import { FastEntry } from "./fast-entry";
 import { NextVisitFields } from "./next-visit-fields";
 import { resolveVisibility } from "../module-visibility";
 import type { RxModuleSetting } from "@/features/doctor/rx-modules";
+import type { FollowUpShortcut } from "../follow-up-dates";
 import { ConflictPanel } from "./conflict-panel";
 import { FindingConflictPanel } from "./finding-conflict-panel";
 import { SaveBar } from "./save-bar";
@@ -46,18 +47,18 @@ export function ConsultationWorkspace({
   previousVisit,
   expandPreviousVisit,
   moduleConfig,
+  followUpShortcuts,
 }: {
   consultation: Consultation;
   locationName: string;
   previousVisit: PreviousVisit | null;
   expandPreviousVisit: boolean;
   moduleConfig: RxModuleSetting[] | null;
+  followUpShortcuts: FollowUpShortcut[];
 }) {
   const s = useConsultation(consultation);
   const readOnly = consultation.status !== "DRAFT";
 
-  // Visibility is settled from the SAVED encounter on load. Live typing never
-  // makes a section disappear underneath the doctor.
   const visibility = React.useMemo(
     () =>
       resolveVisibility(moduleConfig, consultation.values, {
@@ -208,10 +209,7 @@ export function ConsultationWorkspace({
 
       {s.conflict?.findings.map((conflict, index) => (
         <div key={`${conflict.kind}-${conflict.list}-${index}`} className="mb-4">
-          <FindingConflictPanel
-            conflict={conflict}
-            onResolve={(choice) => s.resolveFinding(conflict, choice)}
-          />
+          <FindingConflictPanel conflict={conflict} onResolve={(choice) => s.resolveFinding(conflict, choice)} />
         </div>
       ))}
 
@@ -243,14 +241,7 @@ export function ConsultationWorkspace({
               errors={s.vitalErrors}
               disabled={readOnly}
               onChange={s.setField}
-              previous={
-                previousVisit
-                  ? {
-                      heightCm: previousVisit.vitals.heightCm,
-                      weightKg: previousVisit.vitals.weightKg,
-                    }
-                  : undefined
-              }
+              previous={previousVisit ? { heightCm: previousVisit.vitals.heightCm, weightKg: previousVisit.vitals.weightKg } : undefined}
               shownBecauseFilled={visibility.VITALS.shownBecauseFilled}
             />
           ) : null}
@@ -322,6 +313,7 @@ export function ConsultationWorkspace({
               dirtyKeys={s.dirtyKeys}
               disabled={readOnly}
               onChange={s.setField}
+              shortcuts={followUpShortcuts}
               shownBecauseFilled={visibility.NEXT_VISIT.shownBecauseFilled}
             />
           ) : null}
