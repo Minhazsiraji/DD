@@ -41,14 +41,14 @@ jobs:
       - name: Checkout exact proof candidate
         uses: actions/checkout@v4
         with:
-          ref: 58eb93bf4c641fc7be87dccf471c6c880ff4c03a
+          ref: b985c3c79ce9d75ef93715437d077dd571c40cb6
           fetch-depth: 0
 
       - name: Exact SHA and product-diff guard
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = "58eb93bf4c641fc7be87dccf471c6c880ff4c03a"
+          test "$(git rev-parse HEAD)" = "b985c3c79ce9d75ef93715437d077dd571c40cb6"
           git diff --check 1147e993158f9abee80a5307cf9932ff95cb43bb..HEAD
           printf '%s\n' \
             db/p1/0014_p1_prescription_correction_window.sql \
