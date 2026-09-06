@@ -83,15 +83,6 @@ jobs:
       - name: Existing prescription regression tests
         run: npx vitest run src/features/prescriptions
 
-      - name: Install PostgreSQL 17 client for local determinism
-        shell: bash
-        run: |
-          set -euo pipefail
-          sudo apt-get update
-          sudo apt-get install -y postgresql-client-17
-          /usr/lib/postgresql/17/bin/pg_dump --version
-          echo "/usr/lib/postgresql/17/bin" >> "$GITHUB_PATH"
-
       - name: Prepare ephemeral local Supabase substrate
         shell: bash
         run: |
@@ -121,6 +112,19 @@ jobs:
           grep -A3 '^\[db\]$' supabase/config.toml
           grep -A2 '^\[db.migrations\]$' supabase/config.toml
           node node_modules/supabase/dist/supabase.js start > /tmp/dd-local-supabase-start.log
+          mkdir -p /tmp/dd-pg17
+          cat > /tmp/dd-pg17/pg_dump <<'SH'
+          #!/usr/bin/env bash
+          set -euo pipefail
+          args=()
+          for arg in "$@"; do
+            args+=("${arg/127.0.0.1:54322/127.0.0.1:5432}")
+          done
+          exec docker exec supabase_db_DD pg_dump "${args[@]}"
+          SH
+          chmod +x /tmp/dd-pg17/pg_dump
+          /tmp/dd-pg17/pg_dump --version | grep -F '17.'
+          echo "/tmp/dd-pg17" >> "$GITHUB_PATH"
 
       - name: P0 local deployment determinism and verification
         shell: bash
