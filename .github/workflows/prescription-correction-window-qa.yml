@@ -1,0 +1,111 @@
+name: Prescription correction window isolated QA
+
+on:
+  push:
+    branches:
+      - qa/prescription-correction-window-b985c3
+
+permissions:
+  contents: read
+
+jobs:
+  proof:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U postgres -d postgres"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=20
+    env:
+      DD_CORRECTION_WINDOW_LOCAL_URL: postgres://postgres:postgres@127.0.0.1:5432/postgres
+      NEXT_PUBLIC_SUPABASE_URL: http://127.0.0.1:54321
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: local-proof-placeholder
+      VERCEL_ENV: preview
+
+    steps:
+      - name: Checkout exact proof candidate
+        uses: actions/checkout@v4
+        with:
+          ref: b985c3c79ce9d75ef93715437d077dd571c40cb6
+          fetch-depth: 0
+
+      - name: Assert exact SHA and QA isolation
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "b985c3c79ce9d75ef93715437d077dd571c40cb6"
+          test ! -e .github/workflows/prescription-correction-window-qa.yml
+          echo "PASS exact proof candidate checkout; QA workflow absent from product tree"
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install repository dependencies
+        run: npm ci
+
+      - name: Static correction-window proof
+        run: npx vitest run scripts/prescription-correction-window.test.ts src/features/prescriptions/prescription-correction-window-boundary.test.ts
+
+      - name: Exact PostgreSQL boundary proof
+        run: node scripts/verify-prescription-correction-window-boundary.mjs
+
+      - name: Dynamic PostgreSQL correction proof - pass 1
+        run: node scripts/verify-prescription-correction-window.mjs
+
+      - name: Dynamic PostgreSQL correction proof - clean replay
+        run: node scripts/verify-prescription-correction-window.mjs
+
+      - name: Existing prescription regression tests
+        run: npx vitest run "src/features/prescriptions/**/*.test.ts" "src/features/prescriptions/*.test.ts"
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Build
+        run: npm run build
+
+      - name: Diff and protected P0 drift gates
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --check 1147e993158f9abee80a5307cf9932ff95cb43bb..HEAD
+          test -z "$(git diff --name-only 1147e993158f9abee80a5307cf9932ff95cb43bb..HEAD -- db/schema db/functions db/policies db/grants db/storage db/seed db/manifest.toml db/golden-p0.sql)"
+          echo "PASS git diff --check"
+          echo "PASS protected P0 byte-drift check"
+
+      - name: P1 follow-on static determinism
+        shell: bash
+        run: |
+          set -euo pipefail
+          sha256sum db/p1/0014_p1_prescription_correction_window.sql
+          git diff --exit-code b985c3c79ce9d75ef93715437d077dd571c40cb6 -- db/p1/0014_p1_prescription_correction_window.sql
+          echo "PASS isolated P1 follow-on is stable at exact candidate SHA"
+
+      - name: Start local Supabase substrate for P0 determinism
+        shell: bash
+        run: npx supabase start
+
+      - name: Full P0 deployment determinism
+        env:
+          DD_V2_LOCAL_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:54322/postgres
+        run: npm run db:verify:determinism
+
+      - name: Stop local Supabase substrate
+        if: always()
+        shell: bash
+        run: npx supabase stop --no-backup || true
