@@ -9,6 +9,7 @@ import {
   getPrescription,
   getPrescriptionLineage,
 } from "@/features/prescriptions/queries";
+import { isCorrectionUiWindowOpen } from "@/features/prescriptions/correction-window";
 import { PrescriptionComposer } from "@/features/prescriptions/components/prescription-composer";
 import { FinalizedPrescription } from "@/features/prescriptions/components/finalized-prescription";
 
@@ -41,6 +42,8 @@ export default async function PrescriptionPage({
       prescriptionId,
       finalized.finalized.locationId,
     );
+    // Presentation only. MD separately owns authoritative mutation enforcement.
+    const correctionUiEligible = isCorrectionUiWindowOpen(finalized.finalized.finalizedAt);
 
     return (
       <FinalizedPrescription
@@ -48,6 +51,7 @@ export default async function PrescriptionPage({
         encounterId={finalized.finalized.encounterId}
         viewerIsOwner={finalized.finalized.viewerIsOwner}
         finalizedAt={finalized.finalized.finalizedAt}
+        correctionUiEligible={correctionUiEligible}
         digest={finalized.finalized.digest}
         bundle={finalized.finalized.bundle}
         lineage={lineage.ok ? lineage.lineage : null}
