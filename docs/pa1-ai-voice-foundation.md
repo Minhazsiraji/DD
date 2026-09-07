@@ -8,29 +8,63 @@ Status: MD1 isolated foundation for Central review. Not wired into CSU or any li
 
 The only permitted clinical path is:
 
-`Doctor voice/text → transient transcription when needed → typed proposal → strict server validation → visible Doctor review/acceptance → existing DD action/RPC → existing clinical/audit controls`
+`Doctor voice/text → DD transcript/text → typed proposal → strict server validation → visible Doctor review/acceptance → existing DD action/RPC → existing clinical/audit controls`
 
 AI has no database authority, no service-role database client, and no direct finalize/print-confirm/destructive path.
 
-## Provider boundary
+## Existing DD voice baseline — REUSE, DO NOT DUPLICATE
 
-PA1 separates two providers:
+Doctor's Diary already has an audited Deepgram Nova-3 streaming implementation in the historical Loop C voice lane.
 
-1. `SpeechProvider`: transient audio → transcript + language/confidence when available + privacy-safe request/usage metadata.
-2. `ClinicalProposalParser`: Doctor-authored text/transcript + explicit task type + strict JSON schema → unknown provider output, which DD validates independently.
+Canonical evidence:
 
-A provider response is never trusted merely because the provider claims schema conformance.
+- original Nova-3 pilot branch tip: `832b62a7721309968e17256716c0ec0257f0c1e3`
+- streaming-v2 implementation anchor: `9d92a60231567911c0dade1b7ab7857a7cd003b3`
+- latest provider-connection audit tip: `993842c50619bbfabf8ed243623df6a791df55df`
+- streaming-v2 and provider-connection audit tips resolve to the same final code tree: `4e84a706336d498043402ceaa738fa2828f73068`
 
-### Pilot recommendation
+The streaming-v2 branch is a direct descendant of the original Nova-3 pilot. The provider-connection audit branch is a direct descendant of streaming-v2 and ends with the same code tree after temporary CI/provider gates were removed.
 
-For the first synthetic/pilot integration evaluation:
+The audited implementation uses:
 
-- STT default candidate: OpenAI GPT-Transcribe for push-to-talk/committed utterances.
-- Structured proposal parser candidate: OpenAI GPT-5.6 Terra through Responses structured outputs with strict JSON Schema and `store=false`.
-- Cost-optimization candidate after DD-specific evaluation: GPT-5.6 Luna.
-- STT alternatives retained behind the same interface: Deepgram Nova-3 and Google Speech-to-Text V2.
+- `Deepgram Nova-3`
+- browser `MediaRecorder` → direct Deepgram WebSocket streaming
+- server-only `/api/voice/token` grant boundary
+- permanent `DEEPGRAM_API_KEY` kept server-side
+- short-lived 30-second access grants
+- authenticated Doctor permission check before grant
+- same-origin request enforcement
+- Bangla `bn` and English `en-US` allowlist
+- interim streaming results and cumulative transcript assembly
+- bounded connection, first-transcript and finalization timeouts
+- stale-run isolation, single live voice lease and exact Discard restoration
+- no raw audio or transcript persistence/logging in the audited voice path
+- no clinical write/finalize authority in the voice transport.
 
-The provider choice is not a clinical invariant. Provider replacement must not require changes to Prescription or Investigation contracts.
+PA1 therefore MUST NOT create another STT provider, batch-audio endpoint, raw-audio orchestration API, or second Deepgram credential path.
+
+The current M3/PA1 line and historical Loop C Deepgram line have diverged. Future integration must selectively port/reconcile the audited voice subsystem onto the current accepted line under a separate Central gate. A wholesale historical-branch merge is not approved by PA1.
+
+## PA1 provider boundary
+
+PA1 owns only the structured clinical proposal boundary:
+
+`ClinicalProposalParser`: Doctor-authored text or a transient DD voice transcript + explicit task type + strict JSON schema → unknown provider output, which DD validates independently.
+
+The PA1 server orchestration accepts either:
+
+1. typed Doctor text; or
+2. a transient transcript supplied by DD's existing audited voice subsystem, with privacy-safe provider/language/usage metadata.
+
+It accepts **no raw audio bytes** and contains **no SpeechProvider/STT transport**.
+
+A parser response is never trusted merely because the provider claims schema conformance.
+
+### Parser provider decision
+
+The structured proposal parser remains provider-neutral in PA1. Central must separately approve the live parser/provider/account configuration before any real clinical payload is sent externally.
+
+No GPT-Transcribe integration is proposed because DD already has the reusable Deepgram Nova-3 STT subsystem.
 
 ## Language
 
@@ -105,11 +139,11 @@ The existing DD version/CAS model is the replay/duplicate-accept control: after 
 
 ## Voice privacy
 
-Raw audio lifecycle is transient only:
+Raw audio lifecycle belongs exclusively to the existing audited DD voice subsystem:
 
-`microphone → in-memory/transient provider input → transcript → proposal → release audio`
+`microphone → transient Deepgram stream → transcript → release audio`
 
-PA1 accepts audio bytes, not a storage path. Proposal envelopes and owner telemetry contain neither raw audio nor transcript text.
+PA1 begins **after transcription** and receives no raw audio. Proposal envelopes and owner telemetry contain neither raw audio nor transcript text.
 
 Permanent audio storage requires a separate Central decision.
 
@@ -127,7 +161,7 @@ PA1 operational telemetry may contain:
 - success/failure
 - latency
 - accepted/edited/rejected/pending
-- audio seconds
+- audio seconds when supplied by the audited voice subsystem
 - input/output token counts
 - estimated provider cost
 
@@ -143,9 +177,26 @@ It must not contain:
 
 Platform Owner receives aggregate business/cost information only.
 
+## Threat controls
+
+PA1 foundation explicitly fails closed against:
+
+- malformed/extra provider fields;
+- hallucinated or absent clinical facts being silently defaulted;
+- ambiguous medicine/dose without explicit uncertainty/review;
+- prompt-injection-like transcript text becoming authority;
+- wrong-patient/Doctor/location/record binding;
+- stale clinical version/replayed acceptance;
+- clinical mutation without explicit Doctor acceptance;
+- voice navigation attempting finalization;
+- parser timeout, including a non-cooperative provider adapter;
+- transcript/raw clinical content entering operational telemetry;
+- service-role or browser-exposed provider secrets;
+- a second raw-audio/STT transport being introduced inside PA1.
+
 ## Pre-real-clinical provider gate
 
-Before any real clinical payload is sent to a live AI/STT provider, Central must verify at minimum:
+Before any real clinical payload is sent to a live structured-proposal provider, Central must verify at minimum:
 
 1. chosen provider account/project retention settings;
 2. training/data-sharing settings;
@@ -153,9 +204,8 @@ Before any real clinical payload is sent to a live AI/STT provider, Central must
 4. API keys are server-only and absent from browser bundles;
 5. vendor contractual/privacy requirements for DD's operating jurisdictions;
 6. synthetic Bangla-English clinician-like accuracy evaluation, especially medicine names, units and abbreviations;
-7. timeout/failure UI preserves Doctor text and performs no clinical write.
-
-`store=false` is required for a Responses-based parser but is not, by itself, proof of Zero Data Retention. Account-level eligibility/settings must be verified separately.
+7. timeout/failure UI preserves Doctor text and performs no clinical write;
+8. the audited Deepgram subsystem is selectively reconciled with the current M3/PA1 line without reintroducing historical unrelated changes.
 
 ## Supabase requirement
 
@@ -167,7 +217,8 @@ If Central later wants durable AI operation telemetry, the persistence shape mus
 
 Not implemented in PA1:
 
-- live provider adapters/secrets;
+- live structured-proposal provider adapter/secrets;
+- selective port/reconciliation of the historical Deepgram subsystem onto the current M3/PA1 line;
 - Prescription UI wiring;
 - Investigation UI wiring;
 - clinical action adapters;
