@@ -1,0 +1,55 @@
+name: M3 CSU QA
+
+on:
+  push:
+    branches:
+      - ui/m3-prescription-v2
+
+permissions:
+  contents: read
+
+jobs:
+  quality-gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout full history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install exact dependencies
+        run: npm ci
+
+      - name: Protected M3 scope guard
+        shell: bash
+        run: |
+          BASE=b897aa647cd2b7478651d8784a0c51828a52ccea
+          git diff --name-only "$BASE"...HEAD | tee /tmp/m3-files.txt
+          if grep -E '(^supabase/migrations/|\.sql$|(^|/)schema\.(ts|tsx|js|mjs|cjs)$|^src/features/(identity|investigations|dashboard)/)' /tmp/m3-files.txt; then
+            echo "Unauthorized protected/schema/migration drift detected"
+            exit 1
+          fi
+          test "$(node -p "require('./vercel.json').regions.join(',')")" = "icn1"
+          git diff --exit-code "$BASE"...HEAD -- src/app/globals.css src/features/prescriptions/components/print-sheet.tsx
+
+      - name: Diff whitespace gate
+        run: git diff --check b897aa647cd2b7478651d8784a0c51828a52ccea...HEAD
+
+      - name: Lint
+        run: npm run lint
+
+      - name: TypeScript
+        run: npm run typecheck
+
+      - name: Full Vitest suite
+        run: npm test
+
+      - name: Production build and static generation
+        run: npm run build
