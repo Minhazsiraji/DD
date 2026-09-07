@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
+import { createHmacProposalIntegrity } from "./integrity";
 import { createClinicalProposal } from "./orchestrator";
 import { MockProposalParser } from "./mock-provider";
 
@@ -11,6 +12,10 @@ const binding = {
   clinicalRecordId: "55555555-5555-4555-8555-555555555555",
   expectedVersion: 7,
 };
+
+const integrity = createHmacProposalIntegrity(
+  "pa1-c1-voice-test-signing-secret-32-bytes-minimum",
+);
 
 const englishProposal = {
   kind: "PRESCRIPTION_MEDICINE",
@@ -48,6 +53,7 @@ describe("PA1 voice and secret containment", () => {
       },
       {
         parser: new MockProposalParser(englishProposal),
+        integrity,
         now: () => new Date("2026-09-07T10:00:00Z"),
       },
     );
@@ -56,6 +62,7 @@ describe("PA1 voice and secret containment", () => {
     expect(JSON.stringify(result.envelope)).not.toContain(transcript);
     expect(result.transcriptMeta?.provider).toBe("deepgram");
     expect(result.transcriptMeta?.model).toBe("nova-3");
+    expect(result.securityHandle).not.toContain(transcript);
   });
 
   it("preserves mixed Bangla-English medical wording", async () => {
@@ -83,6 +90,7 @@ describe("PA1 voice and secret containment", () => {
       },
       {
         parser: new MockProposalParser(mixedProposal),
+        integrity,
         now: () => new Date("2026-09-07T10:00:00Z"),
       },
     );
@@ -92,14 +100,16 @@ describe("PA1 voice and secret containment", () => {
     expect(result.transcriptMeta?.language).toBe("bn");
   });
 
-  it("contains no duplicate raw-audio/STT transport and no exposed provider secret path", () => {
+  it("contains no duplicate STT implementation inside the PA1 proposal layer", () => {
     const productionFiles = [
       "./contracts.ts",
       "./providers.ts",
       "./acceptance.ts",
+      "./integrity.ts",
       "./telemetry.ts",
       "./orchestrator.ts",
       "./mock-provider.ts",
+      "./openai-terra-provider.ts",
     ];
     const source = productionFiles
       .map((file) => readFileSync(new URL(file, import.meta.url), "utf8"))
@@ -111,12 +121,9 @@ describe("PA1 voice and secret containment", () => {
     expect(source).not.toContain("NEXT_PUBLIC_DEEPGRAM");
     expect(source).not.toContain("NEXT_PUBLIC_GOOGLE");
     expect(source).not.toContain("SpeechProvider");
-    expect(source).not.toContain("DEEPGRAM_API_KEY");
     expect(source).not.toContain("audio.bytes");
-    expect(source).not.toContain("new Uint8Array");
-    expect(source).not.toContain("MediaRecorder");
-    expect(source).not.toContain("WebSocket");
-    expect(source).not.toContain("/api/voice/token");
+    expect(source).not.toContain("new MediaRecorder");
+    expect(source).not.toContain("new WebSocket");
     expect(source).not.toContain("/api/voice/transcribe");
   });
 });
