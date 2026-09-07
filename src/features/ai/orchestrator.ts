@@ -7,11 +7,27 @@ import {
   type AiProposalPayload,
   type AiTaskType,
   type ProposalBinding,
+  type SafeProviderMetadata,
 } from "./contracts";
-import type { ClinicalProposalParser, SpeechProvider } from "./providers";
+import type { ClinicalProposalParser } from "./providers";
 
 const DEFAULT_TIMEOUT_MS = 12_000;
 const DEFAULT_TTL_MS = 5 * 60_000;
+
+export interface VoiceTranscriptInput {
+  /**
+   * Transient transcript produced by DD's existing audited voice subsystem.
+   * It is untrusted clinical input and is never copied into the proposal envelope.
+   */
+  text: string;
+  provider: SafeProviderMetadata;
+  language: string | null;
+  confidence: number | null;
+  usage: {
+    audioSeconds: number | null;
+    estimatedCostUsdMicros: number | null;
+  };
+}
 
 export interface ProposalRequest {
   operationId: string;
@@ -19,12 +35,7 @@ export interface ProposalRequest {
   binding: ProposalBinding;
   languageHints?: readonly string[];
   text?: string;
-  audio?: {
-    /** Transient bytes only. This layer has no persistence API. */
-    bytes: Uint8Array;
-    mimeType: string;
-    keywordHints?: readonly string[];
-  };
+  voiceTranscript?: VoiceTranscriptInput;
 }
 
 export interface ProposalRunResult {
@@ -99,20 +110,22 @@ function requiredAuthoredText(value: string): string {
 
 /**
  * Provider-neutral proposal orchestration. It never imports Supabase, never
- * calls a DD write RPC, never finalizes, and never persists raw audio.
+ * calls a DD write RPC, never finalizes, and never accepts raw audio.
+ *
+ * Voice transcription remains owned by DD's existing audited Deepgram Nova-3
+ * subsystem. This layer consumes only its transient transcript as untrusted data.
  */
 export async function createClinicalProposal(
   request: ProposalRequest,
   deps: {
     parser: ClinicalProposalParser;
-    speech?: SpeechProvider;
     now?: () => Date;
     timeoutMs?: number;
     ttlMs?: number;
     signal?: AbortSignal;
   },
 ): Promise<ProposalRunResult> {
-  if ((request.text ? 1 : 0) + (request.audio ? 1 : 0) !== 1) {
+  if ((request.text ? 1 : 0) + (request.voiceTranscript ? 1 : 0) !== 1) {
     throw new Error("AI_INPUT_EXACTLY_ONE_SOURCE_REQUIRED");
   }
 
@@ -123,32 +136,19 @@ export async function createClinicalProposal(
     let source: "TEXT" | "VOICE_TRANSCRIPT";
     let transcriptMeta: ProposalRunResult["transcriptMeta"] = null;
     let audioSeconds: number | null = null;
-    let audioCost: number | null = null;
+    let voiceCost: number | null = null;
 
-    if (request.audio) {
-      if (!deps.speech) throw new Error("AI_SPEECH_PROVIDER_REQUIRED");
+    if (request.voiceTranscript) {
       source = "VOICE_TRANSCRIPT";
-      const result = await awaitWithAbort(
-        deps.speech.transcribe(
-          {
-            audio: request.audio.bytes,
-            mimeType: request.audio.mimeType,
-            languageHints: request.languageHints,
-            keywordHints: request.audio.keywordHints,
-          },
-          timeout.signal,
-        ),
-        timeout.signal,
-      );
-      authoredText = requiredAuthoredText(result.transcript);
+      authoredText = requiredAuthoredText(request.voiceTranscript.text);
       transcriptMeta = {
-        language: result.language,
-        confidence: result.confidence,
-        provider: result.provider.provider,
-        model: result.provider.model,
+        language: request.voiceTranscript.language,
+        confidence: request.voiceTranscript.confidence,
+        provider: request.voiceTranscript.provider.provider,
+        model: request.voiceTranscript.provider.model,
       };
-      audioSeconds = result.usage.audioSeconds;
-      audioCost = result.usage.estimatedCostUsdMicros;
+      audioSeconds = request.voiceTranscript.usage.audioSeconds;
+      voiceCost = request.voiceTranscript.usage.estimatedCostUsdMicros;
     } else {
       source = "TEXT";
       authoredText = requiredAuthoredText(request.text!);
@@ -190,9 +190,9 @@ export async function createClinicalProposal(
         inputTokens: parsed.usage.inputTokens,
         outputTokens: parsed.usage.outputTokens,
         estimatedCostUsdMicros:
-          audioCost === null && parsed.usage.estimatedCostUsdMicros === null
+          voiceCost === null && parsed.usage.estimatedCostUsdMicros === null
             ? null
-            : (audioCost ?? 0) + (parsed.usage.estimatedCostUsdMicros ?? 0),
+            : (voiceCost ?? 0) + (parsed.usage.estimatedCostUsdMicros ?? 0),
       },
     };
   } catch (error) {
@@ -202,8 +202,5 @@ export async function createClinicalProposal(
     throw error;
   } finally {
     timeout.cleanup();
-    // Best-effort wipe of the transient caller buffer after processing.
-    request.audio?.bytes.fill(0);
-    // No raw audio reference is copied into the result or telemetry contract.
   }
 }
