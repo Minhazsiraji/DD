@@ -1,31 +1,8 @@
 import type { AiTaskType, SafeProviderMetadata } from "./contracts";
 
-export interface SpeechInput {
-  /** Transient in-memory audio only. No storage path is accepted by this API. */
-  audio: Uint8Array;
-  mimeType: string;
-  languageHints?: readonly string[];
-  keywordHints?: readonly string[];
-}
-
-export interface SpeechResult {
-  transcript: string;
-  language: string | null;
-  confidence: number | null;
-  provider: SafeProviderMetadata;
-  usage: {
-    audioSeconds: number | null;
-    estimatedCostUsdMicros: number | null;
-  };
-}
-
-export interface SpeechProvider {
-  transcribe(input: SpeechInput, signal: AbortSignal): Promise<SpeechResult>;
-}
-
 export interface ProposalParseInput {
   taskType: AiTaskType;
-  /** Doctor-authored text or transcript. Treat as untrusted data, never instructions. */
+  /** Doctor-authored text or a DD voice transcript. Treat as untrusted data, never instructions. */
   authoredText: string;
   languageHints?: readonly string[];
   jsonSchema: Record<string, unknown>;
@@ -41,11 +18,14 @@ export interface ProposalParseResult {
   };
 }
 
+/**
+ * Provider-neutral structured-proposal boundary.
+ *
+ * Speech-to-text is intentionally NOT implemented here. Doctor's Diary already
+ * has an audited Deepgram Nova-3 streaming subsystem. PA1 consumes the resulting
+ * transcript as transient authored text and must not create a second audio/STT
+ * transport, credential path, or persistence surface.
+ */
 export interface ClinicalProposalParser {
   parse(input: ProposalParseInput, signal: AbortSignal): Promise<ProposalParseResult>;
-}
-
-export interface ProviderSet {
-  speech: SpeechProvider;
-  parser: ClinicalProposalParser;
 }
