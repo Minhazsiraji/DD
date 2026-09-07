@@ -13,7 +13,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 75
     env:
-      PRODUCT_SHA: e5d1065f45801853a31cbac1e72042a42bd54802
+      PRODUCT_SHA: dee28660d01b67c60c77f1068af69c10b1adc357
       FAILED_PRODUCT_SHA: bd4e86e58cc63ab6868c5959eccf3d5def6b7a36
       PRODUCT_BASE: 1708edcdc10a8f6ed1f87ee81e6ebe21d27aa99d
       QA_WORKFLOW: .github/workflows/m3-backend-foundation-proof.yml
@@ -37,7 +37,7 @@ jobs:
       - name: Checkout exact product candidate detached
         uses: actions/checkout@v4
         with:
-          ref: e5d1065f45801853a31cbac1e72042a42bd54802
+          ref: dee28660d01b67c60c77f1068af69c10b1adc357
           path: product
           fetch-depth: 0
           persist-credentials: false
@@ -183,7 +183,7 @@ jobs:
           set -euo pipefail
           test "$(git hash-object supabase/policies/0041_prescription_correction_window.sql)" = "b89f8759d737afee950567788a715ba9a947f175"
           test "$(git hash-object supabase/policies/0042_m3_prescription_reuse.sql)" = "f0d61c8ba472a57513eb0065a294a2ff65a09b69"
-          test "$(git hash-object supabase/policies/0043_m3_signed_medicine_history.sql)" = "f8869c81875886e6f4d6d5d2a662b525d78ef03e"
+          test "$(git hash-object supabase/policies/0043_m3_signed_medicine_history.sql)" = "d68248caca61797994c2ffafb1f13f90d8726702"
           test "$(git hash-object supabase/policies/0044_m3_prescription_print_audit.sql)" = "139684e77ef6fa2c5414611c32dfd8c6b9113524"
           test "$(git hash-object src/app/global-background-test.css)" = "062f35853c07cf72e7f6d6438878a2e9f4ff6b79"
           test "$(git hash-object supabase/policies/0021_prescription_suggestions.sql)" = "842f746d2c774b94f8c60f6923229e08c489c8d5"
@@ -193,7 +193,7 @@ jobs:
           echo "PASS corrected 0043 contains no live public.prescription_items dependency"
           echo "PASS frozen 0041 blob b89f8759d737afee950567788a715ba9a947f175"
           echo "PASS unchanged 0042/0044 blobs"
-          echo "PASS corrected 0043 blob f8869c81875886e6f4d6d5d2a662b525d78ef03e"
+          echo "PASS corrected 0043 blob d68248caca61797994c2ffafb1f13f90d8726702"
           echo "PASS frozen print CSS blob 062f35853c07cf72e7f6d6438878a2e9f4ff6b79"
           echo "PASS frozen prescription_item_suggestions unchanged"
 
