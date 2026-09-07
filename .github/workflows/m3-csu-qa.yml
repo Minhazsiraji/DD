@@ -8,6 +8,7 @@ on:
 permissions:
   contents: read
 
+# Temporary CSU verification workflow. Removed before the final candidate SHA.
 jobs:
   quality-gate:
     runs-on: ubuntu-latest
