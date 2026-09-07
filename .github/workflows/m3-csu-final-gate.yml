@@ -1,0 +1,94 @@
+name: M3 CSU Final Gate
+
+on:
+  push:
+    branches:
+      - qa/m3-csu-final-gate-2
+
+permissions:
+  contents: read
+
+env:
+  CANDIDATE: 3a35f364101b7c892863a85e496b9fd5ec96b897
+  BASE: b897aa647cd2b7478651d8784a0c51828a52ccea
+  NEXT_PUBLIC_SUPABASE_URL: https://qa-placeholder.supabase.co
+  NEXT_PUBLIC_SUPABASE_ANON_KEY: qa-placeholder-anon-key
+  NEXT_PUBLIC_SITE_URL: http://127.0.0.1:3000
+  AI_MODE: mock
+  NOTIFICATION_MODE: mock
+  PAYMENT_MODE: mock
+
+jobs:
+  exact-candidate-quality:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 3a35f364101b7c892863a85e496b9fd5ec96b897
+          fetch-depth: 0
+      - name: Confirm exact candidate
+        run: test "$(git rev-parse HEAD)" = "$CANDIDATE"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Focused M3 Prescription V2
+        run: >-
+          npm test -- --run
+          src/features/prescriptions/m3-prescription-ui.test.ts
+          src/features/prescriptions/m3-responsive-widths.test.ts
+          src/features/prescriptions/schema.test.ts
+          src/features/prescriptions/recovery.test.ts
+          src/features/prescriptions/errors.test.ts
+          src/features/prescriptions/deadline.test.ts
+      - name: M2 prescription regression
+        run: >-
+          npm test -- --run
+          src/features/prescriptions/print-media-regression.test.ts
+          src/features/prescriptions/prescription-paper-hierarchy.test.ts
+          src/features/prescriptions/prescription-material.test.ts
+          src/features/prescriptions/prescription-renderers.test.ts
+          src/features/prescriptions/correction.test.ts
+          src/features/prescriptions/correction-window.test.ts
+          src/features/prescriptions/correction-window-security.test.ts
+          src/features/prescriptions/finalize-outcome.test.ts
+      - name: Full M2 regression
+        run: >-
+          npm test -- --run
+          src/features/encounters/m2-consultation-workspace.test.ts
+          src/features/encounters/m2-uat-corrections.test.ts
+          src/features/encounters/m2-responsive-widths.test.ts
+          src/features/encounters/follow-up-dates.test.ts
+      - name: Full M1 regression
+        run: >-
+          npm test -- --run
+          src/features/patients/m1-implementation.test.ts
+          src/features/patients/finder-ranking.test.ts
+          src/features/mobile-responsive.test.ts
+          src/components/layout/nav-targets.test.ts
+      - name: Full repository suite
+        run: npm test
+      - name: Lint
+        run: npm run lint
+      - name: Generate Next route types
+        run: npx next typegen
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Production build and static generation
+        run: npm run build
+      - name: Diff and architecture gates
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --check "$BASE..$CANDIDATE"
+          test -z "$(git diff --name-only "$BASE..$CANDIDATE" -- db/schema db/functions db/policies db/grants db/storage db/seed db/manifest.toml db/golden-p0.sql)"
+          test -z "$(git diff --name-only "$BASE..$CANDIDATE" -- '*.sql')"
+          test -z "$(git diff --name-only "$BASE..$CANDIDATE" -- supabase)"
+          test -z "$(git diff -U0 "$BASE..$CANDIDATE" -- 'src/**' ':!**/*.test.ts' ':!**/*.test.tsx' | grep -E '^\+.*service_role' || true)"
+          git diff --quiet "$BASE..$CANDIDATE" -- src/app/globals.css src/app/global-background-test.css
+          node -e 'const v=require("./vercel.json"); if(JSON.stringify(v.regions)!==JSON.stringify(["icn1"])) process.exit(1)'
+          echo "FROZEN_PRINT_CSS_GLOBALS=$(git rev-parse "$CANDIDATE:src/app/globals.css")"
+          echo "FROZEN_PRINT_CSS_BACKGROUND=$(git rev-parse "$CANDIDATE:src/app/global-background-test.css")"
+          echo "BASE_PRINT_CSS_GLOBALS=$(git rev-parse "$BASE:src/app/globals.css")"
+          echo "BASE_PRINT_CSS_BACKGROUND=$(git rev-parse "$BASE:src/app/global-background-test.css")"
