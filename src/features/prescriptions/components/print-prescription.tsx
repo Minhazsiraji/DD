@@ -6,7 +6,6 @@ import { CheckCircle2, CircleAlert, History, Loader2, Printer } from "lucide-rea
 import { frozenSignatureUrlAction } from "../actions";
 import {
   confirmPrescriptionPrintAction,
-  getPrescriptionPrintHistoryAction,
   initiatePrescriptionPrintAction,
   type PrescriptionPrintHistory,
   type PrintOperation,
@@ -57,6 +56,25 @@ type Readiness =
    */
   | { kind: "too-wide" };
 
+const PRINT_LEDGER_DEADLINE_MS = 30_000;
+
+/**
+ * Operational writes must settle on screen. The underlying request is NOT
+ * cancelled or retried when this deadline wins: initiation is retried only with
+ * the same idempotency key, and confirmation only with the same copy count.
+ */
+async function bounded<T>(work: Promise<T>): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error("PRINT_LEDGER_TIMEOUT")), PRINT_LEDGER_DEADLINE_MS);
+  });
+  try {
+    return await Promise.race([work, timeout]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 function when(iso: string | null): string {
   if (!iso) return "";
   const date = new Date(iso);
@@ -70,8 +88,8 @@ function when(iso: string | null): string {
   }).format(date);
 }
 
-function actorLabel(history: NonNullable<PrescriptionPrintHistory["latestInitiation"]>): string {
-  return `${history.actorName} · ${history.authorizationBasis === "DOCTOR_OWNER" ? "Doctor" : "Staff"}`;
+function actorLabel(entry: NonNullable<PrescriptionPrintHistory["latestInitiation"]>): string {
+  return `${entry.actorName} · ${entry.authorizationBasis === "DOCTOR_OWNER" ? "Doctor" : "Staff"}`;
 }
 
 export function PrintPrescription({
@@ -100,11 +118,6 @@ export function PrintPrescription({
   const [historyLoading, setHistoryLoading] = React.useState(true);
   const [historyError, setHistoryError] = React.useState<string | null>(null);
 
-  /**
-   * `document` does not exist while this renders on the server, and the portal
-   * needs it. Mounting first also keeps the server and client markup identical,
-   * so there is no hydration mismatch.
-   */
   /**
    * Are we on the client yet?
    *
@@ -150,14 +163,26 @@ export function PrintPrescription({
     };
   }, [needsSignature, prescriptionId]);
 
-  /** Compact operational history; failure never blocks the frozen print path. */
+  /**
+   * Compact operational history is ordinary HTTP, not a client Server Action.
+   * It must never queue in front of PRINT_INITIATED or PRINT_CONFIRMED.
+   */
   const refreshHistory = React.useCallback(async () => {
     setHistoryLoading(true);
     setHistoryError(null);
     try {
-      const result = await getPrescriptionPrintHistoryAction({ prescriptionId });
-      if (result.ok) setHistory(result.history);
-      else setHistoryError(result.message);
+      const response = await fetch(
+        `/api/prescription-print-history?prescription=${encodeURIComponent(prescriptionId)}`,
+        { cache: "no-store" },
+      );
+      const result = (await response.json()) as
+        | { ok: true; history: PrescriptionPrintHistory }
+        | { ok: false; message: string };
+      if (!response.ok || !result.ok) {
+        setHistoryError(result.ok ? "Print history is unavailable right now." : result.message);
+        return;
+      }
+      setHistory(result.history);
     } catch {
       setHistoryError("Print history is unavailable right now.");
     } finally {
@@ -289,17 +314,20 @@ export function PrintPrescription({
     initiationKey.current ??= `m3-print-${crypto.randomUUID()}`;
 
     try {
-      const result = await initiatePrescriptionPrintAction({
-        prescriptionId,
-        idempotencyKey: initiationKey.current,
-      });
+      const result = await bounded(
+        initiatePrescriptionPrintAction({
+          prescriptionId,
+          idempotencyKey: initiationKey.current,
+        }),
+      );
       if (!result.ok) {
         setPrintError(result.message);
         return;
       }
 
       setPendingOperation(result.operation);
-      await refreshHistory();
+      // Convenience read is deliberately not awaited before native print.
+      void refreshHistory();
 
       /**
        * FROZEN M2 NATIVE PRINT PATH. Do not replace this with an iframe, PDF
@@ -331,10 +359,12 @@ export function PrintPrescription({
     setPrintBusy(true);
     setPrintError(null);
     try {
-      const result = await confirmPrescriptionPrintAction({
-        operationId: pendingOperation.operationId,
-        copyCount: count,
-      });
+      const result = await bounded(
+        confirmPrescriptionPrintAction({
+          operationId: pendingOperation.operationId,
+          copyCount: count,
+        }),
+      );
       if (!result.ok) {
         setPrintError(result.message);
         return;
@@ -346,7 +376,7 @@ export function PrintPrescription({
       setPrintNotice(
         `${result.operation.confirmedCopyCount ?? count} physical ${count === 1 ? "copy" : "copies"} confirmed.`,
       );
-      await refreshHistory();
+      void refreshHistory();
     } catch {
       setPrintError(
         "We could not verify the confirmation. Do not enter a different copy count; retry this same confirmation after the connection recovers.",
