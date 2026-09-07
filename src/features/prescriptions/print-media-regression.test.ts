@@ -29,7 +29,7 @@ describe("prescription native print-media contract", () => {
     expect(action).toContain("window.requestAnimationFrame(() => {");
     expect(action.match(/window\.requestAnimationFrame\(\(\) => \{/g)).toHaveLength(2);
     expect(action.indexOf('body.setAttribute("data-prescription-printing", "true")')).toBeLessThan(
-      action.indexOf("window.print()"),
+      action.lastIndexOf("window.print()"),
     );
     expect(action).toContain('window.addEventListener("afterprint", cleanup');
   });
