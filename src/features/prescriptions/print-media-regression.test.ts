@@ -15,6 +15,25 @@ describe("prescription native print-media contract", () => {
     expect(screenRule).not.toMatch(/left:\s*-\d/);
   });
 
+  it("stages the actual prescription as a visible page-origin paint tree before window.print", () => {
+    const action = read("src/features/prescriptions/components/print-prescription.tsx");
+    expect(action).toContain('data-prescription-printing="true"');
+    expect(action).toContain('body[data-prescription-printing="true"] > *:not([data-print-only])');
+    expect(action).toMatch(
+      /body\[data-prescription-printing="true"\] > \[data-print-only\][\s\S]*?position:\s*static\s*!important/,
+    );
+    expect(action).toMatch(
+      /body\[data-prescription-printing="true"\] > \[data-print-only\][\s\S]*?visibility:\s*visible\s*!important/,
+    );
+    expect(action).toContain('body.setAttribute("data-prescription-printing", "true")');
+    expect(action).toContain("window.requestAnimationFrame(() => {");
+    expect(action.match(/window\.requestAnimationFrame\(\(\) => \{/g)).toHaveLength(2);
+    expect(action.indexOf('body.setAttribute("data-prescription-printing", "true")')).toBeLessThan(
+      action.indexOf("window.print()"),
+    );
+    expect(action).toContain('window.addEventListener("afterprint", cleanup');
+  });
+
   it("fully restores the portal to printable paint state under print media", () => {
     const css = read("src/app/globals.css");
     expect(css).toContain("body > *:not([data-print-only])");
