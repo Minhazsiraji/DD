@@ -46,6 +46,9 @@ jobs:
       - name: Lint
         run: npm run lint
 
+      - name: Next route type generation
+        run: npx next typegen
+
       - name: TypeScript
         run: npm run typecheck
 
