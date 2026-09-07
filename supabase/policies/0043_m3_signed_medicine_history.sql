@@ -5,6 +5,10 @@
 -- Stage 7B function. It is Doctor-owned FINALIZED history only, with truthful
 -- distinct-prescription usage counts and genuinely separate Recent/Frequent
 -- ordering. It performs no clinical write.
+--
+-- Signed medicine content comes exclusively from the immutable finalized
+-- review_bundle_snapshot -> 'items'. Live prescription_items rows are not a
+-- source for wording, search, frequency, recency or latest signed wording.
 -- ---------------------------------------------------------------------------
 
 create or replace function public.prescription_signed_medicine_history(
@@ -48,40 +52,125 @@ begin
   end if;
 
   return query
-  with eligible_history as (
+  with eligible_prescriptions as (
     select
-      i.id,
-      i.display_name,
-      i.brand_name,
-      i.generic_name,
-      i.strength_text,
-      i.dose_text,
-      i.dosage_form,
-      i.route,
-      i.schedule_text,
-      i.duration_text,
-      i.quantity_text,
-      i.food_relation,
-      i.is_prn,
-      i.instructions,
-      i.substitution_allowed,
-      i.position,
       p.id as source_prescription_id,
       p.finalized_at,
-      lower(btrim(i.display_name)) as normalized_name
-    from public.prescription_items i
-    join public.prescriptions p on p.id = i.prescription_id
+      p.review_bundle_snapshot -> 'items' as signed_items
+    from public.prescriptions p
     where p.owner_doctor_id = v_doctor
       and p.status = 'FINALIZED'
       and p.finalized_at is not null
       and p.review_digest is not null
       and p.snapshot_schema_version is not null
       and p.review_bundle_snapshot is not null
+      and jsonb_typeof(p.review_bundle_snapshot -> 'items') = 'array'
+      and jsonb_array_length(p.review_bundle_snapshot -> 'items') > 0
+      -- A malformed snapshot is never allowed to fall back to live rows or
+      -- partially become signed-history authority. Exclude the whole Rx if any
+      -- signed medicine item is not a canonical object representation.
+      and not exists (
+        select 1
+        from jsonb_array_elements(
+          case
+            when jsonb_typeof(p.review_bundle_snapshot -> 'items') = 'array'
+              then p.review_bundle_snapshot -> 'items'
+            else '[]'::jsonb
+          end
+        ) as bad(item)
+        where jsonb_typeof(bad.item) <> 'object'
+           or nullif(btrim(bad.item ->> 'display_name'), '') is null
+           or coalesce(bad.item ->> 'position', '') !~ '^[0-9]{1,9}$'
+           or (
+             bad.item ? 'brand_name'
+             and jsonb_typeof(bad.item -> 'brand_name') not in ('string', 'null')
+           )
+           or (
+             bad.item ? 'generic_name'
+             and jsonb_typeof(bad.item -> 'generic_name') not in ('string', 'null')
+           )
+           or (
+             bad.item ? 'strength_text'
+             and jsonb_typeof(bad.item -> 'strength_text') not in ('string', 'null')
+           )
+           or (
+             bad.item ? 'dose_text'
+             and jsonb_typeof(bad.item -> 'dose_text') not in ('string', 'null')
+           )
+           or (
+             bad.item ? 'dosage_form'
+             and jsonb_typeof(bad.item -> 'dosage_form') not in ('string', 'null')
+           )
+           or (
+             bad.item ? 'route'
+             and jsonb_typeof(bad.item -> 'route') not in ('string', 'null')
+           )
+           or (
+             bad.item ? 'schedule_text'
+             and jsonb_typeof(bad.item -> 'schedule_text') not in ('string', 'null')
+           )
+           or (
+             bad.item ? 'duration_text'
+             and jsonb_typeof(bad.item -> 'duration_text') not in ('string', 'null')
+           )
+           or (
+             bad.item ? 'quantity_text'
+             and jsonb_typeof(bad.item -> 'quantity_text') not in ('string', 'null')
+           )
+           or (
+             bad.item ? 'food_relation'
+             and jsonb_typeof(bad.item -> 'food_relation') not in ('string', 'null')
+           )
+           or (
+             bad.item ? 'instructions'
+             and jsonb_typeof(bad.item -> 'instructions') not in ('string', 'null')
+           )
+           or (
+             bad.item ? 'is_prn'
+             and jsonb_typeof(bad.item -> 'is_prn') not in ('boolean', 'null')
+           )
+           or (
+             bad.item ? 'substitution_allowed'
+             and jsonb_typeof(bad.item -> 'substitution_allowed') not in ('boolean', 'null')
+           )
+      )
+  ), eligible_history as (
+    select
+      ep.source_prescription_id,
+      ep.finalized_at,
+      item.value ->> 'display_name' as display_name,
+      item.value ->> 'brand_name' as brand_name,
+      item.value ->> 'generic_name' as generic_name,
+      item.value ->> 'strength_text' as strength_text,
+      item.value ->> 'dose_text' as dose_text,
+      item.value ->> 'dosage_form' as dosage_form,
+      item.value ->> 'route' as route,
+      item.value ->> 'schedule_text' as schedule_text,
+      item.value ->> 'duration_text' as duration_text,
+      item.value ->> 'quantity_text' as quantity_text,
+      item.value ->> 'food_relation' as food_relation,
+      case
+        when jsonb_typeof(item.value -> 'is_prn') = 'boolean'
+          then (item.value ->> 'is_prn')::boolean
+        else null
+      end as is_prn,
+      item.value ->> 'instructions' as instructions,
+      case
+        when jsonb_typeof(item.value -> 'substitution_allowed') = 'boolean'
+          then (item.value ->> 'substitution_allowed')::boolean
+        else null
+      end as substitution_allowed,
+      (item.value ->> 'position')::bigint as signed_position,
+      item.ordinality::bigint as signed_ordinality,
+      lower(btrim(item.value ->> 'display_name')) as normalized_name
+    from eligible_prescriptions ep
+    cross join lateral jsonb_array_elements(ep.signed_items)
+      with ordinality as item(value, ordinality)
   ), matched_names as (
-    -- Search is lexical only. A historical brand/generic spelling may discover
-    -- the normalized medicine name, but the returned wording below is always
-    -- the latest signed wording for that medicine, not necessarily the row that
-    -- happened to match the search text.
+    -- Search is lexical only over frozen signed wording. A historical signed
+    -- brand/generic spelling may discover the normalized medicine name, but the
+    -- returned wording below is always from the latest eligible signed snapshot,
+    -- not necessarily the particular historical item that matched the query.
     select distinct h.normalized_name
     from eligible_history h
     where v_q is null
@@ -118,8 +207,8 @@ begin
     order by h.normalized_name,
              h.finalized_at desc,
              h.source_prescription_id desc,
-             h.position asc,
-             h.id asc
+             h.signed_position asc,
+             h.signed_ordinality asc
   )
   select
     l.display_name,
