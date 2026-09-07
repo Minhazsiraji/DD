@@ -79,7 +79,9 @@ begin
           end
         ) as bad(item)
         where jsonb_typeof(bad.item) <> 'object'
+           or jsonb_typeof(bad.item -> 'display_name') <> 'string'
            or nullif(btrim(bad.item ->> 'display_name'), '') is null
+           or jsonb_typeof(bad.item -> 'position') <> 'number'
            or coalesce(bad.item ->> 'position', '') !~ '^[0-9]{1,9}$'
            or (
              bad.item ? 'brand_name'
