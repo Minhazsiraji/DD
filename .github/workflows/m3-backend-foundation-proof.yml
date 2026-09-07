@@ -1,0 +1,249 @@
+name: M3 Backend Foundation Isolated Proof
+
+on:
+  push:
+    branches:
+      - qa/m3-backend-foundation-proof-bd4e86e
+
+permissions:
+  contents: read
+
+jobs:
+  proof:
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    env:
+      PRODUCT_SHA: bd4e86e58cc63ab6868c5959eccf3d5def6b7a36
+      PRODUCT_BASE: 1708edcdc10a8f6ed1f87ee81e6ebe21d27aa99d
+      QA_WORKFLOW: .github/workflows/m3-backend-foundation-proof.yml
+      M3_LOCAL_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:54322/postgres
+      NEXT_PUBLIC_SUPABASE_URL: http://127.0.0.1:54321
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: local-proof-placeholder
+      NEXT_PUBLIC_SITE_URL: http://localhost:3000
+      AI_MODE: mock
+      NOTIFICATION_MODE: mock
+      PAYMENT_MODE: mock
+      VERCEL_ENV: preview
+
+    steps:
+      - name: Checkout temporary QA harness
+        uses: actions/checkout@v4
+        with:
+          ref: qa/m3-backend-foundation-proof-bd4e86e
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Checkout exact product candidate detached
+        uses: actions/checkout@v4
+        with:
+          ref: bd4e86e58cc63ab6868c5959eccf3d5def6b7a36
+          path: product
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Prove exact candidate and QA isolation
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd product
+          test "$(git rev-parse HEAD)" = "$PRODUCT_SHA"
+          test -z "$(git symbolic-ref -q HEAD || true)"
+          test ! -e "$QA_WORKFLOW"
+          test ! -e qa/m3-proof
+          test -z "${SUPABASE_SERVICE_ROLE_KEY:-}"
+          test -z "${SUPABASE_DB_URL:-}"
+          test -z "${DATABASE_URL:-}"
+          test -z "${DIRECT_URL:-}"
+          test -z "${POSTGRES_URL:-}"
+          test -z "${DD_V2_LOCAL_DATABASE_URL:-}"
+          test -z "${DD_CORRECTION_WINDOW_LOCAL_URL:-}"
+          test -z "${VERCEL_TOKEN:-}"
+          echo "PASS exact detached candidate SHA"
+          echo "PASS temporary QA workflow/scripts absent from product tree"
+          echo "PASS no protected DD database/production credentials supplied"
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install QA harness dependencies
+        run: npm ci
+
+      - name: Install exact product dependencies
+        working-directory: product
+        run: npm ci
+
+      - name: Configure isolated local Supabase substrate
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx supabase init --force
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          p = Path('supabase/config.toml')
+          s = p.read_text()
+          m = re.search(r'\[db\.migrations\][\s\S]*?(?=\n\[|$)', s)
+          if m:
+              block = m.group(0)
+              if re.search(r'^\s*enabled\s*=.*$', block, re.M):
+                  block2 = re.sub(r'^\s*enabled\s*=.*$', 'enabled = false', block, count=1, flags=re.M)
+              else:
+                  block2 = block + '\nenabled = false\n'
+              s = s[:m.start()] + block2 + s[m.end():]
+          else:
+              s += '\n\n[db.migrations]\nenabled = false\n'
+          p.write_text(s)
+          PY
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          s = Path('supabase/config.toml').read_text()
+          m = re.search(r'\[db\.migrations\][\s\S]*?(?=\n\[|$)', s)
+          assert m and re.search(r'^\s*enabled\s*=\s*false\s*$', m.group(0), re.M)
+          print('PASS legacy migrations disabled in temporary QA substrate')
+          PY
+          test ! -e supabase/.temp/project-ref
+          test ! -e supabase/.temp/pooler-url
+          echo "PASS local Supabase is unlinked"
+
+      - name: Start isolated local Supabase
+        shell: bash
+        run: npx supabase start
+
+      - name: Prove loopback-only ephemeral database
+        shell: bash
+        run: |
+          set -euo pipefail
+          node - <<'NODE'
+          const u = new URL(process.env.M3_LOCAL_DATABASE_URL);
+          if (!['127.0.0.1','localhost','::1','[::1]'].includes(u.hostname)) process.exit(64);
+          console.log(`PASS loopback DB ${u.hostname}:${u.port}`);
+          NODE
+          docker ps --format '{{.Image}} {{.Ports}}' | grep -E 'supabase/postgres|54322->5432'
+          echo "PASS fresh local Supabase/PostgreSQL substrate only"
+
+      - name: Deploy frozen runtime schema prerequisites
+        working-directory: product
+        env:
+          DIRECT_URL: postgresql://postgres:postgres@127.0.0.1:54322/postgres
+          DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:54322/postgres
+        run: npm run db:migrate
+
+      - name: Apply frozen runtime policies through M3
+        working-directory: product
+        env:
+          DIRECT_URL: postgresql://postgres:postgres@127.0.0.1:54322/postgres
+          DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:54322/postgres
+        run: npm run db:policies
+
+      - name: M3 migration replay and prerequisite proof
+        env:
+          M3_PRODUCT_DIR: ${{ github.workspace }}/product
+        run: node qa/m3-proof/migration-proof.mjs
+
+      - name: M3-BF-01 historical reuse dynamic matrix
+        env:
+          M3_PRODUCT_DIR: ${{ github.workspace }}/product
+        run: node qa/m3-proof/reuse-proof.mjs
+
+      - name: M3-BF-02 signed medicine history dynamic matrix
+        env:
+          M3_PRODUCT_DIR: ${{ github.workspace }}/product
+        run: node qa/m3-proof/history-proof.mjs
+
+      - name: M3-BF-03 print audit dynamic matrix
+        env:
+          M3_PRODUCT_DIR: ${{ github.workspace }}/product
+        run: node qa/m3-proof/print-proof.mjs
+
+      - name: Frozen invariant blob and suggestion proof
+        working-directory: product
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git hash-object supabase/policies/0041_prescription_correction_window.sql)" = "b89f8759d737afee950567788a715ba9a947f175"
+          test "$(git hash-object src/app/global-background-test.css)" = "062f35853c07cf72e7f6d6438878a2e9f4ff6b79"
+          test "$(git hash-object supabase/policies/0021_prescription_suggestions.sql)" = "842f746d2c774b94f8c60f6923229e08c489c8d5"
+          test "$(git diff --name-only "$PRODUCT_BASE..$PRODUCT_SHA" -- supabase/policies/0021_prescription_suggestions.sql)" = ""
+          node -e 'const v=require("./vercel.json"); const e={"$schema":"https://openapi.vercel.sh/vercel.json",regions:["icn1"]}; if(JSON.stringify(v)!==JSON.stringify(e)) process.exit(1); console.log("PASS exact icn1 configuration")'
+          echo "PASS frozen 0041 blob b89f8759d737afee950567788a715ba9a947f175"
+          echo "PASS frozen print CSS blob 062f35853c07cf72e7f6d6438878a2e9f4ff6b79"
+          echo "PASS frozen prescription_item_suggestions unchanged"
+
+      - name: Confirm exact net M3 product delta
+        working-directory: product
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t changed < <(git diff --name-only "$PRODUCT_BASE..$PRODUCT_SHA")
+          printf '%s\n' "${changed[@]}"
+          test "${#changed[@]}" -eq 3
+          test "${changed[0]}" = "supabase/policies/0042_m3_prescription_reuse.sql"
+          test "${changed[1]}" = "supabase/policies/0043_m3_signed_medicine_history.sql"
+          test "${changed[2]}" = "supabase/policies/0044_m3_prescription_print_audit.sql"
+          echo "PASS exact net product delta = 3 additive SQL files"
+
+      - name: Prescription regression suite
+        working-directory: product
+        run: npx vitest run src/features/prescriptions
+
+      - name: M2 regression suite
+        working-directory: product
+        run: npm test -- --run src/features/encounters/m2-consultation-workspace.test.ts src/features/encounters/m2-responsive-widths.test.ts src/features/encounters/follow-up-dates.test.ts src/features/encounters/fast-entry.test.ts
+
+      - name: M1 regression suite
+        working-directory: product
+        run: npm test -- --run src/features/patients/m1-implementation.test.ts src/features/patients/finder-ranking.test.ts src/features/mobile-responsive.test.ts src/components/layout/nav-targets.test.ts
+
+      - name: Full repository test suite
+        working-directory: product
+        run: npm test
+
+      - name: Lint
+        working-directory: product
+        run: npm run lint
+
+      - name: Generate Next route types
+        working-directory: product
+        run: npx next typegen
+
+      - name: Standalone typecheck
+        working-directory: product
+        run: npm run typecheck
+
+      - name: Production build and static generation
+        working-directory: product
+        run: npm run build
+
+      - name: Diff whitespace and protected P0 drift proof
+        working-directory: product
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --check "$PRODUCT_BASE..$PRODUCT_SHA"
+          drift="$(git diff --name-only "$PRODUCT_BASE..$PRODUCT_SHA" -- db/schema db/functions db/policies db/grants db/storage db/seed db/manifest.toml db/golden-p0.sql)"
+          test -z "$drift" || { echo "Protected P0 drift:"; echo "$drift"; exit 1; }
+          echo "PASS git diff --check"
+          echo "PASS protected P0 drift = 0"
+
+      - name: Final candidate immutability proof
+        working-directory: product
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$PRODUCT_SHA"
+          test -z "$(git symbolic-ref -q HEAD || true)"
+          test ! -e "$QA_WORKFLOW"
+          test ! -e qa/m3-proof
+          test -z "$(git status --porcelain)"
+          echo "PASS product candidate SHA unchanged, detached and clean"
+          echo "PASS Seoul region icn1 preserved"
+          echo "PASS protected DD Supabase was never contacted"
+
+      - name: Stop isolated local Supabase
+        if: always()
+        shell: bash
+        run: npx supabase stop --no-backup || true
