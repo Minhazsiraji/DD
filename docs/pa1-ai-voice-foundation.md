@@ -108,7 +108,7 @@ Provider-native structured output is never a DD security or clinical-truth bound
 
 ## 3. PA1-SEC-01 — proposal envelope integrity
 
-PA1-C1 uses a **server-only HMAC-SHA256 protected immutable security binding**. No database or server-held proposal table is required.
+PA1-C1 uses a **server-only HMAC-SHA256 integrity-protected, tamper-evident immutable security binding**. No database or server-held proposal table is required.
 
 Signing secret:
 
@@ -120,7 +120,7 @@ Requirements:
 - minimum 32 UTF-8 bytes
 - never exposed to browser code
 
-The opaque security handle MAC-protects only immutable security context:
+The security handle MAC-protects only immutable security context:
 
 - token version
 - operation ID
@@ -135,6 +135,8 @@ The opaque security handle MAC-protects only immutable security context:
 - created timestamp
 - expiry timestamp
 
+The HMAC provides integrity/authenticity protection for this binding; it is **not encryption or confidentiality**. The base64url payload can be decoded by a client. Therefore the complete handle must never be logged, rendered visibly in UI, sent to PLATFORM_OWNER analytics, included in client telemetry, or treated as secret ciphertext.
+
 The Doctor-editable proposal body is deliberately **not** signed. Editing medicine/investigation/note content is an intended Doctor action.
 
 ### Acceptance rule
@@ -144,7 +146,7 @@ A future acceptance endpoint/action must ignore browser-returned envelope bindin
 1. authenticate the current user;
 2. reconstruct current Doctor/person/location authority;
 3. re-read the authoritative clinical record;
-4. verify the opaque HMAC security handle with timing-safe comparison;
+4. verify the integrity-protected HMAC security handle with timing-safe comparison;
 5. compare actor/Doctor/location/patient/record binding;
 6. compare authoritative expected version;
 7. verify expiry;
@@ -313,9 +315,9 @@ The scorer's unit tests prove metric correctness against the hand-authored expec
 
 ### Current live Terra evaluation status
 
-GitHub Actions currently has no authorized `OPENAI_API_KEY` repository secret available to this branch. The live synthetic job therefore emits:
+GitHub Actions currently has no authorized `OPENAI_API_KEY` repository secret available to this branch. The live synthetic job therefore reports:
 
-`PA1_TERRA_LIVE_EVAL=SKIPPED_NO_OPENAI_API_KEY`
+`BLOCKED_NO_AUTHORIZED_OPENAI_API_KEY`
 
 No live Terra English/Bangla/mixed semantic accuracy percentage may be claimed until that synthetic-only run executes with an authorized key.
 
@@ -377,6 +379,9 @@ It must not contain:
 - medicine/test content
 - clinical note content
 - proposal payload
+- complete security handle or its encoded payload/signature
+
+The complete integrity handle must not be sent to PLATFORM_OWNER analytics or any client telemetry surface.
 
 No durable telemetry table is introduced in PA1-C1.
 
