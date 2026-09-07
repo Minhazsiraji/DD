@@ -1,0 +1,145 @@
+name: PA1-C1 Verification
+
+on:
+  push:
+    branches:
+      - md/pa1-c1-closure
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: PA1-C1 full verification
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: https://synthetic-build.supabase.co
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: pa1_c1_synthetic_build_anon_key_00000000000000000000
+      NEXT_PUBLIC_SITE_URL: http://localhost:3000
+      AI_MODE: mock
+      NOTIFICATION_MODE: mock
+      PAYMENT_MODE: mock
+      PA1_PROPOSAL_SIGNING_SECRET: pa1-c1-ci-signing-secret-at-least-32-bytes-long
+    steps:
+      - name: Checkout exact branch SHA
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install locked dependencies
+        run: npm ci
+
+      - name: PA1 focused tests
+        run: >-
+          npx vitest run
+          src/features/ai/pa1-foundation.test.ts
+          src/features/ai/pa1-voice-security.test.ts
+          src/features/ai/pa1-integrity.test.ts
+          src/features/ai/openai-terra-provider.test.ts
+          src/features/ai/synthetic-eval.test.ts
+
+      - name: Dictation and voice tests
+        run: >-
+          npx vitest run
+          src/features/dictation/dictation.test.ts
+          src/features/dictation/deepgram-streaming.test.ts
+          src/features/dictation/deepgram-security.test.ts
+
+      - name: M1 and M2 focused regression
+        run: >-
+          npx vitest run
+          src/features/dashboard/m1-dashboard-performance.test.ts
+          src/features/patients/m1-implementation.test.ts
+          src/features/encounters/m2-consultation-workspace.test.ts
+          src/features/encounters/m2-responsive-widths.test.ts
+          src/features/encounters/m2-uat-corrections.test.ts
+          src/features/prescriptions/correction-window.test.ts
+          src/features/prescriptions/correction-window-security.test.ts
+          src/features/prescriptions/print-media-regression.test.ts
+
+      - name: Full repository tests
+        run: npm test
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Production build
+        run: npm run build
+
+      - name: Whitespace and patch integrity
+        run: git diff --check b0ab2e3dfb47ff25b82afa21a8edc575cacdded5 HEAD
+
+      - name: Protected P0 and M3 drift check
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --exit-code b0ab2e3dfb47ff25b82afa21a8edc575cacdded5 HEAD -- db
+          git diff --exit-code b0ab2e3dfb47ff25b82afa21a8edc575cacdded5 HEAD -- \
+            supabase/policies/0041_prescription_correction_window.sql \
+            supabase/policies/0042_m3_prescription_reuse.sql \
+            supabase/policies/0043_m3_signed_medicine_history.sql \
+            supabase/policies/0044_m3_prescription_print_audit.sql
+          if git diff --name-only b0ab2e3dfb47ff25b82afa21a8edc575cacdded5 HEAD | grep -q '^src/features/prescriptions/'; then
+            echo 'PA1-C1 must not touch Prescription implementation files.' >&2
+            exit 1
+          fi
+          if git diff --name-only b0ab2e3dfb47ff25b82afa21a8edc575cacdded5 HEAD | grep -q '^src/features/investigations/'; then
+            echo 'PA1-C1 must not wire Investigation UI.' >&2
+            exit 1
+          fi
+
+      - name: Region invariant
+        shell: bash
+        run: |
+          node - <<'NODE'
+          const fs = require('fs');
+          const value = JSON.parse(fs.readFileSync('vercel.json', 'utf8'));
+          if (JSON.stringify(value.regions) !== JSON.stringify(['icn1'])) {
+            throw new Error(`Region drift: ${JSON.stringify(value.regions)}`);
+          }
+          console.log('VERCEL_REGION_OK=["icn1"]');
+          NODE
+
+      - name: Record verified SHA
+        run: echo "PA1_C1_VERIFIED_SHA=${GITHUB_SHA}"
+
+  terra-synthetic-live:
+    name: Terra synthetic semantic evaluation
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      PA1_SYNTHETIC_AI_EVAL: enabled
+    steps:
+      - name: Checkout exact branch SHA
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install locked dependencies
+        run: npm ci
+
+      - name: Run live synthetic-only Terra corpus when credential exists
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "${OPENAI_API_KEY:-}" ]; then
+            echo "PA1_TERRA_LIVE_EVAL=SKIPPED_NO_OPENAI_API_KEY"
+            exit 0
+          fi
+          npx vitest run src/features/ai/terra-live-synthetic-eval.test.ts --reporter=verbose
