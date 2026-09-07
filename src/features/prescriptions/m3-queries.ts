@@ -1,6 +1,6 @@
 import "server-only";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { emptyMedicine, type MedicineDraft, type MedicineRow } from "./schema";
+import { emptyMedicine, type MedicineRow } from "./schema";
 import { getFinalizedPrescription, getPrescription } from "./queries";
 import type {
   PrescriptionReuseItem,
@@ -136,7 +136,13 @@ export async function getPrescriptionReuseSourceDetail(
   sourcePrescriptionId: string,
   activeLocationId: string,
 ): Promise<{ ok: true; source: PrescriptionReuseSourceDetail } | { ok: false; message: string }> {
-  const sources = await getPrescriptionReuseSources(targetPrescriptionId, activeLocationId, 12);
+  const [target, sources] = await Promise.all([
+    getPrescription(targetPrescriptionId, activeLocationId),
+    getPrescriptionReuseSources(targetPrescriptionId, activeLocationId, 12),
+  ]);
+  if (!target.ok || target.prescription.status !== "DRAFT") {
+    return { ok: false, message: "This prescription is no longer available for reuse." };
+  }
   if (!sources.ok) return sources;
   const sourceMeta = sources.sources.find((source) => source.prescriptionId === sourcePrescriptionId);
   if (!sourceMeta) return { ok: false, message: "That previous prescription is not eligible for reuse." };
@@ -148,10 +154,9 @@ export async function getPrescriptionReuseSourceDetail(
   if (!live.ok || live.prescription.status !== "FINALIZED" || !frozen.ok) {
     return { ok: false, message: "That previous prescription could not be verified for reuse." };
   }
-  if (live.prescription.patientId !== (await getPrescription(targetPrescriptionId, activeLocationId)).ok
-      ? false : false) {
-    // Patient equality is enforced again by the reuse RPC. Source discovery above
-    // already came from the target patient's doctor-owned history.
+  if (live.prescription.patientId !== target.prescription.patientId) {
+    console.error("[prescriptions] reuse source patient mismatch", sourcePrescriptionId, targetPrescriptionId);
+    return { ok: false, message: "That previous prescription is not eligible for this patient." };
   }
 
   const signedItems = frozen.finalized.bundle.items.slice().sort((a, b) => a.position - b.position);
