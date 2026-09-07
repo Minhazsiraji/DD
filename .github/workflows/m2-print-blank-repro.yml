@@ -1,0 +1,56 @@
+name: M2 Print Blank Reproduction
+
+on:
+  push:
+    branches:
+      - qa/m2-print-blank-repro
+
+permissions:
+  contents: read
+
+jobs:
+  chromium-repro:
+    runs-on: ubuntu-24.04
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: https://qa-placeholder.supabase.co
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: qa-placeholder-anon-key
+      NEXT_PUBLIC_SITE_URL: http://127.0.0.1:3000
+      AI_MODE: mock
+      NOTIFICATION_MODE: mock
+      PAYMENT_MODE: mock
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - name: Install app and Chromium QA runtime
+        run: |
+          npm ci
+          npm install --no-save --package-lock=false playwright@1.55.0
+          npx playwright install --with-deps chromium
+          sudo apt-get update -qq
+          sudo apt-get install -y poppler-utils
+      - name: Start exact application print flow
+        run: |
+          npm run dev -- --hostname 127.0.0.1 > /tmp/dd-next.log 2>&1 &
+          echo $! > /tmp/dd-next.pid
+          for i in {1..60}; do
+            if curl -fsS http://127.0.0.1:3000/features/print-regression >/dev/null; then exit 0; fi
+            sleep 1
+          done
+          cat /tmp/dd-next.log
+          exit 1
+      - name: Capture Chromium print state and PDF
+        run: |
+          node qa/print-blank-repro.mjs | tee /tmp/print-state.log
+          pdftotext /tmp/m2-print-repro.pdf /tmp/m2-print-repro.txt
+          echo '--- PDF TEXT ---'
+          cat /tmp/m2-print-repro.txt
+          echo '--- END PDF TEXT ---'
+          test -s /tmp/m2-print-repro.pdf
+      - name: Show app log
+        if: always()
+        run: tail -120 /tmp/dd-next.log || true
