@@ -25,13 +25,11 @@ export function SignedMedicineHistory({
   const [items, setItems] = React.useState<SignedMedicineSuggestion[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
+  const normalizedQuery = query.trim();
+  const queryTooShort = normalizedQuery.length === 1;
 
   React.useEffect(() => {
-    if (query.trim().length === 1) {
-      setItems([]);
-      setLoading(false);
-      return;
-    }
+    if (query.trim().length === 1) return;
     const controller = new AbortController();
     const timer = window.setTimeout(() => {
       setLoading(true);
@@ -61,6 +59,10 @@ export function SignedMedicineHistory({
       controller.abort();
     };
   }, [mode, query]);
+
+  const visibleItems = queryTooShort ? [] : items;
+  const visibleLoading = queryTooShort ? false : loading;
+  const visibleError = queryTooShort ? null : error;
 
   return (
     <section className="dd-material-panel dd-panel-pearl dd-panel-rim rounded-glass p-3 sm:p-4" aria-label="Signed medicine history">
@@ -103,21 +105,23 @@ export function SignedMedicineHistory({
         />
       </label>
 
-      {error ? <p role="status" className="mt-2 text-[12px] font-medium text-danger">{error}</p> : null}
+      {visibleError ? <p role="status" className="mt-2 text-[12px] font-medium text-danger">{visibleError}</p> : null}
 
       <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
-        {loading ? (
+        {visibleLoading ? (
           <p className="col-span-full flex min-h-11 items-center gap-2 text-[12px] text-ink-muted"><Loader2 className="size-4 animate-spin" />Loading signed history…</p>
-        ) : items.length === 0 ? (
-          <p className="col-span-full py-2 text-[12px] text-ink-muted">{query.trim() ? "No signed medicine matches that search." : "No signed medicine history yet."}</p>
+        ) : visibleItems.length === 0 ? (
+          <p className="col-span-full py-2 text-[12px] text-ink-muted">{normalizedQuery ? "No signed medicine matches that search." : "No signed medicine history yet."}</p>
         ) : (
-          items.map((item, index) => (
+          visibleItems.map((item, index) => (
             <button
               key={`${item.displayName}-${item.strengthText}-${index}`}
               type="button"
               disabled={disabled}
               onClick={() => {
-                const { lastUsed: _lastUsed, timesUsed: _timesUsed, ...draft } = item;
+                const { lastUsed, timesUsed, ...draft } = item;
+                void lastUsed;
+                void timesUsed;
                 onSelect(draft);
               }}
               className="dd-material-record dd-record-pearl dd-record-interactive min-h-11 rounded-2xl p-3 text-left focus-visible:focus-ring disabled:opacity-50"
