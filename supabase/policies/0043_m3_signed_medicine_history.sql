@@ -65,7 +65,13 @@ begin
       and p.snapshot_schema_version is not null
       and p.review_bundle_snapshot is not null
       and jsonb_typeof(p.review_bundle_snapshot -> 'items') = 'array'
-      and jsonb_array_length(p.review_bundle_snapshot -> 'items') > 0
+      and jsonb_array_length(
+        case
+          when jsonb_typeof(p.review_bundle_snapshot -> 'items') = 'array'
+            then p.review_bundle_snapshot -> 'items'
+          else '[]'::jsonb
+        end
+      ) > 0
       -- A malformed snapshot is never allowed to fall back to live rows or
       -- partially become signed-history authority. Exclude the whole Rx if any
       -- signed medicine item is not a canonical object representation.
