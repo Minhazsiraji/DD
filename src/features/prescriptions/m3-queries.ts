@@ -15,11 +15,19 @@ function nullable(value: unknown): string {
   return typeof value === "string" ? value : "";
 }
 
+export type SignedHistoryOutcome =
+  | { ok: true; items: SignedMedicineSuggestion[] }
+  | { ok: false; message: string };
+
+/**
+ * Signed medicine history comes only from the immutable finalized-snapshot RPC.
+ * A database failure must not collapse into an empty history state.
+ */
 export async function getSignedMedicineHistory(
   order: SignedHistoryMode,
   query: string | null,
   limit = 8,
-): Promise<SignedMedicineSuggestion[]> {
+): Promise<SignedHistoryOutcome> {
   const supabase = await createSupabaseServerClient();
   const { data, error } = await supabase.rpc("prescription_signed_medicine_history", {
     p_order: order,
@@ -29,30 +37,37 @@ export async function getSignedMedicineHistory(
 
   if (error) {
     console.error("[prescriptions] signed medicine history failed", error.message);
-    return [];
+    return { ok: false, message: "Signed medicine history is unavailable right now." };
   }
 
-  return ((data ?? []) as Record<string, unknown>[]).map((row) => ({
-    ...emptyMedicine(),
-    displayName: nullable(row.display_name),
-    brandName: nullable(row.brand_name),
-    genericName: nullable(row.generic_name),
-    strengthText: nullable(row.strength_text),
-    doseText: nullable(row.dose_text),
-    dosageForm: nullable(row.dosage_form),
-    route: nullable(row.route),
-    scheduleText: nullable(row.schedule_text),
-    durationText: nullable(row.duration_text),
-    quantityText: nullable(row.quantity_text),
-    foodRelation: nullable(row.food_relation),
-    instructions: nullable(row.instructions),
-    isPrn: row.is_prn === true,
-    substitutionAllowed: row.substitution_allowed !== false,
-    lastUsed: typeof row.last_used === "string" ? row.last_used : null,
-    timesUsed: Number(row.times_used ?? 0),
-  }));
+  return {
+    ok: true,
+    items: ((data ?? []) as Record<string, unknown>[]).map((row) => ({
+      ...emptyMedicine(),
+      displayName: nullable(row.display_name),
+      brandName: nullable(row.brand_name),
+      genericName: nullable(row.generic_name),
+      strengthText: nullable(row.strength_text),
+      doseText: nullable(row.dose_text),
+      dosageForm: nullable(row.dosage_form),
+      route: nullable(row.route),
+      scheduleText: nullable(row.schedule_text),
+      durationText: nullable(row.duration_text),
+      quantityText: nullable(row.quantity_text),
+      foodRelation: nullable(row.food_relation),
+      instructions: nullable(row.instructions),
+      isPrn: row.is_prn === true,
+      substitutionAllowed: row.substitution_allowed !== false,
+      lastUsed: typeof row.last_used === "string" ? row.last_used : null,
+      timesUsed: Number(row.times_used ?? 0),
+    })),
+  };
 }
 
+/**
+ * Eligible sources are discovered from the target patient's own finalized
+ * longitudinal history. The authoritative reuse RPC re-proves every condition.
+ */
 export async function getPrescriptionReuseSources(
   targetPrescriptionId: string,
   activeLocationId: string,
@@ -80,7 +95,13 @@ export async function getPrescriptionReuseSources(
   }
 
   const sources = ((data ?? []) as Record<string, unknown>[])
-    .filter((row) => row.prescription_id !== targetPrescriptionId && typeof row.finalized_at === "string")
+    .filter(
+      (row) =>
+        row.prescription_id !== targetPrescriptionId &&
+        typeof row.prescription_id === "string" &&
+        typeof row.finalized_at === "string" &&
+        typeof row.location_id === "string",
+    )
     .slice(0, Math.max(1, Math.min(12, limit)))
     .map((row) => ({
       prescriptionId: row.prescription_id as string,
@@ -96,9 +117,20 @@ export async function getPrescriptionReuseSources(
 }
 
 const bundleKey: (keyof Omit<BundleItem, "position">)[] = [
-  "display_name", "brand_name", "generic_name", "strength_text", "dose_text",
-  "dosage_form", "route", "schedule_text", "duration_text", "quantity_text",
-  "food_relation", "is_prn", "instructions", "substitution_allowed",
+  "display_name",
+  "brand_name",
+  "generic_name",
+  "strength_text",
+  "dose_text",
+  "dosage_form",
+  "route",
+  "schedule_text",
+  "duration_text",
+  "quantity_text",
+  "food_relation",
+  "is_prn",
+  "instructions",
+  "substitution_allowed",
 ];
 
 function sameSignedItem(row: MedicineRow, signed: BundleItem): boolean {
@@ -131,6 +163,10 @@ function reuseItem(row: MedicineRow, signed: BundleItem): PrescriptionReuseItem 
   };
 }
 
+/**
+ * Selectable row ids are paired with immutable signed wording. Any privileged
+ * drift between live finalized rows and the frozen bundle fails closed.
+ */
 export async function getPrescriptionReuseSourceDetail(
   targetPrescriptionId: string,
   sourcePrescriptionId: string,
@@ -144,12 +180,13 @@ export async function getPrescriptionReuseSourceDetail(
     return { ok: false, message: "This prescription is no longer available for reuse." };
   }
   if (!sources.ok) return sources;
+
   const sourceMeta = sources.sources.find((source) => source.prescriptionId === sourcePrescriptionId);
   if (!sourceMeta) return { ok: false, message: "That previous prescription is not eligible for reuse." };
 
   const [live, frozen] = await Promise.all([
     getPrescription(sourcePrescriptionId, sourceMeta.locationId),
-    getFinalizedPrescription(sourcePrescriptionId, activeLocationId),
+    getFinalizedPrescription(sourcePrescriptionId, sourceMeta.locationId),
   ]);
   if (!live.ok || live.prescription.status !== "FINALIZED" || !frozen.ok) {
     return { ok: false, message: "That previous prescription could not be verified for reuse." };
