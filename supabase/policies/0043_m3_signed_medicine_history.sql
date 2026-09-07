@@ -74,7 +74,7 @@ begin
       ) > 0
       -- A malformed snapshot is never allowed to fall back to live rows or
       -- partially become signed-history authority. Exclude the whole Rx if any
-      -- signed medicine item is not a canonical object representation.
+      -- signed medicine item is not the complete canonical frozen shape.
       and not exists (
         select 1
         from jsonb_array_elements(
@@ -85,62 +85,47 @@ begin
           end
         ) as bad(item)
         where jsonb_typeof(bad.item) <> 'object'
+           or not (
+             bad.item ?& array[
+               'position',
+               'display_name',
+               'brand_name',
+               'generic_name',
+               'strength_text',
+               'dose_text',
+               'dosage_form',
+               'route',
+               'schedule_text',
+               'duration_text',
+               'quantity_text',
+               'food_relation',
+               'is_prn',
+               'instructions',
+               'substitution_allowed'
+             ]
+           )
            or jsonb_typeof(bad.item -> 'display_name') <> 'string'
            or nullif(btrim(bad.item ->> 'display_name'), '') is null
-           or jsonb_typeof(bad.item -> 'position') <> 'number'
-           or coalesce(bad.item ->> 'position', '') !~ '^[0-9]{1,9}$'
-           or (
-             bad.item ? 'brand_name'
-             and jsonb_typeof(bad.item -> 'brand_name') not in ('string', 'null')
-           )
-           or (
-             bad.item ? 'generic_name'
-             and jsonb_typeof(bad.item -> 'generic_name') not in ('string', 'null')
-           )
-           or (
-             bad.item ? 'strength_text'
-             and jsonb_typeof(bad.item -> 'strength_text') not in ('string', 'null')
-           )
-           or (
-             bad.item ? 'dose_text'
-             and jsonb_typeof(bad.item -> 'dose_text') not in ('string', 'null')
-           )
-           or (
-             bad.item ? 'dosage_form'
-             and jsonb_typeof(bad.item -> 'dosage_form') not in ('string', 'null')
-           )
-           or (
-             bad.item ? 'route'
-             and jsonb_typeof(bad.item -> 'route') not in ('string', 'null')
-           )
-           or (
-             bad.item ? 'schedule_text'
-             and jsonb_typeof(bad.item -> 'schedule_text') not in ('string', 'null')
-           )
-           or (
-             bad.item ? 'duration_text'
-             and jsonb_typeof(bad.item -> 'duration_text') not in ('string', 'null')
-           )
-           or (
-             bad.item ? 'quantity_text'
-             and jsonb_typeof(bad.item -> 'quantity_text') not in ('string', 'null')
-           )
-           or (
-             bad.item ? 'food_relation'
-             and jsonb_typeof(bad.item -> 'food_relation') not in ('string', 'null')
-           )
-           or (
-             bad.item ? 'instructions'
-             and jsonb_typeof(bad.item -> 'instructions') not in ('string', 'null')
-           )
-           or (
-             bad.item ? 'is_prn'
-             and jsonb_typeof(bad.item -> 'is_prn') not in ('boolean', 'null')
-           )
-           or (
-             bad.item ? 'substitution_allowed'
-             and jsonb_typeof(bad.item -> 'substitution_allowed') not in ('boolean', 'null')
-           )
+           or case
+             when jsonb_typeof(bad.item -> 'position') = 'number' then
+               (bad.item ->> 'position')::numeric <> trunc((bad.item ->> 'position')::numeric)
+               or (bad.item ->> 'position')::numeric < -2147483648
+               or (bad.item ->> 'position')::numeric > 2147483647
+             else true
+           end
+           or jsonb_typeof(bad.item -> 'brand_name') not in ('string', 'null')
+           or jsonb_typeof(bad.item -> 'generic_name') not in ('string', 'null')
+           or jsonb_typeof(bad.item -> 'strength_text') not in ('string', 'null')
+           or jsonb_typeof(bad.item -> 'dose_text') not in ('string', 'null')
+           or jsonb_typeof(bad.item -> 'dosage_form') not in ('string', 'null')
+           or jsonb_typeof(bad.item -> 'route') not in ('string', 'null')
+           or jsonb_typeof(bad.item -> 'schedule_text') not in ('string', 'null')
+           or jsonb_typeof(bad.item -> 'duration_text') not in ('string', 'null')
+           or jsonb_typeof(bad.item -> 'quantity_text') not in ('string', 'null')
+           or jsonb_typeof(bad.item -> 'food_relation') not in ('string', 'null')
+           or jsonb_typeof(bad.item -> 'instructions') not in ('string', 'null')
+           or jsonb_typeof(bad.item -> 'is_prn') <> 'boolean'
+           or jsonb_typeof(bad.item -> 'substitution_allowed') <> 'boolean'
       )
   ), eligible_history as (
     select
@@ -157,18 +142,10 @@ begin
       item.value ->> 'duration_text' as duration_text,
       item.value ->> 'quantity_text' as quantity_text,
       item.value ->> 'food_relation' as food_relation,
-      case
-        when jsonb_typeof(item.value -> 'is_prn') = 'boolean'
-          then (item.value ->> 'is_prn')::boolean
-        else null
-      end as is_prn,
+      (item.value ->> 'is_prn')::boolean as is_prn,
       item.value ->> 'instructions' as instructions,
-      case
-        when jsonb_typeof(item.value -> 'substitution_allowed') = 'boolean'
-          then (item.value ->> 'substitution_allowed')::boolean
-        else null
-      end as substitution_allowed,
-      (item.value ->> 'position')::bigint as signed_position,
+      (item.value ->> 'substitution_allowed')::boolean as substitution_allowed,
+      (item.value ->> 'position')::integer as signed_position,
       item.ordinality::bigint as signed_ordinality,
       lower(btrim(item.value ->> 'display_name')) as normalized_name
     from eligible_prescriptions ep
