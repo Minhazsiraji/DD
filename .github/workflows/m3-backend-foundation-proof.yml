@@ -130,14 +130,14 @@ jobs:
         env:
           DIRECT_URL: postgresql://postgres:postgres@127.0.0.1:54322/postgres
           DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:54322/postgres
-        run: npm run db:migrate
+        run: node node_modules/drizzle-kit/bin.cjs migrate
 
       - name: Apply frozen runtime policies through M3
         working-directory: product
         env:
           DIRECT_URL: postgresql://postgres:postgres@127.0.0.1:54322/postgres
           DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:54322/postgres
-        run: npm run db:policies
+        run: node scripts/apply-policies.mjs
 
       - name: M3 migration replay and prerequisite proof
         env:
