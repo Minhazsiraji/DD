@@ -68,6 +68,9 @@ jobs:
       - name: Full repository tests
         run: npm test
 
+      - name: Next route and page type generation
+        run: npx next typegen
+
       - name: Typecheck
         run: npm run typecheck
 
@@ -143,7 +146,7 @@ jobs:
         run: |
           set -euo pipefail
           if [ -z "${OPENAI_API_KEY:-}" ]; then
-            echo "PA1_TERRA_LIVE_EVAL=SKIPPED_NO_OPENAI_API_KEY"
+            echo "PA1_TERRA_LIVE_EVAL=BLOCKED_NO_AUTHORIZED_OPENAI_API_KEY"
             exit 0
           fi
           npx vitest run src/features/ai/terra-live-synthetic-eval.test.ts --reporter=verbose
