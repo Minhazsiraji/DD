@@ -2,38 +2,15 @@ import type {
   ClinicalProposalParser,
   ProposalParseInput,
   ProposalParseResult,
-  SpeechInput,
-  SpeechProvider,
-  SpeechResult,
 } from "./providers";
 
 /**
- * Deterministic PA1 mock providers. They are intentionally dumb: tests inject
- * exact provider output so the safety boundary, not model cleverness, is what
- * gets exercised.
+ * Deterministic PA1 mock parser. Tests inject exact provider output so the
+ * safety boundary, not model cleverness, is what gets exercised.
+ *
+ * Speech-to-text is deliberately absent: PA1 reuses DD's existing audited
+ * Deepgram Nova-3 streaming subsystem instead of mocking or duplicating it.
  */
-export class MockSpeechProvider implements SpeechProvider {
-  constructor(
-    private readonly transcript: string,
-    private readonly language: string | null = null,
-    private readonly confidence: number | null = null,
-  ) {}
-
-  async transcribe(input: SpeechInput, signal: AbortSignal): Promise<SpeechResult> {
-    if (signal.aborted) throw new Error("MOCK_ABORTED");
-    if (!(input.audio instanceof Uint8Array) || input.audio.byteLength === 0) {
-      throw new Error("MOCK_AUDIO_EMPTY");
-    }
-    return {
-      transcript: this.transcript,
-      language: this.language,
-      confidence: this.confidence,
-      provider: { provider: "mock", model: "mock-stt-v1" },
-      usage: { audioSeconds: 1, estimatedCostUsdMicros: 0 },
-    };
-  }
-}
-
 export class MockProposalParser implements ClinicalProposalParser {
   constructor(private readonly output: unknown) {}
 
