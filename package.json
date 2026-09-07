@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "mkdir -p public && (npm run typecheck > public/m3-typecheck.txt 2>&1 || true) && next build",
+    "build": "next build",
     "start": "next start",
     "lint": "eslint",
     "lint:fix": "eslint --fix",
@@ -84,7 +84,7 @@
     "next": "16.3.0",
     "postgres": "^3.4.9",
     "react": "19.2.8",
-    "react-dom": "^19.2.8",
+    "react-dom": "19.2.8",
     "react-hook-form": "^7.84.0",
     "server-only": "^0.0.1",
     "shadcn": "^4.16.2",
