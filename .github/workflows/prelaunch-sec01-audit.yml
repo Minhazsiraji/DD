@@ -1,0 +1,86 @@
+name: PRE-LAUNCH-SEC-01 Advisory Evidence
+
+on:
+  push:
+    branches:
+      - md/prelaunch-sec01-audit
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  npm-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - name: Install exact lockfile
+        run: npm ci --ignore-scripts
+      - name: Capture audit JSON
+        shell: bash
+        run: |
+          set +e
+          npm audit --json > npm-audit.json
+          code=$?
+          set -e
+          echo "NPM_AUDIT_EXIT=$code"
+      - name: Print normalized advisory evidence
+        run: |
+          node <<'NODE'
+          const fs = require('fs');
+          const path = require('path');
+          const audit = JSON.parse(fs.readFileSync('npm-audit.json','utf8'));
+          const lock = JSON.parse(fs.readFileSync('package-lock.json','utf8'));
+          const pkg = JSON.parse(fs.readFileSync('package.json','utf8'));
+          const directProd = new Set(Object.keys(pkg.dependencies || {}));
+          const directDev = new Set(Object.keys(pkg.devDependencies || {}));
+          const out = [];
+          for (const [name, v] of Object.entries(audit.vulnerabilities || {})) {
+            const installed = new Set();
+            const lockEntries = [];
+            for (const node of v.nodes || []) {
+              const p = lock.packages?.[node];
+              if (p?.version) installed.add(p.version);
+              if (p) lockEntries.push({node, version:p.version||null, dev:!!p.dev, optional:!!p.optional, peer:!!p.peer});
+            }
+            const advisories = (v.via || []).filter(x => typeof x === 'object').map(x => ({
+              source:x.source ?? null,
+              name:x.name ?? null,
+              dependency:x.dependency ?? null,
+              title:x.title ?? null,
+              url:x.url ?? null,
+              severity:x.severity ?? null,
+              cwe:x.cwe ?? null,
+              cvss:x.cvss ?? null,
+              range:x.range ?? null
+            }));
+            out.push({
+              package:name,
+              severity:v.severity,
+              direct:v.isDirect,
+              directDependency:directProd.has(name),
+              directDevDependency:directDev.has(name),
+              auditRange:v.range,
+              installedVersions:[...installed],
+              fixAvailable:v.fixAvailable,
+              effects:v.effects,
+              nodes:v.nodes,
+              lockEntries,
+              advisories
+            });
+          }
+          console.log('SEC01_AUDIT_METADATA='+JSON.stringify(audit.metadata || {}));
+          console.log('SEC01_AUDIT_VULNERABILITIES='+JSON.stringify(out));
+          NODE
+      - name: Dependency explanations for vulnerable packages
+        shell: bash
+        run: |
+          node -e "const a=require('./npm-audit.json'); console.log(Object.keys(a.vulnerabilities||{}).join('\n'))" > vulnerable-packages.txt
+          while IFS= read -r p; do
+            echo "===== NPM_EXPLAIN:$p ====="
+            npm explain "$p" || true
+          done < vulnerable-packages.txt
