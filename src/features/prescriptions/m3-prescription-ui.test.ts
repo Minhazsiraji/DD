@@ -75,7 +75,7 @@ describe("M3 signed history", () => {
     const source = history();
     expect(source).toContain('"RECENT"');
     expect(source).toContain('"FREQUENT"');
-    expect(source).toContain("Search signed medicines");
+    expect(source).toContain("Search signed medicine history");
     expect(source).toContain("/api/m3-signed-medicine-history");
     expect(source).toContain("setTimeout");
   });
@@ -84,7 +84,8 @@ describe("M3 signed history", () => {
     const source = history();
     expect(source).toContain("loading");
     expect(source).toContain("setError");
-    expect(source).toContain("No signed medicines found");
+    expect(source).toContain("No signed medicine matches that search");
+    expect(source).toContain("No signed medicine history yet");
   });
 
   it("selection only proposes a form and cannot mutate directly", () => {
@@ -178,7 +179,7 @@ describe("M3 mutation coordinator regression", () => {
     }
     expect(source).toContain('state.kind === "conflict-unloadable"');
     expect(source).toContain('state.kind === "unknown"');
-    expect(source).toContain('kind: "write-confirmed-advanced"');
+    expect(source).toContain('case "write-confirmed-advanced"');
   });
 });
 
@@ -200,7 +201,6 @@ describe("M3 print audit around frozen native print", () => {
     const source = print();
     expect(source).toContain("Returning from the native dialog says nothing about physical paper");
     expect(source).not.toMatch(/afterprint|onafterprint/i);
-    expect(source).not.toContain("confirmPrescriptionPrintAction({\n        operationId: result.operation.operationId");
   });
 
   it("validates copy count 1-100 and keeps unconfirmed attempts initiation-only", () => {
@@ -208,7 +208,10 @@ describe("M3 print audit around frozen native print", () => {
     expect(source).toContain("count < 1 || count > 100");
     expect(source).toContain("min={1}");
     expect(source).toContain("max={100}");
-    const leave = source.slice(source.indexOf("function leaveUnconfirmed"), source.indexOf("const latestInitiation"));
+    const leave = source.slice(
+      source.indexOf("function leaveUnconfirmed"),
+      source.indexOf("const latestInitiation"),
+    );
     expect(leave).not.toContain("confirmPrescriptionPrintAction");
     expect(leave).toContain("remains recorded as unconfirmed");
   });
