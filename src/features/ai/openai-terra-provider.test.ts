@@ -52,11 +52,11 @@ describe("OpenAI Terra synthetic-only proposal adapter", () => {
   });
 
   it("sends server-side Responses request with store=false and strict json_schema", async () => {
-    let requestBody: Record<string, unknown> | null = null;
+    let requestBodyJson = "";
     let authorization = "";
     const fetchImpl: typeof fetch = async (_url, init) => {
       authorization = new Headers(init?.headers).get("Authorization") ?? "";
-      requestBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
+      requestBodyJson = String(init?.body ?? "");
       return jsonResponse({
         id: "resp_synthetic_001",
         status: "completed",
@@ -97,9 +97,10 @@ describe("OpenAI Terra synthetic-only proposal adapter", () => {
 
     const result = await parserWith(fetchImpl).parse(input, new AbortController().signal);
     expect(authorization).toBe("Bearer synthetic-eval-test-key-never-sent-to-browser");
-    expect(requestBody?.model).toBe(PA1_TERRA_MODEL);
-    expect(requestBody?.store).toBe(false);
-    const text = requestBody?.text as { format?: Record<string, unknown> };
+    const requestBody = JSON.parse(requestBodyJson) as Record<string, unknown>;
+    expect(requestBody.model).toBe(PA1_TERRA_MODEL);
+    expect(requestBody.store).toBe(false);
+    const text = requestBody.text as { format?: Record<string, unknown> };
     expect(text.format?.type).toBe("json_schema");
     expect(text.format?.strict).toBe(true);
     expect(result.provider).toEqual({
