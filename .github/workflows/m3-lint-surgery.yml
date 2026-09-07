@@ -1,0 +1,40 @@
+name: M3 Lint Surgery
+
+on:
+  push:
+    branches:
+      - qa/m3-lint-surgery
+
+permissions:
+  contents: write
+
+jobs:
+  patch-product-branch:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ui/m3-prescription-v2
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Patch only print-history initial refresh scheduling
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('src/features/prescriptions/components/print-prescription.tsx')
+          s = p.read_text()
+          old = '''  React.useEffect(() => {\n    void refreshHistory();\n  }, [refreshHistory]);'''
+          new = '''  React.useEffect(() => {\n    const timer = window.setTimeout(() => {\n      void refreshHistory();\n    }, 0);\n    return () => window.clearTimeout(timer);\n  }, [refreshHistory]);'''
+          if old not in s:
+              raise SystemExit('expected print-history effect not found')
+          p.write_text(s.replace(old, new, 1))
+          PY
+          git diff --check
+          git diff -- src/features/prescriptions/components/print-prescription.tsx
+      - name: Commit and push exact surgical change
+        run: |
+          git config user.name "Minhazsiraji"
+          git config user.email "50040536+Minhazsiraji@users.noreply.github.com"
+          git add src/features/prescriptions/components/print-prescription.tsx
+          git commit -m "fix(m3): schedule initial print-history refresh"
+          git push origin HEAD:ui/m3-prescription-v2
