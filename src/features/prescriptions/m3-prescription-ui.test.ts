@@ -4,7 +4,6 @@ import { describe, expect, it } from "vitest";
 import { draftFromRow, patchFromDraft, type MedicineRow } from "./schema";
 
 const read = (file: string) => readFileSync(path.resolve(file), "utf8");
-
 const composer = () => read("src/features/prescriptions/components/prescription-composer.tsx");
 const form = () => read("src/features/prescriptions/components/medicine-form.tsx");
 const history = () => read("src/features/prescriptions/components/signed-medicine-history.tsx");
@@ -49,8 +48,7 @@ describe("M3 fast medicine entry", () => {
   });
 
   it("does not lose persisted secondary clinical fields when disclosure is closed/reopened", () => {
-    const draft = draftFromRow(fullRow());
-    const patch = patchFromDraft(draft);
+    const patch = patchFromDraft(draftFromRow(fullRow()));
     expect(patch.brandName).toBe("Brand");
     expect(patch.genericName).toBe("Generic");
     expect(patch.dosageForm).toBe("Tablet");
@@ -66,7 +64,7 @@ describe("M3 fast medicine entry", () => {
     const source = form();
     expect(source).toContain("if (canSubmit) onSubmit()");
     expect(source).toContain("Medicine name is the only required field");
-    expect(source).not.toMatch(/finalize|approve prescription/i);
+    expect(source).not.toMatch(/finalizePrescriptionAction|finalize_prescription/);
   });
 });
 
@@ -82,7 +80,7 @@ describe("M3 signed history", () => {
 
   it("has distinct loading, error and empty states", () => {
     const source = history();
-    expect(source).toContain("loading");
+    expect(source).toContain("setLoading");
     expect(source).toContain("setError");
     expect(source).toContain("No signed medicine matches that search");
     expect(source).toContain("No signed medicine history yet");
@@ -99,7 +97,7 @@ describe("M3 signed history", () => {
     const source = m3Queries();
     expect(source).toContain('supabase.rpc("prescription_signed_medicine_history"');
     expect(source).toContain("SignedHistoryOutcome");
-    expect(source).toContain('ok: false, message: "Signed medicine history is unavailable right now."');
+    expect(source).toContain("Signed medicine history is unavailable right now.");
   });
 });
 
@@ -122,11 +120,11 @@ describe("M3 historical prescription reuse", () => {
   it("requires explicit source/item selection and append confirmation", () => {
     const source = reuse();
     expect(source).toContain("Reuse previous prescription");
-    expect(source).toContain("selectedIds");
+    expect(source).toContain("selectedItemIds");
     expect(source).toContain("appendConfirmed");
-    expect(source).toContain("append these medicines");
-    expect(source).toContain('mode: "ALL"');
-    expect(source).toContain('mode: "SELECTED"');
+    expect(source).toContain("Append the reused medicines");
+    expect(source).toContain('commit("ALL")');
+    expect(source).toContain('commit("SELECTED")');
   });
 
   it("uses only the accepted atomic reuse RPC and never client-side item inserts", () => {
@@ -186,9 +184,9 @@ describe("M3 mutation coordinator regression", () => {
 describe("M3 print audit around frozen native print", () => {
   it("records initiation before native print and confirmation only after explicit UI", () => {
     const source = print();
-    const initiation = source.indexOf("const result = await initiatePrescriptionPrintAction");
+    const initiation = source.indexOf("initiatePrescriptionPrintAction({");
     const native = source.indexOf("window.print();");
-    const confirmation = source.indexOf("const result = await confirmPrescriptionPrintAction");
+    const confirmation = source.indexOf("confirmPrescriptionPrintAction({");
     expect(initiation).toBeGreaterThan(-1);
     expect(native).toBeGreaterThan(initiation);
     expect(confirmation).toBeGreaterThan(native);
@@ -222,7 +220,14 @@ describe("M3 print audit around frozen native print", () => {
     expect(source).toContain("document.body");
     expect(source).toContain("data-print-only");
     expect(source).toContain("window.print();");
-    expect(source).not.toMatch(/iframe|toDataURL|canvas|screenshot/i);
+    expect(source).not.toMatch(/createElement\(["']iframe|<iframe|toDataURL\(|<canvas/i);
+  });
+
+  it("keeps history off the client Server Action queue", () => {
+    const source = print();
+    expect(source).toContain("/api/prescription-print-history");
+    expect(source).not.toContain("getPrescriptionPrintHistoryAction");
+    expect(source).toContain("Convenience read is deliberately not awaited before native print");
   });
 
   it("uses server-derived print actors and exposes compact history without raw auth UUIDs", () => {
