@@ -53,10 +53,10 @@ export class MockProposalParser implements ClinicalProposalParser {
 export class NeverResolvingParser implements ClinicalProposalParser {
   async parse(
     _input: ProposalParseInput,
-    signal: AbortSignal,
+    _signal: AbortSignal,
   ): Promise<ProposalParseResult> {
-    return await new Promise<ProposalParseResult>((_resolve, reject) => {
-      signal.addEventListener("abort", () => reject(new Error("MOCK_ABORTED")), { once: true });
-    });
+    // Intentionally ignores AbortSignal. The orchestrator must still time out
+    // safely even when a provider adapter fails to cooperate.
+    return await new Promise<ProposalParseResult>(() => undefined);
   }
 }
