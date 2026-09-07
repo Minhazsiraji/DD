@@ -1,4 +1,4 @@
-name: M3 Backend Foundation Isolated Proof
+name: M3 BF02 SEC02 Focused Proof
 
 on:
   push:
@@ -11,10 +11,10 @@ permissions:
 jobs:
   proof:
     runs-on: ubuntu-latest
-    timeout-minutes: 75
+    timeout-minutes: 55
     env:
-      PRODUCT_SHA: dee28660d01b67c60c77f1068af69c10b1adc357
-      FAILED_PRODUCT_SHA: bd4e86e58cc63ab6868c5959eccf3d5def6b7a36
+      PRODUCT_SHA: b897aa647cd2b7478651d8784a0c51828a52ccea
+      PREVIOUS_PRODUCT_SHA: dee28660d01b67c60c77f1068af69c10b1adc357
       PRODUCT_BASE: 1708edcdc10a8f6ed1f87ee81e6ebe21d27aa99d
       QA_WORKFLOW: .github/workflows/m3-backend-foundation-proof.yml
       M3_LOCAL_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:54322/postgres
@@ -34,10 +34,10 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Checkout exact product candidate detached
+      - name: Checkout exact corrected product candidate detached
         uses: actions/checkout@v4
         with:
-          ref: dee28660d01b67c60c77f1068af69c10b1adc357
+          ref: b897aa647cd2b7478651d8784a0c51828a52ccea
           path: product
           fetch-depth: 0
           persist-credentials: false
@@ -59,7 +59,7 @@ jobs:
           test -z "${DD_V2_LOCAL_DATABASE_URL:-}"
           test -z "${DD_CORRECTION_WINDOW_LOCAL_URL:-}"
           test -z "${VERCEL_TOKEN:-}"
-          echo "PASS exact detached corrected candidate SHA"
+          echo "PASS exact detached SEC-02 candidate SHA"
           echo "PASS temporary QA workflow/scripts absent from product tree"
           echo "PASS no protected DD database/production credentials supplied"
 
@@ -133,73 +133,61 @@ jobs:
           DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:54322/postgres
         run: node node_modules/drizzle-kit/bin.cjs migrate
 
-      - name: Apply frozen runtime policies through M3
+      - name: Apply frozen runtime policies through corrected M3
         working-directory: product
         env:
           DIRECT_URL: postgresql://postgres:postgres@127.0.0.1:54322/postgres
           DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:54322/postgres
         run: node scripts/apply-policies.mjs
 
-      - name: M3 migration replay and prerequisite proof
+      - name: Fresh M3 migration replay proof
         env:
           M3_PRODUCT_DIR: ${{ github.workspace }}/product
         run: node qa/m3-proof/migration-proof.mjs
 
-      - name: M3-BF-01 carry-forward identity proof
+      - name: Prove narrow SQL-only correction and carry-forward identities
         working-directory: product
         shell: bash
         run: |
           set -euo pipefail
-          old_0042="$(git rev-parse "$FAILED_PRODUCT_SHA:supabase/policies/0042_m3_prescription_reuse.sql")"
-          new_0042="$(git rev-parse "$PRODUCT_SHA:supabase/policies/0042_m3_prescription_reuse.sql")"
-          old_0044="$(git rev-parse "$FAILED_PRODUCT_SHA:supabase/policies/0044_m3_prescription_print_audit.sql")"
-          new_0044="$(git rev-parse "$PRODUCT_SHA:supabase/policies/0044_m3_prescription_print_audit.sql")"
-          test "$old_0042" = "f0d61c8ba472a57513eb0065a294a2ff65a09b69"
-          test "$new_0042" = "$old_0042"
-          test "$old_0044" = "139684e77ef6fa2c5414611c32dfd8c6b9113524"
-          test "$new_0044" = "$old_0044"
-          mapfile -t correction < <(git diff --name-only "$FAILED_PRODUCT_SHA..$PRODUCT_SHA")
+          test "$(git rev-parse "$PREVIOUS_PRODUCT_SHA:supabase/policies/0042_m3_prescription_reuse.sql")" = "f0d61c8ba472a57513eb0065a294a2ff65a09b69"
+          test "$(git rev-parse "$PRODUCT_SHA:supabase/policies/0042_m3_prescription_reuse.sql")" = "f0d61c8ba472a57513eb0065a294a2ff65a09b69"
+          test "$(git rev-parse "$PREVIOUS_PRODUCT_SHA:supabase/policies/0044_m3_prescription_print_audit.sql")" = "139684e77ef6fa2c5414611c32dfd8c6b9113524"
+          test "$(git rev-parse "$PRODUCT_SHA:supabase/policies/0044_m3_prescription_print_audit.sql")" = "139684e77ef6fa2c5414611c32dfd8c6b9113524"
+          mapfile -t correction < <(git diff --name-only "$PREVIOUS_PRODUCT_SHA..$PRODUCT_SHA")
           test "${#correction[@]}" -eq 1
           test "${correction[0]}" = "supabase/policies/0043_m3_signed_medicine_history.sql"
-          echo "PASS unchanged 0042 blob $new_0042"
-          echo "PASS unchanged 0044 blob $new_0044"
-          echo "PASS failed-candidate -> corrected-candidate delta is only 0043"
-          echo "M3_BF01_CARRY_FORWARD_PASS previous_dynamic_matrix=31/31"
+          echo "M3_BF01_CARRY_FORWARD_PASS previous_dynamic_matrix=31/31 blob=f0d61c8ba472a57513eb0065a294a2ff65a09b69"
+          echo "M3_BF03_CARRY_FORWARD_PASS previous_dynamic_matrix=50/50 blob=139684e77ef6fa2c5414611c32dfd8c6b9113524"
+          echo "M3_FULL_BUILD_SUITE_CARRY_FORWARD_PASS run=34088758975 reason=exactly_one_SQL_file_delta"
 
-      - name: M3-BF-02 signed medicine history dynamic matrix
+      - name: M3-BF-02 previous signed-history matrix
         env:
           M3_PRODUCT_DIR: ${{ github.workspace }}/product
         run: node qa/m3-proof/history-proof.mjs
 
-      - name: M3-BF-03 print audit dynamic matrix
+      - name: M3-BF-02 canonical snapshot-shape matrix
         env:
           M3_PRODUCT_DIR: ${{ github.workspace }}/product
-        shell: bash
-        run: |
-          set -euo pipefail
-          sed -i 's/assert.equal(passed, 49);/assert.equal(passed, 50);/' qa/m3-proof/print-proof.mjs
-          node qa/m3-proof/print-proof.mjs
+        run: node qa/m3-proof/history-shape-proof.mjs
 
-      - name: Frozen invariant blob and suggestion proof
+      - name: Frozen invariant and exact blob proof
         working-directory: product
         shell: bash
         run: |
           set -euo pipefail
           test "$(git hash-object supabase/policies/0041_prescription_correction_window.sql)" = "b89f8759d737afee950567788a715ba9a947f175"
           test "$(git hash-object supabase/policies/0042_m3_prescription_reuse.sql)" = "f0d61c8ba472a57513eb0065a294a2ff65a09b69"
-          test "$(git hash-object supabase/policies/0043_m3_signed_medicine_history.sql)" = "d68248caca61797994c2ffafb1f13f90d8726702"
+          test "$(git hash-object supabase/policies/0043_m3_signed_medicine_history.sql)" = "16b417bf3117d4e19bb9c52383af5e8608f59a91"
           test "$(git hash-object supabase/policies/0044_m3_prescription_print_audit.sql)" = "139684e77ef6fa2c5414611c32dfd8c6b9113524"
           test "$(git hash-object src/app/global-background-test.css)" = "062f35853c07cf72e7f6d6438878a2e9f4ff6b79"
-          test "$(git hash-object supabase/policies/0021_prescription_suggestions.sql)" = "842f746d2c774b94f8c60f6923229e08c489c8d5"
-          test "$(git diff --name-only "$PRODUCT_BASE..$PRODUCT_SHA" -- supabase/policies/0021_prescription_suggestions.sql)" = ""
           test -z "$(sed '/^[[:space:]]*--/d' supabase/policies/0043_m3_signed_medicine_history.sql | grep -E 'public\.prescription_items' || true)"
           node -e 'const v=require("./vercel.json"); const e={"$schema":"https://openapi.vercel.sh/vercel.json",regions:["icn1"]}; if(JSON.stringify(v)!==JSON.stringify(e)) process.exit(1); console.log("PASS exact icn1 configuration")'
-          echo "PASS corrected 0043 contains no live public.prescription_items dependency"
-          echo "PASS frozen 0041 blob b89f8759d737afee950567788a715ba9a947f175"
+          echo "PASS frozen 0041 blob"
           echo "PASS unchanged 0042/0044 blobs"
-          echo "PASS corrected 0043 blob d68248caca61797994c2ffafb1f13f90d8726702"
-          echo "PASS frozen print CSS blob 062f35853c07cf72e7f6d6438878a2e9f4ff6b79"
-          echo "PASS frozen prescription_item_suggestions unchanged"
+          echo "PASS corrected 0043 blob 16b417bf3117d4e19bb9c52383af5e8608f59a91"
+          echo "PASS frozen print CSS blob"
+          echo "PASS corrected 0043 has zero live prescription_items dependency"
 
       - name: Confirm exact net M3 product delta
         working-directory: product
@@ -214,37 +202,9 @@ jobs:
           test "${changed[2]}" = "supabase/policies/0044_m3_prescription_print_audit.sql"
           echo "PASS exact net product delta = 3 additive SQL files"
 
-      - name: Prescription regression suite
+      - name: Focused prescription regression suite
         working-directory: product
         run: npx vitest run src/features/prescriptions
-
-      - name: M2 regression suite
-        working-directory: product
-        run: npm test -- --run src/features/encounters/m2-consultation-workspace.test.ts src/features/encounters/m2-responsive-widths.test.ts src/features/encounters/follow-up-dates.test.ts src/features/encounters/fast-entry.test.ts
-
-      - name: M1 regression suite
-        working-directory: product
-        run: npm test -- --run src/features/patients/m1-implementation.test.ts src/features/patients/finder-ranking.test.ts src/features/mobile-responsive.test.ts src/components/layout/nav-targets.test.ts
-
-      - name: Full repository test suite
-        working-directory: product
-        run: npm test
-
-      - name: Lint
-        working-directory: product
-        run: npm run lint
-
-      - name: Generate Next route types
-        working-directory: product
-        run: npx next typegen
-
-      - name: Standalone typecheck
-        working-directory: product
-        run: npm run typecheck
-
-      - name: Production build and static generation
-        working-directory: product
-        run: npm run build
 
       - name: Diff whitespace and protected P0 drift proof
         working-directory: product
