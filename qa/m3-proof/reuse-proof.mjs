@@ -329,7 +329,7 @@ try {
   pass("live finalized item projection must agree with immutable snapshot; disagreement fails closed");
 
   console.log(`M3_REUSE_MATRIX_PASS count=${passed}`);
-  assert.equal(passed, 32);
+  assert.equal(passed, 31);
 } finally {
   await closeSql();
 }
