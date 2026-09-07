@@ -9,6 +9,10 @@ import {
   type ProposalBinding,
   type SafeProviderMetadata,
 } from "./contracts";
+import {
+  createProposalIntegrityFromEnv,
+  type ProposalIntegrityService,
+} from "./integrity";
 import type { ClinicalProposalParser } from "./providers";
 
 const DEFAULT_TIMEOUT_MS = 12_000;
@@ -39,7 +43,13 @@ export interface ProposalRequest {
 }
 
 export interface ProposalRunResult {
+  /**
+   * Doctor-editable proposal body plus display metadata. Security-sensitive
+   * acceptance MUST use securityHandle, not client-returned envelope.binding.
+   */
   envelope: AiProposalEnvelope;
+  /** Opaque MAC-protected immutable security binding (PA1-SEC-01). */
+  securityHandle: string;
   transcriptMeta:
     | {
         language: string | null;
@@ -119,6 +129,7 @@ export async function createClinicalProposal(
   request: ProposalRequest,
   deps: {
     parser: ClinicalProposalParser;
+    integrity?: ProposalIntegrityService;
     now?: () => Date;
     timeoutMs?: number;
     ttlMs?: number;
@@ -172,18 +183,32 @@ export async function createClinicalProposal(
       parsed.rawProposal,
     ) as AiProposalPayload;
     const expiresAt = new Date(now.getTime() + (deps.ttlMs ?? DEFAULT_TTL_MS));
+    const createdAtIso = now.toISOString();
+    const expiresAtIso = expiresAt.toISOString();
+    const integrity = deps.integrity ?? createProposalIntegrityFromEnv();
+    const securityHandle = integrity.issue({
+      v: 1,
+      operationId: request.operationId,
+      taskType: proposal.kind,
+      source,
+      binding: { ...request.binding },
+      createdAt: createdAtIso,
+      expiresAt: expiresAtIso,
+    });
 
     return {
       envelope: {
         operationId: request.operationId,
-        createdAt: now.toISOString(),
-        expiresAt: expiresAt.toISOString(),
+        createdAt: createdAtIso,
+        expiresAt: expiresAtIso,
         taskType: proposal.kind,
         source,
+        // Display/debug context only. Never authoritative on browser return.
         binding: { ...request.binding },
         provider: parsed.provider,
         proposal,
       },
+      securityHandle,
       transcriptMeta,
       usage: {
         audioSeconds,
