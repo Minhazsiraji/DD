@@ -13,7 +13,6 @@ import {
 } from "./orchestrator";
 import {
   MockProposalParser,
-  MockSpeechProvider,
   NeverResolvingParser,
 } from "./mock-provider";
 import {
@@ -45,6 +44,16 @@ const validRx = {
   uncertainties: [],
   requires_review: true,
 } as const;
+
+function voiceTranscript(text: string, language = "bn-en") {
+  return {
+    text,
+    provider: { provider: "deepgram", model: "nova-3" },
+    language,
+    confidence: null,
+    usage: { audioSeconds: 4, estimatedCostUsdMicros: 0 },
+  };
+}
 
 describe("PA1 clinical proposal safety foundation", () => {
   it("accepts English Rx while unspoken fields remain missing", () => {
@@ -200,7 +209,7 @@ describe("PA1 clinical proposal safety foundation", () => {
     ).toThrow(ProposalValidationError);
   });
 
-  it("fails closed on provider timeout", async () => {
+  it("fails closed on parser timeout", async () => {
     await expect(
       createClinicalProposal(
         { operationId: "op-timeout", taskType: "PRESCRIPTION_MEDICINE", binding, text: "Napa" },
@@ -209,25 +218,44 @@ describe("PA1 clinical proposal safety foundation", () => {
     ).rejects.toBeInstanceOf(AiProviderTimeoutError);
   });
 
-  it("does not copy raw voice bytes or transcript into proposal envelope", async () => {
+  it("consumes a Deepgram transcript without copying transcript text into the proposal envelope", async () => {
     const transcript = "Napa five hundred, one tablet twice daily.";
     const result = await createClinicalProposal(
       {
         operationId: "op-voice",
         taskType: "PRESCRIPTION_MEDICINE",
         binding,
-        audio: { bytes: new Uint8Array([1, 2, 3]), mimeType: "audio/webm" },
+        voiceTranscript: voiceTranscript(transcript),
       },
       {
-        speech: new MockSpeechProvider(transcript, "bn-en", 0.9),
         parser: new MockProposalParser(validRx),
         now: () => new Date("2026-09-07T10:00:00Z"),
       },
     );
     const serialized = JSON.stringify(result.envelope);
     expect(serialized).not.toContain(transcript);
-    expect(serialized).not.toContain("[1,2,3]");
-    expect(result.transcriptMeta?.language).toBe("bn-en");
+    expect(result.envelope.source).toBe("VOICE_TRANSCRIPT");
+    expect(result.transcriptMeta).toEqual({
+      language: "bn-en",
+      confidence: null,
+      provider: "deepgram",
+      model: "nova-3",
+    });
+  });
+
+  it("requires exactly one authored source", async () => {
+    await expect(
+      createClinicalProposal(
+        {
+          operationId: "op-two-sources",
+          taskType: "PRESCRIPTION_MEDICINE",
+          binding,
+          text: "Napa 500",
+          voiceTranscript: voiceTranscript("Napa 500"),
+        },
+        { parser: new MockProposalParser(validRx) },
+      ),
+    ).rejects.toThrow("AI_INPUT_EXACTLY_ONE_SOURCE_REQUIRED");
   });
 
   it("keeps owner telemetry clinical-payload-free while aggregating cost", () => {
