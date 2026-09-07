@@ -20,8 +20,9 @@ describe("Deepgram selective reconciliation security locks", () => {
     expect(route).not.toContain("patient_id");
     expect(route).not.toContain("encounterId");
     expect(route).not.toContain("prescriptionId");
-    expect(route).not.toContain("transcript");
-    expect(route).not.toContain("audioBytes");
+    expect(route).not.toContain("request.json(");
+    expect(route).not.toContain("/api/voice/transcribe");
+    expect(route).not.toContain("supabase");
   });
 
   it("browser transport requests only the temporary token route", () => {
@@ -57,7 +58,10 @@ describe("Deepgram selective reconciliation security locks", () => {
     expect(hook).toContain("activeRun.current !== runId");
     expect(hook).toContain("current?.abort()");
     expect(hook).not.toContain("savePrescription");
-    expect(hook).not.toContain("finalize");
+    expect(hook).not.toContain("finalizePrescription");
+    expect(hook).not.toContain("FINALIZE_PRESCRIPTION");
+    expect(hook).not.toContain("confirmPrint");
+    expect(hook).not.toContain("startCorrection");
     expect(hook).not.toContain("supabase");
   });
 
