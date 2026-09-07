@@ -69,6 +69,27 @@ function withTimeout(parent: AbortSignal | undefined, timeoutMs: number): {
   };
 }
 
+async function awaitWithAbort<T>(work: Promise<T>, signal: AbortSignal): Promise<T> {
+  return await new Promise<T>((resolve, reject) => {
+    const onAbort = () => reject(new Error("AI_PROVIDER_ABORTED"));
+    if (signal.aborted) {
+      onAbort();
+      return;
+    }
+    signal.addEventListener("abort", onAbort, { once: true });
+    work.then(
+      (value) => {
+        signal.removeEventListener("abort", onAbort);
+        resolve(value);
+      },
+      (error) => {
+        signal.removeEventListener("abort", onAbort);
+        reject(error);
+      },
+    );
+  });
+}
+
 function requiredAuthoredText(value: string): string {
   const text = value.trim();
   if (!text) throw new Error("AI_INPUT_EMPTY");
@@ -107,13 +128,16 @@ export async function createClinicalProposal(
     if (request.audio) {
       if (!deps.speech) throw new Error("AI_SPEECH_PROVIDER_REQUIRED");
       source = "VOICE_TRANSCRIPT";
-      const result = await deps.speech.transcribe(
-        {
-          audio: request.audio.bytes,
-          mimeType: request.audio.mimeType,
-          languageHints: request.languageHints,
-          keywordHints: request.audio.keywordHints,
-        },
+      const result = await awaitWithAbort(
+        deps.speech.transcribe(
+          {
+            audio: request.audio.bytes,
+            mimeType: request.audio.mimeType,
+            languageHints: request.languageHints,
+            keywordHints: request.audio.keywordHints,
+          },
+          timeout.signal,
+        ),
         timeout.signal,
       );
       authoredText = requiredAuthoredText(result.transcript);
@@ -130,13 +154,16 @@ export async function createClinicalProposal(
       authoredText = requiredAuthoredText(request.text!);
     }
 
-    const parsed = await deps.parser.parse(
-      {
-        taskType: request.taskType,
-        authoredText,
-        languageHints: request.languageHints,
-        jsonSchema: providerJsonSchema(request.taskType),
-      },
+    const parsed = await awaitWithAbort(
+      deps.parser.parse(
+        {
+          taskType: request.taskType,
+          authoredText,
+          languageHints: request.languageHints,
+          jsonSchema: providerJsonSchema(request.taskType),
+        },
+        timeout.signal,
+      ),
       timeout.signal,
     );
 
@@ -175,6 +202,8 @@ export async function createClinicalProposal(
     throw error;
   } finally {
     timeout.cleanup();
+    // Best-effort wipe of the transient caller buffer after processing.
+    request.audio?.bytes.fill(0);
     // No raw audio reference is copied into the result or telemetry contract.
   }
 }
