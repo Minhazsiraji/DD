@@ -64,3 +64,43 @@ body > main[class*="min-h-dvh"] {
     transform: scale(1.035);
   }
 }
+
+/*
+ * PRINT IS A CLINICAL DOCUMENT, NOT THE APPLICATION CANVAS.
+ *
+ * This file is imported after globals.css and deliberately uses !important for
+ * the live organ-backed application canvas. That means its screen-layer rules
+ * can otherwise out-rank the earlier print reset. Native Windows Chromium is
+ * especially sensitive to fixed/filtered body paint layers while constructing
+ * print preview: the prescription can exist in the print tree while the page is
+ * still composited as a blank sheet.
+ *
+ * Opt the visual canvas out here, at the layer that owns it. The printable
+ * prescription remains ordinary selectable text; no rasterisation and no
+ * prescription/layout logic changes are involved.
+ */
+@media print {
+  html,
+  body {
+    min-height: 0 !important;
+    background: #ffffff !important;
+    background-image: none !important;
+  }
+
+  body {
+    position: static !important;
+    isolation: auto !important;
+  }
+
+  body::before {
+    content: none !important;
+    display: none !important;
+    background: none !important;
+    filter: none !important;
+    transform: none !important;
+  }
+
+  body > [data-print-only] {
+    z-index: auto !important;
+  }
+}

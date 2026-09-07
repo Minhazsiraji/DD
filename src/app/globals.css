@@ -388,24 +388,17 @@
 }
 
 /**
- * Keep the printable tree at the page origin even while it is hidden on screen.
+ * The prescription is off-screen until it is printed.
  *
- * It must stay laid out — never `display: none` — because PrintPrescription
- * measures the real millimetre-sized paper before enabling Print. The previous
- * implementation moved this already-rendered tree to `left: -10000px`; native
- * Edge print preview could retain that culled/off-page paint state while the
- * print stylesheet moved the box back into flow, yielding a real page box with
- * no painted prescription. Hiding at the origin removes that cross-media
- * geometry jump while preserving dimensions and keeping the duplicate paper out
- * of the application UI and accessibility tree.
+ * Laid out, not `display: none` — it must have real millimetre dimensions so
+ * the overflow measurement means something. Moved out of view rather than
+ * hidden, and never reachable by tab or screen reader.
  */
 [data-print-only] {
   position: absolute;
-  left: 0;
+  left: -10000px;
   top: 0;
-  visibility: hidden;
   pointer-events: none;
-  z-index: -1;
 }
 
 @media print {
@@ -450,19 +443,10 @@
     display: none !important;
   }
 
-  /*
-   * The paper owns the print document. Explicitly reset every screen-only
-   * hiding/positioning property so a native print-preview renderer never has to
-   * infer that an off-screen/hidden paint layer should become printable.
-   */
+  /* The paper: in normal flow, at its real size, owning the whole document. */
   [data-print-only] {
     display: block !important;
     position: static !important;
-    left: auto !important;
-    top: auto !important;
-    visibility: visible !important;
-    pointer-events: auto !important;
-    z-index: auto !important;
     margin: 0 !important;
     padding: 0 !important;
   }
