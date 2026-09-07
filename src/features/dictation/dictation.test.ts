@@ -5,7 +5,7 @@ describe("dictation draft insertion", () => {
   it("inserts a transcript at the caret without any clinical side effect", () => {
     expect(insertTranscript("Take after food", "Napa 500 mg", 4)).toEqual({
       text: "Take Napa 500 mg after food",
-      caret: 15,
+      caret: 16,
     });
   });
 
