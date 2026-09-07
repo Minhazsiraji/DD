@@ -31,7 +31,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
 
       - name: Install locked dependencies
@@ -80,7 +80,7 @@ jobs:
       - name: Whitespace and patch integrity
         run: git diff --check b0ab2e3dfb47ff25b82afa21a8edc575cacdded5 HEAD
 
-      - name: Protected P0 and M3 drift check
+      - name: Protected P0, M3 and no-CSU-collision drift check
         shell: bash
         run: |
           set -euo pipefail
@@ -96,6 +96,10 @@ jobs:
           fi
           if git diff --name-only b0ab2e3dfb47ff25b82afa21a8edc575cacdded5 HEAD | grep -q '^src/features/investigations/'; then
             echo 'PA1-C1 must not wire Investigation UI.' >&2
+            exit 1
+          fi
+          if [ -e src/app/api/voice/transcribe/route.ts ]; then
+            echo 'Second STT endpoint /api/voice/transcribe is forbidden.' >&2
             exit 1
           fi
 
@@ -128,7 +132,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
 
       - name: Install locked dependencies
