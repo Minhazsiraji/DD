@@ -8,6 +8,44 @@ import type { PrescriptionView } from "../prescription-view";
 import { PrintSheet } from "./print-sheet";
 
 /**
+ * The native print dialog is allowed to snapshot immediately after
+ * `window.print()`. On Windows Chromium we saw a real print page box while the
+ * hidden screen copy of the prescription still contributed no painted text.
+ *
+ * Before calling `window.print()` we therefore stage the real printable tree as
+ * the ONLY visible body child, at the page origin, for two animation frames.
+ * The user never gets a second document or a raster copy: this is the same
+ * `PrintSheet` DOM that print media consumes. `afterprint` restores the app.
+ */
+const PRESCRIPTION_PRINT_STAGE_CSS = `
+body[data-prescription-printing="true"] {
+  min-height: 0 !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  background: #ffffff !important;
+}
+body[data-prescription-printing="true"] > *:not([data-print-only]) {
+  display: none !important;
+}
+body[data-prescription-printing="true"] > [data-print-only] {
+  display: block !important;
+  position: static !important;
+  left: auto !important;
+  top: auto !important;
+  visibility: visible !important;
+  pointer-events: none !important;
+  z-index: auto !important;
+  margin: 0 !important;
+  padding: 0 !important;
+}
+body[data-prescription-printing="true"] [data-print-root] {
+  box-shadow: none !important;
+  height: auto !important;
+  overflow: visible !important;
+}
+`;
+
+/**
  * Printing an approved prescription.
  *
  * Two things have to be true before the button does anything, and both are
@@ -123,17 +161,12 @@ export function PrintPrescription({
     };
 
     /**
-     * `decode()` alone is not enough here, and this cost a debugging session.
+     * `decode()` alone is not enough here.
      *
-     * The sheet is positioned far off-screen so it can be measured without
-     * being seen, and Chromium does not necessarily decode an image it is not
-     * painting — so the promise can simply stay pending, leaving the button on
-     * "Preparing…" forever with no error anywhere.
-     *
-     * So LOADED is the readiness signal, and decode is a bounded refinement on
-     * top of it: we give it a moment to guarantee paint-readiness, and proceed
-     * on the load state if it does not settle. Both facts are about the same
-     * image; only one of them is reliable off-screen.
+     * The measurement copy is deliberately hidden on screen. Chromium does not
+     * necessarily decode an image it is not painting, so the promise can stay
+     * pending and leave the button on "Preparing…" forever. LOADED is the
+     * readiness signal, and decode is a bounded refinement on top of it.
      */
     const settle = () => {
       if (cancelled) return;
@@ -212,7 +245,49 @@ export function PrintPrescription({
 
   function print() {
     if (readiness.kind !== "ready") return;
-    window.print();
+
+    const body = document.body;
+    if (body.dataset.prescriptionPrinting === "true") return;
+
+    const previousStage = body.getAttribute("data-prescription-printing");
+    let cleanupTimer: number | null = null;
+    let cleaned = false;
+
+    const cleanup = () => {
+      if (cleaned) return;
+      cleaned = true;
+      window.removeEventListener("afterprint", cleanup);
+      if (cleanupTimer !== null) window.clearTimeout(cleanupTimer);
+      if (previousStage === null) body.removeAttribute("data-prescription-printing");
+      else body.setAttribute("data-prescription-printing", previousStage);
+    };
+
+    window.addEventListener("afterprint", cleanup, { once: true });
+    body.setAttribute("data-prescription-printing", "true");
+    cleanupTimer = window.setTimeout(cleanup, 120_000);
+
+    /*
+     * Two paints are intentional. The first applies the staged body/portal
+     * geometry; the second proves Chromium has had a full frame in which the
+     * clinical text was an ordinary visible paint subtree before native print
+     * preview snapshots it.
+     */
+    window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(() => {
+        const printable = sheet();
+        const rect = printable?.getBoundingClientRect();
+        if (!printable || !rect || rect.width <= 0 || rect.height <= 0) {
+          cleanup();
+          return;
+        }
+
+        try {
+          window.print();
+        } catch {
+          cleanup();
+        }
+      });
+    });
   }
 
   return (
@@ -299,12 +374,16 @@ export function PrintPrescription({
         inside it. As a direct child of body, print can simply `display: none`
         every sibling, and the document becomes exactly as tall as the paper.
 
-        Off-screen but LAID OUT on screen — it needs real dimensions for the
-        width measurement to mean anything, so it is never `display: none` there.
+        Hidden but LAID OUT at the page origin on screen — it needs real
+        dimensions for the width measurement to mean anything, so it is never
+        `display: none` there. Immediately before native printing it is staged as
+        the only visible body child for two frames, eliminating a hidden-to-print
+        paint race in Chromium.
       */}
       {mounted
         ? createPortal(
             <div data-print-only aria-hidden="true" ref={wrapperRef}>
+              <style>{PRESCRIPTION_PRINT_STAGE_CSS}</style>
               <PrintSheet view={view} signatureUrl={signatureUrl} />
             </div>,
             document.body,
