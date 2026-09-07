@@ -20,6 +20,8 @@ import {
 import type { PrescriptionDetail } from "../queries";
 import { MedicineForm } from "./medicine-form";
 import { MedicineList } from "./medicine-list";
+import { PrescriptionReuse } from "./prescription-reuse";
+import { SignedMedicineHistory } from "./signed-medicine-history";
 
 /**
  * The prescription composer — a DRAFT workflow.
@@ -30,7 +32,7 @@ import { MedicineList } from "./medicine-list";
  * without being read.
  *
  * Every mutation carries the PRESCRIPTION's own version (ADR 0011 §1) and goes
- * through the accepted Stage 7A RPCs. The save states are Stage 6C's, reused
+ * through the accepted Stage 7A/M3 RPCs. The save states are Stage 6C's, reused
  * rather than relearned.
  */
 export function PrescriptionComposer({
@@ -50,6 +52,7 @@ export function PrescriptionComposer({
 
   const status = describe(rx.state, rx.busy, readOnly);
   const panel = recoveryPanel(rx.state);
+  const acceleratorDisabled = rx.blocked || rx.editor !== null;
 
   return (
     <div className="space-y-4 pb-2">
@@ -133,6 +136,38 @@ export function PrescriptionComposer({
             Dismiss
           </button>
         </p>
+      ) : null}
+
+      {/*
+        M3 accelerators live in the real draft workflow. Signed-history selection
+        only opens a proposed medicine form; historical whole/selected reuse is
+        the separate explicit bulk mutation through the same MutationGate.
+      */}
+      {!readOnly ? (
+        <div data-m3-prescription-accelerators className="space-y-3">
+          <SignedMedicineHistory
+            disabled={acceleratorDisabled}
+            onSelect={rx.proposeMedicine}
+          />
+
+          {prescription.replacesPrescriptionId ? (
+            <p
+              role="status"
+              className="dd-material-record dd-record-pearl rounded-2xl px-4 py-3 text-[12px] text-ink-secondary"
+            >
+              <strong className="font-semibold text-ink">Correction draft starts blank.</strong>{" "}
+              Whole-prescription historical reuse is disabled here. You may still choose a signed
+              medicine above to propose one line, inspect it, and add it explicitly.
+            </p>
+          ) : (
+            <PrescriptionReuse
+              prescriptionId={prescription.id}
+              targetItemCount={rx.items.length}
+              disabled={acceleratorDisabled}
+              onReuse={rx.reuseHistory}
+            />
+          )}
+        </div>
       ) : null}
 
       <SectionCard>
