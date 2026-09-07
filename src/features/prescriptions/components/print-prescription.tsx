@@ -2,8 +2,15 @@
 
 import * as React from "react";
 import { createPortal } from "react-dom";
-import { CircleAlert, Loader2, Printer } from "lucide-react";
+import { CheckCircle2, CircleAlert, History, Loader2, Printer } from "lucide-react";
 import { frozenSignatureUrlAction } from "../actions";
+import {
+  confirmPrescriptionPrintAction,
+  getPrescriptionPrintHistoryAction,
+  initiatePrescriptionPrintAction,
+  type PrescriptionPrintHistory,
+  type PrintOperation,
+} from "../m3-actions";
 import type { PrescriptionView } from "../prescription-view";
 import { PrintSheet } from "./print-sheet";
 
@@ -26,8 +33,17 @@ import { PrintSheet } from "./print-sheet";
  *
  * Neither failure falls back to something plausible. There is no "print without
  * the signature", and no shrinking text until it fits.
+ *
+ * M3 adds an operational ledger AROUND this frozen print path. It does not
+ * change what is printed or how Chromium receives the sheet:
+ *
+ *   server PRINT_INITIATED → this same native window.print()
+ *   → explicit human confirmation → server PRINT_CONFIRMED
+ *
+ * Returning from window.print() is deliberately NOT confirmation. The browser
+ * cannot tell us whether paper came out, Save as PDF was chosen, or the dialog
+ * was cancelled.
  */
-
 type Readiness =
   | { kind: "preparing" }
   /** The signature is either not required or fully loaded. */
@@ -40,6 +56,23 @@ type Readiness =
    * text off the edge.
    */
   | { kind: "too-wide" };
+
+function when(iso: string | null): string {
+  if (!iso) return "";
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "";
+  return new Intl.DateTimeFormat("en-GB", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(date);
+}
+
+function actorLabel(history: NonNullable<PrescriptionPrintHistory["latestInitiation"]>): string {
+  return `${history.actorName} · ${history.authorizationBasis === "DOCTOR_OWNER" ? "Doctor" : "Staff"}`;
+}
 
 export function PrintPrescription({
   prescriptionId,
@@ -54,6 +87,19 @@ export function PrintPrescription({
   const [signatureFailed, setSignatureFailed] = React.useState(false);
   const [measured, setMeasured] = React.useState(false);
   const [tooWide, setTooWide] = React.useState(false);
+
+  /** M3 operational state. None of this changes the printable DOM or CSS. */
+  const initiationKey = React.useRef<string | null>(null);
+  const [pendingOperation, setPendingOperation] = React.useState<PrintOperation | null>(null);
+  const [confirmationOpen, setConfirmationOpen] = React.useState(false);
+  const [copyCount, setCopyCount] = React.useState("1");
+  const [printBusy, setPrintBusy] = React.useState(false);
+  const [printError, setPrintError] = React.useState<string | null>(null);
+  const [printNotice, setPrintNotice] = React.useState<string | null>(null);
+  const [history, setHistory] = React.useState<PrescriptionPrintHistory | null>(null);
+  const [historyLoading, setHistoryLoading] = React.useState(true);
+  const [historyError, setHistoryError] = React.useState<string | null>(null);
+
   /**
    * `document` does not exist while this renders on the server, and the portal
    * needs it. Mounting first also keeps the server and client markup identical,
@@ -103,6 +149,25 @@ export function PrintPrescription({
       cancelled = true;
     };
   }, [needsSignature, prescriptionId]);
+
+  /** Compact operational history; failure never blocks the frozen print path. */
+  const refreshHistory = React.useCallback(async () => {
+    setHistoryLoading(true);
+    setHistoryError(null);
+    try {
+      const result = await getPrescriptionPrintHistoryAction({ prescriptionId });
+      if (result.ok) setHistory(result.history);
+      else setHistoryError(result.message);
+    } catch {
+      setHistoryError("Print history is unavailable right now.");
+    } finally {
+      setHistoryLoading(false);
+    }
+  }, [prescriptionId]);
+
+  React.useEffect(() => {
+    void refreshHistory();
+  }, [refreshHistory]);
 
   /**
    * Wait for the frozen signature to be genuinely paintable.
@@ -210,10 +275,102 @@ export function PrintPrescription({
     : tooWide ? { kind: "too-wide" }
     : { kind: "ready" };
 
-  function print() {
-    if (readiness.kind !== "ready") return;
-    window.print();
+  /**
+   * Record initiation FIRST, then open the exact frozen native print flow.
+   * Retrying an uncertain initiation reuses the same idempotency key; the
+   * accepted backend either returns the existing operation or refuses a changed
+   * request. We never open print unless the initiation is verified.
+   */
+  async function print() {
+    if (readiness.kind !== "ready" || printBusy || confirmationOpen) return;
+    setPrintBusy(true);
+    setPrintError(null);
+    setPrintNotice(null);
+    initiationKey.current ??= `m3-print-${crypto.randomUUID()}`;
+
+    try {
+      const result = await initiatePrescriptionPrintAction({
+        prescriptionId,
+        idempotencyKey: initiationKey.current,
+      });
+      if (!result.ok) {
+        setPrintError(result.message);
+        return;
+      }
+
+      setPendingOperation(result.operation);
+      await refreshHistory();
+
+      /**
+       * FROZEN M2 NATIVE PRINT PATH. Do not replace this with an iframe, PDF
+       * generator, popup document or client-side clone. The direct-body portal
+       * below plus this exact native call are the UAT-proven architecture.
+       */
+      window.print();
+
+      // Returning from the native dialog says nothing about physical paper.
+      setCopyCount("1");
+      setConfirmationOpen(true);
+    } catch {
+      setPrintError(
+        "We could not verify the print initiation, so the native print dialog was not opened. Try Print again; the same request will be checked rather than duplicated.",
+      );
+    } finally {
+      setPrintBusy(false);
+    }
   }
+
+  async function confirmPrintedCopies() {
+    if (!pendingOperation || printBusy) return;
+    const count = Number(copyCount);
+    if (!Number.isInteger(count) || count < 1 || count > 100) {
+      setPrintError("Enter the physical copies that actually printed, from 1 to 100.");
+      return;
+    }
+
+    setPrintBusy(true);
+    setPrintError(null);
+    try {
+      const result = await confirmPrescriptionPrintAction({
+        operationId: pendingOperation.operationId,
+        copyCount: count,
+      });
+      if (!result.ok) {
+        setPrintError(result.message);
+        return;
+      }
+
+      setPendingOperation(null);
+      setConfirmationOpen(false);
+      initiationKey.current = null;
+      setPrintNotice(
+        `${result.operation.confirmedCopyCount ?? count} physical ${count === 1 ? "copy" : "copies"} confirmed.`,
+      );
+      await refreshHistory();
+    } catch {
+      setPrintError(
+        "We could not verify the confirmation. Do not enter a different copy count; retry this same confirmation after the connection recovers.",
+      );
+    } finally {
+      setPrintBusy(false);
+    }
+  }
+
+  /**
+   * Explicitly say no physical copy printed. The initiation stays in the ledger
+   * as initiation-only; this button performs NO confirmation write.
+   */
+  function leaveUnconfirmed() {
+    setPendingOperation(null);
+    setConfirmationOpen(false);
+    initiationKey.current = null;
+    setPrintError(null);
+    setPrintNotice("No physical copies were confirmed. The print initiation remains recorded as unconfirmed.");
+    void refreshHistory();
+  }
+
+  const latestInitiation = history?.latestInitiation ?? null;
+  const latestConfirmed = history?.latestConfirmedPrint ?? null;
 
   return (
     <>
@@ -256,18 +413,44 @@ export function PrintPrescription({
           </p>
         ) : null}
 
+        {printError ? (
+          <p
+            role="alert"
+            className="flex items-start gap-2 rounded-xl bg-danger-soft px-3 py-2 text-[12px] font-medium text-danger"
+          >
+            <CircleAlert className="mt-px size-4 shrink-0" aria-hidden="true" />
+            <span>{printError}</span>
+          </p>
+        ) : null}
+
+        {printNotice ? (
+          <p
+            role="status"
+            className="flex items-start gap-2 rounded-xl bg-success-soft px-3 py-2 text-[12px] font-medium text-ink"
+          >
+            <CheckCircle2 className="mt-px size-4 shrink-0 text-success" aria-hidden="true" />
+            <span>{printNotice}</span>
+          </p>
+        ) : null}
+
         <button
           type="button"
-          onClick={print}
-          disabled={readiness.kind !== "ready"}
+          onClick={() => void print()}
+          disabled={readiness.kind !== "ready" || printBusy || confirmationOpen}
           className="inline-flex h-11 items-center justify-center gap-1.5 rounded-xl bg-brand px-4 text-[13px] font-semibold text-white shadow-soft transition-colors hover:bg-brand-hover disabled:cursor-not-allowed disabled:opacity-55 focus-visible:focus-ring"
         >
-          {readiness.kind === "preparing" ? (
+          {readiness.kind === "preparing" || printBusy ? (
             <Loader2 className="size-4 animate-spin" aria-hidden="true" />
           ) : (
             <Printer className="size-4" aria-hidden="true" />
           )}
-          {readiness.kind === "preparing" ? "Preparing…" : "Print prescription"}
+          {readiness.kind === "preparing"
+            ? "Preparing…"
+            : printBusy
+              ? "Recording print…"
+              : confirmationOpen
+                ? "Awaiting print confirmation"
+                : "Print prescription"}
         </button>
 
         {/*
@@ -279,6 +462,89 @@ export function PrintPrescription({
           {view.paperSize} at a {view.marginMm} mm margin — the layout this prescription was
           approved on.
         </p>
+
+        {confirmationOpen && pendingOperation ? (
+          <div className="dd-material-record dd-record-pearl w-full max-w-md rounded-2xl p-3 sm:p-4">
+            <p className="text-[13px] font-semibold text-ink">Did physical copies actually print?</p>
+            <p className="mt-1 text-[11px] text-ink-muted">
+              Closing the browser print dialog is not proof of printing. Confirm only paper copies
+              that actually came out. Saving a PDF is not a physical copy.
+            </p>
+            <label className="mt-3 block text-[12px] font-semibold text-ink-secondary">
+              Physical copies printed
+              <input
+                type="number"
+                min={1}
+                max={100}
+                inputMode="numeric"
+                value={copyCount}
+                disabled={printBusy}
+                onChange={(event) => setCopyCount(event.target.value)}
+                className="mt-1 h-11 w-28 rounded-xl border border-hairline bg-white px-3 text-[15px] tabular-nums text-ink focus-visible:focus-ring"
+              />
+            </label>
+            <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+              <button
+                type="button"
+                disabled={printBusy}
+                onClick={() => void confirmPrintedCopies()}
+                className="dd-primary inline-flex min-h-11 items-center justify-center gap-1.5 px-4 text-[12px] font-semibold disabled:opacity-55 focus-visible:focus-ring"
+              >
+                {printBusy ? (
+                  <Loader2 className="size-4 animate-spin" aria-hidden="true" />
+                ) : (
+                  <CheckCircle2 className="size-4" aria-hidden="true" />
+                )}
+                Confirm printed copies
+              </button>
+              <button
+                type="button"
+                disabled={printBusy}
+                onClick={leaveUnconfirmed}
+                className="dd-secondary inline-flex min-h-11 items-center justify-center px-4 text-[12px] font-semibold disabled:opacity-55 focus-visible:focus-ring"
+              >
+                No physical copy printed
+              </button>
+            </div>
+          </div>
+        ) : null}
+
+        <div className="w-full max-w-md rounded-xl border border-hairline/80 bg-white/55 px-3 py-2.5">
+          <p className="flex items-center gap-1.5 text-[11px] font-semibold text-ink-secondary">
+            <History className="size-3.5" aria-hidden="true" />
+            Print history
+          </p>
+          {historyLoading ? (
+            <p className="mt-1 text-[11px] text-ink-muted">Loading recent print state…</p>
+          ) : historyError ? (
+            <p className="mt-1 text-[11px] text-ink-muted">{historyError}</p>
+          ) : latestInitiation ? (
+            <div className="mt-1 space-y-0.5 text-[11px] text-ink-muted">
+              {latestInitiation.confirmedAt ? (
+                <p>
+                  Latest print: confirmed {latestInitiation.confirmedCopyCount ?? 0} physical{" "}
+                  {(latestInitiation.confirmedCopyCount ?? 0) === 1 ? "copy" : "copies"} ·{" "}
+                  {actorLabel(latestInitiation)} · {when(latestInitiation.confirmedAt)}
+                </p>
+              ) : (
+                <p>
+                  Latest print: initiated · not confirmed · {actorLabel(latestInitiation)} ·{" "}
+                  {when(latestInitiation.initiatedAt)}
+                </p>
+              )}
+              {latestConfirmed && latestConfirmed.operationId !== latestInitiation.operationId ? (
+                <p>
+                  Last confirmed: {latestConfirmed.confirmedCopyCount ?? 0} physical{" "}
+                  {(latestConfirmed.confirmedCopyCount ?? 0) === 1 ? "copy" : "copies"} ·{" "}
+                  {actorLabel(latestConfirmed)} · {when(latestConfirmed.confirmedAt)}
+                </p>
+              ) : null}
+              <p>Total confirmed physical copies: {history?.totalConfirmedCopies ?? 0}</p>
+            </div>
+          ) : (
+            <p className="mt-1 text-[11px] text-ink-muted">No print initiation has been recorded yet.</p>
+          )}
+        </div>
       </div>
 
       {/*
