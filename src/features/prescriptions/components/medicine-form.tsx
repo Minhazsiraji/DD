@@ -63,11 +63,7 @@ export function MedicineForm({
     MORE_FIELDS.some((field) => value[field.key].trim() !== "") ||
     value.isPrn ||
     !value.substitutionAllowed;
-  const [moreOpen, setMoreOpen] = React.useState(moreHasValue);
-
-  React.useEffect(() => {
-    if (moreHasValue) setMoreOpen(true);
-  }, [moreHasValue]);
+  const [moreOpen, setMoreOpen] = React.useState(() => moreHasValue);
 
   React.useEffect(() => {
     const q = query.trim();
@@ -146,8 +142,11 @@ export function MedicineForm({
                   type="button"
                   onMouseDown={(event) => event.preventDefault()}
                   onClick={() => {
-                    const { lastUsed: _lastUsed, timesUsed: _timesUsed, ...draft } = suggestion;
+                    const { lastUsed, timesUsed, ...draft } = suggestion;
+                    void lastUsed;
+                    void timesUsed;
                     onApplySuggestion(draft);
+                    setMoreOpen(true);
                     setShowSuggestions(false);
                   }}
                   className="flex min-h-11 w-full flex-col items-start justify-center px-3 py-2 text-left hover:bg-white/35 focus-visible:focus-ring"
