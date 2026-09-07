@@ -1,88 +1,168 @@
-# PA1 — AI + Voice Pilot Foundation
+# PA1 / PA1-C1 — AI + Voice Pilot Foundation
 
-Status: MD1 isolated foundation for Central review. Not wired into CSU or any live clinical UI.
+Status: **Central accepted PA1 architecture; MD1 PA1-C1 closure candidate.**
+
+This foundation is not wired into Prescription, Investigation or any other live clinical UI. It introduces no database migration and no second clinical-write mechanism.
 
 ## Permanent invariant
 
 `AI OUTPUT = PROPOSAL, NOT CLINICAL TRUTH`
 
-The only permitted clinical path is:
+Permitted future clinical path:
 
-`Doctor voice/text → DD transcript/text → typed proposal → strict server validation → visible Doctor review/acceptance → existing DD action/RPC → existing clinical/audit controls`
+`Doctor voice → existing DD Deepgram Nova-3 streaming → transient transcript`
 
-AI has no database authority, no service-role database client, and no direct finalize/print-confirm/destructive path.
+or
 
-## Existing DD voice baseline — REUSE, DO NOT DUPLICATE
+`Doctor typed text`
 
-Doctor's Diary already has an audited Deepgram Nova-3 streaming implementation in the historical Loop C voice lane.
+then
 
-Canonical evidence:
+`text/transcript → PA1 structured proposal parser → strict DD validation → immutable security-binding verification → fresh authoritative context/version check → visible Doctor review → explicit Doctor acceptance → existing DD action/RPC → existing clinical/audit controls`
 
-- original Nova-3 pilot branch tip: `832b62a7721309968e17256716c0ec0257f0c1e3`
+AI has no database authority, no service-role database client, and no direct finalize/print-confirm/correction/destructive path.
+
+---
+
+## 1. Existing DD voice baseline — REUSED, NOT DUPLICATED
+
+Historical Deepgram evidence audited by MD1:
+
+- original Nova-3 pilot tip: `832b62a7721309968e17256716c0ec0257f0c1e3`
 - streaming-v2 implementation anchor: `9d92a60231567911c0dade1b7ab7857a7cd003b3`
-- latest provider-connection audit tip: `993842c50619bbfabf8ed243623df6a791df55df`
-- streaming-v2 and provider-connection audit tips resolve to the same final code tree: `4e84a706336d498043402ceaa738fa2828f73068`
+- provider-connection audit tip: `993842c50619bbfabf8ed243623df6a791df55df`
+- effective audited streaming tree: `4e84a706336d498043402ceaa738fa2828f73068`
 
-The streaming-v2 branch is a direct descendant of the original Nova-3 pilot. The provider-connection audit branch is a direct descendant of streaming-v2 and ends with the same code tree after temporary CI/provider gates were removed.
+The streaming-v2 branch is a direct descendant of the original Nova-3 pilot. The provider-connection audit branch is a direct descendant of streaming-v2 and finishes with zero net application-file difference from the streaming-v2 implementation.
 
-The audited implementation uses:
+The current M3/PA1 line and historical Loop C voice line have diverged. PA1-C1 therefore performs **selective file/behavior reconciliation only**. A wholesale historical branch merge is prohibited.
+
+### Selectively reconciled onto the current line
+
+- `src/app/api/voice/token/route.ts`
+- `src/features/dictation/deepgram-stream.ts`
+- `src/features/dictation/provider.ts`
+- `src/features/dictation/dictation.ts`
+- `src/features/dictation/use-dictation.ts`
+- `src/features/dictation/voice-language.tsx`
+- `src/features/dictation/components/dictate-button.tsx`
+- dedicated Deepgram/dictation regression tests
+
+The historical Browser Web Speech fallback was **not** ported. Deepgram remains the only approved STT provider.
+
+### Voice security boundary
+
+Current selectively reconciled design retains:
 
 - `Deepgram Nova-3`
-- browser `MediaRecorder` → direct Deepgram WebSocket streaming
-- server-only `/api/voice/token` grant boundary
-- permanent `DEEPGRAM_API_KEY` kept server-side
-- short-lived 30-second access grants
-- authenticated Doctor permission check before grant
-- same-origin request enforcement
-- Bangla `bn` and English `en-US` allowlist
-- interim streaming results and cumulative transcript assembly
-- bounded connection, first-transcript and finalization timeouts
-- stale-run isolation, single live voice lease and exact Discard restoration
-- no raw audio or transcript persistence/logging in the audited voice path
-- no clinical write/finalize authority in the voice transport.
+- browser `MediaRecorder` → Deepgram WebSocket streaming
+- one server-only `/api/voice/token` route
+- permanent `DEEPGRAM_API_KEY` server-side only
+- Deepgram `/v1/auth/grant`
+- 30-second temporary access grant
+- existing DD `requirePermission("update", "encounter")` session/permission boundary
+- same-origin POST requirement
+- `Cache-Control: private, no-store`
+- Bengali `bn` and English `en-US` only
+- interim transcript assembly without duplicate final segments
+- 5-second connection timeout
+- 5-second first-transcript timeout
+- 1.5-second finalization timeout
+- one active DD voice lease
+- stale-run callback isolation
+- exact Discard restoration to pre-run draft/caret
+- no patient/encounter/prescription identifier required merely to mint a voice grant
+- no raw-audio persistence
+- no transcript persistence in the voice transport layer
+- no clinical write
+- no prescription finalization
+- no print confirmation
+- no correction start
 
-PA1 therefore MUST NOT create another STT provider, batch-audio endpoint, raw-audio orchestration API, or second Deepgram credential path.
+Permanent rule:
 
-The current M3/PA1 line and historical Loop C Deepgram line have diverged. Future integration must selectively port/reconcile the audited voice subsystem onto the current accepted line under a separate Central gate. A wholesale historical-branch merge is not approved by PA1.
+`NO SECOND STT SYSTEM`
 
-## PA1 provider boundary
+PA1 itself contains no `SpeechProvider`, raw-audio API, second MediaRecorder/WebSocket, `/api/voice/transcribe`, or permanent Deepgram credential.
 
-PA1 owns only the structured clinical proposal boundary:
+---
 
-`ClinicalProposalParser`: Doctor-authored text or a transient DD voice transcript + explicit task type + strict JSON schema → unknown provider output, which DD validates independently.
+## 2. PA1 provider boundary
 
-The PA1 server orchestration accepts either:
+PA1 owns the structured clinical-proposal boundary only:
+
+`ClinicalProposalParser`: Doctor-authored text or transient DD voice transcript + explicit task type + provider-facing schema → `unknown` provider output.
+
+The unknown output is then independently validated by DD.
+
+The PA1 orchestration accepts exactly one source:
 
 1. typed Doctor text; or
-2. a transient transcript supplied by DD's existing audited voice subsystem, with privacy-safe provider/language/usage metadata.
+2. a transient transcript supplied by the audited DD Deepgram subsystem.
 
-It accepts **no raw audio bytes** and contains **no SpeechProvider/STT transport**.
+It accepts no raw audio bytes.
 
-A parser response is never trusted merely because the provider claims schema conformance.
+Provider-native structured output is never a DD security or clinical-truth boundary.
 
-### Parser provider decision
+---
 
-The structured proposal parser remains provider-neutral in PA1. Central must separately approve the live parser/provider/account configuration before any real clinical payload is sent externally.
+## 3. PA1-SEC-01 — proposal envelope integrity
 
-No GPT-Transcribe integration is proposed because DD already has the reusable Deepgram Nova-3 STT subsystem.
+PA1-C1 uses a **server-only HMAC-SHA256 protected immutable security binding**. No database or server-held proposal table is required.
 
-## Language
+Signing secret:
 
-Pilot input may be English, Bangla, or mixed Bangla-English medical language.
+`PA1_PROPOSAL_SIGNING_SECRET`
 
-Rules:
+Requirements:
 
-- Do not translate medicine or test names merely for stylistic consistency.
-- Preserve medically significant units and wording.
-- Missing speech stays missing/null.
-- Ambiguity becomes an explicit uncertainty requiring Doctor review.
-- Never normalize a unit into a different clinical value.
+- server-only
+- minimum 32 UTF-8 bytes
+- never exposed to browser code
 
-## Proposal contracts
+The opaque security handle MAC-protects only immutable security context:
+
+- token version
+- operation ID
+- task type
+- source type
+- actor user ID
+- Doctor profile ID
+- practice location ID
+- patient ID where applicable
+- clinical record ID where applicable
+- authoritative expected version
+- created timestamp
+- expiry timestamp
+
+The Doctor-editable proposal body is deliberately **not** signed. Editing medicine/investigation/note content is an intended Doctor action.
+
+### Acceptance rule
+
+A future acceptance endpoint/action must ignore browser-returned envelope binding/timestamps as authority. It must:
+
+1. authenticate the current user;
+2. reconstruct current Doctor/person/location authority;
+3. re-read the authoritative clinical record;
+4. verify the opaque HMAC security handle with timing-safe comparison;
+5. compare actor/Doctor/location/patient/record binding;
+6. compare authoritative expected version;
+7. verify expiry;
+8. require explicit visible Doctor acceptance for clinical proposals;
+9. validate the edited clinical proposal body with the normal DD contract;
+10. invoke only the existing standard DD clinical action/RPC.
+
+The integrity/acceptance layer performs no clinical write itself.
+
+Replay control remains the existing DD version/CAS model: once a successful write advances the authoritative version, an older signed proposal binding becomes stale and fails.
+
+---
+
+## 4. Clinical proposal contracts
 
 ### Prescription medicine
 
-Optional/null proposal fields mirror the M3 medicine surface:
+Allowed optional/null fields:
 
 - `display_name`
 - `brand_name`
@@ -99,7 +179,9 @@ Optional/null proposal fields mirror the M3 medicine surface:
 - `instructions`
 - `substitution_allowed`
 
-No UI default is treated as an AI fact. In particular, absent booleans remain absent rather than inheriting composer defaults.
+No UI/default value becomes an AI fact. Missing values remain absent/null.
+
+A missing medicine identity requires explicit ambiguity disclosure.
 
 ### Investigation list
 
@@ -110,58 +192,179 @@ Only explicit rows are allowed:
 
 No additional investigation may be inferred.
 
+### Clinical note
+
+Transient Doctor-reviewed draft text only.
+
 ### Navigation
 
-Only an allowlist can be direct navigation:
+Only allowlisted non-clinical navigation:
 
 - `OPEN_PATIENT_SEARCH`
 - `OPEN_PRESCRIPTION`
 - `SHOW_RECENT_MEDICINES`
 - `OPEN_INVESTIGATIONS`
 
-Clinical mutations are not navigation commands.
+Clinical mutation commands are not navigation.
 
-## Authorization and replay boundary
+---
 
-Each clinical proposal is server-bound to:
+## 5. Strict DD validation
 
-- actor user
-- Doctor profile
-- practice location
-- patient where applicable
-- clinical record where applicable
-- authoritative expected record version
-- creation/expiry time
+Provider result enters DD as `unknown` and is independently validated.
 
-Before acceptance integration, the server must reconstruct current authority from the verified session and authoritative record, compare every binding field, require visible Doctor acceptance, then call the existing DD action/RPC.
+Controls include:
 
-The existing DD version/CAS model is the replay/duplicate-accept control: after the first successful clinical write advances the record, a replay bound to the old version must fail. PA1 therefore does not introduce a new clinical write path or database idempotency table.
+- plain-object requirement
+- forbidden prototype-sensitive object keys
+- exact allowed fields
+- required top-level fields
+- strict types
+- bounded text lengths
+- nullable-vs-missing handling
+- bounded uncertainty array
+- fixed uncertainty-code allowlist
+- exact task-kind match
+- `requires_review=true` for clinical proposals
+- `additionalProperties=false` provider schema
+- allowlisted navigation only
 
-## Voice privacy
+Provider schema compliance does not bypass this validator.
 
-Raw audio lifecycle belongs exclusively to the existing audited DD voice subsystem:
+---
 
-`microphone → transient Deepgram stream → transcript → release audio`
+## 6. OpenAI Terra synthetic-only parser adapter
 
-PA1 begins **after transcription** and receives no raw audio. Proposal envelopes and owner telemetry contain neither raw audio nor transcript text.
+Central-selected first parser candidate:
 
-Permanent audio storage requires a separate Central decision.
+`OpenAI API — gpt-5.6-terra`
 
-## Audit and telemetry
+PA1-C1 implements an isolated server-only adapter:
 
-Clinical content and operational analytics are separate.
+`src/features/ai/openai-terra-provider.ts`
+
+Current adapter properties:
+
+- direct Responses API server call
+- `model: "gpt-5.6-terra"`
+- `store: false`
+- low reasoning effort for bounded pilot extraction evaluation
+- strict `text.format.type = "json_schema"`
+- provider-facing JSON Schema transformed for strict Structured Outputs by making object properties required and representing DD optional clinical values as nullable
+- explicit-facts-only system instruction
+- no inference from normal clinical practice/defaults
+- preserve medicine/test names, units, abbreviations and Bangla/English wording
+- ambiguity → null + explicit uncertainty
+- prompt-injection-like input treated only as data
+- refusal → fail closed
+- incomplete response → fail closed
+- non-2xx response → fail closed
+- malformed/invalid JSON → fail closed
+- parsed provider result still returned as `unknown` to DD validator
+
+Synthetic-evaluation factory is gated by both:
+
+- `PA1_SYNTHETIC_AI_EVAL=enabled`
+- server-only `OPENAI_API_KEY`
+
+This is **not authorization for real clinical traffic**.
+
+---
+
+## 7. Synthetic semantic evaluation corpus
+
+PA1-C1 contains a fully synthetic, hand-authored 16-case corpus. It contains no real patient, Doctor or clinical-record data.
+
+Coverage includes:
+
+- English prescription extraction
+- Bangla prescription extraction
+- mixed Bangla-English Bangladesh-style usage
+- English medicine names inside Bengali sentence structures
+- Bengali medicine wording
+- `mg`, `ml`, `mg/5 ml`
+- OD / BD / TDS shorthand
+- before/after food
+- durations
+- dose ambiguity
+- unit ambiguity
+- English/Bangla/mixed investigation lists
+- prompt-injection-like quoted text that must not become authority
+- no-extra-investigation cases
+
+Hand-authored expected structured outputs are committed alongside the inputs.
+
+Semantic scorer reports independently from JSON validity:
+
+- exact normalized medicine-name extraction
+- strength extraction
+- dose extraction
+- schedule extraction
+- duration extraction
+- explicit investigation recall
+- extra/hallucinated investigation count/rate
+- ambiguity disclosure
+- mixed-input performance
+- per-case semantic failures
+
+Normalization for exact scoring is limited to Unicode NFKC, whitespace collapse and case folding. It does not clinically translate units/abbreviations or convert values.
+
+The scorer's unit tests prove metric correctness against the hand-authored expected fixtures; **that 100% fixture score is not a claim about Terra model accuracy**.
+
+### Current live Terra evaluation status
+
+GitHub Actions currently has no authorized `OPENAI_API_KEY` repository secret available to this branch. The live synthetic job therefore emits:
+
+`PA1_TERRA_LIVE_EVAL=SKIPPED_NO_OPENAI_API_KEY`
+
+No live Terra English/Bangla/mixed semantic accuracy percentage may be claimed until that synthetic-only run executes with an authorized key.
+
+---
+
+## 8. Voice and AI privacy
+
+### Voice
+
+Raw audio lifecycle remains:
+
+`microphone → transient browser stream → Deepgram → transcript → release audio`
+
+DD's temporary-token server boundary does not accept clinical audio/transcript.
+
+### Structured parser
+
+Before any **real clinical** parser traffic, Central must separately approve:
+
+1. OpenAI API project/account data-sharing settings;
+2. training opt-in/out state;
+3. endpoint retention configuration;
+4. Zero Data Retention eligibility/status if required;
+5. application/provider logging policy;
+6. error logging/redaction;
+7. provider request-reference handling;
+8. clinical-content minimization;
+9. contractual/privacy requirements for operating jurisdictions;
+10. acceptable synthetic semantic accuracy thresholds.
+
+`store=false` is required by this adapter but is not itself proof of ZDR.
+
+No real clinical traffic is authorized by PA1-C1.
+
+---
+
+## 9. Operational telemetry boundary
 
 PA1 operational telemetry may contain:
 
-- operation id
+- operation ID
 - actor/Doctor operational identity
 - task type
 - timestamps
 - provider/model
-- success/failure
+- outcome
 - latency
-- accepted/edited/rejected/pending
-- audio seconds when supplied by the audited voice subsystem
+- accepted/edited/rejected/pending decision
+- audio seconds
 - input/output token counts
 - estimated provider cost
 
@@ -175,56 +378,58 @@ It must not contain:
 - clinical note content
 - proposal payload
 
-Platform Owner receives aggregate business/cost information only.
+No durable telemetry table is introduced in PA1-C1.
 
-## Threat controls
+---
 
-PA1 foundation explicitly fails closed against:
+## 10. Threat controls covered by PA1-C1
 
-- malformed/extra provider fields;
-- hallucinated or absent clinical facts being silently defaulted;
-- ambiguous medicine/dose without explicit uncertainty/review;
-- prompt-injection-like transcript text becoming authority;
-- wrong-patient/Doctor/location/record binding;
-- stale clinical version/replayed acceptance;
-- clinical mutation without explicit Doctor acceptance;
-- voice navigation attempting finalization;
-- parser timeout, including a non-cooperative provider adapter;
-- transcript/raw clinical content entering operational telemetry;
-- service-role or browser-exposed provider secrets;
-- a second raw-audio/STT transport being introduced inside PA1.
+- malformed provider output rejected
+- unexpected fields rejected
+- absent fields not silently defaulted
+- medicine ambiguity disclosed
+- dose/unit ambiguity disclosed by contract/evaluation
+- prompt injection treated as input data, not authority
+- wrong actor/Doctor/location/patient/record acceptance blocked
+- stale clinical version/replay blocked
+- browser modification of returned envelope binding cannot alter signed authority
+- tampered security handle rejected before clinical context acceptance
+- explicit Doctor acceptance required
+- voice finalization command rejected
+- provider timeout, including non-cooperative adapter, fails closed
+- provider refusal/error/incomplete response fails closed
+- transcript/raw clinical payload prohibited from operational telemetry
+- server/browser secret containment tested
+- second STT/provider endpoint prohibited
+- one active voice session lease
+- stale voice run isolation
+- Dictate Discard restores the pre-run draft
 
-## Pre-real-clinical provider gate
+---
 
-Before any real clinical payload is sent to a live structured-proposal provider, Central must verify at minimum:
+## 11. Database and integration boundaries
 
-1. chosen provider account/project retention settings;
-2. training/data-sharing settings;
-3. whether the selected endpoint is eligible for the required retention mode;
-4. API keys are server-only and absent from browser bundles;
-5. vendor contractual/privacy requirements for DD's operating jurisdictions;
-6. synthetic Bangla-English clinician-like accuracy evaluation, especially medicine names, units and abbreviations;
-7. timeout/failure UI preserves Doctor text and performs no clinical write;
-8. the audited Deepgram subsystem is selectively reconciled with the current M3/PA1 line without reintroducing historical unrelated changes.
+PA1-C1 requires **no Supabase migration**.
 
-## Supabase requirement
+No changes are authorized or made to:
 
-PA1 foundation requires **no new Supabase migration**.
+- `0041`
+- `0042`
+- `0043`
+- `0044`
+- protected Supabase data/schema
 
-If Central later wants durable AI operation telemetry, the persistence shape must be reviewed separately before a protected migration is created. The current PA1 types are intentionally persistence-neutral.
+Not implemented/wired in PA1-C1:
 
-## Integration boundary
-
-Not implemented in PA1:
-
-- live structured-proposal provider adapter/secrets;
-- selective port/reconciliation of the historical Deepgram subsystem onto the current M3/PA1 line;
-- Prescription UI wiring;
-- Investigation UI wiring;
-- clinical action adapters;
-- finalization;
-- print confirmation;
-- Owner Dashboard persistence/views;
-- production deployment.
+- Prescription UI integration
+- Investigation UI integration
+- automatic clinical write adapters
+- prescription finalization
+- print confirmation
+- correction start
+- Owner Dashboard persistence/views
+- production deployment
+- main merge
+- real clinical provider traffic
 
 Those remain separate Central gates.
