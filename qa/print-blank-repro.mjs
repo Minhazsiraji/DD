@@ -1,7 +1,9 @@
 import { chromium } from "playwright";
 import { writeFileSync } from "node:fs";
 
-const browser = await chromium.launch({ headless: true });
+const executablePath = process.env.BROWSER_EXECUTABLE || undefined;
+const label = process.env.BROWSER_LABEL || "chromium";
+const browser = await chromium.launch({ headless: true, executablePath });
 const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
 
 await page.addInitScript(() => {
@@ -21,7 +23,7 @@ const mounted = await page.evaluate(() => ({
   root: Boolean(document.querySelector("[data-print-root]")),
   text: document.querySelector("[data-print-root]")?.textContent ?? "",
 }));
-console.log("SCREEN_MOUNT", JSON.stringify(mounted));
+console.log(`${label.toUpperCase()}_SCREEN_MOUNT`, JSON.stringify(mounted));
 
 await page.emulateMedia({ media: "print" });
 const state = await page.evaluate(() => {
@@ -33,6 +35,9 @@ const state = await page.evaluate(() => {
   const rootStyle = getComputedStyle(root);
   const portalRect = portal.getBoundingClientRect();
   const rootRect = root.getBoundingClientRect();
+  const hiddenBodyChildren = [...document.body.children]
+    .filter((el) => !el.hasAttribute("data-print-only"))
+    .map((el) => getComputedStyle(el).display);
   return {
     portalDisplay: portalStyle.display,
     portalPosition: portalStyle.position,
@@ -43,14 +48,14 @@ const state = await page.evaluate(() => {
     rootVisibility: rootStyle.visibility,
     rootRect: { x: rootRect.x, y: rootRect.y, width: rootRect.width, height: rootRect.height },
     rootText: root.textContent ?? "",
-    chromeDisplay: getComputedStyle(chrome).display,
-    bodyText: document.body.innerText,
+    hiddenBodyChildren,
   };
 });
-console.log("PRINT_STATE", JSON.stringify(state));
+console.log(`${label.toUpperCase()}_PRINT_STATE`, JSON.stringify(state));
 
 const pdf = await page.pdf({ printBackground: true, preferCSSPageSize: true, format: "A4" });
-writeFileSync("/tmp/m2-print-repro.pdf", pdf);
-console.log(`PDF_BYTES=${pdf.length}`);
+const file = `/tmp/m2-print-repro-${label}.pdf`;
+writeFileSync(file, pdf);
+console.log(`${label.toUpperCase()}_PDF_BYTES=${pdf.length}`);
 
 await browser.close();
