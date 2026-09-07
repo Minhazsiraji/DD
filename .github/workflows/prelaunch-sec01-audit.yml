@@ -20,61 +20,67 @@ jobs:
           cache: npm
       - name: Install exact lockfile
         run: npm ci --ignore-scripts
-      - name: Capture audit JSON
+      - name: Capture full and production audit JSON
         shell: bash
         run: |
           set +e
           npm audit --json > npm-audit.json
-          code=$?
+          full_code=$?
+          npm audit --omit=dev --json > npm-audit-prod.json
+          prod_code=$?
           set -e
-          echo "NPM_AUDIT_EXIT=$code"
+          echo "NPM_AUDIT_EXIT=$full_code"
+          echo "NPM_AUDIT_PROD_EXIT=$prod_code"
       - name: Print normalized advisory evidence
         run: |
           node <<'NODE'
           const fs = require('fs');
-          const path = require('path');
-          const audit = JSON.parse(fs.readFileSync('npm-audit.json','utf8'));
           const lock = JSON.parse(fs.readFileSync('package-lock.json','utf8'));
           const pkg = JSON.parse(fs.readFileSync('package.json','utf8'));
           const directProd = new Set(Object.keys(pkg.dependencies || {}));
           const directDev = new Set(Object.keys(pkg.devDependencies || {}));
-          const out = [];
-          for (const [name, v] of Object.entries(audit.vulnerabilities || {})) {
-            const installed = new Set();
-            const lockEntries = [];
-            for (const node of v.nodes || []) {
-              const p = lock.packages?.[node];
-              if (p?.version) installed.add(p.version);
-              if (p) lockEntries.push({node, version:p.version||null, dev:!!p.dev, optional:!!p.optional, peer:!!p.peer});
+          function normalize(file, prefix) {
+            const audit = JSON.parse(fs.readFileSync(file,'utf8'));
+            const out = [];
+            for (const [name, v] of Object.entries(audit.vulnerabilities || {})) {
+              const installed = new Set();
+              const lockEntries = [];
+              for (const node of v.nodes || []) {
+                const p = lock.packages?.[node];
+                if (p?.version) installed.add(p.version);
+                if (p) lockEntries.push({node, version:p.version||null, dev:!!p.dev, optional:!!p.optional, peer:!!p.peer});
+              }
+              const advisories = (v.via || []).filter(x => typeof x === 'object').map(x => ({
+                source:x.source ?? null,
+                name:x.name ?? null,
+                dependency:x.dependency ?? null,
+                title:x.title ?? null,
+                url:x.url ?? null,
+                severity:x.severity ?? null,
+                cwe:x.cwe ?? null,
+                cvss:x.cvss ?? null,
+                range:x.range ?? null
+              }));
+              out.push({
+                package:name,
+                severity:v.severity,
+                direct:v.isDirect,
+                directDependency:directProd.has(name),
+                directDevDependency:directDev.has(name),
+                auditRange:v.range,
+                installedVersions:[...installed],
+                fixAvailable:v.fixAvailable,
+                effects:v.effects,
+                nodes:v.nodes,
+                lockEntries,
+                advisories
+              });
             }
-            const advisories = (v.via || []).filter(x => typeof x === 'object').map(x => ({
-              source:x.source ?? null,
-              name:x.name ?? null,
-              dependency:x.dependency ?? null,
-              title:x.title ?? null,
-              url:x.url ?? null,
-              severity:x.severity ?? null,
-              cwe:x.cwe ?? null,
-              cvss:x.cvss ?? null,
-              range:x.range ?? null
-            }));
-            out.push({
-              package:name,
-              severity:v.severity,
-              direct:v.isDirect,
-              directDependency:directProd.has(name),
-              directDevDependency:directDev.has(name),
-              auditRange:v.range,
-              installedVersions:[...installed],
-              fixAvailable:v.fixAvailable,
-              effects:v.effects,
-              nodes:v.nodes,
-              lockEntries,
-              advisories
-            });
+            console.log(`${prefix}_METADATA=`+JSON.stringify(audit.metadata || {}));
+            console.log(`${prefix}_VULNERABILITIES=`+JSON.stringify(out));
           }
-          console.log('SEC01_AUDIT_METADATA='+JSON.stringify(audit.metadata || {}));
-          console.log('SEC01_AUDIT_VULNERABILITIES='+JSON.stringify(out));
+          normalize('npm-audit.json','SEC01_AUDIT');
+          normalize('npm-audit-prod.json','SEC01_AUDIT_PROD');
           NODE
       - name: Dependency explanations for vulnerable packages
         shell: bash
@@ -84,3 +90,27 @@ jobs:
             echo "===== NPM_EXPLAIN:$p ====="
             npm explain "$p" || true
           done < vulnerable-packages.txt
+      - name: Runtime reachability source scan
+        shell: bash
+        run: |
+          echo '===== REACHABILITY:AJV ====='
+          git grep -nEi "(@hookform/resolvers/ajv|from ['\"]ajv|require\(['\"]ajv|Ajv\()" -- 'src/**' ':!**/*.test.*' || true
+          echo '===== REACHABILITY:NANOID ====='
+          git grep -nEi "(from ['\"]nanoid|require\(['\"]nanoid|nanoid\()" -- 'src/**' ':!**/*.test.*' || true
+          echo '===== REACHABILITY:QS ====='
+          git grep -nEi "(from ['\"]qs|require\(['\"]qs|qs\.(parse|stringify))" -- 'src/**' ':!**/*.test.*' || true
+          echo '===== REACHABILITY:CLOUDINARY ====='
+          git grep -nEi "cloudinary" -- 'src/**' ':!**/*.test.*' || true
+          echo '===== REACHABILITY:SHADCN ====='
+          git grep -nEi "from ['\"]shadcn|require\(['\"]shadcn" -- 'src/**' ':!**/*.test.*' || true
+      - name: Environment and logging source scan
+        shell: bash
+        run: |
+          echo '===== ENV_REFERENCES ====='
+          git grep -nE "process\.env\.[A-Z0-9_]+|process\.env\[['\"][A-Z0-9_]+['\"]\]" -- 'src/**' 'next.config.*' 'scripts/**' || true
+          echo '===== CONSOLE_CALLS ====='
+          git grep -nE "console\.(log|error|warn|info|debug)" -- 'src/**' ':!**/*.test.*' || true
+          echo '===== JSON_STRINGIFY ====='
+          git grep -n "JSON.stringify" -- 'src/**' ':!**/*.test.*' || true
+          echo '===== SENSITIVE_TERMS ====='
+          git grep -nEi "(authorization|cookie|transcript|OPENAI_API_KEY|DEEPGRAM_API_KEY|SUPABASE_SERVICE_ROLE_KEY|PA1_PROPOSAL_SIGNING_SECRET|securityHandle|integrityHandle|proposalHandle)" -- 'src/**' ':!**/*.test.*' || true
