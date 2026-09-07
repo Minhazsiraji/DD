@@ -1,0 +1,135 @@
+name: M2 Print Regression Final Gate
+
+on:
+  push:
+    branches:
+      - qa/m2-print-regression-final
+
+permissions:
+  contents: read
+
+env:
+  CANDIDATE: 63445de66a082f7f9617db36d7de66e3d1044076
+  BASE: dbae1020ff5060041e229e45f9c8c9bf5fb24621
+  NEXT_PUBLIC_SUPABASE_URL: https://qa-placeholder.supabase.co
+  NEXT_PUBLIC_SUPABASE_ANON_KEY: qa-placeholder-anon-key
+  NEXT_PUBLIC_SITE_URL: http://127.0.0.1:3000
+  AI_MODE: mock
+  NOTIFICATION_MODE: mock
+  PAYMENT_MODE: mock
+
+jobs:
+  browser-print-proof:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - name: Prove QA overlay does not modify candidate product source
+        run: |
+          git diff --name-only "$CANDIDATE..HEAD" | tee /tmp/overlay.txt
+          grep -Ev '^(src/app/features/print-regression/page.tsx|qa/print-regression.mjs|\.github/workflows/m2-print-regression-final.yml)$' /tmp/overlay.txt > /tmp/unexpected.txt || true
+          test ! -s /tmp/unexpected.txt || { cat /tmp/unexpected.txt; exit 1; }
+      - name: Install Chromium and Microsoft Edge QA runtime
+        run: |
+          npm ci
+          npm install --no-save --package-lock=false playwright@1.55.0
+          npx playwright install --with-deps chromium
+          sudo apt-get update -qq
+          sudo apt-get install -y poppler-utils microsoft-edge-stable
+          microsoft-edge --version
+      - name: Start development-only synthetic print route
+        run: |
+          npm run dev -- --hostname 127.0.0.1 > /tmp/dd-next.log 2>&1 &
+          for i in {1..60}; do
+            if curl -fsS http://127.0.0.1:3000/features/print-regression >/dev/null; then exit 0; fi
+            sleep 1
+          done
+          cat /tmp/dd-next.log
+          exit 1
+      - name: Chromium print-media proof
+        env:
+          BROWSER_LABEL: chromium
+        run: |
+          node qa/print-regression.mjs | tee /tmp/chromium-state.log
+          pdftotext /tmp/m2-print-chromium.pdf /tmp/chromium.txt
+          pdfinfo /tmp/m2-print-chromium.pdf | grep -q '^Pages:[[:space:]]*1$'
+          grep -q 'Test Patient' /tmp/chromium.txt
+          grep -q 'Napa 500 mg' /tmp/chromium.txt
+          ! grep -q 'APP CHROME SENTINEL' /tmp/chromium.txt
+      - name: Microsoft Edge print-media proof
+        env:
+          BROWSER_LABEL: edge
+          BROWSER_EXECUTABLE: /usr/bin/microsoft-edge-stable
+        run: |
+          node qa/print-regression.mjs | tee /tmp/edge-state.log
+          pdftotext /tmp/m2-print-edge.pdf /tmp/edge.txt
+          pdfinfo /tmp/m2-print-edge.pdf | grep -q '^Pages:[[:space:]]*1$'
+          grep -q 'Test Patient' /tmp/edge.txt
+          grep -q 'Napa 500 mg' /tmp/edge.txt
+          ! grep -q 'APP CHROME SENTINEL' /tmp/edge.txt
+
+  exact-candidate-quality:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 63445de66a082f7f9617db36d7de66e3d1044076
+          fetch-depth: 0
+      - name: Confirm exact candidate
+        run: test "$(git rev-parse HEAD)" = "$CANDIDATE"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Focused print and prescription regression
+        run: >-
+          npm test -- --run
+          src/features/prescriptions/print-media-regression.test.ts
+          src/features/prescriptions/prescription-paper-hierarchy.test.ts
+          src/features/prescriptions/prescription-material.test.ts
+          src/features/prescriptions/prescription-renderers.test.ts
+          src/features/prescriptions/correction.test.ts
+          src/features/prescriptions/correction-window.test.ts
+      - name: M2 regression
+        run: >-
+          npm test -- --run
+          src/features/encounters/m2-consultation-workspace.test.ts
+          src/features/encounters/m2-uat-corrections.test.ts
+          src/features/encounters/m2-responsive-widths.test.ts
+          src/features/encounters/follow-up-dates.test.ts
+      - name: M1 regression
+        run: >-
+          npm test -- --run
+          src/features/patients/m1-implementation.test.ts
+          src/features/patients/finder-ranking.test.ts
+          src/features/mobile-responsive.test.ts
+          src/components/layout/nav-targets.test.ts
+      - name: Full suite
+        run: npm test
+      - name: Lint
+        run: npm run lint
+      - name: Generate Next route types
+        run: npx next typegen
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Production build
+        run: npm run build
+      - name: Diff whitespace and protected drift
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --check "$BASE..$CANDIDATE"
+          drift="$(git diff --name-only "$BASE..$CANDIDATE" -- db/schema db/functions db/policies db/grants db/storage db/seed db/manifest.toml db/golden-p0.sql)"
+          test -z "$drift" || { echo "$drift"; exit 1; }
+          sql="$(git diff --name-only "$BASE..$CANDIDATE" -- '*.sql')"
+          test -z "$sql" || { echo "$sql"; exit 1; }
+          added_service_role="$(git diff -U0 "$BASE..$CANDIDATE" -- 'src/**' ':!**/*.test.ts' ':!**/*.test.tsx' | grep -E '^\+.*service_role' || true)"
+          test -z "$added_service_role" || { echo "$added_service_role"; exit 1; }
+      - name: Preserve Seoul region
+        run: node -e 'const v=require("./vercel.json"); if(JSON.stringify(v.regions)!==JSON.stringify(["icn1"])) process.exit(1)'
