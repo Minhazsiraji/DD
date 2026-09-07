@@ -191,7 +191,10 @@ export function PrintPrescription({
   }, [prescriptionId]);
 
   React.useEffect(() => {
-    void refreshHistory();
+    const timer = window.setTimeout(() => {
+      void refreshHistory();
+    }, 0);
+    return () => window.clearTimeout(timer);
   }, [refreshHistory]);
 
   /**
