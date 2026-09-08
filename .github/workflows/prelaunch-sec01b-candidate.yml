@@ -1,3 +1,4 @@
+# Final exact-SHA verification trigger; no runtime or security behavior change.
 name: PRE-LAUNCH-SEC-01B Candidate
 
 on:
