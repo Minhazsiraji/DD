@@ -7,6 +7,12 @@ export type PostMfaDestination = "/owner" | "/dashboard";
 const OWNER_DESTINATION: PostMfaDestination = "/owner";
 const CLINICAL_DESTINATION: PostMfaDestination = "/dashboard";
 
+export function isAllowedPostMfaDestination(
+  value: unknown,
+): value is PostMfaDestination {
+  return value === OWNER_DESTINATION || value === CLINICAL_DESTINATION;
+}
+
 /**
  * Resolve the destination after an AAL2 upgrade on the server.
  *
@@ -21,15 +27,11 @@ export async function resolvePostMfaDestination(
     ? OWNER_DESTINATION
     : CLINICAL_DESTINATION;
 
-  if (typeof requestedPath !== "string") return authorizedDestination;
-
-  // Exact allowlist only. Reject absolute URLs, protocol-relative URLs,
-  // encoded/external targets, and internal paths outside the authorized surface.
-  if (requestedPath !== OWNER_DESTINATION && requestedPath !== CLINICAL_DESTINATION) {
+  if (!isAllowedPostMfaDestination(requestedPath)) {
     return authorizedDestination;
   }
 
   return requestedPath === authorizedDestination
-    ? authorizedDestination
+    ? requestedPath
     : authorizedDestination;
 }
