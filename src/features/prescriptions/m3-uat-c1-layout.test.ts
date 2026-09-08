@@ -7,8 +7,9 @@ const read = (file: string) => readFileSync(path.resolve(file), "utf8");
 const CORRECTION = "src/features/prescriptions/components/write-correction.tsx";
 const FINALIZED = "src/features/prescriptions/components/finalized-prescription.tsx";
 const PRINT = "src/features/prescriptions/components/print-prescription.tsx";
+const GLOBAL_BG = "src/app/global-background-test.css";
 
-describe("M3-UAT-C1 correction entry layout", () => {
+describe("M3-UAT-C1/C2 correction entry layout", () => {
   it("isolates the correction reason in an accessible body-level modal sheet", () => {
     const correction = read(CORRECTION);
 
@@ -18,9 +19,20 @@ describe("M3-UAT-C1 correction entry layout", () => {
     expect(correction).toContain('role="dialog"');
     expect(correction).toContain('aria-modal="true"');
     expect(correction).toContain("data-correction-dialog-backdrop");
-    expect(correction).toContain("fixed inset-0");
+    expect(correction).toContain('style={{ position: "fixed", inset: 0, width: "100vw", height: "100dvh", zIndex: 10000 }}');
     expect(correction).toContain('document.body.style.overflow = "hidden"');
+    expect(correction).toContain('document.documentElement.style.overflow = "hidden"');
     expect(correction).toContain("onKeyDown={keepFocusInside}");
+  });
+
+  it("overrides the app canvas direct-body positioning rule at the portal root", () => {
+    const correction = read(CORRECTION);
+    const globalBackground = read(GLOBAL_BG);
+
+    expect(globalBackground).toMatch(/body\s*>\s*\*\s*\{[\s\S]*?position:\s*relative;[\s\S]*?z-index:\s*1;/);
+    expect(correction).toContain('style={{ position: "fixed", inset: 0, width: "100vw", height: "100dvh", zIndex: 10000 }}');
+    expect(correction).toContain("items-end justify-center");
+    expect(correction).toContain("sm:items-center sm:p-4");
   });
 
   it("keeps textarea, count and actions usable from phone through desktop", () => {
