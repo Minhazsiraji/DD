@@ -240,11 +240,16 @@ jobs:
           rx_tests=$(find src/features/prescriptions -type f -name '*.test.ts' -print)
           npx vitest run $rx_tests
 
-      - name: PA1 foundation regression
+      - name: PA1 foundation voice and parser regression
         shell: bash
         run: |
-          pa1_tests=$(find src/features/ai -type f \( -name 'pa1-*.test.ts' -o -name '*terra*.test.ts' \) -print)
-          if [ -n "$pa1_tests" ]; then npx vitest run $pa1_tests; else echo "No PA1-named tests; covered by full suite"; fi
+          ai_tests=$(find src/features/ai -type f -name '*.test.ts' -print)
+          voice_tests=$(find src/features/dictation -type f -name '*.test.ts' -print)
+          if [ -z "$ai_tests$voice_tests" ]; then
+            echo "No PA1 AI/dictation tests found"
+            exit 1
+          fi
+          npx vitest run $ai_tests $voice_tests
 
       - name: Full repository suite
         run: npm test
