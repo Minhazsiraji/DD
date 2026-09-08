@@ -154,8 +154,8 @@ describe("PRE-LAUNCH-SEC-01B-R1 forward security candidate", () => {
       read("src/features/doctor/actions.ts"),
     ].join("\n");
 
-    expect(sources).not.toMatch(/console\.error\([^;]*(?:patientId|encounterId)/s);
-    expect(sources).not.toMatch(/console\.error\([^;]*(?:error|Error)\.message/s);
-    expect(sources).not.toMatch(/console\.error\([^;]*(?:previous|path)(?:\s*,|\))/s);
+    expect(sources).not.toMatch(/console\.error\([\s\S]*?(?:patientId|encounterId)/);
+    expect(sources).not.toMatch(/console\.error\([\s\S]*?(?:error|Error)\.message/);
+    expect(sources).not.toMatch(/console\.error\([\s\S]*?(?:previous|path)(?:\s*,|\))/);
   });
 });
