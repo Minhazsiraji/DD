@@ -62,7 +62,9 @@ describe("P0 mobile responsive boundaries", () => {
     const preview = source("src/features/prescriptions/components/review-sheet.tsx");
     const print = source("src/features/prescriptions/components/print-sheet.tsx");
 
-    expect(finalRx).toContain("flex-col items-stretch gap-2 sm:flex-row");
+    expect(finalRx).toContain("data-finalized-rx-actions");
+    expect(finalRx).toContain("flex min-w-0 flex-col items-stretch gap-3");
+    expect(finalRx).not.toContain("flex-col items-stretch gap-2 sm:flex-row");
     expect(preview).toContain("data-mobile-prescription-preview");
     expect(preview).toContain("max-w-full");
     expect(preview).toContain("overflow-x-auto");
