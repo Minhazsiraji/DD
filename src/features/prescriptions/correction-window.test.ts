@@ -30,8 +30,10 @@ describe("finalized prescription correction presentation window", () => {
 
   it("hides the normal correction affordance after expiry while keeping print", () => {
     const finalized = read("src/features/prescriptions/components/finalized-prescription.tsx");
-    expect(finalized).toContain("showCorrectionAction");
-    expect(finalized).toMatch(/showCorrectionAction \? <WriteCorrection/);
+    expect(finalized).toContain(
+      "const showCorrectionAction = viewerIsOwner && !lineage?.replacedBy && correctionUiEligible;",
+    );
+    expect(finalized).toMatch(/showCorrectionAction\s*\?\s*\([\s\S]{0,240}<WriteCorrection/);
     expect(finalized).toContain("Historical prescription.");
     expect(finalized).toContain("no longer offered after 48 hours");
     expect(finalized).toContain("<PrintPrescription");
