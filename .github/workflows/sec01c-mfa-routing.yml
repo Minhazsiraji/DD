@@ -1,0 +1,131 @@
+name: SEC-01C MFA Routing Correction
+
+on:
+  push:
+    branches:
+      - md/sec01c-mfa-routing
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: sb_publishable_sec01c_placeholder_key_000000000000
+      NEXT_PUBLIC_SITE_URL: https://example.com
+
+    steps:
+      - name: Checkout exact correction SHA
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install exact lockfile
+        run: npm ci --ignore-scripts
+
+      - name: Narrow-scope and frozen-integrity proof
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE=0c89abe45f8de38a625b0f56bd82c96a3d45706f
+          git merge-base --is-ancestor "$BASE" HEAD
+          cat > /tmp/expected.txt <<'EOF'
+          .github/workflows/sec01c-mfa-routing.yml
+          src/app/(auth)/mfa/page.tsx
+          src/features/security/actions.ts
+          src/features/security/post-mfa-destination.test.ts
+          src/features/security/post-mfa-destination.ts
+          EOF
+          sed -i 's/^          //' /tmp/expected.txt
+          sort -u /tmp/expected.txt -o /tmp/expected.txt
+          git diff --name-only "$BASE" HEAD | sort -u > /tmp/actual.txt
+          diff -u /tmp/expected.txt /tmp/actual.txt
+
+          test "$(git hash-object supabase/policies/0041_prescription_correction_window.sql)" = "b89f8759d737afee950567788a715ba9a947f175"
+          test "$(git hash-object supabase/policies/0042_m3_prescription_reuse.sql)" = "f0d61c8ba472a57513eb0065a294a2ff65a09b69"
+          test "$(git hash-object supabase/policies/0043_m3_signed_medicine_history.sql)" = "16b417bf3117d4e19bb9c52383af5e8608f59a91"
+          test "$(git hash-object supabase/policies/0044_m3_prescription_print_audit.sql)" = "139684e77ef6fa2c5414611c32dfd8c6b9113524"
+          test "$(git hash-object supabase/policies/0045_prelaunch_sec01b_security_closure.sql)" = "56a606e200a9f6ea43dd33e572511193a17a5f5a"
+          test "$(git hash-object src/app/globals.css)" = "9e5d07175e729f142b4cff5574ded5af5a61bdbf"
+          test "$(git hash-object src/features/prescriptions/components/print-sheet.tsx)" = "0b8afc336ff27faa0a33eaf22f6a8eac1b236c36"
+          git diff --exit-code "$BASE" -- supabase src/features/prescriptions src/app/globals.css
+          echo "SEC01C_MFA_SCOPE=PASS"
+          echo "SEC01C_MFA_FROZEN_INTEGRITY=PASS"
+          echo "SEC01C_MFA_EXACT_SHA=$(git rev-parse HEAD)"
+
+      - name: Focused post-MFA routing tests
+        run: npx vitest run src/features/security/post-mfa-destination.test.ts
+
+      - name: SEC-01B focused security regression
+        run: npx vitest run src/features/security/prelaunch-sec01b.test.ts
+
+      - name: M1 focused regression
+        shell: bash
+        run: |
+          files=$(find src/features -type f -name '*m1*.test.ts' -print)
+          test -n "$files"
+          npx vitest run $files
+
+      - name: M2 correction freeze print regression
+        shell: bash
+        run: |
+          files=$(find src/features/prescriptions -type f \( -name '*correction*.test.ts' -o -name '*freeze*.test.ts' -o -name '*print*.test.ts' \) -print)
+          test -n "$files"
+          npx vitest run $files
+
+      - name: M3 complete Prescription suite
+        shell: bash
+        run: |
+          files=$(find src/features/prescriptions -type f -name '*.test.ts' -print)
+          test -n "$files"
+          npx vitest run $files
+
+      - name: PA1 foundation voice parser regression
+        shell: bash
+        run: |
+          ai_tests=$(find src/features/ai -type f -name '*.test.ts' -print)
+          voice_tests=$(find src/features/dictation -type f -name '*.test.ts' -print)
+          test -n "$ai_tests$voice_tests"
+          npx vitest run $ai_tests $voice_tests
+
+      - name: Complete repository tests
+        run: npm test
+
+      - name: Generate Next route types
+        run: npx next typegen
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Production build
+        run: npm run build
+
+      - name: Production dependency audit
+        shell: bash
+        run: |
+          npm audit --omit=dev --json > /tmp/npm-audit-prod.json
+          node <<'NODE'
+          const fs = require('fs');
+          const a = JSON.parse(fs.readFileSync('/tmp/npm-audit-prod.json','utf8'));
+          const v = a.metadata?.vulnerabilities ?? {};
+          console.log('SEC01C_MFA_PROD_AUDIT=' + JSON.stringify(v));
+          if ((v.high ?? 0) !== 0 || (v.critical ?? 0) !== 0) process.exit(1);
+          NODE
+
+      - name: Final diff and region proof
+        shell: bash
+        run: |
+          git diff --check
+          node -e "const v=require('./vercel.json'); if(JSON.stringify(v.regions)!=='[\"icn1\"]') throw new Error('icn1 drift'); console.log('SEC01C_MFA_ICN1=PASS')"
