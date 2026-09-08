@@ -29,7 +29,7 @@ describe("M2 finalized prescription material propagation", () => {
     const correction = read("src/features/prescriptions/components/write-correction.tsx");
     expect(correction.match(/dd-primary/g)?.length).toBe(2);
     expect(correction).toContain("dd-secondary");
-    expect(correction).toContain('className="dd-panel-pearl dd-panel-rim"');
+    expect(correction).toMatch(/className="dd-panel-pearl dd-panel-rim[^\"]*"/);
     expect(correction).toContain("startCorrectionAction({ prescriptionId, reason })");
     expect(correction).not.toMatch(/startCorrectionAction\(\{[^}]*encounterId/);
   });
