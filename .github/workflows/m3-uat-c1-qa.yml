@@ -31,7 +31,7 @@ jobs:
           ORIGINAL=f5a164589660654c131ce9663e4ba903e4e7479b
           git diff --check "$ORIGINAL"...HEAD
           git diff --exit-code "$ORIGINAL" -- src/app/globals.css src/features/prescriptions/components/print-sheet.tsx
-          unexpected="$(git diff --name-only "$ORIGINAL"...HEAD | grep -Ev '^(src/features/prescriptions/components/(write-correction|finalized-prescription)\.tsx|src/features/prescriptions/m3-uat-c1-layout\.test\.ts|\.github/workflows/m3-uat-c1-qa\.yml)$' || true)"
+          unexpected="$(git diff --name-only "$ORIGINAL"...HEAD | grep -Ev '^(src/features/prescriptions/components/(write-correction|finalized-prescription)\.tsx|src/features/prescriptions/(m3-uat-c1-layout|correction-window)\.test\.ts|\.github/workflows/m3-uat-c1-qa\.yml)$' || true)"
           if [ -n "$unexpected" ]; then
             echo "Unexpected C1 delta:"
             echo "$unexpected"
