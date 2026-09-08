@@ -106,11 +106,12 @@ $$;
 -- stored function source (prosrc). CREATE OR REPLACE preserves the function OID,
 -- owner, ACL and dependent object identity because the name/input signature and
 -- result type are unchanged. We also reproduce language, volatility, null-input
--- behavior, SECURITY DEFINER, parallel mode, cost/rows and every SET config.
+-- behavior, SECURITY DEFINER, parallel mode, cost/rows and the fixed search_path.
 --
 -- PL/pgSQL bodies are placed unchanged inside a nested block after the AAL2
--- check. This avoids editing declarations/BEGIN tokens and does not use PERFORM
--- before the original block (PERFORM would alter the caller's FOUND state).
+-- check. A missing terminal block semicolon is added only as a syntactic
+-- separator for nesting; no token inside the stored source is edited. This also
+-- avoids PERFORM before the original block (which could alter FOUND).
 -- SQL bodies receive one leading guard statement; the original final statement
 -- remains the result-producing statement.
 
@@ -186,13 +187,10 @@ declare
   v_body text;
   v_ddl text;
   v_config text;
-  v_setting text;
-  v_key text;
-  v_value text;
 begin
   -- Catalog renderers below can emit public types without schema qualification.
   -- Pin migration-time name resolution locally; this does not alter any target
-  -- function's own search_path, which is reconstructed from proconfig.
+  -- function's own search_path, which is reconstructed exactly below.
   perform set_config('search_path', 'public, pg_temp', true);
 
   for r in
@@ -241,22 +239,18 @@ begin
       raise exception 'SEC01B refuses unexpected SUPPORT target: %', r.oid::regprocedure;
     end if;
 
+    -- Live DD inventory currently pins every one of these 61 functions to this
+    -- exact two-schema path. Fail closed rather than generically re-render an
+    -- unexpected future GUC value and risk changing its semantics.
+    if r.proconfig is distinct from array['search_path=public, pg_temp']::text[] then
+      raise exception 'SEC01B unexpected function SET config for %: %', r.oid::regprocedure, r.proconfig;
+    end if;
+    v_config := E'\n SET search_path TO public, pg_temp';
+
     -- Idempotent re-run: a previously guarded body is left untouched.
     if position('public.require_aal2()' in r.prosrc) > 0
        or position('public.session_is_aal2()' in r.prosrc) > 0 then
       continue;
-    end if;
-
-    v_config := '';
-    if r.proconfig is not null then
-      foreach v_setting in array r.proconfig loop
-        v_key := split_part(v_setting, '=', 1);
-        v_value := substr(v_setting, length(v_key) + 2);
-        if v_key = '' then
-          raise exception 'SEC01B invalid function SET config for %', r.oid::regprocedure;
-        end if;
-        v_config := v_config || format(E'\n SET %I TO %L', v_key, v_value);
-      end loop;
     end if;
 
     if r.lanname = 'plpgsql' then
@@ -266,6 +260,7 @@ begin
         || E'    raise exception ''AAL2_REQUIRED'' using errcode = ''42501'';\n'
         || E'  end if;\n'
         || r.prosrc
+        || case when right(btrim(r.prosrc, E' \t\n\r'), 1) = ';' then '' else ';' end
         || E'\nend;';
     else
       v_body := E'select public.require_aal2();\n' || r.prosrc;
