@@ -71,7 +71,7 @@ export async function getSignatureUrl(path: string | null): Promise<string | nul
     .from(SIGNATURE_BUCKET)
     .createSignedUrl(path, 60 * 10);
   if (error) {
-    console.error("[doctor] signature signed url failed", error.message);
+    console.error("[doctor] signature signed url failed");
     return null;
   }
   return data?.signedUrl ?? null;
@@ -172,7 +172,7 @@ export async function listTemplates(): Promise<TemplateListOutcome> {
     .order("name", { ascending: true });
 
   if (error) {
-    console.error("[doctor] listTemplates failed", error.message);
+    console.error("[doctor] listTemplates failed");
     return { ok: false, reason: error.message };
   }
   // The select list is built from a constant, so PostgREST's type inference
@@ -192,7 +192,7 @@ export async function getTemplate(id: string): Promise<TemplateSettings | null> 
     .maybeSingle();
 
   if (error) {
-    console.error("[doctor] getTemplate failed", error.message);
+    console.error("[doctor] getTemplate failed");
     return null;
   }
   return data ? toSettings(data as unknown as TemplateRow) : null;

@@ -199,7 +199,7 @@ export async function getPatientTimeline(
      * half its events looks exactly like a patient with no history, and the
      * doctor reading it has no way to tell the difference.
      */
-    console.error("[timeline] appointments query failed", apptError.message);
+    console.error("[timeline] appointments query failed");
     missing.push("appointments");
   }
 
@@ -248,7 +248,7 @@ export async function getPatientTimeline(
     .order("started_at", { ascending: false });
 
   if (encError) {
-    console.error("[timeline] encounters query failed", encError.message);
+    console.error("[timeline] encounters query failed");
     missing.push("consultations");
   }
 
@@ -312,7 +312,7 @@ export async function getPatientTimeline(
     if (/not a doctor/i.test(rxError.message)) {
       // Nothing to add, nothing missing.
     } else {
-      console.error("[timeline] prescription history failed", rxError.message);
+      console.error("[timeline] prescription history failed");
       missing.push("prescriptions");
     }
   }

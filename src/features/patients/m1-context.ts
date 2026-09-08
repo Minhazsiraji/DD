@@ -56,7 +56,7 @@ export async function getExistingUnscheduledDraftId(
     result = await read("patient_id");
   }
   if (result.error) {
-    console.error("[m1] unscheduled draft context read failed", result.error.message);
+    console.error("[m1] unscheduled draft context read failed");
     return null;
   }
   return result.data?.id ? String(result.data.id) : null;
@@ -99,7 +99,7 @@ export async function getLocationLocalDate(locationId: string): Promise<{
     .maybeSingle();
 
   if (error || !data?.timezone) {
-    console.error("[m1] location timezone read failed", error?.message ?? "timezone unavailable");
+    console.error("[m1] location timezone read failed");
     return null;
   }
   const timeZone = data.timezone as string;
@@ -237,7 +237,7 @@ async function readAppointmentRows(
     result = await run("patient_id");
   }
   if (result.error) {
-    console.error("[m1] appointment context read failed", result.error.message);
+    console.error("[m1] appointment context read failed");
     return null;
   }
 
@@ -275,7 +275,7 @@ export async function getPatientAppointmentContexts(
   ]);
   if (!rows) return null;
   if (!queue.ok) {
-    console.error("[m1] queue context read failed", queue.reason);
+    console.error("[m1] queue context read failed");
     return null;
   }
   const tokenByAppointment = new Map(

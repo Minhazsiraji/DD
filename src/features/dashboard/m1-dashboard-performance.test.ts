@@ -19,7 +19,14 @@ describe("M1 shell + Dashboard performance contract", () => {
     expect(source).toContain('const membershipsPromise = timedPreviewStage("m1-shell-timing", "memberships"');
     expect(source).toContain('"mfa_aal"');
     expect(source).toMatch(/Promise\.all\(\[\s*userPromise,\s*membershipsPromise,\s*aalPromise,\s*cookiePromise/);
-    expect(source).toContain("requiresMfaChallenge");
+
+    // SEC-01B strengthens the former conditional MFA helper into a mandatory
+    // clinical AAL2 gate. Keep the performance contract (AAL is still started
+    // concurrently) while asserting the new Auth-only challenge/enrollment UX.
+    expect(source).toContain("const currentAal = aalResult.data?.currentLevel ?? null");
+    expect(source).toContain("const nextAal = aalResult.data?.nextLevel ?? null");
+    expect(source).toContain('if (currentAal !== "aal2")');
+    expect(source).toContain('redirect(nextAal === "aal2" ? "/mfa" : "/mfa/enroll")');
   });
 
   it("uses membership-projected location metadata and removes the extra layout location query", () => {

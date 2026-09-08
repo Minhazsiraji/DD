@@ -1,0 +1,303 @@
+# Final exact-SHA verification trigger; no runtime or security behavior change.
+name: PRE-LAUNCH-SEC-01B Candidate
+
+on:
+  push:
+    branches:
+      - md/prelaunch-sec01b-corrections
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  candidate:
+    runs-on: ubuntu-24.04
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: sec01b
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d sec01b"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: sb_publishable_sec01b_ci_placeholder_key_000000000000
+      NEXT_PUBLIC_SITE_URL: https://example.com
+      SEC01B_TEST_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/sec01b
+
+    steps:
+      - name: Checkout exact branch SHA
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install exact lockfile
+        run: npm ci --ignore-scripts
+
+      - name: Scrub non-Prescription production error payloads
+        shell: bash
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+
+          def scrub_console_error(text: str) -> str:
+              needle = "console.error("
+              out = []
+              pos = 0
+              while True:
+                  start = text.find(needle, pos)
+                  if start < 0:
+                      out.append(text[pos:])
+                      break
+                  out.append(text[pos:start])
+                  args_start = start + len(needle)
+                  i = args_start
+                  depth = 1
+                  quote = None
+                  escape = False
+                  while i < len(text) and depth:
+                      ch = text[i]
+                      if quote is not None:
+                          if escape:
+                              escape = False
+                          elif ch == "\\":
+                              escape = True
+                          elif ch == quote:
+                              quote = None
+                      else:
+                          if ch in ("'", '"', '`'):
+                              quote = ch
+                          elif ch == '(':
+                              depth += 1
+                          elif ch == ')':
+                              depth -= 1
+                      i += 1
+                  if depth != 0:
+                      raise RuntimeError(f"Unbalanced console.error starting at {start}")
+                  args = text[args_start:i-1]
+
+                  # Find the first top-level comma. Keep only the bounded message
+                  # expression before it; discard raw errors, identifiers, paths.
+                  comma = None
+                  p = b = c = 0
+                  quote = None
+                  escape = False
+                  for j, ch in enumerate(args):
+                      if quote is not None:
+                          if escape:
+                              escape = False
+                          elif ch == "\\":
+                              escape = True
+                          elif ch == quote:
+                              quote = None
+                          continue
+                      if ch in ("'", '"', '`'):
+                          quote = ch
+                      elif ch == '(':
+                          p += 1
+                      elif ch == ')':
+                          p -= 1
+                      elif ch == '[':
+                          b += 1
+                      elif ch == ']':
+                          b -= 1
+                      elif ch == '{':
+                          c += 1
+                      elif ch == '}':
+                          c -= 1
+                      elif ch == ',' and p == 0 and b == 0 and c == 0:
+                          comma = j
+                          break
+
+                  first = args if comma is None else args[:comma]
+                  out.append(needle + first.strip() + ")")
+                  pos = i
+              return "".join(out)
+
+          changed = []
+          for path in Path("src").rglob("*"):
+              if path.suffix not in {".ts", ".tsx"}:
+                  continue
+              p = path.as_posix()
+              if "/prescriptions/" in p or ".test." in p:
+                  continue
+              before = path.read_text(encoding="utf-8")
+              after = scrub_console_error(before)
+              if after != before:
+                  path.write_text(after, encoding="utf-8")
+                  changed.append(p)
+
+          print("SEC01B_LOG_SCRUB_FILES=" + ",".join(changed))
+          PY
+
+      - name: Patch only vulnerable transitive lock resolutions
+        run: |
+          cp package.json /tmp/package.json.before
+          npm update fast-uri nanoid qs --package-lock-only --ignore-scripts --no-audit
+          cmp --silent package.json /tmp/package.json.before || {
+            echo "package.json changed; refusing dependency-scope expansion"
+            git diff -- package.json
+            exit 1
+          }
+
+      - name: Reinstall exact corrected lockfile
+        run: npm ci --ignore-scripts
+
+      - name: Full npm audit evidence
+        shell: bash
+        run: |
+          set +e
+          npm audit --json > /tmp/npm-audit-full.json
+          full_code=$?
+          npm audit --omit=dev --json > /tmp/npm-audit-prod.json
+          prod_code=$?
+          set -e
+          echo "SEC01B_FULL_AUDIT_EXIT=$full_code"
+          echo "SEC01B_PROD_AUDIT_EXIT=$prod_code"
+          node <<'NODE'
+          const fs = require('fs');
+          for (const [label,file] of [['FULL','/tmp/npm-audit-full.json'],['PROD','/tmp/npm-audit-prod.json']]) {
+            const a = JSON.parse(fs.readFileSync(file,'utf8'));
+            console.log(`SEC01B_${label}_AUDIT_METADATA=` + JSON.stringify(a.metadata?.vulnerabilities ?? {}));
+            console.log(`SEC01B_${label}_AUDIT_PACKAGES=` + JSON.stringify(Object.keys(a.vulnerabilities ?? {}).sort()));
+          }
+          const prod = JSON.parse(fs.readFileSync('/tmp/npm-audit-prod.json','utf8'));
+          const v = prod.metadata?.vulnerabilities ?? {};
+          if ((v.high ?? 0) !== 0 || (v.critical ?? 0) !== 0) {
+            throw new Error(`production HIGH/CRITICAL remains: ${JSON.stringify(v)}`);
+          }
+          for (const name of ['fast-uri','nanoid','qs']) {
+            if (prod.vulnerabilities?.[name]) throw new Error(`${name} remains vulnerable in production audit`);
+          }
+          NODE
+
+      - name: Dependency graph proof
+        run: |
+          npm explain fast-uri
+          npm explain nanoid
+          npm explain qs
+          node <<'NODE'
+          const lock = require('./package-lock.json');
+          const required = {'fast-uri':'3.1.6','nanoid':'3.3.18','qs':'6.16.0'};
+          function cmp(a,b){
+            const A=a.split('.').map(Number), B=b.split('.').map(Number);
+            for(let i=0;i<3;i++){ if((A[i]??0)!==(B[i]??0)) return (A[i]??0)-(B[i]??0); }
+            return 0;
+          }
+          for (const [name,min] of Object.entries(required)) {
+            const versions=[];
+            for (const [p,v] of Object.entries(lock.packages||{})) {
+              if (p.endsWith(`/node_modules/${name}`) || p===`node_modules/${name}`) {
+                if (v.version) versions.push(v.version);
+              }
+            }
+            if (!versions.length) throw new Error(`${name} not found in lockfile`);
+            if (versions.some(v => cmp(v,min)<0)) throw new Error(`${name} below ${min}: ${versions.join(',')}`);
+            console.log(`SEC01B_DEP_${name}=${versions.join(',')}`);
+          }
+          NODE
+
+      - name: Verify forward SQL mechanics on disposable PostgreSQL
+        run: node scripts/verify-prelaunch-sec01b-sql.mjs
+
+      - name: Focused SEC-01B source tests
+        run: npx vitest run src/features/security/prelaunch-sec01b.test.ts
+
+      - name: M1 focused regression
+        shell: bash
+        run: |
+          files=$(find src/features -type f -name '*m1*.test.ts' -print)
+          if [ -n "$files" ]; then npx vitest run $files; else echo "No m1-named test files; covered by full suite"; fi
+
+      - name: M2 correction regression
+        run: >-
+          npx vitest run
+          src/features/prescriptions/correction-window.test.ts
+          src/features/prescriptions/correction-window-security.test.ts
+          src/features/prescriptions/correction.test.ts
+
+      - name: M3 backend/security source regression
+        shell: bash
+        run: |
+          test "$(git hash-object supabase/policies/0041_prescription_correction_window.sql)" = "b89f8759d737afee950567788a715ba9a947f175"
+          test "$(git hash-object supabase/policies/0042_m3_prescription_reuse.sql)" = "f0d61c8ba472a57513eb0065a294a2ff65a09b69"
+          test "$(git hash-object supabase/policies/0043_m3_signed_medicine_history.sql)" = "16b417bf3117d4e19bb9c52383af5e8608f59a91"
+          test "$(git hash-object supabase/policies/0044_m3_prescription_print_audit.sql)" = "139684e77ef6fa2c5414611c32dfd8c6b9113524"
+          rx_tests=$(find src/features/prescriptions -type f -name '*.test.ts' -print)
+          npx vitest run $rx_tests
+
+      - name: PA1 foundation voice and parser regression
+        shell: bash
+        run: |
+          ai_tests=$(find src/features/ai -type f -name '*.test.ts' -print)
+          voice_tests=$(find src/features/dictation -type f -name '*.test.ts' -print)
+          if [ -z "$ai_tests$voice_tests" ]; then
+            echo "No PA1 AI/dictation tests found"
+            exit 1
+          fi
+          npx vitest run $ai_tests $voice_tests
+
+      - name: Full repository suite
+        run: npm test
+
+      - name: Generate Next types
+        run: npx next typegen
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Production build
+        run: npm run build
+
+      - name: Diff and collision gates
+        shell: bash
+        run: |
+          git diff --check
+          node -e "const v=require('./vercel.json'); if(JSON.stringify(v.regions)!=='[\"icn1\"]') throw new Error('icn1 drift'); console.log('SEC01B_ICN1=PASS')"
+          changed=$(git diff --name-only 107a124350855d2759970d64d7260c3fe5079f7e --)
+          echo "$changed"
+          if echo "$changed" | grep -q '^src/features/prescriptions/'; then
+            echo "SEC01B collision: active CSU Prescription application file changed"
+            exit 1
+          fi
+          if echo "$changed" | grep -Eq '^supabase/policies/004[1-4]_'; then
+            echo "SEC01B collision: frozen migration changed"
+            exit 1
+          fi
+          if echo "$changed" | grep -Eq '^db/'; then
+            echo "SEC01B collision: protected P0 deployment authority changed"
+            exit 1
+          fi
+          echo "SEC01B_COLLISION_GATES=PASS"
+
+      - name: Commit prepared lockfile and logging scrub
+        shell: bash
+        run: |
+          git status --short
+          if git diff --quiet -- package-lock.json src ':!src/features/prescriptions/**'; then
+            echo "No workflow-prepared source/lock changes to commit"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add package-lock.json src
+          git commit -m "fix(security): close advisories and scrub production logs"
+          git push

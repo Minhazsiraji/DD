@@ -84,7 +84,7 @@ export async function getPreviousVisit(
     .maybeSingle();
 
   if (error) {
-    console.error("[encounters] previous visit lookup failed", patientId, error.message);
+    console.error("[encounters] previous visit lookup failed");
     return null;
   }
   if (!data) return null;
@@ -216,7 +216,7 @@ async function readPrescription(
   });
 
   if (error) {
-    console.error("[encounters] previous prescription lookup failed", patientId, error.message);
+    console.error("[encounters] previous prescription lookup failed");
     return null;
   }
 

@@ -102,7 +102,7 @@ async function finish(
   const translated = translateSaveError(error.message);
   if (translated.unexpected) {
     // Server-side only — this is the detail we deliberately do not render.
-    console.error(`[encounters] ${action} failed`, error.message);
+    console.error(`[encounters] ${action} failed`);
   }
 
   if (translated.kind === "conflict") {

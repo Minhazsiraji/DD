@@ -19,9 +19,8 @@ const publicSchema = z.object({
 const serverSchema = z.object({
   /**
    * Optional on purpose. Only migrations and scripts connect directly to
-   * Postgres, and those run from a developer's machine. The deployed app talks
-   * to Supabase over HTTP with the anon key, so the hosting platform never
-   * needs database credentials — which is one less secret to leak.
+   * Postgres. The deployed request path talks to Supabase over HTTP, so the
+   * hosting platform does not need database connection credentials.
    */
   DATABASE_URL: z.string().min(1).optional(),
   AI_MODE: z.enum(["mock", "live"]).default("mock"),
@@ -49,11 +48,6 @@ export function publicEnv() {
   });
 
   if (!result.success) {
-    /**
-     * A raw ZodError in a hosting provider's log is nearly unreadable, and this
-     * is the single most likely deployment failure — a typo'd or unset variable.
-     * Name the offenders explicitly.
-     */
     const issues = result.error.issues
       .map((i) => `  • ${i.path.join(".") || "(root)"}: ${i.message}`)
       .join("\n");
@@ -88,8 +82,12 @@ export function serverEnv() {
 }
 
 /**
- * The service-role key is read ONLY here and ONLY by src/db/admin.ts.
- * It must never be prefixed NEXT_PUBLIC_ and never reach the browser.
+ * SUPABASE_SERVICE_ROLE_KEY is server-only and bypasses RLS.
+ *
+ * Accepted runtime use is deliberately narrow: the contained prescription
+ * signature-freeze client returns Storage only. Migration/QA scripts may also
+ * consume the key. No general request-path database client may be built from
+ * it, and it must never be prefixed NEXT_PUBLIC_ or reach a browser/log.
  */
 export function serviceRoleKey(): string {
   if (typeof window !== "undefined") {
@@ -98,8 +96,8 @@ export function serviceRoleKey(): string {
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!key) {
     throw new Error(
-      "SUPABASE_SERVICE_ROLE_KEY is not set. It is required only for migrations " +
-        "and seeding, never for request-path code.",
+      "SUPABASE_SERVICE_ROLE_KEY is not set. It is required for the contained " +
+        "server-side signature-freeze Storage path and approved migration/QA tooling.",
     );
   }
   return key;

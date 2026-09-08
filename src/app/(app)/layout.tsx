@@ -8,16 +8,17 @@ import { requireUser, getMemberships, ACTIVE_LOCATION_COOKIE } from "@/lib/auth/
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { cookies } from "next/headers";
 import { IdleLock } from "@/features/security/components/idle-lock";
-import { SHARED_DEVICE_COOKIE, requiresMfaChallenge } from "@/features/security/policy";
-import { redirect as nextRedirect } from "next/navigation";
+import { SHARED_DEVICE_COOKIE } from "@/features/security/policy";
 import { localDateInTimeZone } from "@/features/patients/m1-context";
 import { todayInDhaka } from "@/features/appointments/schema";
 import { logPreviewElapsed, startPreviewTimer, timedPreviewStage } from "@/lib/preview-timing";
 
 /**
- * Authenticated workspace shell. Security gates are mandatory, but independent
- * auth/MFA/membership work is started together so presentation metadata and
- * informational badges cannot create a waterfall in front of the workspace.
+ * Authenticated clinical workspace shell.
+ *
+ * PRE-LAUNCH-SEC-01B makes AAL2 mandatory for every user who reaches this
+ * clinical surface. The database independently enforces the same requirement;
+ * these redirects are UX, never the authority boundary.
  */
 export default async function AppLayout({ children }: LayoutProps<"/">) {
   const shellStarted = startPreviewTimer();
@@ -50,9 +51,16 @@ export default async function AppLayout({ children }: LayoutProps<"/">) {
     cookiePromise,
   ]);
 
-  if (requiresMfaChallenge(aalResult.data?.currentLevel ?? null, aalResult.data?.nextLevel ?? null)) {
-    nextRedirect("/mfa");
+  const currentAal = aalResult.data?.currentLevel ?? null;
+  const nextAal = aalResult.data?.nextLevel ?? null;
+
+  if (currentAal !== "aal2") {
+    // A verified factor exists: challenge it. Otherwise enroll first. Both are
+    // Auth-only routes outside the clinical shell, so AAL1 users are never
+    // stranded behind the clinical AAL2 gate.
+    redirect(nextAal === "aal2" ? "/mfa" : "/mfa/enroll");
   }
+
   if (memberships.length === 0) redirect("/onboarding");
 
   const locations: LocationOption[] = memberships.map((membership) => ({
@@ -78,8 +86,9 @@ export default async function AppLayout({ children }: LayoutProps<"/">) {
     "m1-shell-timing",
     "nav_counts_streamed",
     getNavCounts(activeLocationId, sessionDate),
-  ).catch((error) => {
-    console.error("[nav-counts] streamed read failed", error);
+  ).catch(() => {
+    // No raw error object or request/clinical identifier enters production logs.
+    console.error("[nav-counts] streamed read failed");
     return {};
   });
 

@@ -26,29 +26,17 @@ export type AuditAction =
   | "doctor_profile.updated"
   | "doctor_profile.signature_set"
   | "doctor_profile.signature_removed"
-  // Prescription LAYOUT only. No prescription contents exist yet.
   | "prescription_template.created"
   | "prescription_template.updated"
   | "prescription_template.deleted"
   | "prescription_template.default_set"
-  // Appointments. The appointment_events table is the operational history;
-  // these rows are the security trail and record WHO acted.
   | "appointment.created"
   | "appointment.status_changed"
   | "appointment.rescheduled"
-  // Queue. Operational, and the reason on a priority change is the whole point
-  // of recording it — a category, never a clinical value.
   | "queue.called"
   | "queue.skipped"
   | "queue.priority_set"
   | "queue.priority_cleared"
-  /**
-   * Encounters. Written INSIDE the RPCs, and carrying ids and field NAMES only
-   * — never clinical values. The CLINICAL change history is a separate
-   * mechanism (encounter_events), readable only by the owning doctor. See
-   * ADR 0010: getting these two backwards is how clinical text leaks into an
-   * admin-readable log.
-   */
   | "encounter.created"
   | "encounter.sections_updated"
   | "encounter.diagnosis_added"
@@ -58,12 +46,6 @@ export type AuditAction =
   | "encounter.investigation_updated"
   | "encounter.investigation_removed"
   | "encounter.closed"
-  /**
-   * Prescriptions. Written INSIDE the RPCs, carrying ids, counts, field names
-   * and the version — NEVER a medicine name, dose, schedule or instruction.
-   * Which drug a patient was given is clinical and belongs in
-   * prescription_events; that one was written is operational (ADR 0011 §8).
-   */
   | "prescription.created"
   | "prescription.replacement_started"
   | "prescription.item_added"
@@ -77,20 +59,12 @@ export type AuditAction =
   | "location_member.invited"
   | "location_member.role_changed"
   | "location_member.removed"
-  // Patients. `meta` carries counts and field NAMES only — never clinical values.
   | "patient.created"
-  /**
-   * Written INSIDE register_patient_for_doctor(), not through emitAudit — when
-   * a third party registers someone on a doctor's behalf, "who typed it" must
-   * not be lost to a best-effort log. Listed here so the vocabulary stays in
-   * one place.
-   */
   | "patient.registered_by_reception"
   | "patient.viewed"
   | "patient.updated"
   | "patient.safety_updated"
   | "patient.merged"
-  // Account & device security. Never carry a TOTP secret or code in `meta`.
   | "security.mfa_enrolled"
   | "security.mfa_removed"
   | "security.mfa_challenge_passed"
@@ -113,8 +87,11 @@ export interface AuditInput {
 
 /**
  * Emitting audit must never break the user's action — a failed log is a
- * monitoring problem, not a reason to fail a sign-in. Failures are reported to
- * the server console and swallowed.
+ * monitoring problem, not a reason to fail a sign-in.
+ *
+ * Production log output deliberately contains only a bounded operation/action
+ * label. Raw Supabase errors and thrown objects can contain query/input context
+ * and therefore are never emitted here.
  */
 export async function emitAudit(input: AuditInput): Promise<void> {
   try {
@@ -144,10 +121,9 @@ export async function emitAudit(input: AuditInput): Promise<void> {
     });
 
     if (error) {
-      console.error("[audit] insert failed", input.action, error.message);
+      console.error("[audit] insert failed");
     }
-  } catch (e) {
-    console.error("[audit] emit threw", input.action, e);
+  } catch {
+    console.error("[audit] emit threw");
   }
 }
-

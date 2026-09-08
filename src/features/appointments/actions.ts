@@ -63,7 +63,7 @@ async function toInstant(locationId: string, localValue: string): Promise<string
     local_value: localValue,
   });
   if (error) {
-    console.error("[appointments] local_time_to_instant failed", error.message);
+    console.error("[appointments] local_time_to_instant failed");
     return null;
   }
   return (data as string | null) ?? null;
