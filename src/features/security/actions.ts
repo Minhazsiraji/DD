@@ -8,6 +8,7 @@ import { requireUser } from "@/lib/auth/session";
 import { emitAudit } from "@/lib/audit/emit";
 import type { ActionState } from "@/features/auth/schema";
 import { SHARED_DEVICE_COOKIE, isLastVerifiedFactor } from "./policy";
+import { resolvePostMfaDestination } from "./post-mfa-destination";
 
 /**
  * MFA and device-security actions.
@@ -211,7 +212,8 @@ export async function challengeAction(
     resourceId: factor.id,
   });
 
-  redirect("/dashboard");
+  const destination = await resolvePostMfaDestination(formData.get("returnTo"));
+  redirect(destination);
 }
 
 /**
