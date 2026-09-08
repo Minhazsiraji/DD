@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { ChallengeForm } from "@/features/security/components/challenge-form";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { requiresMfaChallenge } from "@/features/security/policy";
+import { resolvePostMfaDestination } from "@/features/security/post-mfa-destination";
 
 export const metadata: Metadata = { title: "Two-step verification" };
 
@@ -15,7 +16,7 @@ export default async function MfaPage() {
 
   // Nothing to challenge — don't strand the user on a dead-end screen.
   if (!requiresMfaChallenge(aal?.currentLevel ?? null, aal?.nextLevel ?? null)) {
-    redirect("/dashboard");
+    redirect(await resolvePostMfaDestination());
   }
 
   return <ChallengeForm />;
