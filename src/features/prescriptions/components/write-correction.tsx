@@ -53,8 +53,10 @@ export function WriteCorrection({ prescriptionId }: { prescriptionId: string }) 
   React.useEffect(() => {
     if (!open || !mounted) return;
 
-    const previousOverflow = document.body.style.overflow;
+    const previousBodyOverflow = document.body.style.overflow;
+    const previousHtmlOverflow = document.documentElement.style.overflow;
     document.body.style.overflow = "hidden";
+    document.documentElement.style.overflow = "hidden";
     fieldRef.current?.focus();
 
     const onKeyDown = (event: KeyboardEvent) => {
@@ -68,7 +70,8 @@ export function WriteCorrection({ prescriptionId }: { prescriptionId: string }) 
 
     return () => {
       document.removeEventListener("keydown", onKeyDown);
-      document.body.style.overflow = previousOverflow;
+      document.body.style.overflow = previousBodyOverflow;
+      document.documentElement.style.overflow = previousHtmlOverflow;
     };
   }, [open, mounted, busy]);
 
@@ -163,7 +166,8 @@ export function WriteCorrection({ prescriptionId }: { prescriptionId: string }) 
     <div
       data-print-hidden
       data-correction-dialog-backdrop
-      className="fixed inset-0 z-[80] flex items-end justify-center bg-black/35 p-0 sm:items-center sm:p-4"
+      className="flex items-end justify-center bg-black/35 p-0 sm:items-center sm:p-4"
+      style={{ position: "fixed", inset: 0, width: "100vw", height: "100dvh", zIndex: 10000 }}
     >
       <SectionCard
         data-correction-dialog
