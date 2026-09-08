@@ -112,7 +112,7 @@ export async function getAppointmentsForDay(
   const { data, error } = await query;
 
   if (error) {
-    console.error("[appointments] day query failed", error.message);
+    console.error("[appointments] day query failed");
     return { ok: false, reason: error.message };
   }
   const appointments = (data ?? []).map(toRow);
@@ -134,7 +134,7 @@ export async function getAppointment(id: string): Promise<AppointmentRow | null>
     .maybeSingle();
 
   if (error) {
-    console.error("[appointments] detail query failed", error.message);
+    console.error("[appointments] detail query failed");
     return null;
   }
   return data ? toRow(data) : null;
@@ -164,7 +164,7 @@ export async function getAppointmentHistory(
     .order("seq", { ascending: true });
 
   if (error) {
-    console.error("[appointments] history query failed", error.message);
+    console.error("[appointments] history query failed");
     return [];
   }
 
@@ -205,7 +205,7 @@ export async function getDoctorsAtLocation(locationId: string): Promise<Bookable
   });
 
   if (error) {
-    console.error("[appointments] doctors_at_location failed", error.message);
+    console.error("[appointments] doctors_at_location failed");
     return [];
   }
 
@@ -263,7 +263,7 @@ export async function searchBookablePatients(
   const { data, error } = await query;
 
   if (error) {
-    console.error("[appointments] patient search failed", error.message);
+    console.error("[appointments] patient search failed");
     return { ok: false, reason: error.message };
   }
 
@@ -311,7 +311,7 @@ export async function getAppointmentNavCount(
     .eq("practice_location_id", locationId);
 
   if (error) {
-    console.error("[appointments] nav count failed", error.message);
+    console.error("[appointments] nav count failed");
     return { ok: false, reason: error.message };
   }
   return { ok: true, count: count ?? 0 };
@@ -342,7 +342,7 @@ export async function getDashboardDayCounts(
 
   const { data, error } = await query;
   if (error) {
-    console.error("[appointments] dashboard counts failed", error.message);
+    console.error("[appointments] dashboard counts failed");
     return { ok: false, reason: error.message };
   }
 

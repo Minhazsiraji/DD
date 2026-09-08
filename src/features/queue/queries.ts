@@ -63,7 +63,7 @@ export const getQueue = cache(async function getQueue(
   );
 
   if (error) {
-    console.error("[queue] get_queue failed", error.message);
+    console.error("[queue] get_queue failed");
     return { ok: false, reason: error.message };
   }
 

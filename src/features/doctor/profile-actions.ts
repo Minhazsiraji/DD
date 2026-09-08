@@ -74,7 +74,7 @@ function profileError(message: string): string {
   if (/only a doctor/i.test(message)) {
     return "Only a doctor account has a professional profile.";
   }
-  console.error("[profile] save failed", message);
+  console.error("[profile] save failed");
   return "Those details could not be saved just now.";
 }
 
@@ -123,7 +123,7 @@ export async function saveChamberScheduleAction(input: unknown): Promise<Profile
     if (/not a chamber you practise at/i.test(error.message)) {
       return { ok: false, message: "You are not an active member of that chamber." };
     }
-    console.error("[profile] schedule save failed", error.message);
+    console.error("[profile] schedule save failed");
     return { ok: false, message: "That schedule could not be saved just now." };
   }
 
@@ -171,13 +171,13 @@ export async function uploadProfilePhotoAction(form: FormData): Promise<ProfileR
     .upload(photoPathFor(user.id), file, { upsert: true, contentType: file.type });
 
   if (uploadError) {
-    console.error("[profile] photo upload failed", uploadError.message);
+    console.error("[profile] photo upload failed");
     return { ok: false, message: "That photo could not be uploaded just now." };
   }
 
   const { error } = await supabase.rpc("set_professional_photo", { p_present: true });
   if (error) {
-    console.error("[profile] photo record failed", error.message);
+    console.error("[profile] photo record failed");
     return { ok: false, message: "The photo uploaded but could not be saved to your profile." };
   }
 
@@ -208,7 +208,7 @@ export async function removeProfilePhotoAction(): Promise<ProfileResult> {
     .remove([path]);
 
   if (removeError) {
-    console.error("[profile] photo remove failed", removeError.message);
+    console.error("[profile] photo remove failed");
     return { ok: false, message: "That photo could not be removed just now." };
   }
 
@@ -218,13 +218,13 @@ export async function removeProfilePhotoAction(): Promise<ProfileResult> {
      * The object is still there. Clearing the row anyway would leave an
      * orphan the doctor believes is deleted — worse than an honest refusal.
      */
-    console.error("[profile] photo remove returned no rows", path);
+    console.error("[profile] photo remove returned no rows");
     return { ok: false, message: "That photo could not be removed. Try again in a moment." };
   }
 
   const { error } = await supabase.rpc("set_professional_photo", { p_present: false });
   if (error) {
-    console.error("[profile] photo clear failed", error.message);
+    console.error("[profile] photo clear failed");
     return { ok: false, message: "The photo was removed but your profile still refers to it." };
   }
 

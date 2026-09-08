@@ -180,7 +180,7 @@ export async function searchPatients(
 
   const { data, error } = await request;
   if (error) {
-    console.error("[patients] search failed", error.message);
+    console.error("[patients] search failed");
     return { ok: false, reason: error.message };
   }
   return { ok: true, patients: (data ?? []).map((row) => toListItem(row, today)) };
@@ -219,7 +219,7 @@ export async function searchFinderPatients(
 
   const { data, error } = await request;
   if (error) {
-    console.error("[patients] finder search failed", error.message);
+    console.error("[patients] finder search failed");
     return { ok: false, reason: error.message };
   }
   return { ok: true, patients: (data ?? []).map((row) => toListItem(row, today)) };
@@ -297,7 +297,7 @@ export async function getDashboardRecentPatients(
 
   const { data, error } = await request;
   if (error) {
-    console.error("[patients] dashboard recent failed", error.message);
+    console.error("[patients] dashboard recent failed");
     return { ok: false, reason: error.message };
   }
 
@@ -349,7 +349,7 @@ export async function getPatientCount(ownerDoctorId?: string | null): Promise<Co
   const { count, error } = await request;
 
   if (error) {
-    console.error("[patients] count failed", error.message);
+    console.error("[patients] count failed");
     return { ok: false, reason: error.message };
   }
   // A successful query with no rows really is zero.
@@ -404,7 +404,7 @@ export async function findPossibleDuplicates(input: {
     .limit(40);
 
   if (error) {
-    console.error("[patients] duplicate lookup failed", error.message);
+    console.error("[patients] duplicate lookup failed");
     return { ok: false, reason: error.message };
   }
   if (!data) return { ok: false, reason: "no response" };
@@ -472,7 +472,7 @@ export async function getPatient(id: string): Promise<PatientDetail | null> {
     // A malformed select or a policy change must not present as "not found" —
     // that is indistinguishable from a patient legitimately owned by someone
     // else, and it hid a real bug once already.
-    console.error("[patients] getPatient failed", id, error.message);
+    console.error("[patients] getPatient failed");
     return null;
   }
   if (!data) return null;

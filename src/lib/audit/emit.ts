@@ -121,9 +121,9 @@ export async function emitAudit(input: AuditInput): Promise<void> {
     });
 
     if (error) {
-      console.error("[audit] insert failed", input.action);
+      console.error("[audit] insert failed");
     }
   } catch {
-    console.error("[audit] emit threw", input.action);
+    console.error("[audit] emit threw");
   }
 }

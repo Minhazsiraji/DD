@@ -100,7 +100,7 @@ export async function removeSafetyItemAction(
     .select("id, patient_id");
 
   if (error) {
-    console.error("[patients] safety item delete failed", error.message);
+    console.error("[patients] safety item delete failed");
     return { ok: false, message: `Could not remove it: ${error.message}` };
   }
 

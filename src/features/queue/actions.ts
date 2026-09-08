@@ -45,7 +45,7 @@ function safeMessage(action: string, message: string): string {
   const { message: text, unexpected } = translateQueueError(message);
   if (unexpected) {
     // Server-side only. This is the detail we deliberately do not render.
-    console.error(`[queue] ${action} failed`, message);
+    console.error(`[queue] ${action} failed`);
   }
   return text;
 }

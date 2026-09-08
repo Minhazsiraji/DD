@@ -28,7 +28,7 @@ function safeMessage(action: string, message: string) {
   const translated = translateSaveError(message);
   if (translated.unexpected) {
     // Server-side only — this is the detail we deliberately do not render.
-    console.error(`[encounters] ${action} failed`, message);
+    console.error(`[encounters] ${action} failed`);
   }
   return translated;
 }
@@ -58,7 +58,7 @@ async function legacyAppointmentPatientId(
     .maybeSingle();
 
   if (error) {
-    console.error("[encounters] legacy appointment patient lookup failed", error.message);
+    console.error("[encounters] legacy appointment patient lookup failed");
     return null;
   }
   return data?.patient_id ? String(data.patient_id) : null;
@@ -76,7 +76,7 @@ async function scopedAppointmentIsAvailable(
     .eq("practice_location_id", locationId)
     .maybeSingle();
   if (error) {
-    console.error("[encounters] appointment scope read failed", error.message);
+    console.error("[encounters] appointment scope read failed");
     return false;
   }
   return Boolean(data);
@@ -156,7 +156,7 @@ async function findExistingUnscheduledDraft(input: {
     result = await read("patient_id");
   }
   if (result.error) {
-    console.error("[encounters] unscheduled draft lookup failed", result.error.message);
+    console.error("[encounters] unscheduled draft lookup failed");
     return null;
   }
   return result.data ? { id: String(result.data.id) } : null;
@@ -363,7 +363,7 @@ export async function saveConsultationAction(input: SaveInput): Promise<SaveResu
    */
   const version = acceptVersion(data, parsed.data.expectedVersion);
   if (version === null) {
-    console.error("[encounters] save returned an unusable version", data);
+    console.error("[encounters] save returned an unusable version");
     return { ok: false, kind: "write-unconfirmed", message: WRITE_UNCONFIRMED_MESSAGE };
   }
 

@@ -39,7 +39,7 @@ export async function getRxModulesAction(): Promise<RxModulesRead> {
 
   const { data, error } = await supabase.rpc("doctor_rx_modules");
   if (error || !Array.isArray(data)) {
-    if (error) console.error("[doctor] rx modules read failed", error.message);
+    if (error) console.error("[doctor] rx modules read failed");
     return { ok: false };
   }
 
@@ -98,6 +98,6 @@ function saveError(message: string): string {
   if (/only a doctor has a prescription layout/.test(message)) {
     return "Only a doctor can set this up. Fill in your doctor details first.";
   }
-  console.error("[doctor] rx modules save failed", message);
+  console.error("[doctor] rx modules save failed");
   return "Those settings could not be saved. Try again in a moment.";
 }

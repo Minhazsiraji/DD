@@ -65,11 +65,7 @@ async function readLists(
   ]);
 
   if (dx.error || inv.error) {
-    console.error(
-      "[encounters] readLists failed",
-      encounterId,
-      dx.error?.message ?? inv.error?.message,
-    );
+    console.error("[encounters] readLists failed");
     return null;
   }
 
@@ -175,7 +171,7 @@ export async function getConsultation(
     .maybeSingle();
 
   if (error) {
-    console.error("[encounters] getConsultation failed", encounterId, error.message);
+    console.error("[encounters] getConsultation failed");
     return { ok: false, reason: "unavailable" };
   }
   if (!data) return { ok: false, reason: "not-found" };

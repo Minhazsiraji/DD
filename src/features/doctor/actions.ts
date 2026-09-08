@@ -227,11 +227,7 @@ export async function uploadSignatureAction(
   if (previous && previous !== path) {
     const { outcome, reason } = await deleteStoredObject(supabase.storage, previous);
     if (outcome === "still-present") {
-      console.error(
-        "[doctor] replaced signature NOT deleted, still in storage",
-        previous,
-        reason ?? "",
-      );
+      console.error("[doctor] replaced signature NOT deleted, still in storage");
     }
   }
 
