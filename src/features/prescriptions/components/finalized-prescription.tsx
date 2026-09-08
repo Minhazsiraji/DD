@@ -128,9 +128,19 @@ export function FinalizedPrescription({
           </p>
         ) : null}
 
-        <div className="flex min-w-0 flex-col items-stretch gap-2 sm:flex-row sm:items-start sm:gap-3">
+        {/*
+          M3-UAT-C1: keep the print controls/history at the full finalized-Rx
+          content width. The correction trigger is a separate action row and its
+          form is portalled to a modal sheet, so neither can become a competing
+          flex item that squeezes the operational print history.
+        */}
+        <div data-finalized-rx-actions className="flex min-w-0 flex-col items-stretch gap-3">
           <PrintPrescription prescriptionId={prescriptionId} view={doc} />
-          {showCorrectionAction ? <WriteCorrection prescriptionId={prescriptionId} /> : null}
+          {showCorrectionAction ? (
+            <div data-print-hidden className="flex min-w-0 flex-wrap items-center gap-2">
+              <WriteCorrection prescriptionId={prescriptionId} />
+            </div>
+          ) : null}
         </div>
       </div>
 
