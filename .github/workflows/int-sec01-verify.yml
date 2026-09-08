@@ -1,0 +1,348 @@
+name: INT-SEC-01 Integrated Candidate
+
+on:
+  push:
+    branches:
+      - integration/m3-sec01b
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: sec01b
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d sec01b"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: sb_publishable_int_sec01_ci_placeholder_key_000000000000
+      NEXT_PUBLIC_SITE_URL: https://example.com
+      SEC01B_TEST_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/sec01b
+
+    steps:
+      - name: Checkout exact integrated SHA
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install exact lockfile
+        run: npm ci --ignore-scripts
+
+      - name: Source ancestry proof
+        shell: bash
+        run: |
+          set -euo pipefail
+          M3=cd9a7a3a3f0bc7188543477285603ae055cb47ae
+          SEC=40d9e66549207cad12f534c641b31533a8dcbe47
+          git merge-base --is-ancestor "$M3" HEAD
+          git merge-base --is-ancestor "$SEC" HEAD
+          echo "INT_SEC_M3_ANCESTOR=PASS"
+          echo "INT_SEC_SEC_ANCESTOR=PASS"
+          echo "INT_SEC_EXACT_SHA=$(git rev-parse HEAD)"
+
+      - name: Frozen M3 exact tree integrity
+        shell: bash
+        run: |
+          set -euo pipefail
+          M3=cd9a7a3a3f0bc7188543477285603ae055cb47ae
+          test "$(git hash-object supabase/policies/0041_prescription_correction_window.sql)" = "b89f8759d737afee950567788a715ba9a947f175"
+          test "$(git hash-object supabase/policies/0042_m3_prescription_reuse.sql)" = "f0d61c8ba472a57513eb0065a294a2ff65a09b69"
+          test "$(git hash-object supabase/policies/0043_m3_signed_medicine_history.sql)" = "16b417bf3117d4e19bb9c52383af5e8608f59a91"
+          test "$(git hash-object supabase/policies/0044_m3_prescription_print_audit.sql)" = "139684e77ef6fa2c5414611c32dfd8c6b9113524"
+          test "$(git hash-object src/app/globals.css)" = "9e5d07175e729f142b4cff5574ded5af5a61bdbf"
+          test "$(git hash-object src/features/prescriptions/components/print-sheet.tsx)" = "0b8afc336ff27faa0a33eaf22f6a8eac1b236c36"
+          m3_files=(
+            src/app/api/m3-signed-medicine-history/route.ts
+            src/app/api/prescription-print-history/route.ts
+            src/app/api/prescription-reuse/route.ts
+            src/features/mobile-responsive.test.ts
+            src/features/prescriptions/components/finalized-prescription.tsx
+            src/features/prescriptions/components/medicine-form.tsx
+            src/features/prescriptions/components/prescription-composer.tsx
+            src/features/prescriptions/components/prescription-reuse.tsx
+            src/features/prescriptions/components/print-prescription.tsx
+            src/features/prescriptions/components/signed-medicine-history.tsx
+            src/features/prescriptions/components/write-correction.tsx
+            src/features/prescriptions/correction-window.test.ts
+            src/features/prescriptions/deadline.test.ts
+            src/features/prescriptions/m3-actions.ts
+            src/features/prescriptions/m3-actor-boundary.test.ts
+            src/features/prescriptions/m3-history.ts
+            src/features/prescriptions/m3-prescription-ui.test.ts
+            src/features/prescriptions/m3-queries.ts
+            src/features/prescriptions/m3-responsive-widths.test.ts
+            src/features/prescriptions/m3-uat-c1-layout.test.ts
+            src/features/prescriptions/prescription-material.test.ts
+            src/features/prescriptions/use-prescription.ts
+          )
+          git diff --exit-code "$M3" -- "${m3_files[@]}"
+          echo "INT_SEC_FROZEN_M3_22_FILES=PASS"
+          echo "INT_SEC_FROZEN_HASHES=PASS"
+
+      - name: Accepted SEC-01B exact preservation
+        shell: bash
+        run: |
+          set -euo pipefail
+          SEC=40d9e66549207cad12f534c641b31533a8dcbe47
+          sec_files=(
+            .env.example
+            .github/workflows/pa1-c1-verify.yml
+            .github/workflows/prelaunch-sec01b-candidate.yml
+            docs/pa1-ai-voice-foundation.md
+            package-lock.json
+            scripts/verify-prelaunch-sec01b-sql.mjs
+            'src/app/(app)/layout.tsx'
+            'src/app/(auth)/mfa/enroll/page.tsx'
+            src/app/api/voice/token/route.ts
+            src/app/owner/layout.tsx
+            src/features/ai/acceptance.ts
+            src/features/ai/contracts.ts
+            src/features/ai/integrity.ts
+            src/features/ai/mock-provider.ts
+            src/features/ai/openai-terra-provider.test.ts
+            src/features/ai/openai-terra-provider.ts
+            src/features/ai/orchestrator.ts
+            src/features/ai/pa1-foundation.test.ts
+            src/features/ai/pa1-integrity.test.ts
+            src/features/ai/pa1-voice-security.test.ts
+            src/features/ai/providers.ts
+            src/features/ai/synthetic-eval-corpus.ts
+            src/features/ai/synthetic-eval.test.ts
+            src/features/ai/synthetic-eval.ts
+            src/features/ai/telemetry.ts
+            src/features/ai/terra-live-synthetic-eval.test.ts
+            src/features/appointments/actions.ts
+            src/features/appointments/queries.ts
+            src/features/dashboard/m1-dashboard-performance.test.ts
+            src/features/dictation/components/dictate-button.tsx
+            src/features/dictation/deepgram-security.test.ts
+            src/features/dictation/deepgram-stream.ts
+            src/features/dictation/deepgram-streaming.test.ts
+            src/features/dictation/dictation.test.ts
+            src/features/dictation/dictation.ts
+            src/features/dictation/provider.ts
+            src/features/dictation/use-dictation.ts
+            src/features/dictation/voice-language.tsx
+            src/features/doctor/actions.ts
+            src/features/doctor/profile-actions.ts
+            src/features/doctor/queries.ts
+            src/features/doctor/rx-module-actions.ts
+            src/features/encounters/actions.ts
+            src/features/encounters/list-actions.ts
+            src/features/encounters/previous-visit.ts
+            src/features/encounters/queries.ts
+            src/features/owner/authority.ts
+            src/features/patients/m1-context.ts
+            src/features/patients/queries.ts
+            src/features/patients/safety-actions.ts
+            src/features/patients/timeline.ts
+            src/features/queue/actions.ts
+            src/features/queue/queries.ts
+            src/features/security/prelaunch-sec01b.test.ts
+            src/lib/audit/emit.ts
+            src/lib/env.ts
+            src/test/server-only-stub.ts
+            supabase/policies/0045_prelaunch_sec01b_security_closure.sql
+            vitest.config.ts
+          )
+          git diff --exit-code "$SEC" -- "${sec_files[@]}"
+          test "$(git hash-object supabase/policies/0045_prelaunch_sec01b_security_closure.sql)" = "56a606e200a9f6ea43dd33e572511193a17a5f5a"
+          echo "INT_SEC_SEC01B_59_FILES=PASS"
+          echo "INT_SEC_0045_BLOB=PASS"
+
+      - name: Exact union / no next-module integration drift
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE=b897aa647cd2b7478651d8784a0c51828a52ccea
+          cat > /tmp/expected.txt <<'EOF'
+          .env.example
+          .github/workflows/int-sec01-verify.yml
+          .github/workflows/pa1-c1-verify.yml
+          .github/workflows/prelaunch-sec01b-candidate.yml
+          docs/pa1-ai-voice-foundation.md
+          package-lock.json
+          scripts/verify-prelaunch-sec01b-sql.mjs
+          src/app/(app)/layout.tsx
+          src/app/(auth)/mfa/enroll/page.tsx
+          src/app/api/m3-signed-medicine-history/route.ts
+          src/app/api/prescription-print-history/route.ts
+          src/app/api/prescription-reuse/route.ts
+          src/app/api/voice/token/route.ts
+          src/app/owner/layout.tsx
+          src/features/ai/acceptance.ts
+          src/features/ai/contracts.ts
+          src/features/ai/integrity.ts
+          src/features/ai/mock-provider.ts
+          src/features/ai/openai-terra-provider.test.ts
+          src/features/ai/openai-terra-provider.ts
+          src/features/ai/orchestrator.ts
+          src/features/ai/pa1-foundation.test.ts
+          src/features/ai/pa1-integrity.test.ts
+          src/features/ai/pa1-voice-security.test.ts
+          src/features/ai/providers.ts
+          src/features/ai/synthetic-eval-corpus.ts
+          src/features/ai/synthetic-eval.test.ts
+          src/features/ai/synthetic-eval.ts
+          src/features/ai/telemetry.ts
+          src/features/ai/terra-live-synthetic-eval.test.ts
+          src/features/appointments/actions.ts
+          src/features/appointments/queries.ts
+          src/features/dashboard/m1-dashboard-performance.test.ts
+          src/features/dictation/components/dictate-button.tsx
+          src/features/dictation/deepgram-security.test.ts
+          src/features/dictation/deepgram-stream.ts
+          src/features/dictation/deepgram-streaming.test.ts
+          src/features/dictation/dictation.test.ts
+          src/features/dictation/dictation.ts
+          src/features/dictation/provider.ts
+          src/features/dictation/use-dictation.ts
+          src/features/dictation/voice-language.tsx
+          src/features/doctor/actions.ts
+          src/features/doctor/profile-actions.ts
+          src/features/doctor/queries.ts
+          src/features/doctor/rx-module-actions.ts
+          src/features/encounters/actions.ts
+          src/features/encounters/list-actions.ts
+          src/features/encounters/previous-visit.ts
+          src/features/encounters/queries.ts
+          src/features/mobile-responsive.test.ts
+          src/features/owner/authority.ts
+          src/features/patients/m1-context.ts
+          src/features/patients/queries.ts
+          src/features/patients/safety-actions.ts
+          src/features/patients/timeline.ts
+          src/features/prescriptions/components/finalized-prescription.tsx
+          src/features/prescriptions/components/medicine-form.tsx
+          src/features/prescriptions/components/prescription-composer.tsx
+          src/features/prescriptions/components/prescription-reuse.tsx
+          src/features/prescriptions/components/print-prescription.tsx
+          src/features/prescriptions/components/signed-medicine-history.tsx
+          src/features/prescriptions/components/write-correction.tsx
+          src/features/prescriptions/correction-window.test.ts
+          src/features/prescriptions/deadline.test.ts
+          src/features/prescriptions/m3-actions.ts
+          src/features/prescriptions/m3-actor-boundary.test.ts
+          src/features/prescriptions/m3-history.ts
+          src/features/prescriptions/m3-prescription-ui.test.ts
+          src/features/prescriptions/m3-queries.ts
+          src/features/prescriptions/m3-responsive-widths.test.ts
+          src/features/prescriptions/m3-uat-c1-layout.test.ts
+          src/features/prescriptions/prescription-material.test.ts
+          src/features/prescriptions/use-prescription.ts
+          src/features/queue/actions.ts
+          src/features/queue/queries.ts
+          src/features/security/prelaunch-sec01b.test.ts
+          src/lib/audit/emit.ts
+          src/lib/env.ts
+          src/test/server-only-stub.ts
+          supabase/policies/0045_prelaunch_sec01b_security_closure.sql
+          vitest.config.ts
+          EOF
+          sed -i 's/^          //' /tmp/expected.txt
+          sort -u /tmp/expected.txt -o /tmp/expected.txt
+          git diff --name-only "$BASE" HEAD | sort -u > /tmp/actual.txt
+          diff -u /tmp/expected.txt /tmp/actual.txt
+          echo "INT_SEC_EXACT_SOURCE_UNION=PASS"
+
+      - name: Dependency audit evidence
+        shell: bash
+        run: |
+          set +e
+          npm audit --json > /tmp/npm-audit-full.json
+          full_code=$?
+          npm audit --omit=dev --json > /tmp/npm-audit-prod.json
+          prod_code=$?
+          set -e
+          echo "INT_SEC_FULL_AUDIT_EXIT=$full_code"
+          echo "INT_SEC_PROD_AUDIT_EXIT=$prod_code"
+          node <<'NODE'
+          const fs = require('fs');
+          for (const [label,file] of [['FULL','/tmp/npm-audit-full.json'],['PROD','/tmp/npm-audit-prod.json']]) {
+            const a = JSON.parse(fs.readFileSync(file,'utf8'));
+            console.log(`INT_SEC_${label}_AUDIT_METADATA=` + JSON.stringify(a.metadata?.vulnerabilities ?? {}));
+            console.log(`INT_SEC_${label}_AUDIT_PACKAGES=` + JSON.stringify(Object.keys(a.vulnerabilities ?? {}).sort()));
+          }
+          const prod = JSON.parse(fs.readFileSync('/tmp/npm-audit-prod.json','utf8'));
+          const v = prod.metadata?.vulnerabilities ?? {};
+          if ((v.high ?? 0) !== 0 || (v.critical ?? 0) !== 0) {
+            throw new Error(`production HIGH/CRITICAL remains: ${JSON.stringify(v)}`);
+          }
+          NODE
+
+      - name: SEC-01B disposable SQL mechanics
+        run: node scripts/verify-prelaunch-sec01b-sql.mjs
+
+      - name: SEC-01B focused security tests
+        run: npx vitest run src/features/security/prelaunch-sec01b.test.ts
+
+      - name: M1 focused regression
+        shell: bash
+        run: |
+          files=$(find src/features -type f -name '*m1*.test.ts' -print)
+          if [ -n "$files" ]; then npx vitest run $files; else echo "No m1-named tests found"; exit 1; fi
+
+      - name: M2 correction freeze print regression
+        shell: bash
+        run: |
+          files=$(find src/features/prescriptions -type f \( -name '*correction*.test.ts' -o -name '*freeze*.test.ts' -o -name '*print*.test.ts' \) -print)
+          if [ -n "$files" ]; then npx vitest run $files; else echo "No M2 correction/freeze/print tests found"; exit 1; fi
+
+      - name: M3 complete Prescription suite
+        shell: bash
+        run: |
+          rx_tests=$(find src/features/prescriptions -type f -name '*.test.ts' -print)
+          test -n "$rx_tests"
+          npx vitest run $rx_tests
+
+      - name: PA1 foundation security voice parser regression
+        shell: bash
+        run: |
+          ai_tests=$(find src/features/ai -type f -name '*.test.ts' -print)
+          voice_tests=$(find src/features/dictation -type f -name '*.test.ts' -print)
+          test -n "$ai_tests$voice_tests"
+          npx vitest run $ai_tests $voice_tests
+
+      - name: Complete repository tests
+        run: npm test
+
+      - name: Generate Next route types
+        run: npx next typegen
+
+      - name: Standalone typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Production build
+        run: npm run build
+
+      - name: Final diff and region proof
+        shell: bash
+        run: |
+          git diff --check
+          node -e "const v=require('./vercel.json'); if(JSON.stringify(v.regions)!=='[\"icn1\"]') throw new Error('icn1 drift'); console.log('INT_SEC_ICN1=PASS')"
+          test "$(git hash-object supabase/policies/0045_prelaunch_sec01b_security_closure.sql)" = "56a606e200a9f6ea43dd33e572511193a17a5f5a"
+          echo "INT_SEC_FINAL_SHA=$(git rev-parse HEAD)"
+          echo "INT_SEC_FINAL_GATES=PASS"
