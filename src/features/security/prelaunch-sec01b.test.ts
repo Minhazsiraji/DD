@@ -42,7 +42,7 @@ const FIVE_ACCOUNT_RPCS = [
   "submit_manual_subscription_payment(numeric,text,text)",
 ] as const;
 
-describe("PRE-LAUNCH-SEC-01B forward security candidate", () => {
+describe("PRE-LAUNCH-SEC-01B-R1 forward security candidate", () => {
   it("derives AAL2 exclusively from the authenticated JWT", () => {
     expect(migration).toContain("auth.jwt() ->> 'aal'");
     expect(migration).toContain("= 'aal2'");
@@ -54,6 +54,18 @@ describe("PRE-LAUNCH-SEC-01B forward security candidate", () => {
     for (const table of DIRECT_CLINICAL_TABLES) {
       expect(migration).toContain(`'${table}'`);
     }
+  });
+
+  it("uses structured PostgreSQL metadata instead of regex function-body injection", () => {
+    expect(migration).not.toContain("regexp_replace(");
+    expect(migration).toContain("pg_get_function_arguments(p.oid)");
+    expect(migration).toContain("pg_get_function_result(p.oid)");
+    expect(migration).toContain("p.prosrc");
+    expect(migration).toContain("p.provolatile");
+    expect(migration).toContain("p.proparallel");
+    expect(migration).toContain("p.proconfig");
+    expect(migration).toContain("create or replace function public.%I");
+    expect(migration).toContain("v_expected constant integer := 61");
   });
 
   it("guards M2, M3 and owner RPC authority without guarding public booking/profile", () => {
@@ -77,7 +89,6 @@ describe("PRE-LAUNCH-SEC-01B forward security candidate", () => {
       migration.indexOf("v_expected constant integer"),
     );
     for (const fn of INTENTIONAL_PUBLIC) expect(allowlist).not.toContain(`'${fn}'`);
-    expect(migration).toContain("v_expected constant integer := 61");
   });
 
   it("revokes anon from exactly the five subscription/account functions", () => {
