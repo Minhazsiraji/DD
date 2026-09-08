@@ -1,14 +1,13 @@
--- PRE-LAUNCH-SEC-01B — isolated security correction candidate.
+-- PRE-LAUNCH-SEC-01B-R1 — isolated security correction candidate.
 -- FORWARD ONLY. Do not edit 0041–0044.
 --
 -- This file is intentionally reviewable without applying it remotely. It:
 --   1. removes five unnecessary anon subscription/account grants;
 --   2. fixes slug_is_reserved search_path without changing its behavior;
 --   3. makes AAL2 authoritative for direct clinical table access;
---   4. injects an AAL2 guard into an explicit allowlist of existing
---      clinical/control-plane SECURITY DEFINER RPCs while preserving each
---      function's existing body, signature, owner and ACL through
---      CREATE OR REPLACE.
+--   4. rebuilds an explicit allowlist of existing clinical/control-plane
+--      SECURITY DEFINER RPCs from structured PostgreSQL catalog metadata so an
+--      AAL2 guard is added without regex/body-text surgery.
 --
 -- Public Doctor profile/booking RPCs are deliberately absent from the guarded
 -- allowlist. Auth/MFA enrollment/challenge/recovery are Supabase Auth surfaces,
@@ -102,12 +101,18 @@ $$;
 -- naming at migration time. The migration must see exactly 61 expected
 -- authenticated SECURITY DEFINER functions or fail closed.
 --
--- CREATE OR REPLACE keeps the existing OID/signature/owner/ACL. For PL/pgSQL
--- functions the guard is inserted immediately after the first BEGIN; for SQL
--- functions it is inserted as the first statement. Existing function logic is
--- otherwise byte-for-byte sourced from pg_get_functiondef at apply time. This
--- lets a forward security migration cover frozen M2/M3 RPCs without modifying
--- their historical SQL files.
+-- R1 deliberately DOES NOT manipulate pg_get_functiondef() text. Each target is
+-- reconstructed from structured pg_proc / pg_get_function_* metadata and the
+-- stored function source (prosrc). CREATE OR REPLACE preserves the function OID,
+-- owner, ACL and dependent object identity because the name/input signature and
+-- result type are unchanged. We also reproduce language, volatility, null-input
+-- behavior, SECURITY DEFINER, parallel mode, cost/rows and every SET config.
+--
+-- PL/pgSQL bodies are placed unchanged inside a nested block after the AAL2
+-- check. This avoids editing declarations/BEGIN tokens and does not use PERFORM
+-- before the original block (PERFORM would alter the caller's FOUND state).
+-- SQL bodies receive one leading guard statement; the original final statement
+-- remains the result-producing statement.
 
 do $sec01b$
 declare
@@ -178,11 +183,37 @@ declare
   v_seen integer := 0;
   v_guarded integer;
   r record;
-  v_original text;
-  v_patched text;
+  v_body text;
+  v_ddl text;
+  v_config text;
+  v_setting text;
+  v_key text;
+  v_value text;
 begin
+  -- Catalog renderers below can emit public types without schema qualification.
+  -- Pin migration-time name resolution locally; this does not alter any target
+  -- function's own search_path, which is reconstructed from proconfig.
+  perform set_config('search_path', 'public, pg_temp', true);
+
   for r in
-    select p.oid, p.proname, l.lanname
+    select
+      p.oid,
+      p.proname,
+      p.prokind,
+      p.prosrc,
+      p.provolatile,
+      p.proisstrict,
+      p.prosecdef,
+      p.proleakproof,
+      p.proparallel,
+      p.procost,
+      p.prorows,
+      p.proretset,
+      p.proconfig,
+      p.prosupport,
+      l.lanname,
+      pg_get_function_arguments(p.oid) as arguments,
+      pg_get_function_result(p.oid) as result_type
     from pg_proc p
     join pg_namespace n on n.oid = p.pronamespace
     join pg_language l on l.oid = p.prolang
@@ -193,35 +224,77 @@ begin
     order by p.proname, pg_get_function_identity_arguments(p.oid)
   loop
     v_seen := v_seen + 1;
-    v_original := pg_get_functiondef(r.oid);
 
-    if position('public.require_aal2()' in v_original) > 0 then
+    if r.prokind <> 'f' then
+      raise exception 'SEC01B expected ordinary function for %, got prokind %', r.oid::regprocedure, r.prokind;
+    end if;
+    if r.lanname not in ('sql', 'plpgsql') then
+      raise exception 'SEC01B unsupported guarded function language % for %', r.lanname, r.oid::regprocedure;
+    end if;
+    if not r.prosecdef then
+      raise exception 'SEC01B target lost SECURITY DEFINER before repair: %', r.oid::regprocedure;
+    end if;
+    if r.proleakproof then
+      raise exception 'SEC01B refuses unexpected LEAKPROOF target: %', r.oid::regprocedure;
+    end if;
+    if r.prosupport <> 0 then
+      raise exception 'SEC01B refuses unexpected SUPPORT target: %', r.oid::regprocedure;
+    end if;
+
+    -- Idempotent re-run: a previously guarded body is left untouched.
+    if position('public.require_aal2()' in r.prosrc) > 0
+       or position('public.session_is_aal2()' in r.prosrc) > 0 then
       continue;
     end if;
 
+    v_config := '';
+    if r.proconfig is not null then
+      foreach v_setting in array r.proconfig loop
+        v_key := split_part(v_setting, '=', 1);
+        v_value := substr(v_setting, length(v_key) + 2);
+        if v_key = '' then
+          raise exception 'SEC01B invalid function SET config for %', r.oid::regprocedure;
+        end if;
+        v_config := v_config || format(E'\n SET %I TO %L', v_key, v_value);
+      end loop;
+    end if;
+
     if r.lanname = 'plpgsql' then
-      v_patched := regexp_replace(
-        v_original,
-        E'(\\n[[:space:]]*begin[[:space:]]*\\r?\\n)',
-        E'\\1  perform public.require_aal2();\\n',
-        'i'
-      );
-    elsif r.lanname = 'sql' then
-      v_patched := regexp_replace(
-        v_original,
-        E'(AS \\$function\\$[[:space:]]*\\r?\\n)',
-        E'\\1  select public.require_aal2();\\n',
-        'i'
-      );
+      v_body :=
+        E'begin\n'
+        || E'  if not public.session_is_aal2() then\n'
+        || E'    raise exception ''AAL2_REQUIRED'' using errcode = ''42501'';\n'
+        || E'  end if;\n'
+        || r.prosrc
+        || E'\nend;';
     else
-      raise exception 'SEC01B unsupported guarded function language % for %', r.lanname, r.proname;
+      v_body := E'select public.require_aal2();\n' || r.prosrc;
     end if;
 
-    if v_patched = v_original or position('public.require_aal2()' in v_patched) = 0 then
-      raise exception 'SEC01B could not inject AAL2 guard into %', r.oid::regprocedure;
-    end if;
+    v_ddl := format(
+      E'create or replace function public.%I(%s)\n'
+      || E'returns %s\n'
+      || E'language %I\n'
+      || E'%s\n'
+      || E'%s\n'
+      || E'security definer\n'
+      || E'%s\n'
+      || E'cost %s%s%s\n'
+      || E'as %L',
+      r.proname,
+      r.arguments,
+      r.result_type,
+      r.lanname,
+      case r.provolatile when 'i' then 'immutable' when 's' then 'stable' else 'volatile' end,
+      case when r.proisstrict then 'returns null on null input' else 'called on null input' end,
+      case r.proparallel when 's' then 'parallel safe' when 'r' then 'parallel restricted' else 'parallel unsafe' end,
+      r.procost,
+      case when r.proretset then format(' rows %s', r.prorows) else '' end,
+      v_config,
+      v_body
+    );
 
-    execute v_patched;
+    execute v_ddl;
   end loop;
 
   if v_seen <> v_expected then
@@ -236,10 +309,13 @@ begin
     and p.prosecdef
     and p.proname = any(v_target_names)
     and has_function_privilege('authenticated', p.oid, 'EXECUTE')
-    and position('public.require_aal2()' in pg_get_functiondef(p.oid)) > 0;
+    and (
+      position('public.require_aal2()' in p.prosrc) > 0
+      or position('public.session_is_aal2()' in p.prosrc) > 0
+    );
 
   if v_guarded <> v_expected then
-    raise exception 'SEC01B AAL2 injection verification failed: expected %, guarded %', v_expected, v_guarded;
+    raise exception 'SEC01B AAL2 reconstruction verification failed: expected %, guarded %', v_expected, v_guarded;
   end if;
 end;
 $sec01b$;
