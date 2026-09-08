@@ -31,7 +31,7 @@ jobs:
           ORIGINAL=f5a164589660654c131ce9663e4ba903e4e7479b
           git diff --check "$ORIGINAL"...HEAD
           git diff --exit-code "$ORIGINAL" -- src/app/globals.css src/features/prescriptions/components/print-sheet.tsx
-          unexpected="$(git diff --name-only "$ORIGINAL"...HEAD | grep -Ev '^(src/features/prescriptions/components/(write-correction|finalized-prescription)\.tsx|src/features/prescriptions/(m3-uat-c1-layout|correction-window|prescription-material)\.test\.ts|\.github/workflows/m3-uat-c1-qa\.yml)$' || true)"
+          unexpected="$(git diff --name-only "$ORIGINAL"...HEAD | grep -Ev '^(src/features/prescriptions/components/(write-correction|finalized-prescription)\.tsx|src/features/prescriptions/(m3-uat-c1-layout|correction-window|prescription-material)\.test\.ts|src/features/mobile-responsive\.test\.ts|\.github/workflows/m3-uat-c1-qa\.yml)$' || true)"
           if [ -n "$unexpected" ]; then
             echo "Unexpected C1 delta:"
             echo "$unexpected"
@@ -44,7 +44,7 @@ jobs:
           node -e 'const v=require("./vercel.json"); if (JSON.stringify(v.regions)!==JSON.stringify(["icn1"])) { console.error(v.regions); process.exit(1) } console.log("Vercel region:", v.regions[0])'
 
       - name: Focused correction and M3 UI tests
-        run: npx vitest run src/features/prescriptions/m3-uat-c1-layout.test.ts src/features/prescriptions/correction.test.ts src/features/prescriptions/correction-window.test.ts src/features/prescriptions/correction-window-security.test.ts src/features/prescriptions/m3-prescription-ui.test.ts src/features/prescriptions/m3-responsive-widths.test.ts
+        run: npx vitest run src/features/prescriptions/m3-uat-c1-layout.test.ts src/features/prescriptions/correction.test.ts src/features/prescriptions/correction-window.test.ts src/features/prescriptions/correction-window-security.test.ts src/features/prescriptions/m3-prescription-ui.test.ts src/features/prescriptions/m3-responsive-widths.test.ts src/features/mobile-responsive.test.ts
 
       - name: Full prescription test directory
         run: npx vitest run src/features/prescriptions
