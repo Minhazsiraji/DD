@@ -164,7 +164,7 @@ export function ConsultationWorkspace({
         <ConsultationIdentity patient={consultation.patient} locationName={locationName} />
         {readOnly ? null : (
           <div className="mt-2 flex justify-end">
-            <FastEntry visibility={visibility} blocked={s.blocked || investigationUnknown !== null} />
+            <FastEntry visibility={visibility} blocked={s.blocked} />
           </div>
         )}
       </div>
