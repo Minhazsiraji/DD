@@ -1,13 +1,14 @@
 "use client";
 
 import * as React from "react";
-import { CloudAlert, Info, Lock, RefreshCw, Stethoscope, TestTube } from "lucide-react";
+import { CloudAlert, Info, Lock, RefreshCw, Stethoscope } from "lucide-react";
 import { ConsultationIdentity } from "./consultation-identity";
 import { ConsultationAutosave } from "./consultation-autosave";
 import { M2ClinicalNotes } from "./m2-clinical-notes";
 import { M2VitalFields } from "./m2-vital-fields";
 import { FastEntry } from "./fast-entry";
 import { NextVisitFields } from "./next-visit-fields";
+import { InvestigationPanel } from "./investigation-panel";
 import { resolveVisibility } from "../module-visibility";
 import type { RxModuleSetting } from "@/features/doctor/rx-modules";
 import type { FollowUpShortcut } from "../follow-up-dates";
@@ -22,24 +23,26 @@ import { FinishConsultation } from "./finish-consultation";
 import { useConsultation } from "../use-consultation";
 import {
   addDiagnosisAction,
-  addInvestigationAction,
   removeDiagnosisAction,
-  removeInvestigationAction,
   updateDiagnosisAction,
-  updateInvestigationAction,
 } from "../list-actions";
 import { noteInstruction } from "../list-schema";
 import { DESYNC_TITLE } from "../version-contract";
-import type { FindingRow, ListKind } from "../finding-types";
+import type { FindingRow } from "../finding-types";
+import type {
+  LocalStagedInvestigation,
+  PendingInvestigationConfirmation,
+} from "../investigation-v1-ui";
 import type { Consultation } from "../queries";
 import type { PreviousVisit } from "../previous-visit";
 
 /**
- * M2 Consultation Workspace.
+ * M2 Consultation Workspace with Investigation V1 staged confirmation.
  *
  * There is still exactly ONE encounter coordinator, ONE encounter version and
- * ONE MutationGate. Autosave only schedules `s.save()`; diagnosis and
- * investigation mutations still use `s.runList()` through that same gate.
+ * ONE MutationGate. Investigation V1 stages locally, then sends one accepted
+ * batch confirmation through s.runList so Diagnosis/notes and Investigation
+ * continue to share the same encounter mutation boundary.
  */
 export function ConsultationWorkspace({
   consultation,
@@ -58,6 +61,10 @@ export function ConsultationWorkspace({
 }) {
   const s = useConsultation(consultation);
   const readOnly = consultation.status !== "DRAFT";
+  const [stagedInvestigations, setStagedInvestigations] = React.useState<LocalStagedInvestigation[]>([]);
+  const [investigationUnknown, setInvestigationUnknown] =
+    React.useState<PendingInvestigationConfirmation | null>(null);
+  const [investigationActionError, setInvestigationActionError] = React.useState<string | null>(null);
 
   const visibility = React.useMemo(
     () =>
@@ -85,84 +92,68 @@ export function ConsultationWorkspace({
   );
 
   const notesConflict = s.conflict?.notes ?? null;
-  const finishBlockedReason = s.desynced
-    ? "Reload the consultation state before finishing this visit."
-    : s.conflict
-      ? "Resolve the consultation conflict before finishing this visit."
-      : s.busy !== null
-        ? "Wait for the current clinical change to finish before closing the visit."
-        : s.state.kind === "error"
-          ? "The latest note save failed. Retry it before finishing the visit."
-          : null;
+  const finishBlockedReason = investigationUnknown
+    ? "Reconcile the pending Investigation confirmation before finishing this visit."
+    : stagedInvestigations.length > 0
+      ? "Confirm or remove the locally staged Investigation orders before finishing this visit."
+      : s.desynced
+        ? "Reload the consultation state before finishing this visit."
+        : s.conflict
+          ? "Resolve the consultation conflict before finishing this visit."
+          : s.busy !== null
+            ? "Wait for the current clinical change to finish before closing the visit."
+            : s.state.kind === "error"
+              ? "The latest note save failed. Retry it before finishing the visit."
+              : null;
 
-  function submitEditor(list: ListKind) {
-    const editor = s.editors[list];
+  function submitDiagnosisEditor() {
+    const editor = s.editors.diagnosis;
     if (!editor) return;
     const { draft } = editor;
 
-    if (list === "diagnosis") {
-      if (editor.mode === "add") {
-        void s.runList("diagnosis", (expectedVersion) =>
-          addDiagnosisAction({
-            encounterId: consultation.id,
-            expectedVersion,
-            label: draft.title,
-            certainty: draft.certainty,
-            note: draft.note,
-          }),
-        );
-        return;
-      }
+    if (editor.mode === "add") {
       void s.runList("diagnosis", (expectedVersion) =>
-        updateDiagnosisAction({
+        addDiagnosisAction({
           encounterId: consultation.id,
           expectedVersion,
-          diagnosisId: editor.rowId!,
           label: draft.title,
           certainty: draft.certainty,
-          note: noteInstruction(draft.note),
-        }),
-      );
-      return;
-    }
-
-    if (editor.mode === "add") {
-      void s.runList("investigation", (expectedVersion) =>
-        addInvestigationAction({
-          encounterId: consultation.id,
-          expectedVersion,
-          name: draft.title,
           note: draft.note,
         }),
       );
       return;
     }
-    void s.runList("investigation", (expectedVersion) =>
-      updateInvestigationAction({
+
+    void s.runList("diagnosis", (expectedVersion) =>
+      updateDiagnosisAction({
         encounterId: consultation.id,
         expectedVersion,
-        investigationId: editor.rowId!,
-        name: draft.title,
+        diagnosisId: editor.rowId!,
+        label: draft.title,
+        certainty: draft.certainty,
         note: noteInstruction(draft.note),
       }),
     );
   }
 
-  function confirmRemove(list: ListKind, row: FindingRow) {
-    const action = list === "diagnosis" ? removeDiagnosisAction : removeInvestigationAction;
-    void s.runList(list, (expectedVersion) =>
-      action({ encounterId: consultation.id, expectedVersion, rowId: row.id }),
+  function confirmRemoveDiagnosis(row: FindingRow) {
+    void s.runList("diagnosis", (expectedVersion) =>
+      removeDiagnosisAction({
+        encounterId: consultation.id,
+        expectedVersion,
+        rowId: row.id,
+      }),
     );
   }
 
   return (
     <div className="pb-2">
-      <UnsavedGuard dirty={s.anythingUnsaved && !readOnly} />
+      <UnsavedGuard dirty={(s.anythingUnsaved || stagedInvestigations.length > 0) && !readOnly} />
       {readOnly ? null : (
         <ConsultationAutosave
           values={s.values}
           dirty={s.isDirty}
-          blocked={s.blocked}
+          blocked={s.blocked || investigationUnknown !== null}
           hasVitalErrors={s.hasVitalErrors}
           state={s.state}
           save={s.save}
@@ -173,7 +164,7 @@ export function ConsultationWorkspace({
         <ConsultationIdentity patient={consultation.patient} locationName={locationName} />
         {readOnly ? null : (
           <div className="mt-2 flex justify-end">
-            <FastEntry visibility={visibility} blocked={s.blocked} />
+            <FastEntry visibility={visibility} blocked={s.blocked || investigationUnknown !== null} />
           </div>
         )}
       </div>
@@ -188,7 +179,7 @@ export function ConsultationWorkspace({
         </p>
       ) : null}
 
-      {s.desynced ? (
+      {s.desynced && !investigationUnknown ? (
         <div role="alert" className="dd-material-clinical mb-4 rounded-glass-lg border-l-4 border-l-warning p-4 shadow-soft sm:p-5">
           <div className="flex items-start gap-2.5">
             <CloudAlert className="mt-0.5 size-5 shrink-0 text-warning" aria-hidden="true" />
@@ -281,44 +272,40 @@ export function ConsultationWorkspace({
               confirmingRow={s.confirmingRemoval?.list === "diagnosis" ? s.confirmingRemoval.row : null}
               readOnly={readOnly}
               busy={s.busy === "list"}
-              blocked={s.blocked}
-              error={s.listError}
+              blocked={s.blocked || investigationUnknown !== null}
+              error={investigationActionError ? null : s.listError}
               suggestions={previousVisit?.diagnoses ?? []}
               onDismissError={s.clearListError}
               onOpenAdd={() => s.openAdd("diagnosis")}
               onOpenEdit={(row) => s.openEdit("diagnosis", row)}
               onCloseEditor={() => s.closeEditor("diagnosis")}
               onDraftChange={(draft) => s.setDraft("diagnosis", draft)}
-              onSubmit={() => submitEditor("diagnosis")}
+              onSubmit={submitDiagnosisEditor}
               onAskRemove={(row) => s.askRemove("diagnosis", row)}
               onCancelRemove={s.cancelRemove}
-              onConfirmRemove={(row) => confirmRemove("diagnosis", row)}
+              onConfirmRemove={confirmRemoveDiagnosis}
               shownBecauseFilled={visibility.DIAGNOSIS.shownBecauseFilled}
             />
           ) : null}
 
           {visibility.INVESTIGATIONS.visible ? (
-            <FindingList
-              kind="investigation"
+            <InvestigationPanel
               title="Investigation orders"
-              icon={<TestTube className="size-4" />}
-              rows={s.investigations}
-              editor={s.editors.investigation}
-              confirmingRow={s.confirmingRemoval?.list === "investigation" ? s.confirmingRemoval.row : null}
+              encounterId={consultation.id}
+              patientId={consultation.patient.id}
+              confirmed={s.investigations}
+              staged={stagedInvestigations}
               readOnly={readOnly}
               busy={s.busy === "list"}
               blocked={s.blocked}
-              error={s.listError}
-              suggestions={previousVisit?.investigations ?? []}
-              onDismissError={s.clearListError}
-              onOpenAdd={() => s.openAdd("investigation")}
-              onOpenEdit={(row) => s.openEdit("investigation", row)}
-              onCloseEditor={() => s.closeEditor("investigation")}
-              onDraftChange={(draft) => s.setDraft("investigation", draft)}
-              onSubmit={() => submitEditor("investigation")}
-              onAskRemove={(row) => s.askRemove("investigation", row)}
-              onCancelRemove={s.cancelRemove}
-              onConfirmRemove={(row) => confirmRemove("investigation", row)}
+              unknown={investigationUnknown}
+              actionError={investigationActionError}
+              runList={s.runList}
+              retrySync={s.retrySync}
+              clearCoordinatorError={s.clearListError}
+              onStagedChange={setStagedInvestigations}
+              onUnknownChange={setInvestigationUnknown}
+              onActionErrorChange={setInvestigationActionError}
               shownBecauseFilled={visibility.INVESTIGATIONS.shownBecauseFilled}
             />
           ) : null}
@@ -351,7 +338,7 @@ export function ConsultationWorkspace({
         <SaveBar
           state={s.state}
           dirtyCount={s.dirtyKeys.length}
-          blocked={s.blocked}
+          blocked={s.blocked || investigationUnknown !== null}
           hasVitalErrors={s.hasVitalErrors}
           onRetry={() => void s.save()}
         />
