@@ -138,7 +138,7 @@ jobs:
           }
           NODE
 
-      - name: Four bounded exact DD schema provider probes
+      - name: Remaining two bounded exact DD schema provider probes
         shell: bash
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
@@ -149,10 +149,11 @@ jobs:
             exit 1
           fi
           echo "PA1_TERRA_SCHEMA01_SECRET_PRESENT=true"
+          echo "PA1_TERRA_SCHEMA01_CONTINUATION_CALL_BUDGET=2"
           trap 'rm -f .pa1-terra-schema-live.test.ts' EXIT
           cat > .pa1-terra-schema-live.test.ts <<'TS'
           import { describe, expect, it } from "vitest";
-          import { AI_TASK_TYPES, providerJsonSchema, type AiTaskType } from "./src/features/ai/contracts";
+          import { providerJsonSchema, type AiTaskType } from "./src/features/ai/contracts";
           import {
             OpenAiTerraProposalParser,
             PA1_TERRA_MODEL,
@@ -172,6 +173,7 @@ jobs:
           const apiKey = process.env.OPENAI_API_KEY ?? "";
           const endpoint = "https://api.openai.com/v1/responses";
           const placeholder = "NON_CLINICAL_PLACEHOLDER";
+          const remainingTasks: AiTaskType[] = ["CLINICAL_NOTE", "NAVIGATION_COMMAND"];
 
           async function productionBody(taskType: AiTaskType): Promise<Body> {
             let captured: Body | null = null;
@@ -282,19 +284,19 @@ jobs:
             }
           }
 
-          describe("PA1 Terra exact provider schema acceptance", () => {
-            it("accepts all four exact DD transformed task schemas", async () => {
-              for (const taskType of AI_TASK_TYPES) {
+          describe("PA1 Terra exact provider schema acceptance continuation", () => {
+            it("accepts the two remaining exact DD transformed task schemas", async () => {
+              for (const taskType of remainingTasks) {
                 const body = await productionBody(taskType);
                 const probe = await call(body);
                 report(taskType, probe);
                 if (!probe.ok) {
-                  console.log(`PA1_TERRA_SCHEMA01_CLASSIFICATION=NEXT_SCHEMA_COMPATIBILITY_DEFECT`);
+                  console.log("PA1_TERRA_SCHEMA01_CLASSIFICATION=NEXT_SCHEMA_COMPATIBILITY_DEFECT");
                   throw new Error(`${taskType} exact schema rejected by provider`);
                 }
               }
-              console.log("PA1_TERRA_SCHEMA01_CLASSIFICATION=ALL_FOUR_EXACT_SCHEMAS_ACCEPTED");
-            });
+              console.log("PA1_TERRA_SCHEMA01_CLASSIFICATION=REMAINING_EXACT_SCHEMAS_ACCEPTED");
+            }, 60_000);
           });
           TS
           npx vitest run .pa1-terra-schema-live.test.ts --reporter=verbose
