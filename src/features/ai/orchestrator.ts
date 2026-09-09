@@ -13,6 +13,7 @@ import {
   createProposalIntegrityFromEnv,
   type ProposalIntegrityService,
 } from "./integrity";
+import { groundProviderProposal } from "./proposal-grounding";
 import type { ClinicalProposalParser } from "./providers";
 
 const DEFAULT_TIMEOUT_MS = 12_000;
@@ -178,10 +179,19 @@ export async function createClinicalProposal(
       timeout.signal,
     );
 
-    const proposal = validateProviderProposal(
+    // First validate provider shape/types, then deterministically remove only
+    // unsupported/source-ungrounded content, then require the final DD proposal
+    // to pass the same independent validator again before it can be exposed.
+    const structuredProposal = validateProviderProposal(
       request.taskType,
       parsed.rawProposal,
     ) as AiProposalPayload;
+    const groundedProposal = groundProviderProposal(authoredText, structuredProposal);
+    const proposal = validateProviderProposal(
+      request.taskType,
+      groundedProposal,
+    ) as AiProposalPayload;
+
     const expiresAt = new Date(now.getTime() + (deps.ttlMs ?? DEFAULT_TTL_MS));
     const createdAtIso = now.toISOString();
     const expiresAtIso = expiresAt.toISOString();
