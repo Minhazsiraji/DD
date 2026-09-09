@@ -131,7 +131,11 @@ export async function confirmInvestigationsAction(
   }
 
   const confirmation = parseConfirmationRpcRow(rpcData);
-  if (!confirmation) {
+  if (
+    !confirmation ||
+    confirmation.resultVersion !== expectedVersion + 1 ||
+    confirmation.confirmedCount !== investigations.length
+  ) {
     console.error("[encounters] confirm investigations returned unusable result");
     return {
       ok: false,
