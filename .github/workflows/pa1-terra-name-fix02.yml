@@ -1,10 +1,20 @@
 name: PA1 Terra Medicine Name Fidelity 02
 
 on:
-  push:
-    branches:
-      - md2/pa1-terra-name-fidelity
   workflow_dispatch:
+    inputs:
+      authorized_sha:
+        description: Exact candidate SHA authorized for this paid live evaluation
+        required: true
+        type: string
+      confirmation:
+        description: Type RUN_AUTHORIZED_LIVE_EVAL to confirm paid provider execution
+        required: true
+        type: string
+
+concurrency:
+  group: pa1-terra-name-fix02-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
@@ -19,6 +29,18 @@ jobs:
       NEXT_PUBLIC_SITE_URL: https://example.com
       PA1_SYNTHETIC_AI_EVAL: disabled
     steps:
+      - name: Fail-closed live authorization guard
+        shell: bash
+        env:
+          AUTHORIZED_SHA: ${{ inputs.authorized_sha }}
+          EXPECTED_SHA: ${{ github.sha }}
+          LIVE_CONFIRMATION: ${{ inputs.confirmation }}
+        run: |
+          set -euo pipefail
+          test "$AUTHORIZED_SHA" = "$EXPECTED_SHA"
+          test "$LIVE_CONFIRMATION" = "RUN_AUTHORIZED_LIVE_EVAL"
+          echo "PA1_TERRA_NAME_FIX02_MANUAL_AUTHORIZATION=PASS"
+
       - name: Checkout exact candidate
         uses: actions/checkout@v4
         with:
