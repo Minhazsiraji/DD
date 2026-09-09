@@ -381,10 +381,10 @@ export function providerJsonSchema(taskType: AiTaskType): Record<string, unknown
       additionalProperties: false,
       required: ["kind", "medicine", "uncertainties", "requires_review"],
       properties: {
-        kind: { const: taskType },
+        kind: { type: "string", const: taskType },
         medicine: { type: "object", additionalProperties: false, properties },
         uncertainties: { type: "array", maxItems: 20, items: uncertainty },
-        requires_review: { const: true },
+        requires_review: { type: "boolean", const: true },
       },
     };
   }
@@ -395,7 +395,7 @@ export function providerJsonSchema(taskType: AiTaskType): Record<string, unknown
       additionalProperties: false,
       required: ["kind", "investigations", "uncertainties", "requires_review"],
       properties: {
-        kind: { const: taskType },
+        kind: { type: "string", const: taskType },
         investigations: {
           type: "array",
           minItems: 1,
@@ -408,7 +408,7 @@ export function providerJsonSchema(taskType: AiTaskType): Record<string, unknown
           },
         },
         uncertainties: { type: "array", maxItems: 20, items: uncertainty },
-        requires_review: { const: true },
+        requires_review: { type: "boolean", const: true },
       },
     };
   }
@@ -419,10 +419,10 @@ export function providerJsonSchema(taskType: AiTaskType): Record<string, unknown
       additionalProperties: false,
       required: ["kind", "text", "uncertainties", "requires_review"],
       properties: {
-        kind: { const: taskType },
+        kind: { type: "string", const: taskType },
         text: { type: "string", minLength: 1, maxLength: MAX_NOTE },
         uncertainties: { type: "array", maxItems: 20, items: uncertainty },
-        requires_review: { const: true },
+        requires_review: { type: "boolean", const: true },
       },
     };
   }
@@ -432,9 +432,9 @@ export function providerJsonSchema(taskType: AiTaskType): Record<string, unknown
     additionalProperties: false,
     required: ["kind", "command", "requires_review"],
     properties: {
-      kind: { const: "NAVIGATION_COMMAND" },
+      kind: { type: "string", const: "NAVIGATION_COMMAND" },
       command: { type: "string", enum: [...SAFE_NAVIGATION_COMMANDS] },
-      requires_review: { const: false },
+      requires_review: { type: "boolean", const: false },
     },
   };
 }
