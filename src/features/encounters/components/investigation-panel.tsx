@@ -259,7 +259,7 @@ export function InvestigationPanel({
     const payload = snapshotStagedInvestigations(staged);
     const operationKey = crypto.randomUUID();
     let expectedVersion: number | null = null;
-    let backendResult: InvestigationConfirmationResult | null = null;
+    const backendBox: { value: InvestigationConfirmationResult | null } = { value: null };
 
     setConfirmationTone("working");
     setConfirmationMessage("Confirming Investigation orders…");
@@ -270,16 +270,17 @@ export function InvestigationPanel({
       "investigation",
       async (version) => {
         expectedVersion = version;
-        backendResult = await confirmInvestigationsAction({
+        backendBox.value = await confirmInvestigationsAction({
           encounterId,
           expectedVersion: version,
           operationKey,
           investigations: payload,
         });
-        return toListResult(backendResult);
+        return toListResult(backendBox.value);
       },
       { closeEditorOnSuccess: false },
     );
+    const backendResult = backendBox.value as InvestigationConfirmationResult | null;
 
     if (!listResult || !backendResult || expectedVersion === null) {
       setConfirmationTone("idle");
@@ -337,20 +338,21 @@ export function InvestigationPanel({
     // current coordinator version and reuses the frozen expectedVersion.
     await retrySync();
 
-    let backendResult: InvestigationConfirmationResult | null = null;
+    const backendBox: { value: InvestigationConfirmationResult | null } = { value: null };
     const listResult = await runList(
       "investigation",
       async () => {
-        backendResult = await confirmInvestigationsAction({
+        backendBox.value = await confirmInvestigationsAction({
           encounterId,
           expectedVersion: unknown.expectedVersion,
           operationKey: unknown.operationKey,
           investigations: unknown.investigations,
         });
-        return toListResult(backendResult);
+        return toListResult(backendBox.value);
       },
       { closeEditorOnSuccess: false },
     );
+    const backendResult = backendBox.value as InvestigationConfirmationResult | null;
 
     if (!listResult || !backendResult) {
       setConfirmationTone("warning");
