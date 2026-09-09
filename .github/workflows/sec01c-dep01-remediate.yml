@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   remediate:
-    if: github.event.head_commit.message == 'ci(security): bootstrap DEP-01 remediation'
+    if: contains(github.event.head_commit.message, 'bootstrap DEP-01 remediation')
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
