@@ -106,9 +106,9 @@ export async function getPatientInvestigationHistory(
       typeof row.investigation_name !== "string" ||
       row.investigation_name.trim() === "" ||
       (row.note !== null && typeof row.note !== "string") ||
-      typeof row.position !== "number" ||
-      !Number.isInteger(row.position) ||
-      row.position < 0 ||
+      typeof row.investigation_position !== "number" ||
+      !Number.isInteger(row.investigation_position) ||
+      row.investigation_position < 0 ||
       typeof row.ordered_at !== "string" ||
       typeof row.encounter_started_at !== "string" ||
       typeof row.ordering_doctor_id !== "string" ||
@@ -124,7 +124,7 @@ export async function getPatientInvestigationHistory(
       encounterId: row.encounter_id,
       investigationName: row.investigation_name,
       note: row.note,
-      position: row.position,
+      position: row.investigation_position,
       orderedAt: row.ordered_at,
       encounterStartedAt: row.encounter_started_at,
       orderingDoctorId: row.ordering_doctor_id,
