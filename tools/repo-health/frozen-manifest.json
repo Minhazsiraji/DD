@@ -1,0 +1,80 @@
+{
+  "$comment": [
+    "CAE engineering metadata — NOT authoritative governance.",
+    "Central governance is the source of truth for what is frozen and why.",
+    "This file only lets tools/repo-health/repo-health.mjs check, offline, that",
+    "the frozen blobs in the working tree still match the locked hashes.",
+    "Hashes are git blob object ids (`git hash-object <path>`), the same form the",
+    "candidate-verification workflows under .github/workflows/ already assert.",
+    "Update this file only when Central re-locks an artifact."
+  ],
+  "generatedBy": "CAE-01",
+  "baseSha": "9ec7127611dd5576f9591cbd210be8075b8626ee",
+  "expectedMainSha": "5d58f154a8fd18129e28614ccc038f0a6af66b8f",
+  "frozenArtifacts": [
+    {
+      "id": "0041",
+      "path": "supabase/policies/0041_prescription_correction_window.sql",
+      "blob": "b89f8759d737afee950567788a715ba9a947f175"
+    },
+    {
+      "id": "0042",
+      "path": "supabase/policies/0042_m3_prescription_reuse.sql",
+      "blob": "f0d61c8ba472a57513eb0065a294a2ff65a09b69"
+    },
+    {
+      "id": "0043",
+      "path": "supabase/policies/0043_m3_signed_medicine_history.sql",
+      "blob": "16b417bf3117d4e19bb9c52383af5e8608f59a91"
+    },
+    {
+      "id": "0044",
+      "path": "supabase/policies/0044_m3_prescription_print_audit.sql",
+      "blob": "139684e77ef6fa2c5414611c32dfd8c6b9113524"
+    },
+    {
+      "id": "0045",
+      "path": "supabase/policies/0045_prelaunch_sec01b_security_closure.sql",
+      "blob": "56a606e200a9f6ea43dd33e572511193a17a5f5a"
+    },
+    {
+      "id": "globals.css",
+      "path": "src/app/globals.css",
+      "blob": "9e5d07175e729f142b4cff5574ded5af5a61bdbf"
+    },
+    {
+      "id": "print-sheet.tsx",
+      "path": "src/features/prescriptions/components/print-sheet.tsx",
+      "blob": "0b8afc336ff27faa0a33eaf22f6a8eac1b236c36"
+    }
+  ],
+  "criticalPaths": [
+    "package.json",
+    "package-lock.json",
+    "tsconfig.json",
+    "next.config.ts",
+    "eslint.config.mjs",
+    "vitest.config.ts",
+    "vitest.config.mts",
+    "vercel.json",
+    "drizzle.config.ts",
+    "src/app",
+    "src/features",
+    "src/lib",
+    "src/db",
+    "supabase/policies",
+    "supabase/migrations",
+    "db/manifest.toml",
+    "scripts",
+    ".github/workflows"
+  ],
+  "liveProviderTerms": [
+    "OPENAI_API_KEY",
+    "DEEPGRAM_API_KEY",
+    "DEEPGRAM",
+    "PA1_SYNTHETIC_AI_EVAL",
+    "api.openai.com",
+    "api.deepgram.com",
+    "SUPABASE_SERVICE_ROLE_KEY"
+  ]
+}
