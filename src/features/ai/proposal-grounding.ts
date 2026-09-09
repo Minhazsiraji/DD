@@ -73,6 +73,64 @@ export function canonicalizeDisplayName(
   return prefix;
 }
 
+function escapeRegExpLiteral(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
+}
+
+function authoredLexicalPart(value: string): string {
+  return value
+    .trim()
+    .split(/\s+/u)
+    .map((part) => escapeRegExpLiteral(part))
+    .join("\\s+");
+}
+
+function exactAdjacentAuthoredSpan(
+  left: string,
+  right: string,
+  authoredText: string,
+): string | null {
+  const leftPattern = authoredLexicalPart(left);
+  const rightPattern = authoredLexicalPart(right);
+  if (!leftPattern || !rightPattern) return null;
+
+  const pattern = new RegExp(
+    `(?:^|[^\\p{L}\\p{N}])(${leftPattern}\\s+${rightPattern})(?=$|[^\\p{L}\\p{N}])`,
+    "iu",
+  );
+  return pattern.exec(authoredText)?.[1] ?? null;
+}
+
+/**
+ * Reconstructs only an explicitly authored medicine mention where the provider
+ * split a dosage-form token from display_name. Both prefix and suffix forms are
+ * allowed, but only when the exact lexical pair is contiguous in authoredText.
+ * The returned value is the authored span itself, preserving source wording.
+ */
+export function canonicalizeExplicitMedicineMention(
+  displayName: string,
+  dosageForm: string | null | undefined,
+  authoredText: string,
+): string {
+  const display = displayName.trim();
+  const form = typeof dosageForm === "string" ? dosageForm.trim() : "";
+  if (!display || !form) return display;
+
+  const adjacentPairs: ReadonlyArray<readonly [string, string]> = [
+    [form, display],
+    [display, form],
+  ];
+
+  for (const [left, right] of adjacentPairs) {
+    const normalizedCandidate = `${left} ${right}`;
+    if (!isSourceGroundedText(normalizedCandidate, authoredText)) continue;
+    const authoredSpan = exactAdjacentAuthoredSpan(left, right, authoredText);
+    if (authoredSpan) return authoredSpan;
+  }
+
+  return display;
+}
+
 /**
  * Duration canonicalization is intentionally tiny: one leading English "for "
  * plus terminal . , ; : punctuation and surrounding whitespace only.
@@ -167,6 +225,11 @@ function groundedPrescriptionString(
   let candidate = value;
   if (field === "display_name") {
     candidate = canonicalizeDisplayName(value, proposal.medicine.strength_text, authoredText);
+    candidate = canonicalizeExplicitMedicineMention(
+      candidate,
+      proposal.medicine.dosage_form,
+      authoredText,
+    );
   } else if (field === "duration_text") {
     candidate = canonicalizeDurationText(value);
   }
