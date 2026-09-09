@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { providerJsonSchema, validateProviderProposal } from "./contracts";
 import { createOpenAiTerraSyntheticParserFromEnv } from "./openai-terra-provider";
+import { groundProviderProposal } from "./proposal-grounding";
 import { PA1_SYNTHETIC_EVAL_CORPUS } from "./synthetic-eval-corpus";
 import {
   scoreSyntheticEvaluation,
@@ -40,9 +41,11 @@ describe.skipIf(!liveEnabled)("Terra live synthetic semantic evaluation", () => 
             },
             AbortSignal.timeout(30_000),
           );
+          const structured = validateProviderProposal(item.taskType, parsed.rawProposal);
+          const grounded = groundProviderProposal(item.authoredText, structured);
           predictions.push({
             caseId: item.id,
-            proposal: validateProviderProposal(item.taskType, parsed.rawProposal),
+            proposal: validateProviderProposal(item.taskType, grounded),
           });
         } catch (error) {
           predictions.push({ caseId: item.id, proposal: null, errorCode: errorCode(error) });
