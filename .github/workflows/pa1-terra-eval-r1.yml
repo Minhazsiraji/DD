@@ -1,4 +1,4 @@
-name: PA1 Terra Synthetic Live Evaluation R1
+name: PA1 Terra Provider Boundary Diagnostic 01
 
 on:
   push:
@@ -9,15 +9,11 @@ permissions:
   contents: read
 
 jobs:
-  terra-synthetic-eval:
+  provider-boundary-diagnostic:
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
-    env:
-      NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
-      NEXT_PUBLIC_SUPABASE_ANON_KEY: sb_publishable_pa1_eval_placeholder_key_000000000000
-      NEXT_PUBLIC_SITE_URL: https://example.com
+    timeout-minutes: 10
     steps:
-      - name: Checkout exact evaluation candidate
+      - name: Checkout exact diagnostic candidate
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
@@ -26,12 +22,8 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 24
-          cache: npm
 
-      - name: Install exact lockfile
-        run: npm ci --ignore-scripts
-
-      - name: Verify isolated evaluation delta
+      - name: Verify workflow-only diagnostic delta
         shell: bash
         run: |
           set -euo pipefail
@@ -40,38 +32,166 @@ jobs:
           test "$(git diff --name-only "$BASE" HEAD | wc -l | tr -d ' ')" = "1"
           test "$(git diff --name-only "$BASE" HEAD)" = ".github/workflows/pa1-terra-eval-r1.yml"
           git diff --exit-code "$BASE" -- src supabase package.json package-lock.json
-          echo "PA1_TERRA_EVAL_SCOPE=PASS"
-          echo "PA1_TERRA_EVAL_SHA=$(git rev-parse HEAD)"
+          echo "PA1_TERRA_DIAG_SCOPE=PASS"
+          echo "PA1_TERRA_DIAG_SHA=$(git rev-parse HEAD)"
 
-      - name: Run gated Terra live synthetic evaluation
-        if: contains(github.event.head_commit.message, 'run authorized Terra synthetic live evaluation')
+      - name: Run three bounded non-clinical provider probes
         shell: bash
         env:
-          PA1_SYNTHETIC_AI_EVAL: enabled
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: |
           set -euo pipefail
           if [ -z "${OPENAI_API_KEY:-}" ]; then
-            echo "OPENAI_API_KEY repository secret is unavailable"
+            echo "PA1_DIAG_SECRET_PRESENT=false"
             exit 1
           fi
-          npx vitest run src/features/ai/terra-live-synthetic-eval.test.ts --reporter=verbose
+          echo "PA1_DIAG_SECRET_PRESENT=true"
+          node <<'NODE'
+          const key = process.env.OPENAI_API_KEY;
+          const endpoint = "https://api.openai.com/v1";
+          const model = "gpt-5.6-terra";
 
-      - name: Run normal PA1 AI voice parser regression
-        shell: bash
-        run: |
-          set -euo pipefail
-          ai_tests=$(find src/features/ai -type f -name '*.test.ts' -print)
-          voice_tests=$(find src/features/dictation -type f -name '*.test.ts' -print)
-          test -n "$ai_tests$voice_tests"
-          npx vitest run $ai_tests $voice_tests
+          function safeScalar(value) {
+            if (value === null || value === undefined) return "";
+            return String(value)
+              .replace(/\r?\n/g, " ")
+              .replace(/Bearer\s+[^\s]+/gi, "Bearer [REDACTED]")
+              .replace(/sk-[A-Za-z0-9_-]+/g, "[REDACTED]")
+              .replace(/Return the word OK\.?/gi, "[INPUT_REDACTED]")
+              .replace(/Return OK as result\.?/gi, "[INPUT_REDACTED]")
+              .slice(0, 300);
+          }
 
-      - name: Final no-mutation scope proof
+          async function request(url, init) {
+            try {
+              const response = await fetch(url, { ...init, signal: AbortSignal.timeout(15_000) });
+              let body = null;
+              try {
+                body = await response.json();
+              } catch {
+                body = null;
+              }
+              const error = body && typeof body === "object" && body.error && typeof body.error === "object"
+                ? body.error
+                : {};
+              return {
+                status: response.status,
+                ok: response.ok,
+                type: safeScalar(error.type),
+                code: safeScalar(error.code),
+                param: safeScalar(error.param),
+                message: safeScalar(error.message),
+              };
+            } catch (error) {
+              return {
+                status: "NETWORK_ERROR",
+                ok: false,
+                type: safeScalar(error?.name || "NETWORK_ERROR"),
+                code: "",
+                param: "",
+                message: "",
+              };
+            }
+          }
+
+          function printProbe(number, result) {
+            console.log(`PA1_DIAG_PROBE${number}_HTTP_STATUS=${result.status}`);
+            console.log(`PA1_DIAG_PROBE${number}_SUCCESS=${result.ok}`);
+            console.log(`PA1_DIAG_PROBE${number}_ERROR_TYPE=${result.type}`);
+            console.log(`PA1_DIAG_PROBE${number}_ERROR_CODE=${result.code}`);
+            console.log(`PA1_DIAG_PROBE${number}_ERROR_PARAM=${result.param}`);
+            if (!result.ok && !result.type && !result.code && result.message) {
+              console.log(`PA1_DIAG_PROBE${number}_ERROR_MESSAGE=${result.message}`);
+            }
+          }
+
+          const probe1 = await request(`${endpoint}/models/${model}`, {
+            method: "GET",
+            headers: { Authorization: `Bearer ${key}` },
+          });
+          printProbe(1, probe1);
+
+          const probe2 = await request(`${endpoint}/responses`, {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${key}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              model,
+              store: false,
+              reasoning: { effort: "none" },
+              max_output_tokens: 16,
+              input: "Return the word OK.",
+            }),
+          });
+          printProbe(2, probe2);
+
+          let probe3 = null;
+          if (probe2.ok) {
+            probe3 = await request(`${endpoint}/responses`, {
+              method: "POST",
+              headers: {
+                Authorization: `Bearer ${key}`,
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({
+                model,
+                store: false,
+                reasoning: { effort: "none" },
+                max_output_tokens: 32,
+                input: "Return OK as result.",
+                text: {
+                  format: {
+                    type: "json_schema",
+                    name: "pa1_diag_result",
+                    strict: true,
+                    schema: {
+                      type: "object",
+                      additionalProperties: false,
+                      required: ["result"],
+                      properties: { result: { type: "string" } },
+                    },
+                  },
+                },
+              }),
+            });
+            printProbe(3, probe3);
+          } else {
+            console.log("PA1_DIAG_PROBE3_STATUS=NOT_RUN");
+            console.log("PA1_DIAG_PROBE3_REASON=PROBE2_FAILED");
+          }
+
+          function classify() {
+            if (!probe1.ok) {
+              if (probe1.status === 401 || probe1.code === "invalid_api_key") return "AUTHENTICATION_KEY_FAILURE";
+              if (probe1.status === 404 || probe1.code === "model_not_found") return "MODEL_ACCESS_OR_MODEL_READ_FAILURE";
+              if (probe1.status === 403) return "PROJECT_KEY_PERMISSION_FAILURE";
+              return "AUTH_MODEL_READ_KEY_PERMISSION_FAILURE";
+            }
+            if (!probe2.ok) {
+              if (probe2.status === 429 && probe2.code === "insufficient_quota") return "QUOTA_OR_BILLING_FAILURE";
+              if (probe2.status === 429 || probe2.code === "rate_limit_exceeded") return "RATE_LIMIT_FAILURE";
+              if (probe2.status === 401 || probe2.code === "invalid_api_key") return "AUTHENTICATION_KEY_FAILURE";
+              if (probe2.status === 403) return "RESPONSES_PROJECT_PERMISSION_FAILURE";
+              if (probe2.status === 404 || probe2.code === "model_not_found") return "RESPONSES_MODEL_ACCESS_FAILURE";
+              return "RESPONSES_OR_MODEL_REQUEST_PROVIDER_HTTP_FAILURE";
+            }
+            if (!probe3?.ok) return "STRUCTURED_OUTPUT_OR_REQUEST_SHAPE_FAILURE";
+            return "PROVIDER_BOUNDARY_HEALTHY_FULL_DD_REQUEST_REQUIRES_NARROW_INVESTIGATION";
+          }
+
+          console.log(`PA1_DIAG_CLASSIFICATION=${classify()}`);
+          NODE
+
+      - name: Final no-application-mutation proof
         shell: bash
         run: |
           set -euo pipefail
           BASE=86b90dfaee91c8abecbc6bfc608f8140c9844ac9
           git diff --check
           git diff --exit-code "$BASE" -- src supabase package.json package-lock.json
-          echo "PA1_TERRA_EVAL_NO_APP_DB_AUTH_STORAGE_DELTA=PASS"
-          echo "PA1_TERRA_EVAL_FINAL_SHA=$(git rev-parse HEAD)"
+          test "$(git diff --name-only "$BASE" HEAD | wc -l | tr -d ' ')" = "1"
+          test "$(git diff --name-only "$BASE" HEAD)" = ".github/workflows/pa1-terra-eval-r1.yml"
+          echo "PA1_TERRA_DIAG_NO_APP_DB_AUTH_STORAGE_DELTA=PASS"
+          echo "PA1_TERRA_DIAG_FINAL_SHA=$(git rev-parse HEAD)"
