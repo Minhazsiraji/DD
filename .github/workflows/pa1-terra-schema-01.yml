@@ -1,0 +1,313 @@
+name: PA1 Terra Strict Schema Compatibility 01
+
+on:
+  push:
+    branches:
+      - md/pa1-terra-schema-compat
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: sb_publishable_pa1_schema_placeholder_key_000000000000
+      NEXT_PUBLIC_SITE_URL: https://example.com
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install exact lockfile
+        run: npm ci --ignore-scripts
+
+      - name: Scope pre-fix const audit and frozen integrity
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE=86b90dfaee91c8abecbc6bfc608f8140c9844ac9
+          git merge-base --is-ancestor "$BASE" HEAD
+          cat > /tmp/expected.txt <<'EOF'
+          .github/workflows/pa1-terra-schema-01.yml
+          src/features/ai/contracts.ts
+          src/features/ai/terra-schema-compat.test.ts
+          EOF
+          sed -i 's/^          //' /tmp/expected.txt
+          sort -u /tmp/expected.txt -o /tmp/expected.txt
+          git diff --name-only "$BASE" HEAD | sort -u > /tmp/actual.txt
+          diff -u /tmp/expected.txt /tmp/actual.txt
+          git diff --exit-code "$BASE" -- supabase src/app src/features/security src/features/owner src/features/prescriptions package.json package-lock.json
+
+          git show "$BASE":src/features/ai/contracts.ts > /tmp/base-contracts.ts
+          node <<'NODE'
+          const fs=require('fs');
+          const base=fs.readFileSync('/tmp/base-contracts.ts','utf8');
+          const kindUntyped=(base.match(/kind:\s*\{\s*const:/g)||[]).length;
+          const reviewUntyped=(base.match(/requires_review:\s*\{\s*const:/g)||[]).length;
+          if (kindUntyped !== 4 || reviewUntyped !== 4) {
+            throw new Error(`unexpected pre-fix const audit: kind=${kindUntyped}, review=${reviewUntyped}`);
+          }
+          console.log(`PA1_TERRA_SCHEMA01_PREFIX_CONST_KIND_UNTYPED=${kindUntyped}`);
+          console.log(`PA1_TERRA_SCHEMA01_PREFIX_CONST_REVIEW_UNTYPED=${reviewUntyped}`);
+          console.log(`PA1_TERRA_SCHEMA01_PREFIX_CONST_TOTAL=${kindUntyped + reviewUntyped}`);
+          NODE
+
+          numstat=$(git diff --numstat "$BASE" HEAD -- src/features/ai/contracts.ts)
+          test "$numstat" = $'8\t8\tsrc/features/ai/contracts.ts'
+
+          test "$(git hash-object supabase/policies/0041_prescription_correction_window.sql)" = "b89f8759d737afee950567788a715ba9a947f175"
+          test "$(git hash-object supabase/policies/0042_m3_prescription_reuse.sql)" = "f0d61c8ba472a57513eb0065a294a2ff65a09b69"
+          test "$(git hash-object supabase/policies/0043_m3_signed_medicine_history.sql)" = "16b417bf3117d4e19bb9c52383af5e8608f59a91"
+          test "$(git hash-object supabase/policies/0044_m3_prescription_print_audit.sql)" = "139684e77ef6fa2c5414611c32dfd8c6b9113524"
+          test "$(git hash-object supabase/policies/0045_prelaunch_sec01b_security_closure.sql)" = "56a606e200a9f6ea43dd33e572511193a17a5f5a"
+          test "$(git hash-object src/app/globals.css)" = "9e5d07175e729f142b4cff5574ded5af5a61bdbf"
+          test "$(git hash-object src/features/prescriptions/components/print-sheet.tsx)" = "0b8afc336ff27faa0a33eaf22f6a8eac1b236c36"
+          echo "PA1_TERRA_SCHEMA01_SCOPE=PASS"
+          echo "PA1_TERRA_SCHEMA01_FROZEN_INTEGRITY=PASS"
+
+      - name: Focused schema and provider tests
+        run: npx vitest run src/features/ai/terra-schema-compat.test.ts src/features/ai/openai-terra-provider.test.ts
+
+      - name: Normal PA1 AI voice parser regression
+        shell: bash
+        run: |
+          ai_tests=$(find src/features/ai -type f -name '*.test.ts' -print)
+          voice_tests=$(find src/features/dictation -type f -name '*.test.ts' -print)
+          test -n "$ai_tests$voice_tests"
+          npx vitest run $ai_tests $voice_tests
+
+      - name: M1 regression
+        shell: bash
+        run: |
+          files=$(find src/features -type f -name '*m1*.test.ts' -print)
+          test -n "$files"
+          npx vitest run $files
+
+      - name: M2 correction freeze print regression
+        shell: bash
+        run: |
+          files=$(find src/features/prescriptions -type f \( -name '*correction*.test.ts' -o -name '*freeze*.test.ts' -o -name '*print*.test.ts' \) -print)
+          test -n "$files"
+          npx vitest run $files
+
+      - name: Complete frozen M3 Prescription suite
+        shell: bash
+        run: |
+          files=$(find src/features/prescriptions -type f -name '*.test.ts' -print)
+          test -n "$files"
+          npx vitest run $files
+
+      - name: Complete repository tests
+        run: npm test
+
+      - name: Generate Next route types
+        run: npx next typegen
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Production build
+        run: npm run build
+
+      - name: Production dependency audit
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm audit --omit=dev --json > /tmp/audit-prod.json || true
+          node <<'NODE'
+          const fs=require('fs');
+          const a=JSON.parse(fs.readFileSync('/tmp/audit-prod.json','utf8'));
+          const counts=a.metadata?.vulnerabilities ?? {};
+          console.log(`PA1_TERRA_SCHEMA01_PROD_AUDIT=${JSON.stringify(counts)}`);
+          if ((counts.high ?? 0) !== 0 || (counts.critical ?? 0) !== 0) {
+            throw new Error(`production HIGH/CRITICAL gate failed: ${JSON.stringify(counts)}`);
+          }
+          NODE
+
+      - name: Four bounded exact DD schema provider probes
+        shell: bash
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          set -euo pipefail
+          if [ -z "${OPENAI_API_KEY:-}" ]; then
+            echo "PA1_TERRA_SCHEMA01_SECRET_PRESENT=false"
+            exit 1
+          fi
+          echo "PA1_TERRA_SCHEMA01_SECRET_PRESENT=true"
+          trap 'rm -f .pa1-terra-schema-live.test.ts' EXIT
+          cat > .pa1-terra-schema-live.test.ts <<'TS'
+          import { describe, expect, it } from "vitest";
+          import { AI_TASK_TYPES, providerJsonSchema, type AiTaskType } from "./src/features/ai/contracts";
+          import {
+            OpenAiTerraProposalParser,
+            PA1_TERRA_MODEL,
+            toOpenAiStrictSchema,
+          } from "./src/features/ai/openai-terra-provider";
+
+          type Body = Record<string, any>;
+          type Probe = {
+            status: number | string;
+            ok: boolean;
+            type: string;
+            code: string;
+            param: string;
+            message: string;
+          };
+
+          const apiKey = process.env.OPENAI_API_KEY ?? "";
+          const endpoint = "https://api.openai.com/v1/responses";
+          const placeholder = "NON_CLINICAL_PLACEHOLDER";
+
+          async function productionBody(taskType: AiTaskType): Promise<Body> {
+            let captured: Body | null = null;
+            const fetchImpl: typeof fetch = async (_url, init) => {
+              captured = JSON.parse(String(init?.body ?? "{}")) as Body;
+              return new Response(
+                JSON.stringify({
+                  id: "schema_capture_only",
+                  status: "completed",
+                  output: [{ type: "message", content: [{ type: "output_text", text: "{}" }] }],
+                }),
+                { status: 200, headers: { "Content-Type": "application/json" } },
+              );
+            };
+            const parser = new OpenAiTerraProposalParser({
+              apiKey: "capture-only-not-provider-key",
+              fetchImpl,
+              syntheticEvaluationEnabled: true,
+            });
+            await parser.parse(
+              {
+                taskType,
+                authoredText: placeholder,
+                languageHints: ["en-US"],
+                jsonSchema: providerJsonSchema(taskType),
+              },
+              new AbortController().signal,
+            );
+            if (!captured) throw new Error(`capture failed for ${taskType}`);
+            expect(captured.model).toBe(PA1_TERRA_MODEL);
+            expect(captured.store).toBe(false);
+            expect(captured.max_output_tokens).toBe(2500);
+            expect(captured.reasoning).toEqual({ effort: "low" });
+            expect(captured.input.map((item: any) => item.role)).toEqual(["system", "user"]);
+            expect(captured.text?.format?.strict).toBe(true);
+            expect(captured.text?.format?.schema).toEqual(
+              toOpenAiStrictSchema(providerJsonSchema(taskType)),
+            );
+            return captured;
+          }
+
+          function inputStrings(body: Body): string[] {
+            return (body.input ?? [])
+              .map((item: any) => (typeof item?.content === "string" ? item.content : ""))
+              .filter(Boolean);
+          }
+
+          function safe(value: unknown, redactions: string[]): string {
+            let text = value == null ? "" : String(value);
+            text = text
+              .replace(/\r?\n/g, " ")
+              .replace(/Bearer\s+[^\s]+/gi, "Bearer [REDACTED]")
+              .replace(/sk-[A-Za-z0-9_-]+/g, "[REDACTED]")
+              .replaceAll(placeholder, "[INPUT_REDACTED]");
+            for (const input of redactions) {
+              if (input) text = text.split(input).join("[INPUT_REDACTED]");
+            }
+            return text.slice(0, 600);
+          }
+
+          async function call(body: Body): Promise<Probe> {
+            const redactions = inputStrings(body);
+            try {
+              const response = await fetch(endpoint, {
+                method: "POST",
+                headers: {
+                  Authorization: `Bearer ${apiKey}`,
+                  "Content-Type": "application/json",
+                },
+                body: JSON.stringify(body),
+                signal: AbortSignal.timeout(30_000),
+              });
+              let json: any = null;
+              try {
+                json = await response.json();
+              } catch {
+                json = null;
+              }
+              const error = json && typeof json.error === "object" && json.error ? json.error : {};
+              return {
+                status: response.status,
+                ok: response.ok,
+                type: safe(error.type, redactions),
+                code: safe(error.code, redactions),
+                param: safe(error.param, redactions),
+                message: safe(error.message, redactions),
+              };
+            } catch (error: any) {
+              return {
+                status: "NETWORK_ERROR",
+                ok: false,
+                type: safe(error?.name ?? "NETWORK_ERROR", redactions),
+                code: "",
+                param: "",
+                message: "",
+              };
+            }
+          }
+
+          function report(taskType: AiTaskType, probe: Probe) {
+            console.log(`PA1_TERRA_SCHEMA01_${taskType}_HTTP_STATUS=${probe.status}`);
+            console.log(`PA1_TERRA_SCHEMA01_${taskType}_SUCCESS=${probe.ok}`);
+            console.log(`PA1_TERRA_SCHEMA01_${taskType}_ERROR_TYPE=${probe.type}`);
+            console.log(`PA1_TERRA_SCHEMA01_${taskType}_ERROR_CODE=${probe.code}`);
+            console.log(`PA1_TERRA_SCHEMA01_${taskType}_ERROR_PARAM=${probe.param}`);
+            if (!probe.ok && probe.message) {
+              console.log(`PA1_TERRA_SCHEMA01_${taskType}_ERROR_MESSAGE=${probe.message}`);
+            }
+          }
+
+          describe("PA1 Terra exact provider schema acceptance", () => {
+            it("accepts all four exact DD transformed task schemas", async () => {
+              for (const taskType of AI_TASK_TYPES) {
+                const body = await productionBody(taskType);
+                const probe = await call(body);
+                report(taskType, probe);
+                if (!probe.ok) {
+                  console.log(`PA1_TERRA_SCHEMA01_CLASSIFICATION=NEXT_SCHEMA_COMPATIBILITY_DEFECT`);
+                  throw new Error(`${taskType} exact schema rejected by provider`);
+                }
+              }
+              console.log("PA1_TERRA_SCHEMA01_CLASSIFICATION=ALL_FOUR_EXACT_SCHEMAS_ACCEPTED");
+            });
+          });
+          TS
+          npx vitest run .pa1-terra-schema-live.test.ts --reporter=verbose
+
+      - name: Final diff and no-mutation proof
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE=86b90dfaee91c8abecbc6bfc608f8140c9844ac9
+          test ! -e .pa1-terra-schema-live.test.ts
+          git diff --check
+          git diff --exit-code "$BASE" -- supabase src/app src/features/security src/features/owner src/features/prescriptions package.json package-lock.json
+          node -e "const v=require('./vercel.json'); if(JSON.stringify(v.regions)!=='[\"icn1\"]') throw new Error('icn1 drift'); console.log('PA1_TERRA_SCHEMA01_ICN1=PASS')"
+          echo "PA1_TERRA_SCHEMA01_NO_DB_AUTH_STORAGE_CLINICAL_AUTHORITY_DELTA=PASS"
+          echo "PA1_TERRA_SCHEMA01_EXACT_SHA=$(git rev-parse HEAD)"
