@@ -2,7 +2,13 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 
-const read = (file: string) => readFileSync(path.resolve(file), "utf8");
+// These assertions match multi-line source fragments with "\n" literals. On a
+// CRLF working tree (Windows, core.autocrlf=true) the file bytes use "\r\n" and
+// the literals would not match. Canonicalise the line-ending representation at
+// the read boundary; content is otherwise untouched, so a real structural
+// change still fails the assertion on either checkout.
+const read = (file: string) =>
+  readFileSync(path.resolve(file), "utf8").replace(/\r\n/g, "\n");
 
 describe("M2 prescription paper hierarchy", () => {
   it("renders the finalized white paper directly on the application page", () => {

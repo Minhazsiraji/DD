@@ -16,6 +16,15 @@ function read(file: string) {
   return readFileSync(file, "utf8");
 }
 
+// The frozen-blob assertions below reason about canonical repository text, whose
+// bytes are LF in git. On a CRLF working tree (Windows, core.autocrlf=true) the
+// raw read differs from the committed blob byte-for-byte. Normalising only the
+// line-ending representation keeps the git-blob SHA check checkout-independent
+// without touching content: genuinely different bytes still change the hash.
+function canonicalText(file: string) {
+  return read(file).replace(/\r\n/g, "\n");
+}
+
 function code(file: string) {
   return read(file)
     .replace(/\/\*[\s\S]*?\*\//g, "")
@@ -42,13 +51,13 @@ function before(source: string, left: string, right: string) {
 
 describe("prescription correction window frozen baselines", () => {
   it("does not rewrite the trusted runtime boundary", () => {
-    expect(gitBlobSha(read(RUNTIME_FROZEN))).toBe(
+    expect(gitBlobSha(canonicalText(RUNTIME_FROZEN))).toBe(
       "6f268f057d10791f2bf2c527cbfb7ab411a94fb0",
     );
   });
 
   it("does not rewrite the accepted P0/V2 core", () => {
-    expect(gitBlobSha(read(V2_FROZEN))).toBe(
+    expect(gitBlobSha(canonicalText(V2_FROZEN))).toBe(
       "4718be8de89d2f8fe2bf160b4441feb06f87b687",
     );
   });

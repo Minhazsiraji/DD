@@ -2,7 +2,13 @@ import { describe, expect, it } from "vitest";
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";
 
-const read = (file: string) => readFileSync(path.resolve(file), "utf8");
+// Every assertion in this suite reasons about repository source text (CSS blocks
+// delimited by "}\n", TSX class strings), never about line-ending bytes. On a
+// CRLF working tree (Windows, core.autocrlf=true) those "\n" delimiters would
+// not match. Canonicalise the representation at the read boundary so the same
+// committed content gives the same result on an LF or CRLF checkout.
+const read = (file: string) =>
+  readFileSync(path.resolve(file), "utf8").replace(/\r\n/g, "\n");
 
 function walkTsx(dir: string): string[] {
   return readdirSync(path.resolve(dir)).flatMap((name) => {
