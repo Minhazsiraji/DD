@@ -1,0 +1,295 @@
+name: PA1 Terra SEM-01 One-Case Semantic Gate
+
+on:
+  push:
+    branches:
+      - md/pa1-terra-sem01
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      PA1_SYNTHETIC_AI_EVAL: enabled
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install exact lockfile
+        run: npm ci --ignore-scripts
+
+      - name: Scope and locked-base proof
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE=a47863fb7c35c3b79ba37c9b007abae35477ae19
+          test "$(git merge-base "$BASE" HEAD)" = "$BASE"
+          test "$(git diff --name-only "$BASE" HEAD | sort)" = ".github/workflows/pa1-terra-sem01.yml"
+          git diff --exit-code "$BASE" -- src supabase package.json package-lock.json vercel.json
+          echo "PA1_TERRA_SEM01_SCOPE=PASS"
+          echo "PA1_TERRA_SEM01_APPLICATION_SOURCE_DELTA=0"
+
+      - name: Exactly one live en-rx-01 semantic provider call
+        shell: bash
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          set -euo pipefail
+          if [ -z "${OPENAI_API_KEY:-}" ]; then
+            echo "PA1_TERRA_SEM01_CASE_ID=en-rx-01"
+            echo "PA1_TERRA_SEM01_PROVIDER_SUCCESS=false"
+            echo "PA1_TERRA_SEM01_FAILURE_CLASS=OPENAI_API_KEY_MISSING"
+            exit 1
+          fi
+
+          trap 'rm -f .pa1-terra-sem01-live.test.ts' EXIT
+          cat > .pa1-terra-sem01-live.test.ts <<'TS'
+          import { describe, expect, it } from "vitest";
+          import {
+            providerJsonSchema,
+            validateProviderProposal,
+            type PrescriptionMedicineProposal,
+          } from "./src/features/ai/contracts";
+          import {
+            createOpenAiTerraSyntheticParserFromEnv,
+            OpenAiProposalProviderError,
+          } from "./src/features/ai/openai-terra-provider";
+          import { PA1_SYNTHETIC_EVAL_CORPUS } from "./src/features/ai/synthetic-eval-corpus";
+
+          const CASE_ID = "en-rx-01";
+
+          function nullOrAbsent(object: Record<string, unknown>, key: string): boolean {
+            return !(key in object) || object[key] === null;
+          }
+
+          function returnedState(object: Record<string, unknown>, key: string): "NULL_OR_ABSENT" | "PRESENT" {
+            return nullOrAbsent(object, key) ? "NULL_OR_ABSENT" : "PRESENT";
+          }
+
+          function safeProviderFailure(error: unknown): { classification: string; status: string } {
+            if (error instanceof OpenAiProposalProviderError) {
+              return {
+                classification: error.code,
+                status: error.status == null ? "" : String(error.status),
+              };
+            }
+            if (error instanceof Error) {
+              return { classification: error.name || "ERROR", status: "" };
+            }
+            return { classification: "UNKNOWN_ERROR", status: "" };
+          }
+
+          describe("PA1-TERRA-SEM-01", () => {
+            it("runs exactly one authoritative en-rx-01 case through Terra", async () => {
+              const item = PA1_SYNTHETIC_EVAL_CORPUS.find((entry) => entry.id === CASE_ID);
+              if (!item) throw new Error("LOCKED_CASE_NOT_FOUND");
+              expect(item.language).toBe("ENGLISH");
+              expect(item.taskType).toBe("PRESCRIPTION_MEDICINE");
+
+              const expected = item.expected;
+              if (expected.kind !== "PRESCRIPTION_MEDICINE") {
+                throw new Error("LOCKED_EXPECTED_KIND_MISMATCH");
+              }
+
+              const originalFetch = globalThis.fetch;
+              let providerCallCount = 0;
+              globalThis.fetch = (async (...args: Parameters<typeof fetch>) => {
+                providerCallCount += 1;
+                return originalFetch(...args);
+              }) as typeof fetch;
+
+              const parser = createOpenAiTerraSyntheticParserFromEnv();
+              const started = performance.now();
+
+              let parsed: Awaited<ReturnType<typeof parser.parse>>;
+              try {
+                parsed = await parser.parse(
+                  {
+                    taskType: item.taskType,
+                    authoredText: item.authoredText,
+                    languageHints: item.languageHints,
+                    jsonSchema: providerJsonSchema(item.taskType),
+                  },
+                  AbortSignal.timeout(30_000),
+                );
+              } catch (error) {
+                const latencyMs = Math.round(performance.now() - started);
+                const safe = safeProviderFailure(error);
+                console.log(`PA1_TERRA_SEM01_CASE_ID=${CASE_ID}`);
+                console.log("PA1_TERRA_SEM01_PROVIDER_SUCCESS=false");
+                console.log("PA1_TERRA_SEM01_VALIDATOR_PASS=false");
+                console.log("PA1_TERRA_SEM01_CASE_PASS=false");
+                console.log(`PA1_TERRA_SEM01_PROVIDER_CALL_COUNT=${providerCallCount}`);
+                console.log(`PA1_TERRA_SEM01_FAILURE_CLASS=${safe.classification}`);
+                console.log(`PA1_TERRA_SEM01_PROVIDER_STATUS=${safe.status}`);
+                console.log(`PA1_TERRA_SEM01_LATENCY_MS=${latencyMs}`);
+                globalThis.fetch = originalFetch;
+                expect(providerCallCount).toBe(1);
+                throw error;
+              } finally {
+                globalThis.fetch = originalFetch;
+              }
+
+              const latencyMs = Math.round(performance.now() - started);
+              expect(providerCallCount).toBe(1);
+
+              let proposal: PrescriptionMedicineProposal;
+              try {
+                const validated = validateProviderProposal(item.taskType, parsed.rawProposal);
+                if (validated.kind !== "PRESCRIPTION_MEDICINE") {
+                  throw new Error("VALIDATED_KIND_MISMATCH");
+                }
+                proposal = validated;
+              } catch (error) {
+                console.log(`PA1_TERRA_SEM01_CASE_ID=${CASE_ID}`);
+                console.log("PA1_TERRA_SEM01_PROVIDER_SUCCESS=true");
+                console.log("PA1_TERRA_SEM01_VALIDATOR_PASS=false");
+                console.log("PA1_TERRA_SEM01_CASE_PASS=false");
+                console.log("PA1_TERRA_SEM01_PROVIDER_ERRORS=0");
+                console.log(`PA1_TERRA_SEM01_PROVIDER_CALL_COUNT=${providerCallCount}`);
+                console.log("PA1_TERRA_SEM01_FAILURE_CLASS=DD_VALIDATOR_REJECTION");
+                console.log(`PA1_TERRA_SEM01_INPUT_TOKENS=${parsed.usage.inputTokens ?? ""}`);
+                console.log(`PA1_TERRA_SEM01_OUTPUT_TOKENS=${parsed.usage.outputTokens ?? ""}`);
+                console.log(`PA1_TERRA_SEM01_LATENCY_MS=${latencyMs}`);
+                throw error;
+              }
+
+              const medicine = proposal.medicine as Record<string, unknown>;
+              const expectedMedicine = expected.medicine as Record<string, unknown>;
+
+              const requiredMatches = {
+                KIND: proposal.kind === "PRESCRIPTION_MEDICINE",
+                REQUIRES_REVIEW: proposal.requires_review === true,
+                DISPLAY_NAME: medicine.display_name === expectedMedicine.display_name,
+                STRENGTH_TEXT: medicine.strength_text === expectedMedicine.strength_text,
+                DOSE_TEXT: medicine.dose_text === expectedMedicine.dose_text,
+                SCHEDULE_TEXT: medicine.schedule_text === expectedMedicine.schedule_text,
+                DURATION_TEXT: medicine.duration_text === expectedMedicine.duration_text,
+                FOOD_RELATION: medicine.food_relation === expectedMedicine.food_relation,
+              } as const;
+
+              const nullSafe = {
+                GENERIC_NAME: nullOrAbsent(medicine, "generic_name"),
+                ROUTE: nullOrAbsent(medicine, "route"),
+                QUANTITY_TEXT: nullOrAbsent(medicine, "quantity_text"),
+                IS_PRN: nullOrAbsent(medicine, "is_prn"),
+                INSTRUCTIONS: nullOrAbsent(medicine, "instructions"),
+                SUBSTITUTION_ALLOWED: nullOrAbsent(medicine, "substitution_allowed"),
+              } as const;
+
+              const uncertaintyCount = proposal.uncertainties.length;
+              const requiredPass = Object.values(requiredMatches).every(Boolean);
+              const nullSafePass = Object.values(nullSafe).every(Boolean);
+              const uncertaintyPass = uncertaintyCount === 0;
+
+              // Structural validator + schema allow exactly one medicine proposal object,
+              // no diagnosis field, and no automatic action/finalization command.
+              const noAdditionalMedicine = proposal.kind === "PRESCRIPTION_MEDICINE" && !!proposal.medicine;
+              const noDiagnosis = !("diagnosis" in (proposal as unknown as Record<string, unknown>));
+              const noFinalizationAction = nullSafe.INSTRUCTIONS && proposal.requires_review === true;
+              const inventionFree =
+                nullSafePass && uncertaintyPass && noAdditionalMedicine && noDiagnosis && noFinalizationAction;
+              const casePass = requiredPass && inventionFree;
+
+              console.log(`PA1_TERRA_SEM01_CASE_ID=${CASE_ID}`);
+              console.log("PA1_TERRA_SEM01_PROVIDER_SUCCESS=true");
+              console.log("PA1_TERRA_SEM01_VALIDATOR_PASS=true");
+              console.log("PA1_TERRA_SEM01_PROVIDER_ERRORS=0");
+              console.log(`PA1_TERRA_SEM01_PROVIDER_CALL_COUNT=${providerCallCount}`);
+
+              for (const [field, match] of Object.entries(requiredMatches)) {
+                console.log(`PA1_TERRA_SEM01_MATCH_${field}=${match}`);
+              }
+              for (const [field, safe] of Object.entries(nullSafe)) {
+                console.log(`PA1_TERRA_SEM01_NULL_SAFE_${field}=${safe}`);
+              }
+
+              console.log(`PA1_TERRA_SEM01_DOSAGE_FORM_STATE=${returnedState(medicine, "dosage_form")}`);
+              console.log(`PA1_TERRA_SEM01_BRAND_NAME_STATE=${returnedState(medicine, "brand_name")}`);
+              console.log(`PA1_TERRA_SEM01_UNCERTAINTY_COUNT=${uncertaintyCount}`);
+              if (uncertaintyCount > 0) {
+                console.log(`PA1_TERRA_SEM01_UNCERTAINTY_FIELD=${proposal.uncertainties[0]?.field ?? ""}`);
+                console.log(`PA1_TERRA_SEM01_UNCERTAINTY_CODE=${proposal.uncertainties[0]?.code ?? ""}`);
+              }
+              console.log(`PA1_TERRA_SEM01_NO_ADDITIONAL_MEDICINE=${noAdditionalMedicine}`);
+              console.log(`PA1_TERRA_SEM01_NO_DIAGNOSIS=${noDiagnosis}`);
+              console.log(`PA1_TERRA_SEM01_NO_FINALIZATION_ACTION=${noFinalizationAction}`);
+              console.log(`PA1_TERRA_SEM01_HALLUCINATION_FREE=${inventionFree}`);
+              console.log(`PA1_TERRA_SEM01_CASE_PASS=${casePass}`);
+              console.log(`PA1_TERRA_SEM01_INPUT_TOKENS=${parsed.usage.inputTokens ?? ""}`);
+              console.log(`PA1_TERRA_SEM01_OUTPUT_TOKENS=${parsed.usage.outputTokens ?? ""}`);
+              console.log(`PA1_TERRA_SEM01_ESTIMATED_COST_USD_MICROS=${parsed.usage.estimatedCostUsdMicros ?? ""}`);
+              console.log(`PA1_TERRA_SEM01_LATENCY_MS=${latencyMs}`);
+
+              expect(providerCallCount).toBe(1);
+              expect(Object.values(requiredMatches).every(Boolean)).toBe(true);
+              expect(Object.values(nullSafe).every(Boolean)).toBe(true);
+              expect(uncertaintyCount).toBe(0);
+              expect(noAdditionalMedicine).toBe(true);
+              expect(noDiagnosis).toBe(true);
+              expect(noFinalizationAction).toBe(true);
+              expect(casePass).toBe(true);
+            }, 60_000);
+          });
+          TS
+
+          npx vitest run .pa1-terra-sem01-live.test.ts --reporter=verbose
+
+      - name: Normal PA1 AI voice parser regression
+        shell: bash
+        env:
+          PA1_SYNTHETIC_AI_EVAL: disabled
+        run: |
+          set -euo pipefail
+          ai_tests=$(find src/features/ai -type f -name '*.test.ts' ! -name 'terra-live-synthetic-eval.test.ts' -print)
+          voice_tests=$(find src/features/dictation -type f -name '*.test.ts' -print)
+          test -n "$ai_tests$voice_tests"
+          npx vitest run $ai_tests $voice_tests
+
+      - name: Focused schema compatibility tests
+        shell: bash
+        env:
+          PA1_SYNTHETIC_AI_EVAL: disabled
+        run: |
+          set -euo pipefail
+          npx vitest run src/features/ai/terra-schema-compat.test.ts src/features/ai/openai-terra-provider.test.ts
+
+      - name: Production dependency audit
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm audit --omit=dev --json > /tmp/audit-prod.json || true
+          node <<'NODE'
+          const fs=require('fs');
+          const a=JSON.parse(fs.readFileSync('/tmp/audit-prod.json','utf8'));
+          const counts=a.metadata?.vulnerabilities ?? {};
+          console.log(`PA1_TERRA_SEM01_PROD_AUDIT=${JSON.stringify(counts)}`);
+          if ((counts.high ?? 0) !== 0 || (counts.critical ?? 0) !== 0) {
+            throw new Error(`production HIGH/CRITICAL gate failed: ${JSON.stringify(counts)}`);
+          }
+          NODE
+
+      - name: Final diff and mutation proof
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE=a47863fb7c35c3b79ba37c9b007abae35477ae19
+          test ! -e .pa1-terra-sem01-live.test.ts
+          git diff --check
+          test "$(git diff --name-only "$BASE" HEAD | sort)" = ".github/workflows/pa1-terra-sem01.yml"
+          git diff --exit-code "$BASE" -- src supabase package.json package-lock.json vercel.json
+          echo "PA1_TERRA_SEM01_NO_APP_DB_AUTH_STORAGE_CLINICAL_WRITE_DELTA=PASS"
+          echo "PA1_TERRA_SEM01_EXACT_SHA=$(git rev-parse HEAD)"
