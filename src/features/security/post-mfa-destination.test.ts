@@ -21,21 +21,52 @@ describe("SEC-01C post-MFA destination routing", () => {
     isPlatformOwnerMock.mockReset();
   });
 
-  it("routes an Owner-only user to /owner after MFA", async () => {
-    isPlatformOwnerMock.mockResolvedValue(true);
+  it("completes FIRST-TIME enrollment to /owner for Owner and /dashboard for clinical user", async () => {
+    isPlatformOwnerMock.mockResolvedValueOnce(true).mockResolvedValueOnce(false);
 
     await expect(resolvePostMfaDestination()).resolves.toBe("/owner");
-    expect(isPlatformOwnerMock).toHaveBeenCalledTimes(1);
-  });
-
-  it("routes a normal clinical user to /dashboard after MFA", async () => {
-    isPlatformOwnerMock.mockResolvedValue(false);
-
     await expect(resolvePostMfaDestination()).resolves.toBe("/dashboard");
-    expect(isPlatformOwnerMock).toHaveBeenCalledTimes(1);
+
+    const enrollPage = read("src/app/(auth)/mfa/enroll/page.tsx");
+    expect(enrollPage).toContain(
+      'if (current === "aal2") redirect(await resolvePostMfaDestination());',
+    );
+    expect(enrollPage).not.toContain(
+      'if (current === "aal2") redirect("/dashboard");',
+    );
+    expect(enrollPage).toContain(
+      'import { resolvePostMfaDestination } from "@/features/security/post-mfa-destination";',
+    );
   });
 
-  it("rejects external, protocol-relative and cross-authority return paths", async () => {
+  it("completes EXISTING-FACTOR challenge to /owner for Owner and /dashboard for clinical user", async () => {
+    isPlatformOwnerMock.mockResolvedValueOnce(true).mockResolvedValueOnce(false);
+
+    await expect(resolvePostMfaDestination()).resolves.toBe("/owner");
+    await expect(resolvePostMfaDestination()).resolves.toBe("/dashboard");
+
+    const actions = read("src/features/security/actions.ts");
+    expect(actions).toContain(
+      'resolvePostMfaDestination(formData.get("returnTo"))',
+    );
+    expect(actions).toContain("redirect(destination)");
+    expect(actions).not.toContain(
+      'redirect("/dashboard");\n}\n\n/**\n * Sign-out scopes',
+    );
+  });
+
+  it("routes an ALREADY-AAL2 /mfa visit to /owner for Owner and /dashboard for clinical user", async () => {
+    isPlatformOwnerMock.mockResolvedValueOnce(true).mockResolvedValueOnce(false);
+
+    await expect(resolvePostMfaDestination()).resolves.toBe("/owner");
+    await expect(resolvePostMfaDestination()).resolves.toBe("/dashboard");
+
+    const mfaPage = read("src/app/(auth)/mfa/page.tsx");
+    expect(mfaPage).toContain("redirect(await resolvePostMfaDestination())");
+    expect(mfaPage).not.toContain('redirect("/dashboard")');
+  });
+
+  it("rejects external, protocol-relative, unapproved and cross-authority return paths", async () => {
     for (const unsafe of [
       "https://evil.example/steal",
       "//evil.example/steal",
@@ -45,6 +76,9 @@ describe("SEC-01C post-MFA destination routing", () => {
     ]) {
       expect(isAllowedPostMfaDestination(unsafe)).toBe(false);
     }
+
+    expect(isAllowedPostMfaDestination("/owner")).toBe(true);
+    expect(isAllowedPostMfaDestination("/dashboard")).toBe(true);
 
     isPlatformOwnerMock.mockResolvedValue(false);
     await expect(
@@ -61,19 +95,5 @@ describe("SEC-01C post-MFA destination routing", () => {
     await expect(resolvePostMfaDestination("/dashboard")).resolves.toBe(
       "/owner",
     );
-  });
-
-  it("uses the server resolver after challenge success and for an already-AAL2 /mfa visit", () => {
-    const actions = read("src/features/security/actions.ts");
-    const mfaPage = read("src/app/(auth)/mfa/page.tsx");
-
-    expect(actions).toContain(
-      'resolvePostMfaDestination(formData.get("returnTo"))',
-    );
-    expect(actions).toContain("redirect(destination)");
-    expect(actions).not.toContain('redirect("/dashboard");\n}\n\n/**\n * Sign-out scopes');
-
-    expect(mfaPage).toContain("redirect(await resolvePostMfaDestination())");
-    expect(mfaPage).not.toContain('redirect("/dashboard")');
   });
 });

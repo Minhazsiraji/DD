@@ -3,7 +3,7 @@ name: SEC-01C MFA Routing Correction
 on:
   push:
     branches:
-      - md/sec01c-mfa-routing
+      - md/sec01c-mfa-routing-r2
   workflow_dispatch:
 
 permissions:
@@ -40,6 +40,7 @@ jobs:
           git merge-base --is-ancestor "$BASE" HEAD
           cat > /tmp/expected.txt <<'EOF'
           .github/workflows/sec01c-mfa-routing.yml
+          src/app/(auth)/mfa/enroll/page.tsx
           src/app/(auth)/mfa/page.tsx
           src/features/security/actions.ts
           src/features/security/post-mfa-destination.test.ts
