@@ -1,0 +1,76 @@
+name: PA1 Terra Synthetic Live Evaluation R1
+
+on:
+  push:
+    branches:
+      - md/pa1-terra-eval-r1
+
+permissions:
+  contents: read
+
+jobs:
+  terra-synthetic-eval:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: sb_publishable_pa1_eval_placeholder_key_000000000000
+      NEXT_PUBLIC_SITE_URL: https://example.com
+    steps:
+      - name: Checkout exact evaluation candidate
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install exact lockfile
+        run: npm ci --ignore-scripts
+
+      - name: Verify isolated evaluation delta
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE=86b90dfaee91c8abecbc6bfc608f8140c9844ac9
+          git merge-base --is-ancestor "$BASE" HEAD
+          test "$(git diff --name-only "$BASE" HEAD | wc -l | tr -d ' ')" = "1"
+          test "$(git diff --name-only "$BASE" HEAD)" = ".github/workflows/pa1-terra-eval-r1.yml"
+          git diff --exit-code "$BASE" -- src supabase package.json package-lock.json
+          echo "PA1_TERRA_EVAL_SCOPE=PASS"
+          echo "PA1_TERRA_EVAL_SHA=$(git rev-parse HEAD)"
+
+      - name: Run gated Terra live synthetic evaluation
+        shell: bash
+        env:
+          PA1_SYNTHETIC_AI_EVAL: enabled
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          set -euo pipefail
+          if [ -z "${OPENAI_API_KEY:-}" ]; then
+            echo "OPENAI_API_KEY repository secret is unavailable"
+            exit 1
+          fi
+          npx vitest run src/features/ai/terra-live-synthetic-eval.test.ts --reporter=verbose
+
+      - name: Run normal PA1 AI voice parser regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          ai_tests=$(find src/features/ai -type f -name '*.test.ts' -print)
+          voice_tests=$(find src/features/dictation -type f -name '*.test.ts' -print)
+          test -n "$ai_tests$voice_tests"
+          npx vitest run $ai_tests $voice_tests
+
+      - name: Final no-mutation scope proof
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE=86b90dfaee91c8abecbc6bfc608f8140c9844ac9
+          git diff --check
+          git diff --exit-code "$BASE" -- src supabase package.json package-lock.json
+          echo "PA1_TERRA_EVAL_NO_APP_DB_AUTH_STORAGE_DELTA=PASS"
+          echo "PA1_TERRA_EVAL_FINAL_SHA=$(git rev-parse HEAD)"
