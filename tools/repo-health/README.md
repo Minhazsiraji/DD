@@ -8,7 +8,9 @@ printed.
 | ------ | ----------- | ------- |
 | `repo-health.mjs`    | CAE-01 | one-shot repository-health snapshot (git / frozen / workflows / tests) |
 | `offline-verify.mjs` | CAE-02 | run the standard safe/offline quality gate sequence |
+| `workflow-policy.mjs` | CAE-04 | static GitHub Actions governance guard with a tamper-evident grandfather baseline |
 | `frozen-manifest.json` | CAE-01 | pinned frozen blob hashes + expected `main` SHA |
+| `workflow-policy-baseline.json` | CAE-04 | **CENTRAL-owned** list of grandfathered workflow exceptions (KNOWN DEBT) |
 
 ---
 
@@ -148,5 +150,138 @@ optional `note`, and `evidence` only on failure — bounded to 16 KB tail),
 
 ## Approximate runtime (this machine, warm)
 
-full ≈ 1–2 min (`build` ~15–65 s, `lint` ~37 s, `npm test` ~7 s) ·
-quick ≈ 45 s · `--audit` adds ~9 s.
+full ≈ 1–2 min (`build` ~15–65 s, `lint` ~37 s, `npm test` ~7 s,
+`workflow-policy` ~0.3 s) · quick ≈ 45 s · `--audit` adds ~9 s.
+
+The full and `--quick` runs now execute **`workflow-policy --strict` as gate 2**
+(right after `repo-health --strict`, before `npm test` / build). A failure there
+is a scope/governance failure: the run fails closed (exit 1) and product gates
+are **not** run.
+
+---
+
+# workflow-policy.mjs
+
+Static, offline governance check over `.github/workflows/*.yml`. Its job is to
+stop a future change from silently introducing automatic paid-provider
+execution, automatic repository writes, broad CI triggers, or a byte-level
+change to a grandfathered risky workflow without CENTRAL review. It does **not**
+execute workflows, read GitHub secrets, or claim whether any secret exists —
+conservative static text/structure analysis only, not full Actions semantics.
+
+```
+node tools/repo-health/workflow-policy.mjs            # inventory + report
+node tools/repo-health/workflow-policy.mjs --json     # machine-readable
+node tools/repo-health/workflow-policy.mjs --strict   # gate mode
+node tools/repo-health/workflow-policy.mjs --self-test # offline fixture proof
+node tools/repo-health/workflow-policy.mjs --help
+```
+
+## Policy rules
+
+| ID | What it flags | Applies to |
+| -- | ------------- | ---------- |
+| WF-001 | `push` trigger targeting `main` / `master` | any |
+| WF-002 | broad/wildcard automatic trigger (`**`, or `push`/`pull_request` with no branch/tag/path filter) | any |
+| WF-003 | `pull_request` / `pull_request_target` trigger | any |
+| WF-004 | `schedule` (cron) trigger | any |
+| WF-005 | `permissions: contents: write` (or `write-all`) | any |
+| WF-006 | a run step contains `git push` | any |
+| WF-007 | a run step contains `git commit` | any |
+| WF-008 | references `OPENAI_API_KEY` | automatic only |
+| WF-009 | references `DEEPGRAM_API_KEY` / `DEEPGRAM` | automatic only |
+| WF-010 | sets `PA1_SYNTHETIC_AI_EVAL` to `enabled` | automatic only |
+| WF-011 | direct `api.openai.com` traffic | automatic only |
+| WF-012 | automatic + provider-sensitive **and** no explicit human-dispatch guard | automatic only |
+| WF-013 | deploy-like production-mutation command (`vercel deploy`, `supabase db push`, `supabase link`, `wrangler deploy`, `npm publish`, …) | automatic only |
+
+**Automatic execution** = any non-human trigger (`push`, `pull_request`,
+`pull_request_target`, `schedule`, `repository_dispatch`, `issue_comment`, …).
+`workflow_dispatch` alone is manual. `workflow_call` is treated as manual here;
+a caller can still be automatic — noted as a limitation, not assumed safe.
+**Human-dispatch guard** (WF-012 exemption) = `workflow_dispatch` with a
+confirmation-style input **and** a run step that tests it (e.g.
+`test "${{ inputs.confirmation }}" = "RUN_AUTHORIZED_LIVE_EVAL"`).
+
+**Provider-sensitive** and **repo-write-sensitive** are reported per workflow
+regardless of trigger, so a manual workflow that carries a provider secret is
+still visible in the inventory.
+
+## Grandfathering — `workflow-policy-baseline.json`
+
+The current accepted repository already violates several rules. The baseline
+lists those exact exceptions so the guard does not block the accepted state
+while still failing on anything new. Each exception binds:
+
+```json
+{ "path": ".github/workflows/<file>.yml",
+  "sha256": "<64-hex digest of the file's LF-normalised bytes>",
+  "violations": ["WF-008", "WF-012"] }
+```
+
+- **A baseline entry means _KNOWN EXISTING DEBT_, not _approved-safe design_.**
+  The human report prints these under a `KNOWN EXISTING DEBT` heading and never
+  as an all-clear.
+- **Why an exact file hash:** it makes the baseline tamper-evident. Change a
+  grandfathered workflow by one byte → its digest changes → the exception stops
+  applying → the check FAILS → CENTRAL must review and re-baseline (or revert).
+  The digest is over canonical **LF-normalised** bytes so it is identical on a
+  Windows (CRLF) and Linux (LF) checkout.
+- A rule id that fires on a listed workflow but is **not** in that entry's
+  `violations` array is treated as a **new** violation and FAILS.
+- **Only CENTRAL may edit `workflow-policy-baseline.json`**, and only after
+  reviewing the workflow change that motivates it.
+
+## Exit codes
+
+| code | meaning |
+| ---- | ------- |
+| `0`  | evaluated; every violation is absent or an exact-hash grandfathered exception (digest matches **and** the rule id is listed) |
+| `1`  | tool / pre-flight / baseline error — not a git tree, no workflows dir, unreadable or structurally invalid baseline, or an exception `path` that is not a workflow in the tree (fail closed) |
+| `2`  | policy violation: a non-grandfathered hard violation, **or** a grandfathered workflow whose digest no longer matches (exception drift) |
+
+## `--self-test`
+
+Builds throwaway workflow fixtures + baselines under the OS temp dir (never
+touches real `.github/workflows`) and asserts: safe dispatch-only → clean;
+`push`+`OPENAI_API_KEY` → WF-008/WF-012; `schedule`+`api.openai.com` →
+WF-004/WF-011; `contents: write` → WF-005; `git push`/`git commit` →
+WF-006/WF-007; exact-hash exception recognised; one-byte change →
+`EXCEPTION_DRIFT`; unknown baseline path reported; structurally invalid baseline
+fails closed; `workflow_dispatch`-only provider workflow is provider-sensitive
+but raises no automatic-provider finding; no secret values read. 16/16.
+
+## JSON contract
+
+`--json` prints: `tool`, `overall` (`PASS`/`FAIL`), `exitCode`, `preflight`,
+`baselineInvalid`, `workflowDir`, `baselinePath`, `baselineMeta`,
+`unknownBaselinePaths`, `workflowCount`, `ruleIds`, `workflows[]` (`path`,
+`triggers`, `classification`, `automaticTriggers`, `providerSensitive`,
+`repoWriteSensitive`, `hasHumanDispatchGuard`, `sha256`, `grandfathered`),
+`findings[]` (`path`, `ruleId`, `ruleTitle`, `severity`, `evidence`,
+`automatic`, `classification`, `providerSensitive`, `repoWriteSensitive`,
+`grandfathered`, `status` = `GRANDFATHERED` | `NEW_VIOLATION` |
+`EXCEPTION_DRIFT`, `expectedDigest`, `actualDigest`), `grandfatheredCount`,
+`hardFailureCount`, `staleExceptions[]`. No secret values.
+
+## Limitations
+
+Line-based parsing, not a YAML engine: deeply nested or unusually formatted
+`on:` blocks may parse conservatively. It cannot see reusable-workflow callers,
+composite-action internals, or `run:` logic reached only at runtime. It reports
+static repository evidence — never whether a secret is actually configured, and
+never by executing anything.
+
+## Current grandfathered debt (baseline v1, `b0efa46`)
+
+| Workflow | Rules | Why (KNOWN DEBT — not approved) |
+| -------- | ----- | ------------------------------ |
+| `pa1-c1-verify.yml` | WF-008, WF-010, WF-012 | live OpenAI synthetic-eval job on push to `md/pa1-c1-closure` when the secret is set (guard fails **open** when absent) |
+| `pa1-terra-schema-01.yml` | WF-008, WF-011, WF-012 | inline test calls `api.openai.com` directly on push to `md/pa1-terra-schema-compat` |
+| `pa1-terra-sem-fix01.yml` | WF-008, WF-010, WF-012 | live step sets `PA1_SYNTHETIC_AI_EVAL=enabled` on push to `md/pa1-terra-semantic-hardening` |
+| `prelaunch-sec01b-candidate.yml` | WF-005, WF-006, WF-007 | `contents: write` + `git commit`/`git push` back to `md/prelaunch-sec01b-corrections` |
+
+`pa1-terra-name-fix02.yml` is provider-sensitive but **dispatch-only with a
+`RUN_AUTHORIZED_LIVE_EVAL` confirmation guard** → no violation, not baselined.
+Remediation recommendations for the four above are in
+[`../../docs/engineering/repository-health-baseline.md`](../../docs/engineering/repository-health-baseline.md).

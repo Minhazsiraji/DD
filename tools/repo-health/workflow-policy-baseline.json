@@ -1,0 +1,59 @@
+{
+  "$comment": [
+    "CENTRAL-owned governance baseline for tools/repo-health/workflow-policy.mjs.",
+    "",
+    "Each entry records a workflow that ALREADY violates one or more policy rules",
+    "at the accepted repository state. An entry means KNOWN EXISTING DEBT — it does",
+    "NOT mean the workflow is an approved-safe design. It exists only so the guard",
+    "does not block the current accepted repository while still failing on any NEW",
+    "risk.",
+    "",
+    "sha256 is over the workflow file's canonical (LF-normalised) bytes. If a listed",
+    "workflow changes by one byte its digest changes, the exception stops applying,",
+    "and workflow-policy.mjs --strict FAILS — forcing CENTRAL review. Likewise a",
+    "violation id that appears on a listed workflow but is NOT in its `violations`",
+    "array is treated as a new violation and FAILS.",
+    "",
+    "Only CENTRAL may edit this file, and only after reviewing the workflow change",
+    "that motivates it. Recommended remediation for the current debt is tracked in",
+    "docs/engineering/repository-health-baseline.md (CAE-04 section)."
+  ],
+  "policyVersion": 1,
+  "recordedBy": "CAE-04 / base b0efa460d43e2864274e2ad393b1b763bd308cde",
+  "recordedAt": "2026-09-09",
+  "ruleTitles": {
+    "WF-005": "contents: write (or write-all) permission",
+    "WF-006": "workflow run step contains `git push`",
+    "WF-007": "workflow run step contains `git commit`",
+    "WF-008": "automatically executable path references OPENAI_API_KEY",
+    "WF-010": "automatically executable path enables PA1_SYNTHETIC_AI_EVAL",
+    "WF-011": "automatically executable path contains direct api.openai.com traffic",
+    "WF-012": "automatically executable provider-sensitive workflow with no explicit human-dispatch guard"
+  },
+  "exceptions": [
+    {
+      "path": ".github/workflows/pa1-c1-verify.yml",
+      "sha256": "5f2c936aa93dd4bf36c0e0ce8adf3e19e033977dbe010781434f3e329603b2f7",
+      "violations": ["WF-008", "WF-010", "WF-012"],
+      "note": "KNOWN EXISTING DEBT. Runs a live OpenAI synthetic-eval job on push to md/pa1-c1-closure when the OPENAI_API_KEY secret is set (guard fails open: exit 0 when the secret is absent). Owner: MD2 / CENTRAL."
+    },
+    {
+      "path": ".github/workflows/pa1-terra-schema-01.yml",
+      "sha256": "8ff44b462462bbe981274d22248c7482a5c72293526d20d6a80878e1cd2114d0",
+      "violations": ["WF-008", "WF-011", "WF-012"],
+      "note": "KNOWN EXISTING DEBT. On push to md/pa1-terra-schema-compat an inline test calls api.openai.com directly with the OPENAI_API_KEY secret (guard fails closed: exit 1 when absent, otherwise calls the provider). Owner: MD2 / CENTRAL."
+    },
+    {
+      "path": ".github/workflows/pa1-terra-sem-fix01.yml",
+      "sha256": "abe66dfaad14e31d3bc0ec5807b37441ca6fa059f07611ce051d45b16492a0a8",
+      "violations": ["WF-008", "WF-010", "WF-012"],
+      "note": "KNOWN EXISTING DEBT. On push to md/pa1-terra-semantic-hardening a live step sets PA1_SYNTHETIC_AI_EVAL=enabled and uses the OPENAI_API_KEY secret. Owner: MD2 / CENTRAL."
+    },
+    {
+      "path": ".github/workflows/prelaunch-sec01b-candidate.yml",
+      "sha256": "8a57bf8f6d102be5d11dea1f725b936b68faea172416b6226f79ba506fb3637e",
+      "violations": ["WF-005", "WF-006", "WF-007"],
+      "note": "KNOWN EXISTING DEBT. permissions: contents: write; on push to md/prelaunch-sec01b-corrections it may git commit a prepared lockfile/log-scrub diff and git push it back to that branch as github-actions[bot]. Owner: MD2 / CENTRAL."
+    }
+  ]
+}

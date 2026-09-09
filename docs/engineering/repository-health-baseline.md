@@ -1,7 +1,7 @@
 # Repository Health Baseline
 
 Owner lane: **CAE** (Claude Auxiliary Engineering). Produced by **CAE-01**,
-extended by **CAE-02** (§8).
+extended by **CAE-02** (§8), **CAE-03** (§6 D7), **CAE-04** (§9).
 Base SHA: `9ec7127611dd5576f9591cbd210be8075b8626ee` (CAE-01);
 `130f1abd300f0ce0882fc5ccc6d01eeff15a864e` (CAE-02 base = accepted CAE-01).
 Pinned repository `main`: `5d58f154a8fd18129e28614ccc038f0a6af66b8f` (verified equal at time of writing).
@@ -36,8 +36,11 @@ tools/repo-health/
                          CI risk rollups, config risks, optional npm audit
   offline-verify.mjs     CAE-02 gate runner (see §8); sanitises the child
                          environment, runs the safe offline quality sequence
+  workflow-policy.mjs    CAE-04 governance guard (see §9); static policy check
+                         over .github/workflows with a tamper-evident baseline
   frozen-manifest.json   pinned blob hashes + expected main SHA + path lists
-  README.md              usage for both scripts
+  workflow-policy-baseline.json  CENTRAL-owned grandfathered workflow exceptions
+  README.md              usage for all three scripts
 docs/engineering/
   repository-health-baseline.md      this file
   frozen-integrity-manifest.md       human-readable frozen list + verify steps
@@ -233,14 +236,12 @@ See the CAE-01 return report for full framing. In short:
 
 - **CAE-02 — Offline verification runner.** ✅ Delivered — `offline-verify.mjs`,
   see §8.
-- **CAE-03 — Test observability.** Capture per-file / per-suite Vitest timing
-  and a stable slowest-N list; land it as `docs/engineering/test-runtime.md`
-  plus a refresh script. No product code.
-- **CAE-04 — Workflow lint / policy check.** Extend `repo-health.mjs` (or a
-  sibling) into an assertion tool: fail if any workflow gains a `main` / `**` /
-  `pull_request` / `schedule` trigger, a `contents: write` without CENTRAL
-  sign-off, or an auto-start path to a paid provider. Offline, `workflow_dispatch`
-  or local only.
+- **CAE-03 — Test portability hardening.** ✅ Delivered — CAE-FINDING-006 fixed
+  (§6 D7). (The original "test observability" idea — per-suite Vitest timing —
+  is still open and unassigned.)
+- **CAE-04 — Workflow policy / live-provider governance guard.** ✅ Delivered —
+  `workflow-policy.mjs` + `workflow-policy-baseline.json`, see §9. Wired into
+  `offline-verify.mjs` as a fail-closed gate.
 - **CAE-05 — Reusable-CI proposal.** Design (not build) a `workflow_call`
   reusable workflow / composite action that collapses the duplicated verifier
   tail, with the Node version and audit gate centralised. Return the proposal to
@@ -345,10 +346,83 @@ one root cause — **CAE-FINDING-006**:
 
 ---
 
-## 9. Change log
+## 9. Workflow-policy governance guard (CAE-04)
+
+`tools/repo-health/workflow-policy.mjs` — static, offline, dependency-free check
+over `.github/workflows/*.yml`. It exists so a future change cannot *silently*
+add automatic paid-provider execution, automatic repository writes, broad CI
+triggers, or a byte-level change to a grandfathered risky workflow without
+CENTRAL seeing it. It never runs a workflow, never reads a secret, and never
+claims whether a secret exists. Full rule list, JSON contract, exit codes and
+limitations: [`../../tools/repo-health/README.md`](../../tools/repo-health/README.md).
+
+### 9.1 Rules
+
+`WF-001` push→`main` · `WF-002` wildcard/unfiltered auto trigger · `WF-003`
+`pull_request` · `WF-004` `schedule` · `WF-005` `contents: write` · `WF-006`
+`git push` step · `WF-007` `git commit` step · `WF-008` auto path references
+`OPENAI_API_KEY` · `WF-009` auto path references `DEEPGRAM` · `WF-010` auto path
+sets `PA1_SYNTHETIC_AI_EVAL=enabled` · `WF-011` auto path hits `api.openai.com`
+directly · `WF-012` auto + provider-sensitive with no human-dispatch guard ·
+`WF-013` auto deploy-like production-mutation command.
+
+`WF-008`–`WF-013` apply only when the workflow is **automatically executable**
+(any non-`workflow_dispatch`/`workflow_call` trigger). A `workflow_dispatch`
+workflow with a confirmation input that a run step checks is a **human-dispatch
+guard** and is exempt from `WF-012`.
+
+### 9.2 Grandfathering model — why exact file hashes
+
+`tools/repo-health/workflow-policy-baseline.json` records the exceptions that
+already exist at the accepted repo state. Each binds `{ path, sha256,
+violations[] }`, where `sha256` is over the workflow file's **canonical
+(LF-normalised) bytes** — identical on a Windows or Linux checkout.
+
+- **A baseline entry = KNOWN EXISTING DEBT, not approved-safe design.** The
+  human report prints these under a `KNOWN EXISTING DEBT` heading, never as an
+  all-clear.
+- **Tamper-evidence:** change a grandfathered workflow by one byte → its digest
+  changes → the exception stops applying → `--strict` FAILS (`EXCEPTION_DRIFT`)
+  → CENTRAL must review and re-baseline or revert. A rule id that fires on a
+  listed workflow but is not in that entry's `violations` array is a **new**
+  violation and FAILS.
+- **Only CENTRAL may edit the baseline**, and only after reviewing the workflow
+  change that motivates it.
+
+### 9.3 Current grandfathered debt (baseline v1, recorded at `b0efa46`)
+
+| Workflow | Rules | KNOWN DEBT (not approved) | Remediation recommendation → CENTRAL / MD2 |
+| -------- | ----- | ------------------------ | ------------------------------------------ |
+| `pa1-c1-verify.yml` | WF-008, WF-010, WF-012 | live OpenAI synthetic-eval job on **push** to `md/pa1-c1-closure` when `OPENAI_API_KEY` is set; secret-absence guard fails **open** (`exit 0`) | move the live job to `workflow_dispatch` only, behind a typed `RUN_AUTHORIZED_LIVE_EVAL` confirmation (the pattern already in `pa1-terra-name-fix02.yml`); or gate it on an environment with required reviewers |
+| `pa1-terra-schema-01.yml` | WF-008, WF-011, WF-012 | inline test calls `api.openai.com` directly on **push** to `md/pa1-terra-schema-compat` | same: dispatch-only + confirmation input; keep the deterministic offline schema test on push, split the live probe out |
+| `pa1-terra-sem-fix01.yml` | WF-008, WF-010, WF-012 | live step sets `PA1_SYNTHETIC_AI_EVAL=enabled` on **push** to `md/pa1-terra-semantic-hardening` | same dispatch-only + confirmation pattern |
+| `prelaunch-sec01b-candidate.yml` | WF-005, WF-006, WF-007 | `permissions: contents: write` + `git commit`/`git push` back to `md/prelaunch-sec01b-corrections` as `github-actions[bot]` | drop the auto-commit step — have the workflow **fail** with the prepared diff as an artifact and let a human commit it; if kept, restrict to `workflow_dispatch` and document the branch scope |
+
+`pa1-terra-name-fix02.yml` is provider-sensitive but `workflow_dispatch`-only
+with a `RUN_AUTHORIZED_LIVE_EVAL` confirmation guard → **no violation, not
+baselined** (this is the pattern the three PA1 push workflows should adopt).
+
+CAE-04 is **detection only** — no workflow was modified. These recommendations
+are returned to CENTRAL.
+
+### 9.4 Integration
+
+`offline-verify.mjs` runs `workflow-policy --strict` as **gate 2** (after
+`repo-health --strict`, before `npm test`), in both the full run and `--quick`.
+It is a scope/governance gate: on failure the runner fails closed (exit 1) and
+does not run product tests or the build.
+
+At `b0efa46` + CAE-04: `workflow-policy --strict` → PASS (exit 0), **only**
+because the 12 findings across 4 workflows are exact-hash grandfathered; the
+report shows all 12 as KNOWN DEBT. Self-test: 16/16.
+
+---
+
+## 10. Change log
 
 | Date (base SHA)          | Change |
 | ----------------------- | ------ |
 | CAE-01 / `9ec7127`      | Baseline created: `tools/repo-health/` tool + manifest, this document, `frozen-integrity-manifest.md`. |
 | CAE-02 / `130f1ab`      | Added `tools/repo-health/offline-verify.mjs` (§8). Removed `// @ts-nocheck` from both `.mjs` tools (repo ESLint bans it) and an unused import from `repo-health.mjs`. Recorded CAE-FINDING-006 and debt D7–D9. No `src/**` / `supabase/**` / dependency / workflow change. |
 | CAE-03 / `9913c01`      | Resolved CAE-FINDING-006 / D7 — `\r\n`→`\n` canonicalisation at the read boundary in `correction-window-security.test.ts`, `global-visual-consistency.test.ts`, `prescription-paper-hierarchy.test.ts` only. No expected values changed; `.gitattributes` / `core.autocrlf` / any other `src/**` untouched. Full offline verifier green on the CRLF checkout (0 failed). |
+| CAE-04 / `b0efa46`      | Added `tools/repo-health/workflow-policy.mjs` (§9) + CENTRAL-owned `workflow-policy-baseline.json` (12 grandfathered findings across 4 workflows). Wired `workflow-policy --strict` into `offline-verify.mjs` as fail-closed gate 2 (full + `--quick`). Detection only — **no `.github/workflows/**` change**; remediation recommendations in §9.3. No `src/**` / `supabase/**` / dependency change. |

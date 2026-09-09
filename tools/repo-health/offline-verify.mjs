@@ -31,8 +31,9 @@
  * ------------------
  *   0  every requested verification gate passed
  *   1  runner / tooling execution error, OR fail-closed pre-flight
- *      (not a git work tree, missing repo-health tool, missing npm, wrong cwd,
- *       or the repo-health strict scope/integrity gate failed)
+ *      (not a git work tree, missing repo-health / workflow-policy tool, missing
+ *       npm, wrong cwd, or a scope/governance gate failed — repo-health --strict
+ *       or workflow-policy --strict)
  *   2  the runner executed but one or more ordinary quality gates FAILED
  *
  * `--audit` adds a gate that REACHES THE NETWORK (npm registry). Its result is
@@ -48,6 +49,7 @@ import { dirname, join, resolve } from "node:path";
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO = resolve(HERE, "..", "..");
 const REPO_HEALTH = join(HERE, "repo-health.mjs");
+const WORKFLOW_POLICY = join(HERE, "workflow-policy.mjs");
 const FROZEN_MANIFEST = join(HERE, "frozen-manifest.json");
 const IS_WIN = process.platform === "win32";
 
@@ -174,6 +176,12 @@ const GATE = {
     argv: [process.execPath, [REPO_HEALTH, "--strict"]],
     scope: true,
   },
+  workflowPolicy: {
+    name: "workflow-policy (strict)",
+    display: "node tools/repo-health/workflow-policy.mjs --strict",
+    argv: [process.execPath, [WORKFLOW_POLICY, "--strict"]],
+    scope: true,
+  },
   test: {
     name: "offline test suite (npm test)",
     display: "npm test",
@@ -208,6 +216,7 @@ const GATE = {
 
 const FULL_GATES = [
   GATE.repoHealth,
+  GATE.workflowPolicy,
   GATE.test,
   GATE.typegen,
   GATE.typecheck,
@@ -221,7 +230,14 @@ const FULL_GATES = [
 // `.next/types/**`). It is fast, writes only ignored artifacts, and keeps
 // --quick's typecheck honest, so it is included here despite the task's
 // minimal list.
-const QUICK_GATES = [GATE.repoHealth, GATE.typegen, GATE.typecheck, GATE.lint, GATE.diffCheck];
+const QUICK_GATES = [
+  GATE.repoHealth,
+  GATE.workflowPolicy,
+  GATE.typegen,
+  GATE.typecheck,
+  GATE.lint,
+  GATE.diffCheck,
+];
 
 const AUDIT_GATE = {
   name: "npm audit (NETWORK — production deps)",
@@ -301,6 +317,7 @@ function preflight() {
     problems.push("not inside a git work tree");
   }
   if (!existsSync(REPO_HEALTH)) problems.push(`missing ${rel(REPO_HEALTH)}`);
+  if (!existsSync(WORKFLOW_POLICY)) problems.push(`missing ${rel(WORKFLOW_POLICY)}`);
   if (!existsSync(FROZEN_MANIFEST)) problems.push(`missing ${rel(FROZEN_MANIFEST)}`);
   if (!existsSync(join(REPO, "package.json"))) problems.push("missing package.json (wrong cwd?)");
   if (!existsSync(NPM_CLI)) problems.push(`npm CLI not found next to node (${rel(NPM_CLI)})`);
@@ -531,11 +548,11 @@ function printHelp() {
       "  node tools/repo-health/offline-verify.mjs [--json] [--quick] [--audit] [--help]",
       "",
       "  (default)  full offline run:",
-      "             repo-health --strict, npm test, next typegen, typecheck,",
-      "             lint, production build, git diff --check",
-      "  --quick    repo-health --strict, next typegen, typecheck, lint,",
-      "             git diff --check  (fast subset: no npm test, no build —",
-      "             NOT the authoritative full verification)",
+      "             repo-health --strict, workflow-policy --strict, npm test,",
+      "             next typegen, typecheck, lint, production build, git diff --check",
+      "  --quick    repo-health --strict, workflow-policy --strict, next typegen,",
+      "             typecheck, lint, git diff --check  (fast subset: no npm test,",
+      "             no build — NOT the authoritative full verification)",
       "  --audit    additionally run the npm-audit gate — THIS REACHES THE NETWORK;",
       "             never part of the default run",
       "  --json     machine-readable final report on stdout",
@@ -543,8 +560,8 @@ function printHelp() {
       "",
       "Exit codes:",
       "  0  all requested gates passed",
-      "  1  runner/tooling error, or fail-closed pre-flight, or the",
-      "     repo-health strict scope/integrity gate failed",
+      "  1  runner/tooling error, or fail-closed pre-flight, or a scope/governance",
+      "     gate (repo-health --strict / workflow-policy --strict) failed",
       "  2  the runner ran but one or more quality gates failed",
       "",
       "Offline guarantee: provider/database credentials are stripped from the",
