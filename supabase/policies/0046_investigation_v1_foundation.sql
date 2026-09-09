@@ -375,16 +375,16 @@ create or replace function public.patient_investigation_history(
   p_limit      integer default 100
 )
 returns table (
-  investigation_id      uuid,
-  encounter_id          uuid,
-  investigation_name    text,
-  note                  text,
-  position              integer,
-  ordered_at            timestamptz,
-  encounter_started_at  timestamptz,
-  ordering_doctor_id    uuid,
-  ordering_doctor_name  text,
-  practice_location_id  uuid,
+  investigation_id       uuid,
+  encounter_id           uuid,
+  investigation_name     text,
+  note                   text,
+  investigation_position integer,
+  ordered_at             timestamptz,
+  encounter_started_at   timestamptz,
+  ordering_doctor_id     uuid,
+  ordering_doctor_name   text,
+  practice_location_id   uuid,
   practice_location_name text
 )
 language plpgsql
