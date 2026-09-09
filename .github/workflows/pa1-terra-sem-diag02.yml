@@ -1,0 +1,321 @@
+name: PA1 Terra SEM-DIAG-02 Semantic Classification
+
+on:
+  push:
+    branches:
+      - md/pa1-terra-sem-diag02
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      PA1_SYNTHETIC_AI_EVAL: enabled
+    steps:
+      - name: Checkout exact diagnostic candidate
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install exact lockfile
+        run: npm ci --ignore-scripts
+
+      - name: Scope and locked-base proof
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE=a47863fb7c35c3b79ba37c9b007abae35477ae19
+          test "$(git merge-base "$BASE" HEAD)" = "$BASE"
+          test "$(git diff --name-only "$BASE" HEAD | sort)" = ".github/workflows/pa1-terra-sem-diag02.yml"
+          git diff --exit-code "$BASE" -- src supabase package.json package-lock.json vercel.json
+          echo "PA1_TERRA_SEM_DIAG02_SCOPE=PASS"
+          echo "PA1_TERRA_SEM_DIAG02_APPLICATION_SOURCE_DELTA=0"
+
+      - name: Exactly one live en-rx-01 semantic classification call
+        shell: bash
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          set -euo pipefail
+          if [ -z "${OPENAI_API_KEY:-}" ]; then
+            echo "PA1_TERRA_SEM_DIAG02_CASE_ID=en-rx-01"
+            echo "PA1_TERRA_SEM_DIAG02_PROVIDER_SUCCESS=false"
+            echo "PA1_TERRA_SEM_DIAG02_FAILURE_CLASS=OPENAI_API_KEY_MISSING"
+            exit 1
+          fi
+
+          trap 'rm -f .pa1-terra-sem-diag02-live.test.ts' EXIT
+          cat > .pa1-terra-sem-diag02-live.test.ts <<'TS'
+          import { describe, expect, it } from "vitest";
+          import {
+            providerJsonSchema,
+            validateProviderProposal,
+            type PrescriptionMedicineProposal,
+          } from "./src/features/ai/contracts";
+          import {
+            createOpenAiTerraSyntheticParserFromEnv,
+            OpenAiProposalProviderError,
+          } from "./src/features/ai/openai-terra-provider";
+          import { PA1_SYNTHETIC_EVAL_CORPUS } from "./src/features/ai/synthetic-eval-corpus";
+
+          const CASE_ID = "en-rx-01";
+
+          function nullableString(value: unknown): string | null {
+            return typeof value === "string" ? value : null;
+          }
+
+          function nfkcCaseWhitespace(value: string): string {
+            return value.normalize("NFKC").trim().replace(/\s+/gu, " ").toLocaleLowerCase("en-US");
+          }
+
+          function tokenCount(value: string): number {
+            const trimmed = value.trim();
+            return trimmed ? trimmed.split(/\s+/u).length : 0;
+          }
+
+          function codePointLength(value: string): number {
+            return Array.from(value).length;
+          }
+
+          function terminalPunctuationNormalized(value: string): string {
+            return value.trim().replace(/[\s]*[.,;:]+[\s]*$/u, "").trim();
+          }
+
+          function nullOrAbsent(object: Record<string, unknown>, key: string): boolean {
+            return !(key in object) || object[key] === null;
+          }
+
+          function presenceState(object: Record<string, unknown>, key: string): "NULL" | "ABSENT" | "PRESENT" {
+            if (!(key in object)) return "ABSENT";
+            return object[key] === null ? "NULL" : "PRESENT";
+          }
+
+          function prnState(object: Record<string, unknown>): "NULL" | "TRUE" | "FALSE" | "ABSENT" {
+            if (!("is_prn" in object)) return "ABSENT";
+            if (object.is_prn === null) return "NULL";
+            if (object.is_prn === true) return "TRUE";
+            if (object.is_prn === false) return "FALSE";
+            throw new Error("VALIDATED_IS_PRN_STATE_INVALID");
+          }
+
+          function sourceExplicitlyMentionsPrnToken(value: string): boolean {
+            return /(?:\bPRN\b|\bSOS\b|\bas\s+needed\b|\bwhen\s+needed\b)/iu.test(value);
+          }
+
+          function safeProviderFailure(error: unknown): { classification: string; status: string } {
+            if (error instanceof OpenAiProposalProviderError) {
+              return {
+                classification: error.code,
+                status: error.status == null ? "" : String(error.status),
+              };
+            }
+            if (error instanceof Error) return { classification: error.name || "ERROR", status: "" };
+            return { classification: "UNKNOWN_ERROR", status: "" };
+          }
+
+          describe("PA1-TERRA-SEM-DIAG-02", () => {
+            it("classifies one independent en-rx-01 replay without logging generated values", async () => {
+              const item = PA1_SYNTHETIC_EVAL_CORPUS.find((entry) => entry.id === CASE_ID);
+              if (!item) throw new Error("LOCKED_CASE_NOT_FOUND");
+              expect(item.language).toBe("ENGLISH");
+              expect(item.taskType).toBe("PRESCRIPTION_MEDICINE");
+              if (item.expected.kind !== "PRESCRIPTION_MEDICINE") throw new Error("LOCKED_EXPECTED_KIND_MISMATCH");
+
+              const originalFetch = globalThis.fetch;
+              let providerCallCount = 0;
+              globalThis.fetch = (async (...args: Parameters<typeof fetch>) => {
+                providerCallCount += 1;
+                return originalFetch(...args);
+              }) as typeof fetch;
+
+              const parser = createOpenAiTerraSyntheticParserFromEnv();
+              const started = performance.now();
+              let parsed: Awaited<ReturnType<typeof parser.parse>>;
+              try {
+                parsed = await parser.parse(
+                  {
+                    taskType: item.taskType,
+                    authoredText: item.authoredText,
+                    languageHints: item.languageHints,
+                    jsonSchema: providerJsonSchema(item.taskType),
+                  },
+                  AbortSignal.timeout(30_000),
+                );
+              } catch (error) {
+                const safe = safeProviderFailure(error);
+                console.log(`PA1_TERRA_SEM_DIAG02_CASE_ID=${CASE_ID}`);
+                console.log("PA1_TERRA_SEM_DIAG02_PROVIDER_SUCCESS=false");
+                console.log("PA1_TERRA_SEM_DIAG02_VALIDATOR_PASS=false");
+                console.log(`PA1_TERRA_SEM_DIAG02_PROVIDER_CALL_COUNT=${providerCallCount}`);
+                console.log(`PA1_TERRA_SEM_DIAG02_FAILURE_CLASS=${safe.classification}`);
+                console.log(`PA1_TERRA_SEM_DIAG02_PROVIDER_STATUS=${safe.status}`);
+                console.log(`PA1_TERRA_SEM_DIAG02_LATENCY_MS=${Math.round(performance.now() - started)}`);
+                expect(providerCallCount).toBe(1);
+                throw error;
+              } finally {
+                globalThis.fetch = originalFetch;
+              }
+
+              const latencyMs = Math.round(performance.now() - started);
+              expect(providerCallCount).toBe(1);
+
+              let proposal: PrescriptionMedicineProposal;
+              try {
+                const validated = validateProviderProposal(item.taskType, parsed.rawProposal);
+                if (validated.kind !== "PRESCRIPTION_MEDICINE") throw new Error("VALIDATED_KIND_MISMATCH");
+                proposal = validated;
+              } catch (error) {
+                console.log(`PA1_TERRA_SEM_DIAG02_CASE_ID=${CASE_ID}`);
+                console.log("PA1_TERRA_SEM_DIAG02_PROVIDER_SUCCESS=true");
+                console.log("PA1_TERRA_SEM_DIAG02_VALIDATOR_PASS=false");
+                console.log(`PA1_TERRA_SEM_DIAG02_PROVIDER_CALL_COUNT=${providerCallCount}`);
+                console.log("PA1_TERRA_SEM_DIAG02_FAILURE_CLASS=DD_VALIDATOR_REJECTION");
+                console.log(`PA1_TERRA_SEM_DIAG02_INPUT_TOKENS=${parsed.usage.inputTokens ?? ""}`);
+                console.log(`PA1_TERRA_SEM_DIAG02_OUTPUT_TOKENS=${parsed.usage.outputTokens ?? ""}`);
+                console.log(`PA1_TERRA_SEM_DIAG02_LATENCY_MS=${latencyMs}`);
+                throw error;
+              }
+
+              const medicine = proposal.medicine as Record<string, unknown>;
+              const expectedMedicine = item.expected.medicine as Record<string, unknown>;
+
+              const actualDisplay = nullableString(medicine.display_name);
+              const expectedDisplay = nullableString(expectedMedicine.display_name);
+              if (actualDisplay === null || expectedDisplay === null) throw new Error("DISPLAY_CLASSIFICATION_INPUT_INVALID");
+
+              const actualDuration = nullableString(medicine.duration_text);
+              const expectedDuration = nullableString(expectedMedicine.duration_text);
+              if (actualDuration === null || expectedDuration === null) throw new Error("DURATION_CLASSIFICATION_INPUT_INVALID");
+
+              const expectedStrength = nullableString(expectedMedicine.strength_text);
+              const dosageForm = nullableString(medicine.dosage_form);
+
+              const displayExact = actualDisplay === expectedDisplay;
+              const displayCaseWhitespaceEquivalent = nfkcCaseWhitespace(actualDisplay) === nfkcCaseWhitespace(expectedDisplay);
+              const displayExpectedIsPrefixOfActual = actualDisplay.startsWith(expectedDisplay);
+              const displayExpectedIsSuffixOfActual = actualDisplay.endsWith(expectedDisplay);
+              const displayActualContainsExpected = actualDisplay.includes(expectedDisplay);
+              const displayEqualsExpectedPlusStrength =
+                expectedStrength !== null && actualDisplay === `${expectedDisplay} ${expectedStrength}`;
+              const displayEqualsDosageFormPlusExpected =
+                dosageForm !== null && actualDisplay === `${dosageForm} ${expectedDisplay}`;
+              const displayExtraCharacterCount = Math.max(0, codePointLength(actualDisplay) - codePointLength(expectedDisplay));
+              const displayActualTokenCount = tokenCount(actualDisplay);
+
+              const durationExact = actualDuration === expectedDuration;
+              const durationCaseWhitespaceEquivalent = nfkcCaseWhitespace(actualDuration) === nfkcCaseWhitespace(expectedDuration);
+              const durationTerminalPunctuationOnlyDifference =
+                !durationExact && terminalPunctuationNormalized(actualDuration) === terminalPunctuationNormalized(expectedDuration);
+              const durationExpectedIsPrefixOfActual = actualDuration.startsWith(expectedDuration);
+              const durationActualContainsExpected = actualDuration.includes(expectedDuration);
+              const durationExtraCharacterCount = Math.max(0, codePointLength(actualDuration) - codePointLength(expectedDuration));
+              const durationActualTokenCount = tokenCount(actualDuration);
+
+              const isPrnState = prnState(medicine);
+              const sourceMentionsPrn = sourceExplicitlyMentionsPrnToken(item.authoredText);
+
+              const brandState = presenceState(medicine, "brand_name");
+              const brandValue = nullableString(medicine.brand_name);
+              const brandEqualsExpectedDisplay: true | false | "not_applicable" =
+                brandState === "PRESENT" && brandValue !== null ? brandValue === expectedDisplay : "not_applicable";
+              const dosageFormState = presenceState(medicine, "dosage_form");
+
+              const requiredMatches: Record<string, boolean> = {
+                kind: proposal.kind === "PRESCRIPTION_MEDICINE",
+                requires_review: proposal.requires_review === true,
+                display_name: medicine.display_name === expectedMedicine.display_name,
+                strength_text: medicine.strength_text === expectedMedicine.strength_text,
+                dose_text: medicine.dose_text === expectedMedicine.dose_text,
+                schedule_text: medicine.schedule_text === expectedMedicine.schedule_text,
+                duration_text: medicine.duration_text === expectedMedicine.duration_text,
+                food_relation: medicine.food_relation === expectedMedicine.food_relation,
+              };
+              const nullSafe: Record<string, boolean> = {
+                generic_name: nullOrAbsent(medicine, "generic_name"),
+                route: nullOrAbsent(medicine, "route"),
+                quantity_text: nullOrAbsent(medicine, "quantity_text"),
+                is_prn: nullOrAbsent(medicine, "is_prn"),
+                instructions: nullOrAbsent(medicine, "instructions"),
+                substitution_allowed: nullOrAbsent(medicine, "substitution_allowed"),
+              };
+              const uncertaintyPass = proposal.uncertainties.length === 0;
+              const noAdditionalMedicine = proposal.kind === "PRESCRIPTION_MEDICINE" && !!proposal.medicine;
+              const noDiagnosis = !("diagnosis" in (proposal as unknown as Record<string, unknown>));
+              const noFinalizationAction = nullSafe.instructions && proposal.requires_review === true;
+
+              const failingFields = [
+                ...Object.entries(requiredMatches).filter(([, ok]) => !ok).map(([field]) => field),
+                ...Object.entries(nullSafe).filter(([, ok]) => !ok).map(([field]) => field),
+                ...(!uncertaintyPass ? ["uncertainties"] : []),
+                ...(!noAdditionalMedicine ? ["additional_medicine"] : []),
+                ...(!noDiagnosis ? ["diagnosis"] : []),
+                ...(!noFinalizationAction ? ["finalization_action"] : []),
+              ];
+              const replayPassAll = failingFields.length === 0;
+
+              console.log(`PA1_TERRA_SEM_DIAG02_CASE_ID=${CASE_ID}`);
+              console.log("PA1_TERRA_SEM_DIAG02_PROVIDER_SUCCESS=true");
+              console.log("PA1_TERRA_SEM_DIAG02_VALIDATOR_PASS=true");
+              console.log(`PA1_TERRA_SEM_DIAG02_PROVIDER_CALL_COUNT=${providerCallCount}`);
+
+              console.log(`PA1_TERRA_SEM_DIAG02_DISPLAY_EXACT=${displayExact}`);
+              console.log(`PA1_TERRA_SEM_DIAG02_DISPLAY_CASE_WHITESPACE_EQUIVALENT=${displayCaseWhitespaceEquivalent}`);
+              console.log(`PA1_TERRA_SEM_DIAG02_DISPLAY_EXPECTED_IS_PREFIX_OF_ACTUAL=${displayExpectedIsPrefixOfActual}`);
+              console.log(`PA1_TERRA_SEM_DIAG02_DISPLAY_EXPECTED_IS_SUFFIX_OF_ACTUAL=${displayExpectedIsSuffixOfActual}`);
+              console.log(`PA1_TERRA_SEM_DIAG02_DISPLAY_ACTUAL_CONTAINS_EXPECTED=${displayActualContainsExpected}`);
+              console.log(`PA1_TERRA_SEM_DIAG02_DISPLAY_EQUALS_EXPECTED_PLUS_STRENGTH=${displayEqualsExpectedPlusStrength}`);
+              console.log(`PA1_TERRA_SEM_DIAG02_DISPLAY_EQUALS_DOSAGE_FORM_PLUS_EXPECTED=${displayEqualsDosageFormPlusExpected}`);
+              console.log(`PA1_TERRA_SEM_DIAG02_DISPLAY_EXTRA_CHARACTER_COUNT=${displayExtraCharacterCount}`);
+              console.log(`PA1_TERRA_SEM_DIAG02_DISPLAY_ACTUAL_TOKEN_COUNT=${displayActualTokenCount}`);
+
+              console.log(`PA1_TERRA_SEM_DIAG02_DURATION_EXACT=${durationExact}`);
+              console.log(`PA1_TERRA_SEM_DIAG02_DURATION_CASE_WHITESPACE_EQUIVALENT=${durationCaseWhitespaceEquivalent}`);
+              console.log(`PA1_TERRA_SEM_DIAG02_DURATION_TERMINAL_PUNCTUATION_ONLY_DIFFERENCE=${durationTerminalPunctuationOnlyDifference}`);
+              console.log(`PA1_TERRA_SEM_DIAG02_DURATION_EXPECTED_IS_PREFIX_OF_ACTUAL=${durationExpectedIsPrefixOfActual}`);
+              console.log(`PA1_TERRA_SEM_DIAG02_DURATION_ACTUAL_CONTAINS_EXPECTED=${durationActualContainsExpected}`);
+              console.log(`PA1_TERRA_SEM_DIAG02_DURATION_EXTRA_CHARACTER_COUNT=${durationExtraCharacterCount}`);
+              console.log(`PA1_TERRA_SEM_DIAG02_DURATION_ACTUAL_TOKEN_COUNT=${durationActualTokenCount}`);
+
+              console.log(`PA1_TERRA_SEM_DIAG02_IS_PRN_STATE=${isPrnState}`);
+              console.log(`PA1_TERRA_SEM_DIAG02_SOURCE_EXPLICITLY_MENTIONS_PRN_TOKEN=${sourceMentionsPrn}`);
+              console.log(`PA1_TERRA_SEM_DIAG02_BRAND_STATE=${brandState}`);
+              console.log(`PA1_TERRA_SEM_DIAG02_BRAND_EQUALS_EXPECTED_DISPLAY=${brandEqualsExpectedDisplay}`);
+              console.log(`PA1_TERRA_SEM_DIAG02_DOSAGE_FORM_STATE=${dosageFormState}`);
+
+              console.log(`PA1_TERRA_SEM_DIAG02_REPLAY_SEMANTIC=${replayPassAll ? "PASS_ALL" : "FAIL"}`);
+              console.log(`PA1_TERRA_SEM_DIAG02_FAILING_FIELDS=${failingFields.join(",")}`);
+              console.log(`PA1_TERRA_SEM_DIAG02_INPUT_TOKENS=${parsed.usage.inputTokens ?? ""}`);
+              console.log(`PA1_TERRA_SEM_DIAG02_OUTPUT_TOKENS=${parsed.usage.outputTokens ?? ""}`);
+              console.log(`PA1_TERRA_SEM_DIAG02_LATENCY_MS=${latencyMs}`);
+
+              expect(providerCallCount).toBe(1);
+              expect(sourceMentionsPrn).toBe(false);
+              // This diagnostic classifies semantic differences; semantic FAIL is evidence, not a harness failure.
+            }, 60_000);
+          });
+          TS
+
+          npx vitest run .pa1-terra-sem-diag02-live.test.ts --reporter=verbose
+
+      - name: Final no-mutation proof
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE=a47863fb7c35c3b79ba37c9b007abae35477ae19
+          test ! -e .pa1-terra-sem-diag02-live.test.ts
+          git diff --check
+          test "$(git diff --name-only "$BASE" HEAD | sort)" = ".github/workflows/pa1-terra-sem-diag02.yml"
+          git diff --exit-code "$BASE" -- src supabase package.json package-lock.json vercel.json
+          echo "PA1_TERRA_SEM_DIAG02_NO_APP_DB_AUTH_STORAGE_DELTA=PASS"
+          echo "PA1_TERRA_SEM_DIAG02_EXACT_SHA=$(git rev-parse HEAD)"
