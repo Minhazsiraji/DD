@@ -72,7 +72,7 @@ export async function confirmInvestigationsAction(
   const ctx = await requireLocationContext();
   const supabase = await createSupabaseServerClient();
 
-  let rpcData: unknown;
+  let rpcData: unknown = null;
   let rpcError: { message: string } | null = null;
 
   try {
