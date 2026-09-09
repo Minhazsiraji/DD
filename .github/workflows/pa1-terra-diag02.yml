@@ -1,0 +1,244 @@
+name: PA1 Terra Exact DD Request Bisection 02
+
+on:
+  push:
+    branches:
+      - md/pa1-terra-eval-r1
+
+permissions:
+  contents: read
+
+jobs:
+  exact-dd-request-bisection:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - name: Checkout exact diagnostic candidate
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install exact lockfile
+        run: npm ci --ignore-scripts
+
+      - name: Verify workflow-only diagnostic delta
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE=86b90dfaee91c8abecbc6bfc608f8140c9844ac9
+          git merge-base --is-ancestor "$BASE" HEAD
+          git diff --exit-code "$BASE" -- src supabase package.json package-lock.json
+          non_workflow=$(git diff --name-only "$BASE" HEAD | grep -v '^.github/workflows/' || true)
+          test -z "$non_workflow"
+          echo "PA1_TERRA_DIAG02_SCOPE=PASS"
+          echo "PA1_TERRA_DIAG02_SHA=$(git rev-parse HEAD)"
+
+      - name: Run exact DD envelope and schema probes
+        shell: bash
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          set -euo pipefail
+          if [ -z "${OPENAI_API_KEY:-}" ]; then
+            echo "PA1_DIAG02_SECRET_PRESENT=false"
+            exit 1
+          fi
+          echo "PA1_DIAG02_SECRET_PRESENT=true"
+          trap 'rm -f .pa1-terra-diag02.test.ts' EXIT
+          cat > .pa1-terra-diag02.test.ts <<'TS'
+          import { describe, expect, it } from "vitest";
+          import { providerJsonSchema } from "./src/features/ai/contracts";
+          import {
+            OpenAiTerraProposalParser,
+            PA1_TERRA_MODEL,
+            toOpenAiStrictSchema,
+          } from "./src/features/ai/openai-terra-provider";
+
+          const endpoint = "https://api.openai.com/v1/responses";
+          const apiKey = process.env.OPENAI_API_KEY ?? "";
+          const placeholder = "NON_CLINICAL_PLACEHOLDER";
+
+          type Body = Record<string, any>;
+          type Probe = {
+            status: number | string;
+            ok: boolean;
+            type: string;
+            code: string;
+            param: string;
+            message: string;
+          };
+
+          async function captureProductionBody(taskType: "PRESCRIPTION_MEDICINE" | "INVESTIGATION_LIST") {
+            let captured: Body | null = null;
+            const fetchImpl: typeof fetch = async (_url, init) => {
+              captured = JSON.parse(String(init?.body ?? "{}")) as Body;
+              return new Response(
+                JSON.stringify({
+                  id: "diag_capture_only",
+                  status: "completed",
+                  output: [{ type: "message", content: [{ type: "output_text", text: "{}" }] }],
+                }),
+                { status: 200, headers: { "Content-Type": "application/json" } },
+              );
+            };
+            const parser = new OpenAiTerraProposalParser({
+              apiKey: "capture-only-not-provider-key",
+              fetchImpl,
+              syntheticEvaluationEnabled: true,
+            });
+            await parser.parse(
+              {
+                taskType,
+                authoredText: placeholder,
+                languageHints: ["en-US"],
+                jsonSchema: providerJsonSchema(taskType),
+              },
+              new AbortController().signal,
+            );
+            if (!captured) throw new Error("DD request capture failed");
+            const expectedSchema = toOpenAiStrictSchema(providerJsonSchema(taskType));
+            expect(captured.text?.format?.schema).toEqual(expectedSchema);
+            expect(captured.model).toBe(PA1_TERRA_MODEL);
+            expect(captured.store).toBe(false);
+            expect(captured.max_output_tokens).toBe(2500);
+            expect(captured.reasoning).toEqual({ effort: "low" });
+            expect(Array.isArray(captured.input)).toBe(true);
+            expect(captured.input.map((item: any) => item.role)).toEqual(["system", "user"]);
+            return captured;
+          }
+
+          function inputStrings(body: Body): string[] {
+            const values: string[] = [];
+            for (const item of body.input ?? []) {
+              if (typeof item?.content === "string") values.push(item.content);
+            }
+            return values;
+          }
+
+          function safe(value: unknown, redactions: string[]): string {
+            let text = value == null ? "" : String(value);
+            text = text
+              .replace(/\r?\n/g, " ")
+              .replace(/Bearer\s+[^\s]+/gi, "Bearer [REDACTED]")
+              .replace(/sk-[A-Za-z0-9_-]+/g, "[REDACTED]")
+              .replaceAll(placeholder, "[INPUT_REDACTED]");
+            for (const secretInput of redactions) {
+              if (secretInput) text = text.split(secretInput).join("[INPUT_REDACTED]");
+            }
+            return text.slice(0, 600);
+          }
+
+          async function call(body: Body): Promise<Probe> {
+            const redactions = inputStrings(body);
+            try {
+              const response = await fetch(endpoint, {
+                method: "POST",
+                headers: {
+                  Authorization: `Bearer ${apiKey}`,
+                  "Content-Type": "application/json",
+                },
+                body: JSON.stringify(body),
+                signal: AbortSignal.timeout(30_000),
+              });
+              let json: any = null;
+              try {
+                json = await response.json();
+              } catch {
+                json = null;
+              }
+              const error = json && typeof json.error === "object" && json.error ? json.error : {};
+              return {
+                status: response.status,
+                ok: response.ok,
+                type: safe(error.type, redactions),
+                code: safe(error.code, redactions),
+                param: safe(error.param, redactions),
+                message: safe(error.message, redactions),
+              };
+            } catch (error: any) {
+              return {
+                status: "NETWORK_ERROR",
+                ok: false,
+                type: safe(error?.name ?? "NETWORK_ERROR", redactions),
+                code: "",
+                param: "",
+                message: "",
+              };
+            }
+          }
+
+          function report(index: number, probe: Probe) {
+            console.log(`PA1_DIAG02_PROBE${index}_HTTP_STATUS=${probe.status}`);
+            console.log(`PA1_DIAG02_PROBE${index}_SUCCESS=${probe.ok}`);
+            console.log(`PA1_DIAG02_PROBE${index}_ERROR_TYPE=${probe.type}`);
+            console.log(`PA1_DIAG02_PROBE${index}_ERROR_CODE=${probe.code}`);
+            console.log(`PA1_DIAG02_PROBE${index}_ERROR_PARAM=${probe.param}`);
+            if (!probe.ok && probe.message) {
+              console.log(`PA1_DIAG02_PROBE${index}_ERROR_MESSAGE=${probe.message}`);
+            }
+          }
+
+          describe("PA1 Terra DIAG-02 exact DD request/schema bisection", () => {
+            it("runs at most three non-clinical Responses probes", async () => {
+              const rx = await captureProductionBody("PRESCRIPTION_MEDICINE");
+              const inv = await captureProductionBody("INVESTIGATION_LIST");
+
+              const minimal = structuredClone(rx);
+              minimal.text.format = {
+                type: "json_schema",
+                name: "pa1_diag_minimal",
+                strict: true,
+                schema: {
+                  type: "object",
+                  additionalProperties: false,
+                  required: ["result"],
+                  properties: { result: { type: "string" } },
+                },
+              };
+
+              const p1 = await call(minimal);
+              report(1, p1);
+              if (!p1.ok) {
+                console.log("PA1_DIAG02_PROBE2_STATUS=NOT_RUN");
+                console.log("PA1_DIAG02_PROBE3_STATUS=NOT_RUN");
+                console.log("PA1_DIAG02_CLASSIFICATION=DD_COMMON_ENVELOPE_REJECTION");
+                return;
+              }
+
+              const p2 = await call(rx);
+              report(2, p2);
+              const p3 = await call(inv);
+              report(3, p3);
+
+              if (p2.ok && p3.ok) {
+                console.log("PA1_DIAG02_CLASSIFICATION=ALL_EXACT_REQUEST_PROBES_PASS");
+              } else if (!p2.ok && !p3.ok) {
+                console.log("PA1_DIAG02_CLASSIFICATION=BOTH_EXACT_DD_SCHEMAS_REJECTED");
+              } else if (!p2.ok) {
+                console.log("PA1_DIAG02_CLASSIFICATION=PRESCRIPTION_SCHEMA_REJECTED");
+              } else {
+                console.log("PA1_DIAG02_CLASSIFICATION=INVESTIGATION_SCHEMA_REJECTED");
+              }
+            });
+          });
+          TS
+          npx vitest run .pa1-terra-diag02.test.ts --reporter=verbose
+
+      - name: Final workflow-only no-mutation proof
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE=86b90dfaee91c8abecbc6bfc608f8140c9844ac9
+          test ! -e .pa1-terra-diag02.test.ts
+          git diff --check
+          git diff --exit-code "$BASE" -- src supabase package.json package-lock.json
+          non_workflow=$(git diff --name-only "$BASE" HEAD | grep -v '^.github/workflows/' || true)
+          test -z "$non_workflow"
+          echo "PA1_TERRA_DIAG02_NO_APP_DB_AUTH_STORAGE_DELTA=PASS"
+          echo "PA1_TERRA_DIAG02_FINAL_SHA=$(git rev-parse HEAD)"
