@@ -403,7 +403,7 @@ describeDb("INV1-BF-01 disposable PostgreSQL authority", () => {
       const recent = (await sql.unsafe(
         "select * from public.recent_encounter_investigations(50)",
       )) as unknown as DbRow[];
-      expect(recent.some((row) => row.name === "CBC" && row.usage_count === 2)).toBe(true);
+      expect(recent.some((row) => row.name === "CBC" && Number(row.usage_count) === 2)).toBe(true);
       expect(recent.some((row) => row.name === "TSH")).toBe(false);
 
       // 14–17: patient history spans this Doctor's locations and cannot expose
