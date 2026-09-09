@@ -1,0 +1,63 @@
+name: SEC-01C DEP-01 Preflight
+
+on:
+  push:
+    branches:
+      - md/sec01c-dep01-preflight
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  classify:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - name: Install exact lockfile
+        run: npm ci --ignore-scripts
+      - name: Capture full and production audits
+        shell: bash
+        run: |
+          npm audit --json > /tmp/audit-full.json || true
+          npm audit --omit=dev --json > /tmp/audit-prod.json || true
+          node <<'NODE'
+          const fs = require('fs');
+          for (const [label, path] of [['FULL','/tmp/audit-full.json'],['PROD','/tmp/audit-prod.json']]) {
+            const a = JSON.parse(fs.readFileSync(path,'utf8'));
+            console.log(`SEC01C_DEP01_${label}_COUNTS=${JSON.stringify(a.metadata?.vulnerabilities ?? {})}`);
+            const vulns = a.vulnerabilities ?? {};
+            for (const name of Object.keys(vulns).sort()) {
+              const v = vulns[name];
+              const installed = (v.nodes ?? []).map(n => {
+                try { return require('./package-lock.json').packages[n]?.version ?? null; } catch { return null; }
+              }).filter(Boolean);
+              const advisories = (v.via ?? []).filter(x => typeof x === 'object').map(x => ({
+                source:x.source,name:x.name,dependency:x.dependency,title:x.title,url:x.url,severity:x.severity,cwe:x.cwe,cvss:x.cvss,range:x.range
+              }));
+              console.log(`SEC01C_DEP01_${label}_VULN=${JSON.stringify({name,severity:v.severity,isDirect:v.isDirect,range:v.range,nodes:v.nodes,installed:[...new Set(installed)],fixAvailable:v.fixAvailable,effects:v.effects,via:v.via,advisories})}`);
+            }
+          }
+          NODE
+      - name: Production dependency paths
+        shell: bash
+        run: |
+          node <<'NODE' > /tmp/prod-names.txt
+          const fs=require('fs');
+          const a=JSON.parse(fs.readFileSync('/tmp/audit-prod.json','utf8'));
+          for (const name of Object.keys(a.vulnerabilities ?? {}).sort()) console.log(name);
+          NODE
+          while IFS= read -r pkg; do
+            echo "===== NPM EXPLAIN $pkg ====="
+            npm explain "$pkg" || true
+            echo "===== NPM LS $pkg ====="
+            npm ls "$pkg" --omit=dev --all || true
+          done < /tmp/prod-names.txt
+      - name: Exact SHA proof
+        run: echo "SEC01C_DEP01_PREFLIGHT_SHA=$(git rev-parse HEAD)"
