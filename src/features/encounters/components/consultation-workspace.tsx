@@ -160,7 +160,7 @@ export function ConsultationWorkspace({
         />
       )}
 
-      <div className="sticky top-0 z-30 -mx-4 bg-background/72 px-4 pt-1 pb-3 backdrop-blur-md sm:-mx-6 sm:px-6">
+      <div className="sticky top-0 z-30 -mx-4 px-4 pt-1 pb-3 sm:-mx-6 sm:px-6">
         <ConsultationIdentity patient={consultation.patient} locationName={locationName} />
         {readOnly ? null : (
           <div className="mt-2 flex justify-end">
