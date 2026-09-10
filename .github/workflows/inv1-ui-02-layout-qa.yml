@@ -1,0 +1,98 @@
+name: INV1 UI 02 Layout QA
+
+on:
+  push:
+    branches:
+      - md2/inv1-ui-02-layout-fix
+
+permissions:
+  contents: read
+
+jobs:
+  qa:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      BASE_SHA: 8c1afab50f09f8e9f633c6bdbe19797246a6b1a0
+      OPENAI_API_KEY: ""
+      DEEPGRAM_API_KEY: ""
+      PA1_SYNTHETIC_AI_EVAL: disabled
+    steps:
+      - name: Checkout full history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Narrow layout scope guard
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git merge-base "$BASE_SHA" HEAD)" = "$BASE_SHA"
+          mapfile -t changed < <(git diff --name-only "$BASE_SHA"...HEAD | sort)
+          expected=(
+            '.github/workflows/inv1-ui-02-layout-qa.yml'
+            'src/features/encounters/components/consultation-workspace.tsx'
+          )
+          printf '%s\n' "${expected[@]}" | sort > /tmp/expected.txt
+          printf '%s\n' "${changed[@]}" > /tmp/changed.txt
+          diff -u /tmp/expected.txt /tmp/changed.txt
+          if git diff --name-only "$BASE_SHA"...HEAD | grep -E '(^|/)(supabase|db|migrations?|schema)(/|$)|\.sql$'; then
+            echo 'Unauthorized DB/schema delta detected.' >&2
+            exit 1
+          fi
+
+      - name: Layout contract guard
+        shell: bash
+        run: |
+          set -euo pipefail
+          node - <<'NODE'
+          const fs = require('node:fs');
+          const s = fs.readFileSync('src/features/encounters/components/consultation-workspace.tsx','utf8');
+          const expected = 'previousVisit ? " xl:grid-cols-[minmax(0,1fr)_340px] xl:items-start" : ""';
+          if (!s.includes(expected)) throw new Error('conditional desktop rail contract missing');
+          const panel = fs.readFileSync('src/features/encounters/components/investigation-panel.tsx','utf8');
+          if (!panel.includes('confirmInvestigationsAction')) throw new Error('Investigation workflow contract unexpectedly missing');
+          console.log('INV1_UI_02_LAYOUT_CONTRACT=PASS');
+          NODE
+
+      - name: Focused INV1 and responsive regression
+        run: >-
+          npx vitest run
+          src/features/encounters/investigation-v1-ui.test.ts
+          src/features/encounters/m2-responsive-widths.test.ts
+          src/features/encounters/m2-consultation-workspace.test.ts
+
+      - name: TypeScript
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Production build
+        run: npm run build
+
+      - name: Production dependency audit
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm audit --omit=dev --json > /tmp/audit.json || true
+          node - <<'NODE'
+          const r = require('/tmp/audit.json');
+          const v = r.metadata?.vulnerabilities ?? {};
+          console.log(JSON.stringify(v));
+          for (const level of ['moderate','high','critical']) {
+            if ((v[level] ?? 0) !== 0) process.exit(1);
+          }
+          NODE
+
+      - name: Diff whitespace check
+        run: git diff --check "$BASE_SHA"...HEAD
