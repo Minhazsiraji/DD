@@ -10,7 +10,7 @@
 html,
 body {
   min-height: 100%;
-  background-color: #eef3f8 !important;
+  background-color: #E5E8EC !important;
 }
 
 body {
@@ -29,7 +29,7 @@ body::before {
   z-index: 0;
   pointer-events: none;
   background-image:
-    linear-gradient(rgb(238 243 248 / 0.38), rgb(238 243 248 / 0.38)),
+    linear-gradient(rgb(229 232 236 / 0.44), rgb(229 232 236 / 0.44)),
     var(--dd-organ-bg);
   background-size: cover;
   background-position: center center;
