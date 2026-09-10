@@ -71,24 +71,36 @@ type PatientRow = {
 /**
  * Pilot dashboard reads only. No clinical mutation is exposed here.
  *
- * Encounters are protected by AAL2 + owner-doctor RLS. The explicit doctor and
- * location predicates are retained as query constraints, not as authority.
+ * Doctor authority is re-derived from current_doctor_id() inside this server
+ * read boundary. The expected Doctor from the already verified dashboard scope
+ * is only a fail-closed consistency assertion and is never used as authority.
+ * Encounters/patients remain protected by AAL2 + owner-doctor RLS, while
  * Prescription activity comes from the frozen doctor-owned
- * `prescriptions_for_doctor` RPC, which independently derives the Doctor.
+ * `prescriptions_for_doctor` RPC, which independently derives the Doctor too.
  */
 export async function getD1DashboardPilotData(
   locationId: string,
-  doctorId: string,
+  expectedDoctorId: string,
   limit = 6,
 ): Promise<D1DashboardPilotOutcome> {
   const supabase = await createSupabaseServerClient();
   const safeLimit = Math.max(1, Math.min(10, limit));
 
+  const doctorResult = await supabase.rpc("current_doctor_id");
+  const authoritativeDoctorId = doctorResult.error
+    ? null
+    : ((doctorResult.data as string | null) ?? null);
+
+  if (!authoritativeDoctorId || authoritativeDoctorId !== expectedDoctorId) {
+    console.error("[dashboard] D1 Doctor authority check failed");
+    return { ok: false, reason: "unavailable" };
+  }
+
   const [recentResult, openCountResult, prescriptionResult] = await Promise.all([
     supabase
       .from("encounters")
       .select("id, status, started_at, completed_at, patient_id")
-      .eq("owner_doctor_id", doctorId)
+      .eq("owner_doctor_id", authoritativeDoctorId)
       .eq("practice_location_id", locationId)
       .in("status", ["DRAFT", "COMPLETED"])
       .order("started_at", { ascending: false })
@@ -96,7 +108,7 @@ export async function getD1DashboardPilotData(
     supabase
       .from("encounters")
       .select("id", { count: "exact", head: true })
-      .eq("owner_doctor_id", doctorId)
+      .eq("owner_doctor_id", authoritativeDoctorId)
       .eq("practice_location_id", locationId)
       .eq("status", "DRAFT"),
     supabase.rpc("prescriptions_for_doctor", {
@@ -131,7 +143,7 @@ export async function getD1DashboardPilotData(
     const patientResult = await supabase
       .from("patients")
       .select("id, patient_number, full_name")
-      .eq("owner_doctor_id", doctorId)
+      .eq("owner_doctor_id", authoritativeDoctorId)
       .is("deleted_at", null)
       .in("id", patientIds);
 
