@@ -1,0 +1,101 @@
+name: DD Visual Personalization Exact Match QA
+
+on:
+  push:
+    branches:
+      - md2/dd-visual-personalization-01-r2-background-lock
+
+permissions:
+  contents: read
+
+env:
+  CORRECTION_BASE_SHA: eded838778b787278c80fd27821fdad7be9f303f
+  GLOBALS_BLOB: 9e5d07175e729f142b4cff5574ded5af5a61bdbf
+  ROOT_LAYOUT_BLOB: 7fca2775fc7980b4a29bea22b9130575acee1790
+  APP_LAYOUT_BLOB: 6cf0997c44cc0b1b2a2449d52329a78ea7bc7407
+  APPEARANCE_BLOB: ad08d01d82a0b689022d429ba287a09e015122d9
+  PREFERENCE_BLOB: 09eaed9f5c6410d2ebefdf4a7184b70a6f2cc3cc
+  SELECTED_BG_BLOB: e50c9e62d3340206d18724784a94a9a295c3851c
+  OPENAI_API_KEY: ""
+  DEEPGRAM_API_KEY: ""
+  PA1_SYNTHETIC_AI_EVAL: disabled
+
+jobs:
+  qa:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Exact background-only correction scope guard
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git merge-base "$CORRECTION_BASE_SHA" HEAD)" = "$CORRECTION_BASE_SHA"
+          changed="$(git diff --name-only "$CORRECTION_BASE_SHA"...HEAD)"
+          printf '%s\n' "$changed"
+          while IFS= read -r file; do
+            case "$file" in
+              .github/workflows/dd-visual-personalization-exact-match-qa.yml|\
+              src/features/settings/background-appearance.test.ts|\
+              src/features/settings/components/background-canvas.tsx|\
+              src/features/settings/components/locked-default-background.module.css)
+                ;;
+              *)
+                echo "Unexpected correction file: $file" >&2
+                exit 1
+                ;;
+            esac
+          done <<< "$changed"
+          test "$(git rev-parse HEAD:src/app/globals.css)" = "$GLOBALS_BLOB"
+          test "$(git rev-parse HEAD:src/app/layout.tsx)" = "$ROOT_LAYOUT_BLOB"
+          test "$(git rev-parse HEAD:src/app/\(app\)/layout.tsx)" = "$APP_LAYOUT_BLOB"
+          test "$(git rev-parse HEAD:src/features/settings/components/background-appearance.tsx)" = "$APPEARANCE_BLOB"
+          test "$(git rev-parse HEAD:src/features/settings/background-preference.ts)" = "$PREFERENCE_BLOB"
+          test "$(git rev-parse HEAD:public/dd-global-bg.webp)" = "$SELECTED_BG_BLOB"
+          if printf '%s\n' "$changed" | grep -E '(^|/)(supabase|migrations|policies)(/|$)|\.sql$'; then
+            echo "Protected DB/schema surface changed" >&2
+            exit 1
+          fi
+
+      - name: Install
+        run: npm ci
+
+      - name: Appearance exact-match focused tests
+        run: npx vitest run src/features/settings/background-appearance.test.ts
+
+      - name: Full repository tests
+        run: npm test
+
+      - name: Next type generation
+        run: npx next typegen
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Production dependency audit evidence
+        shell: bash
+        run: |
+          set +e
+          npm audit --omit=dev --audit-level=high
+          code=$?
+          set -e
+          if [ "$code" -ne 0 ]; then
+            echo "Audit findings are inherited from the correction base; no dependency file changed."
+          fi
+
+      - name: Production build
+        run: npm run build
+
+      - name: Diff check
+        run: git diff --check "$CORRECTION_BASE_SHA"...HEAD
