@@ -9,12 +9,15 @@ import {
   Search,
   TriangleAlert,
   CircleCheck,
+  Activity,
 } from "lucide-react";
 import { StatCard } from "@/components/common/stat-card";
 import { SectionCard, SectionHeader } from "@/components/common/section-card";
 import { EmptyState } from "@/components/common/empty-state";
 import { GlassCard } from "@/components/glass/glass-card";
 import { RecentPatients } from "@/features/dashboard/components/recent-patients";
+import { D1PilotActivity } from "@/features/dashboard/components/d1-pilot-activity";
+import { getD1DashboardPilotData, type D1DashboardPilotOutcome } from "@/features/dashboard/d1-queries";
 import { formatDate } from "@/lib/format";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { logPreviewElapsed, startPreviewTimer, timedPreviewStage } from "@/lib/preview-timing";
@@ -127,11 +130,21 @@ export default async function DashboardPage() {
     return { queue, doctorId, locationName: ctx.locationName };
   });
 
+  const pilotPromise: Promise<D1DashboardPilotOutcome> = basePromise.then(async ({ ctx, doctorId }) => {
+    if (!doctorId) return { ok: false, reason: "unavailable" };
+    return timedPreviewStage(
+      "m1-dashboard-timing",
+      "d1_pilot_activity",
+      getD1DashboardPilotData(ctx.locationId, doctorId, 6),
+    );
+  });
+
   void Promise.all([
     doctorNamePromise,
     statsPromise,
     recentPromise,
     workNowPromise,
+    pilotPromise,
     authorityPromise,
   ])
     .catch(() => undefined)
@@ -153,6 +166,10 @@ export default async function DashboardPage() {
         <div className="min-w-0 space-y-4 sm:space-y-5 xl:col-span-2">
           <Suspense fallback={<SectionLoading title="Work now" icon={<ListChecks className="size-4" />} />}>
             <DashboardWorkNow workNowPromise={workNowPromise} authorityPromise={authorityPromise} />
+          </Suspense>
+
+          <Suspense fallback={<SectionLoading title="Recent work" icon={<Activity className="size-4" />} />}>
+            <DashboardPilotActivity pilotPromise={pilotPromise} />
           </Suspense>
 
           <Suspense fallback={<SectionLoading title="Recent patients" icon={<Users className="size-4" />} />}>
@@ -196,26 +213,12 @@ async function DashboardStats({
   return (
     <div className="grid w-full min-w-0 grid-cols-1 gap-3 [&>*]:min-w-0 min-[480px]:grid-cols-2 sm:gap-4 lg:grid-cols-4">
       {patients.ok ? (
-        <StatCard
-          label="Patients"
-          value={patients.count}
-          icon={<Users className="size-5" />}
-          accent="brand"
-          hint="In your repository"
-          href="/patients"
-        />
+        <StatCard label="Patients" value={patients.count} icon={<Users className="size-5" />} accent="brand" hint="In your repository" href="/patients" />
       ) : (
         <UnavailableStat label="Patients" icon={<Users className="size-5" />} />
       )}
       {today.ok ? (
-        <StatCard
-          label="Seen today"
-          value={today.counts.completed}
-          icon={<CircleCheck className="size-5" />}
-          accent="success"
-          hint={today.counts.cancelled > 0 ? `${today.counts.cancelled} cancelled` : "Consultations finished"}
-          href="/appointments"
-        />
+        <StatCard label="Seen today" value={today.counts.completed} icon={<CircleCheck className="size-5" />} accent="success" hint={today.counts.cancelled > 0 ? `${today.counts.cancelled} cancelled` : "Consultations finished"} href="/appointments" />
       ) : (
         <UnavailableStat label="Seen today" icon={<CircleCheck className="size-5" />} />
       )}
@@ -225,31 +228,14 @@ async function DashboardStats({
           value={today.counts.total}
           icon={<CalendarDays className="size-5" />}
           accent="brand"
-          hint={
-            today.counts.online > 0
-              ? `${today.counts.online} online booking${today.counts.online === 1 ? "" : "s"}`
-              : today.counts.completed > 0
-                ? `${today.counts.completed} seen so far`
-                : "Booked here today"
-          }
+          hint={today.counts.online > 0 ? `${today.counts.online} online booking${today.counts.online === 1 ? "" : "s"}` : today.counts.completed > 0 ? `${today.counts.completed} seen so far` : "Booked here today"}
           href="/appointments"
         />
       ) : (
         <UnavailableStat label="Appointments" icon={<CalendarDays className="size-5" />} />
       )}
       {today.ok ? (
-        <StatCard
-          label="Waiting now"
-          value={today.counts.waiting}
-          icon={<ListChecks className="size-5" />}
-          accent={today.counts.waiting > 0 ? "warning" : "info"}
-          hint={
-            today.counts.inConsultation > 0
-              ? `${today.counts.inConsultation} with the doctor`
-              : "Checked in and waiting"
-          }
-          href="/appointments"
-        />
+        <StatCard label="Waiting now" value={today.counts.waiting} icon={<ListChecks className="size-5" />} accent={today.counts.waiting > 0 ? "warning" : "info"} hint={today.counts.inConsultation > 0 ? `${today.counts.inConsultation} with the doctor` : "Checked in and waiting"} href="/appointments" />
       ) : (
         <UnavailableStat label="Waiting now" icon={<ListChecks className="size-5" />} />
       )}
@@ -257,59 +243,24 @@ async function DashboardStats({
   );
 }
 
-async function DashboardWorkNow({
-  workNowPromise,
-  authorityPromise,
-}: {
-  workNowPromise: Promise<{ queue: QueueOutcome; doctorId: string | null; locationName: string }>;
-  authorityPromise: Promise<DoctorAuthority>;
-}) {
-  const [{ queue, doctorId, locationName }, authority] = await Promise.all([
-    workNowPromise,
-    authorityPromise,
-  ]);
-  const mine = queue.ok
-    ? queue.rows.filter((row) => !doctorId || row.ownerDoctorId === doctorId)
-    : [];
+async function DashboardWorkNow({ workNowPromise, authorityPromise }: { workNowPromise: Promise<{ queue: QueueOutcome; doctorId: string | null; locationName: string }>; authorityPromise: Promise<DoctorAuthority> }) {
+  const [{ queue, doctorId, locationName }, authority] = await Promise.all([workNowPromise, authorityPromise]);
+  const mine = queue.ok ? queue.rows.filter((row) => !doctorId || row.ownerDoctorId === doctorId) : [];
   const groups = groupQueue(mine);
-  return (
-    <WorkNow
-      current={groups.withDoctor[0] ?? null}
-      next={groups.waiting[0] ?? null}
-      failed={!queue.ok}
-      waitingCount={groups.waiting.length}
-      locationName={locationName}
-      canClinical={authority.canClinical}
-    />
-  );
+  return <WorkNow current={groups.withDoctor[0] ?? null} next={groups.waiting[0] ?? null} failed={!queue.ok} waitingCount={groups.waiting.length} locationName={locationName} canClinical={authority.canClinical} />;
 }
 
-async function DashboardRecentPatients({
-  recentPromise,
-}: {
-  recentPromise: Promise<{ recent: RecentOutcome; doctorId: string | null; locationName: string }>;
-}) {
+async function DashboardPilotActivity({ pilotPromise }: { pilotPromise: Promise<D1DashboardPilotOutcome> }) {
+  return <D1PilotActivity outcome={await pilotPromise} />;
+}
+
+async function DashboardRecentPatients({ recentPromise }: { recentPromise: Promise<{ recent: RecentOutcome; doctorId: string | null; locationName: string }> }) {
   const { recent, doctorId, locationName } = await recentPromise;
-  const patients = recent.ok
-    ? doctorId
-      ? recent.patients.filter((patient) => patient.ownerDoctorId === doctorId)
-      : recent.patients
-    : [];
+  const patients = recent.ok ? doctorId ? recent.patients.filter((patient) => patient.ownerDoctorId === doctorId) : recent.patients : [];
 
   if (patients.length > 0) {
     return (
-      <RecentPatients
-        patients={patients.map((patient) => ({
-          id: patient.id,
-          patientNumber: patient.patientNumber,
-          fullName: patient.fullName,
-          ageYears: patient.ageYears,
-          sex: patient.sex,
-          seenOn: patient.createdAt.slice(0, 10),
-          reason: "Registered",
-          locationName: patient.lastSeenLocation ?? locationName,
-        }))}
-      />
+      <RecentPatients patients={patients.map((patient) => ({ id: patient.id, patientNumber: patient.patientNumber, fullName: patient.fullName, ageYears: patient.ageYears, sex: patient.sex, seenOn: patient.createdAt.slice(0, 10), reason: "Registered", locationName: patient.lastSeenLocation ?? locationName }))} />
     );
   }
 
@@ -320,8 +271,7 @@ async function DashboardRecentPatients({
         <div className="p-4 sm:p-5">
           <p className="flex items-start gap-2 rounded-xl bg-warning-soft px-3 py-2.5 text-[13px] font-medium text-ink">
             <TriangleAlert className="mt-px size-4 shrink-0 text-[#8a3f07]" aria-hidden="true" />
-            Your patient list could not be loaded. This is not an empty repository — reload before
-            registering anyone new.
+            Your patient list could not be loaded. This is not an empty repository — reload before registering anyone new.
           </p>
         </div>
       </SectionCard>
@@ -335,15 +285,7 @@ async function DashboardRecentPatients({
         icon={<UserPlus className="size-5" />}
         title="No patients yet"
         description="Register your first patient to get started. They belong to you alone — no other doctor can see them."
-        action={
-          <Link
-            href="/patients/new"
-            className="inline-flex h-11 items-center gap-2 rounded-xl bg-brand px-4 text-sm font-semibold text-white shadow-soft transition-colors hover:bg-brand-hover focus-visible:focus-ring"
-          >
-            <UserPlus className="size-4" aria-hidden="true" />
-            Register a patient
-          </Link>
-        }
+        action={<Link href="/patients/new" className="inline-flex h-11 items-center gap-2 rounded-xl bg-brand px-4 text-sm font-semibold text-white shadow-soft transition-colors hover:bg-brand-hover focus-visible:focus-ring"><UserPlus className="size-4" aria-hidden="true" />Register a patient</Link>}
       />
     </SectionCard>
   );
@@ -366,29 +308,17 @@ function QuickActions() {
 }
 
 function QuickAction({ href, icon, label }: { href: string; icon: React.ReactNode; label: string }) {
-  return (
-    <Link
-      href={href}
-      className="dd-quick-row dd-quick-control flex min-h-11 items-center gap-2.5 rounded-xl px-3 text-sm font-semibold focus-visible:focus-ring"
-    >
-      {icon}
-      {label}
-    </Link>
-  );
+  return <Link href={href} className="dd-quick-row dd-quick-control flex min-h-11 items-center gap-2.5 rounded-xl px-3 text-sm font-semibold focus-visible:focus-ring">{icon}{label}</Link>;
 }
 
 function DashboardHeaderFallback() {
-  return (
-    <div className="h-12 w-full animate-pulse rounded-xl bg-white/30" aria-label="Loading dashboard heading" />
-  );
+  return <div className="h-12 w-full animate-pulse rounded-xl bg-white/30" aria-label="Loading dashboard heading" />;
 }
 
 function DashboardStatsFallback() {
   return (
     <div className="grid w-full min-w-0 grid-cols-1 gap-3 min-[480px]:grid-cols-2 sm:gap-4 lg:grid-cols-4" aria-label="Loading dashboard statistics">
-      {Array.from({ length: 4 }, (_, index) => (
-        <GlassCard key={index} className="h-[150px] animate-pulse p-5" />
-      ))}
+      {Array.from({ length: 4 }, (_, index) => <GlassCard key={index} className="h-[150px] animate-pulse p-5" />)}
     </div>
   );
 }
@@ -397,9 +327,7 @@ function SectionLoading({ title, icon }: { title: string; icon: React.ReactNode 
   return (
     <SectionCard className="overflow-hidden">
       <SectionHeader title={title} icon={icon} />
-      <div className="p-4 sm:p-5">
-        <div className="h-16 animate-pulse rounded-xl bg-white/30" aria-label={`Loading ${title}`} />
-      </div>
+      <div className="p-4 sm:p-5"><div className="h-16 animate-pulse rounded-xl bg-white/30" aria-label={`Loading ${title}`} /></div>
     </SectionCard>
   );
 }
@@ -408,20 +336,13 @@ function UnavailableStat({ label, icon }: { label: string; icon: React.ReactNode
   return (
     <GlassCard className="p-5">
       <div className="flex items-start justify-between gap-3">
-        <span
-          className="flex size-12 shrink-0 items-center justify-center rounded-full bg-warning-soft text-[#8a3f07]"
-          aria-hidden="true"
-        >
-          {icon}
-        </span>
+        <span className="flex size-12 shrink-0 items-center justify-center rounded-full bg-warning-soft text-[#8a3f07]" aria-hidden="true">{icon}</span>
         <TriangleAlert className="size-6 text-[#8a3f07]" aria-hidden="true" />
       </div>
       <div className="mt-4">
         <p className="text-sm font-semibold text-ink-secondary">{label}</p>
         <p className="mt-0.5 text-xs font-medium text-[#8a3f07]">Temporarily unavailable</p>
-        <p className="mt-0.5 text-xs text-ink-muted">
-          This is not an empty schedule — reload before relying on it.
-        </p>
+        <p className="mt-0.5 text-xs text-ink-muted">This is not an empty schedule — reload before relying on it.</p>
       </div>
     </GlassCard>
   );
