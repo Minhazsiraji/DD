@@ -1,0 +1,44 @@
+.defaultLayer {
+  position: fixed;
+  inset: -18px;
+  z-index: -1;
+  pointer-events: none;
+  background-image:
+    linear-gradient(rgb(246 243 250 / 0.28), rgb(246 243 250 / 0.28)),
+    url("/dd-global-bg.webp");
+  background-size: cover;
+  background-position: center center;
+  background-repeat: no-repeat;
+  filter: blur(8px);
+  transform: scale(1.02);
+  transform-origin: center;
+}
+
+/* The Appearance card previews the exact same selected default canvas. */
+:global([data-dd-main-default-preview="true"]) {
+  background-color: #e8e3ee !important;
+  background-image:
+    linear-gradient(rgb(246 243 250 / 0.28), rgb(246 243 250 / 0.28)),
+    url("/dd-global-bg.webp") !important;
+  background-size: cover;
+  background-position: center center;
+  background-repeat: no-repeat;
+  filter: blur(8px);
+  transform: scale(1.02);
+  transform-origin: center;
+}
+
+@media (max-width: 767px) {
+  .defaultLayer,
+  :global([data-dd-main-default-preview="true"]) {
+    background-position: center top;
+    filter: blur(7px);
+    transform: scale(1.035);
+  }
+}
+
+@media print {
+  .defaultLayer {
+    display: none !important;
+  }
+}
