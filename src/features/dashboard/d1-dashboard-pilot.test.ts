@@ -33,10 +33,23 @@ describe("D1 Doctor Dashboard pilot delta", () => {
     expect(source).toContain('row.status === "FINALIZED"');
   });
 
-  it("keeps quick Prescription and Investigation navigation encounter-contextual", () => {
+  it("caps initial Recent Work density and exposes native View all expansion", () => {
     const source = read("src/features/dashboard/components/d1-pilot-activity.tsx");
-    expect(source).toContain("Prescription via consultation");
-    expect(source).toContain("Investigation via consultation");
+    expect(source).toContain("const PENDING_VISIBLE_LIMIT = 3");
+    expect(source).toContain("const RECENT_CONSULTATION_VISIBLE_LIMIT = 4");
+    expect(source).toContain("const FINALIZED_RX_VISIBLE_LIMIT = 3");
+    expect(source).toContain("<details");
+    expect(source).toContain("<summary");
+    expect(source).toContain("View all {label}");
+    expect(source).toContain("{pendingCount} actionable");
+  });
+
+  it("keeps quick Prescription and Investigation navigation encounter-contextual with concise labels", () => {
+    const source = read("src/features/dashboard/components/d1-pilot-activity.tsx");
+    expect(source).toContain("Prescription");
+    expect(source).toContain("Investigation");
+    expect(source).not.toContain("Prescription via consultation");
+    expect(source).not.toContain("Investigation via consultation");
     expect(source).toContain("`/consultation/${row.encounterId}`");
     expect(source).not.toMatch(/prescription\/new|investigation\/new|patientless/i);
   });
@@ -62,13 +75,14 @@ describe("D1 Doctor Dashboard pilot delta", () => {
     expect(source).toContain("<StartConsultation");
   });
 
-  it("keeps a coherent 360px mobile flow with touch-safe contextual controls", () => {
+  it("keeps a coherent 360px mobile flow with touch-safe contextual and expansion controls", () => {
     const page = read("src/app/(app)/dashboard/page.tsx");
     const activity = read("src/features/dashboard/components/d1-pilot-activity.tsx");
     expect(page).toContain("w-full min-w-0 space-y-4");
     expect(activity).toContain("min-h-11");
     expect(activity).toContain("flex-wrap");
     expect(activity).toContain("grid-cols-1");
+    expect(activity).toContain("cursor-pointer");
     expect(activity).not.toMatch(/w-\[(?:[4-9]\d\d|\d{4,})px\]/);
   });
 
@@ -78,12 +92,13 @@ describe("D1 Doctor Dashboard pilot delta", () => {
     expect(page).not.toMatch(/md:grid-cols-3|lg:grid-cols-3/);
   });
 
-  it("preserves the existing 1440px desktop overview composition", () => {
+  it("preserves the existing 1440px desktop overview composition without equal-height forcing", () => {
     const page = read("src/app/(app)/dashboard/page.tsx");
     expect(page).toContain("xl:grid-cols-3");
     expect(page).toContain("xl:col-span-2");
     expect(page).toContain("<QuickActions />");
     expect(page).toContain("<DashboardPilotActivity");
+    expect(page).not.toMatch(/items-stretch|h-full/);
   });
 
   it("keeps frozen M3 and Investigation anchors byte-identical", () => {
