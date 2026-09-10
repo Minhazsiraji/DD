@@ -1,6 +1,5 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
-import styles from "./reference-background-exposure.module.css";
 
 const nav = [
   ["Features", "/features"],
@@ -12,8 +11,8 @@ const nav = [
 
 export function MarketingShell({ children }: { children: ReactNode }) {
   return (
-    <div className={`${styles.stage} min-h-screen bg-[#f6f9ff] text-slate-950`}>
-      <header className={`${styles.chrome} sticky top-0 z-40 border-b border-slate-200/80 bg-white/90 backdrop-blur`}>
+    <div className="dd-bg-exposure-stage min-h-screen bg-[#f6f9ff] text-slate-950">
+      <header className="dd-bg-exposure-chrome sticky top-0 z-40 border-b border-slate-200/80 bg-white/90 backdrop-blur">
         <div className="mx-auto flex max-w-7xl items-center justify-between gap-6 px-5 py-4 lg:px-8">
           <Link href="/" className="flex items-center gap-3 font-semibold tracking-tight">
             <span className="grid size-10 place-items-center rounded-2xl bg-teal-600 text-lg text-white shadow-sm">✚</span>
@@ -34,7 +33,7 @@ export function MarketingShell({ children }: { children: ReactNode }) {
         </div>
       </header>
       <main>{children}</main>
-      <footer className={`${styles.panel} border-t border-slate-200 bg-white`}>
+      <footer className="dd-bg-exposure-panel border-t border-slate-200 bg-white">
         <div className="mx-auto grid max-w-7xl gap-8 px-5 py-10 text-sm text-slate-600 md:grid-cols-[1.5fr_1fr_1fr] lg:px-8">
           <div>
             <p className="font-semibold text-slate-950">Doctor&apos;s Diary</p>
