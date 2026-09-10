@@ -44,6 +44,37 @@ describe("D1 Doctor Dashboard pilot delta", () => {
     expect(source).toContain("`/prescription/${row.prescriptionId}`");
   });
 
+  it("makes the existing queue path explicit for start or resume without a new workflow", () => {
+    const source = read("src/features/dashboard/components/work-now.tsx");
+    expect(source).toContain("Resume the patient already with you");
+    expect(source).toContain("start the next waiting patient");
+    expect(source).toContain("<OpenConsultation");
+    expect(source).toContain("<StartConsultation");
+  });
+
+  it("keeps a coherent 360px mobile flow with touch-safe contextual controls", () => {
+    const page = read("src/app/(app)/dashboard/page.tsx");
+    const activity = read("src/features/dashboard/components/d1-pilot-activity.tsx");
+    expect(page).toContain("w-full min-w-0 space-y-4");
+    expect(activity).toContain("min-h-11");
+    expect(activity).toContain("flex-wrap");
+    expect(activity).not.toMatch(/w-\[(?:[4-9]\d\d|\d{4,})px\]/);
+  });
+
+  it("keeps the 820px tablet flow single-column until the existing XL breakpoint", () => {
+    const page = read("src/app/(app)/dashboard/page.tsx");
+    expect(page).toContain("xl:grid-cols-3");
+    expect(page).not.toMatch(/md:grid-cols-3|lg:grid-cols-3/);
+  });
+
+  it("preserves the existing 1440px desktop overview composition", () => {
+    const page = read("src/app/(app)/dashboard/page.tsx");
+    expect(page).toContain("xl:grid-cols-3");
+    expect(page).toContain("xl:col-span-2");
+    expect(page).toContain("<QuickActions />");
+    expect(page).toContain("<DashboardPilotActivity");
+  });
+
   it("keeps frozen M3 and Investigation anchors byte-identical", () => {
     expect(gitBlobSha("supabase/policies/0046_investigation_v1_foundation.sql")).toBe("5e105f3015f1251279e3ba94b5c3b745998b8e22");
     expect(gitBlobSha("supabase/policies/0042_m3_prescription_reuse.sql")).toBe("f0d61c8ba472a57513eb0065a294a2ff65a09b69");
