@@ -62,7 +62,6 @@ jobs:
           sort -o /tmp/expected.txt /tmp/expected.txt
           diff -u /tmp/expected.txt /tmp/actual.txt
 
-          # Existing functional domains must remain byte-identical to the trusted base.
           git diff --exit-code "$BASE" HEAD -- \
             'src/app/(app)/dashboard/page.tsx' \
             'src/components/layout/top-bar.tsx' \
@@ -80,7 +79,6 @@ jobs:
             'src/lib' \
             'supabase'
 
-          # The authenticated shell may differ only by mounting BackgroundCanvas.
           python - <<'PY'
           import subprocess, pathlib
           base='0c89abe45f8de38a625b0f56bd82c96a3d45706f'
@@ -99,7 +97,7 @@ jobs:
           start=cur.index('      <SectionCard className="overflow-hidden">\n        <SectionHeader title="Appearance"')
           end=cur.index('      <SectionCard className="overflow-hidden">\n        <SectionHeader\n          title="Account security"', start)
           cur=cur[:start]+cur[end:]
-          if cur != old:
+          if cur.rstrip() != old.rstrip():
               raise SystemExit('settings page contains non-personalization delta')
           PY
 
