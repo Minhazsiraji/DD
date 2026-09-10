@@ -18,7 +18,6 @@ import { confirmInvestigationsAction, type InvestigationConfirmationResult } fro
 import {
   INVESTIGATION_V1_MAX_NAME,
   INVESTIGATION_V1_MAX_NOTE,
-  type StagedInvestigation,
 } from "../investigation-v1-contract";
 import {
   loadPatientInvestigationHistoryAction,
@@ -121,28 +120,23 @@ export function InvestigationPanel({
   const [history, setHistory] = React.useState<PatientInvestigationHistoryRow[]>([]);
   const [historyState, setHistoryState] = React.useState<ReadState>("loading");
   const [historyError, setHistoryError] = React.useState<string | null>(null);
+  const [historyPatientId, setHistoryPatientId] = React.useState<string | null>(null);
   const [historyOpen, setHistoryOpen] = React.useState(false);
   const [confirmationTone, setConfirmationTone] = React.useState<ConfirmationTone>("idle");
   const [confirmationMessage, setConfirmationMessage] = React.useState<string | null>(null);
 
   React.useEffect(() => {
+    if (readOnly) return;
     let live = true;
-    if (readOnly) {
-      setRecentState("ready");
-      setRecent([]);
-      return () => {
-        live = false;
-      };
-    }
 
-    setRecentState("loading");
-    setRecentError(null);
     void loadRecentInvestigationsAction().then((result) => {
       if (!live) return;
       if (result.ok) {
         setRecent(result.rows);
+        setRecentError(null);
         setRecentState("ready");
       } else {
+        setRecent([]);
         setRecentError(result.message);
         setRecentState("unavailable");
       }
@@ -155,14 +149,15 @@ export function InvestigationPanel({
 
   React.useEffect(() => {
     let live = true;
-    setHistoryState("loading");
-    setHistoryError(null);
     void loadPatientInvestigationHistoryAction(patientId).then((result) => {
       if (!live) return;
+      setHistoryPatientId(patientId);
       if (result.ok) {
         setHistory(result.rows);
+        setHistoryError(null);
         setHistoryState("ready");
       } else {
+        setHistory([]);
         setHistoryError(result.message);
         setHistoryState("unavailable");
       }
@@ -181,10 +176,15 @@ export function InvestigationPanel({
   const interactionLocked = readOnly || blocked || unknown !== null;
   const canConfirm =
     !interactionLocked && !busy && stagingIsConfirmable(staged);
+  const historyIsCurrent = historyPatientId === patientId;
+  const visibleHistory = historyIsCurrent ? history : [];
+  const visibleHistoryState: ReadState = historyIsCurrent ? historyState : "loading";
+  const visibleHistoryError = historyIsCurrent ? historyError : null;
 
-  React.useEffect(() => {
+  function updateSearchText(value: string) {
+    setSearchText(value);
     setHighlighted(0);
-  }, [searchText]);
+  }
 
   function stage(name: string, note: string | null = null) {
     if (interactionLocked) return;
@@ -228,13 +228,13 @@ export function InvestigationPanel({
     const choice = searchChoices[index];
     if (choice) {
       stage(choice.name);
-      setSearchText("");
+      updateSearchText("");
       searchInputRef.current?.focus();
       return;
     }
     if (customAvailable) {
       stage(searchText);
-      setSearchText("");
+      updateSearchText("");
       searchInputRef.current?.focus();
     }
   }
@@ -250,7 +250,7 @@ export function InvestigationPanel({
       event.preventDefault();
       addFromSearch(searchChoices.length > 0 ? highlighted : -1);
     } else if (event.key === "Escape") {
-      setSearchText("");
+      updateSearchText("");
     }
   }
 
@@ -428,7 +428,7 @@ export function InvestigationPanel({
                   value={searchText}
                   maxLength={INVESTIGATION_V1_MAX_NAME}
                   disabled={interactionLocked}
-                  onChange={(event) => setSearchText(event.target.value)}
+                  onChange={(event) => updateSearchText(event.target.value)}
                   onKeyDown={handleSearchKeyDown}
                   placeholder="e.g. CBC or D-dimer"
                   autoComplete="off"
@@ -454,7 +454,7 @@ export function InvestigationPanel({
                       onMouseEnter={() => setHighlighted(index)}
                       onClick={() => {
                         stage(choice.name);
-                        setSearchText("");
+                        updateSearchText("");
                         searchInputRef.current?.focus();
                       }}
                       disabled={interactionLocked}
@@ -476,7 +476,7 @@ export function InvestigationPanel({
                       aria-selected={searchChoices.length === 0}
                       onClick={() => {
                         stage(searchText);
-                        setSearchText("");
+                        updateSearchText("");
                         searchInputRef.current?.focus();
                       }}
                       disabled={interactionLocked}
@@ -740,15 +740,15 @@ export function InvestigationPanel({
 
           {historyOpen ? (
             <div id="previous-investigation-history" className="mt-2 min-w-0">
-              {historyState === "loading" ? (
+              {visibleHistoryState === "loading" ? (
                 <p role="status" className="text-[12px] text-ink-muted">Loading previous Investigation history…</p>
-              ) : historyState === "unavailable" ? (
-                <p role="status" className="text-[12px] text-ink-muted">{historyError}</p>
-              ) : history.length === 0 ? (
+              ) : visibleHistoryState === "unavailable" ? (
+                <p role="status" className="text-[12px] text-ink-muted">{visibleHistoryError}</p>
+              ) : visibleHistory.length === 0 ? (
                 <p className="text-[12px] text-ink-muted">No prior Investigation orders found for this patient.</p>
               ) : (
                 <ol className="space-y-2">
-                  {history.map((row) => (
+                  {visibleHistory.map((row) => (
                     <li key={row.investigationId} className="dd-material-record dd-record-pearl min-w-0 rounded-xl px-3 py-2.5">
                       <p className="break-words text-[13px] font-semibold text-ink">{row.investigationName}</p>
                       {row.note ? <p className="mt-0.5 whitespace-pre-wrap break-words text-[12px] text-ink-secondary">{row.note}</p> : null}
