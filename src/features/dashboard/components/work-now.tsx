@@ -42,7 +42,6 @@ export function WorkNow({
         action={
           <Link
             href="/queue"
-            // min-h-11: a header shortcut is still a touch target.
             className="inline-flex min-h-11 items-center gap-1 rounded-lg px-2 text-[13px] font-semibold text-brand hover:underline focus-visible:focus-ring"
           >
             Live queue
@@ -52,6 +51,12 @@ export function WorkNow({
       />
 
       <div className="space-y-3 p-4 sm:p-5">
+        {!failed && (current || next) ? (
+          <p className="text-[13px] text-ink-secondary">
+            Resume the patient already with you, or start the next waiting patient from this panel.
+          </p>
+        ) : null}
+
         {failed ? (
           <p className="flex items-start gap-2 rounded-xl bg-danger-soft px-3 py-2.5 text-[13px] font-medium text-[#a81c1c]">
             <CircleAlert className="mt-px size-4 shrink-0" aria-hidden="true" />
@@ -139,11 +144,6 @@ function Row({
       </p>
 
       <div className="mt-1.5 flex flex-wrap items-baseline gap-x-2 gap-y-1">
-        {/*
-          The token is the LOCATION's serial for the day, shared with every
-          other doctor here — labelled so nobody reads "#3" as "your third
-          patient" and calls the wrong person in.
-        */}
         <span className="inline-flex items-baseline gap-1 rounded-lg bg-white px-2 py-0.5 text-sm font-bold tabular-nums text-brand ring-1 ring-inset ring-hairline">
           #{row.tokenNumber ?? "—"}
           <span className="text-[10px] font-medium uppercase tracking-wide text-ink-muted">
