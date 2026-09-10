@@ -9,8 +9,10 @@ printed.
 | `repo-health.mjs`    | CAE-01 | one-shot repository-health snapshot (git / frozen / workflows / tests) |
 | `offline-verify.mjs` | CAE-02 | run the standard safe/offline quality gate sequence |
 | `workflow-policy.mjs` | CAE-04 | static GitHub Actions governance guard with a tamper-evident grandfather baseline |
+| `build-size.mjs` | CAE-05 | measure `.next` build / route size and detect meaningful future growth |
 | `frozen-manifest.json` | CAE-01 | pinned frozen blob hashes + expected `main` SHA |
 | `workflow-policy-baseline.json` | CAE-04 | **CENTRAL-owned** list of grandfathered workflow exceptions (KNOWN DEBT) |
+| `build-size-baseline.json` | CAE-05 | **CENTRAL-owned** recorded build-size metrics + thresholds (fingerprinted) |
 
 ---
 
@@ -318,3 +320,114 @@ configured, and never by executing anything.
 `RUN_AUTHORIZED_LIVE_EVAL` confirmation guard** → no violation, not baselined.
 Remediation recommendations for the four above are in
 [`../../docs/engineering/repository-health-baseline.md`](../../docs/engineering/repository-health-baseline.md).
+
+---
+
+# build-size.mjs
+
+Offline build / route **size regression baseline** (CAE-05). MEASURE → RECORD →
+COMPARE → REPORT. It reads `.next/**` after a successful `npm run build` and
+reports deterministic size + route metrics, and — with a baseline present —
+diffs them under conservative engineering thresholds. It never modifies product
+code, optimises anything, scrapes a CDN, or calls a network / provider /
+database / Vercel endpoint, and never reads secrets.
+
+```
+node tools/repo-health/build-size.mjs            # measure + compare (if baseline present)
+node tools/repo-health/build-size.mjs --compare  # measure + compare + apply thresholds
+node tools/repo-health/build-size.mjs --json
+node tools/repo-health/build-size.mjs --self-test
+node tools/repo-health/build-size.mjs --write-baseline --confirm-central
+```
+
+Needs a prior `npm run build`. **Build it with the canonical `NEXT_PUBLIC_*`
+values** (recorded in `build-size-baseline.json` → `buildEnvironment`, identical
+to `offline-verify.mjs`): Next inlines `process.env.NEXT_PUBLIC_*` into the
+client bundle, so a different-length placeholder shifts `js.rawBytes` by a few
+bytes.
+
+## Metrics (canonical — raw bytes, fingerprinted, gated)
+
+`static.rawBytes` / `js.rawBytes` / `css.rawBytes` / `media.rawBytes` (+ file
+counts) — sums over `.next/static/**`, **source maps excluded**; `largestJsBytes`
+/ `largestCssBytes` — size of the single largest `.js` / `.css` asset (filenames
+are content-hashed → compared by size, never by name); `routes` / `routeCount` —
+sorted union of `routes-manifest.json` `staticRoutes[].page` + `dynamicRoutes[].page`.
+
+**Informational (not fingerprinted, not gated):** `gzip.jsBytes` / `gzip.cssBytes`
+(Node `zlib.gzipSync` per file, summed — **not** the CDN transfer size),
+`serverBuildRawBytes` (`.next/server/**` — not browser-shipped, determinism not
+gate-validated), `sourceMapBytes`, `largestAssets[]` (name + size), and
+`perRouteJsBytes` which is **`UNAVAILABLE`** — this Next 16 Turbopack build emits
+no `app-build-manifest.json`, so route→chunk byte attribution is not
+deterministically available; the tool labels it rather than estimating.
+
+## Determinism
+
+Four+ clean rebuilds of the same product tree with the same env gave
+byte-identical `static` / `js` / `css` / `media` / `largestJsBytes` and a
+byte-identical route manifest, **except** a handful of bytes (`0–~15 B`) of
+Turbopack jitter in `js.rawBytes`. That is ~0.001 % of the ~1.8 MB JS aggregate
+and is absorbed by the KB-scale thresholds below (it never trips a warning).
+Chunk *filenames* are content-hashed and some are not stable build-to-build,
+which is why nothing is compared by filename.
+
+## Thresholds & rationale
+
+Validated against the real DD build (JS aggregate ≈ 1.79 MB, largest chunk
+≈ 277 KB, CSS ≈ 128 KB). Every change is reported; a **WARN** needs **both** the
+absolute **and** the percentage bound crossed, so incidental drift stays quiet:
+
+| metric | WARN when | HARD FAIL when |
+| ------ | --------- | -------------- |
+| JS aggregate (`js.rawBytes`) | `> +100 KB` **and** `> +10 %` | `> +500 KB` **and** `> +25 %` |
+| largest JS chunk (`largestJsBytes`) | `> +75 KB` **and** `> +15 %` | — |
+| CSS aggregate (`css.rawBytes`) | `> +25 KB` **and** `> +15 %` | — |
+| static aggregate (`static.rawBytes`) | — | `> +750 KB` **and** `> +25 %` |
+| baseline integrity | — | missing / malformed / schema mismatch / fingerprint mismatch |
+
+Route additions / removals are **reported, never a WARN or FAIL** — this is
+observability, not product governance.
+
+## Baseline & fingerprint
+
+`build-size-baseline.json` (CENTRAL-owned): `schemaVersion`, `recordedAt`,
+`recordedFromCommit`, `productTreeNote`, `toolchain`, `buildEnvironment`,
+`measurementDefinitions`, `thresholds`, `metrics`, `fingerprint`. The
+`fingerprint` is `sha256` over a stable (recursively key-sorted) serialisation
+of `metrics`. `loadBaseline` **fails closed** (exit 1) on a missing file, bad
+JSON, wrong `schemaVersion`, missing `metrics`, a non-sha256 `fingerprint`, or a
+`fingerprint` that does not match a recompute of `metrics` (i.e. someone edited
+the numbers by hand). No secrets, local paths, or machine identifiers go into
+it.
+
+`--write-baseline` refuses without `--confirm-central`. **Updating the accepted
+baseline is a CENTRAL decision** — it must be reviewed against the product
+change that moved the numbers, and the rebuild must use the canonical
+`buildEnvironment`.
+
+## Exit codes
+
+| code | meaning |
+| ---- | ------- |
+| `0`  | measurement complete; **no hard regression** (warnings do **not** fail) |
+| `1`  | tool / pre-flight / baseline / build-output error — fail closed (`--compare` with no valid baseline, no `.next/static`, etc.) |
+| `2`  | hard size regression detected |
+
+## `--self-test`
+
+15 assertions, synthetic metric objects + temp baseline files (real `.next`
+untouched): identical → clean; small growth → report only; WARN threshold →
+WARN + exit 0; HARD threshold → FAIL + exit 2; baseline missing / malformed /
+no-metrics / fingerprint-mismatch → fail closed; correctly-fingerprinted
+baseline loads; new route → `routeAdditions`; removed route → `routeRemovals`;
+route change alone → no warn/fail; gzip fields separate + labelled and never
+used by the comparison; per-route JS attribution explicit `UNAVAILABLE`; no
+secret / env / personal-path values in output JSON.
+
+## Not wired into `offline-verify.mjs` (yet)
+
+CAE-05 ships `build-size.mjs` as a **standalone** tool. It is not a gate in the
+authoritative offline verifier. Maturity assessment + an integration proposal
+are in the CAE-05 return report and
+[`../../docs/engineering/repository-health-baseline.md`](../../docs/engineering/repository-health-baseline.md) §10.

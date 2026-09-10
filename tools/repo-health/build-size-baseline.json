@@ -1,0 +1,149 @@
+{
+  "$comment": [
+    "CENTRAL-owned build-size regression baseline for tools/repo-health/build-size.mjs.",
+    "Regenerate only when CENTRAL has reviewed the product change that moved these",
+    "numbers. `metrics` is fingerprinted (sha256 over a stable serialisation); editing",
+    "it without re-running --write-baseline makes the tool fail closed."
+  ],
+  "schemaVersion": 1,
+  "recordedAt": "2026-09-10",
+  "recordedFromCommit": "fce4fe735b4ad249ba1c183adab087d25b524721",
+  "productTreeNote": "CAE-05 commits touch only tools/repo-health/** and docs/engineering/**. src/**, supabase/**, db/**, package.json, package-lock.json, next.config.ts, tsconfig.json, postcss.config.mjs are byte-identical to fce4fe735b4ad249ba1c183adab087d25b524721 (accepted CAE-04), so the build output measured here is that product tree's.",
+  "toolchain": {
+    "node": "v22.16.0",
+    "next": "16.3.4"
+  },
+  "buildEnvironment": {
+    "NEXT_PUBLIC_SUPABASE_URL": "https://offline-verify.invalid.supabase.co",
+    "NEXT_PUBLIC_SUPABASE_ANON_KEY": "offline_verify_placeholder_anon_key_000000000000",
+    "NEXT_PUBLIC_SITE_URL": "http://localhost:3000",
+    "PA1_SYNTHETIC_AI_EVAL": "disabled",
+    "AI_MODE": "mock",
+    "NOTIFICATION_MODE": "mock",
+    "PAYMENT_MODE": "mock"
+  },
+  "measurementDefinitions": {
+    "static.rawBytes": "sum of raw bytes of every file under .next/static/** except source maps (.map)",
+    "js.rawBytes": "sum of raw bytes of .js/.mjs files under .next/static/**",
+    "css.rawBytes": "sum of raw bytes of .css files under .next/static/**",
+    "media.rawBytes": "sum of raw bytes of all other .next/static/** files (fonts, images, etc.)",
+    "largestJsBytes": "size of the single largest .js file under .next/static/** (filenames are content-hashed; compared by size)",
+    "largestCssBytes": "size of the single largest .css file under .next/static/**",
+    "routes": "sorted union of routes-manifest.json staticRoutes[].page + dynamicRoutes[].page",
+    "informational.gzip": "Node zlib.gzipSync per file, summed — NOT the CDN transfer size, NOT part of the gate",
+    "informational.perRouteJsBytes": "UNAVAILABLE — this Turbopack build emits no app-build-manifest.json",
+    "informational.serverBuildRawBytes": "bytes under .next/server/** — not browser-shipped, determinism not gate-validated"
+  },
+  "thresholds": {
+    "warn": {
+      "jsAggregate": {
+        "absBytes": 102400,
+        "pct": 10
+      },
+      "largestJsChunk": {
+        "absBytes": 76800,
+        "pct": 15
+      },
+      "cssAggregate": {
+        "absBytes": 25600,
+        "pct": 15
+      }
+    },
+    "hardFail": {
+      "jsAggregate": {
+        "absBytes": 512000,
+        "pct": 25
+      },
+      "staticAggregate": {
+        "absBytes": 768000,
+        "pct": 25
+      }
+    }
+  },
+  "metrics": {
+    "static": {
+      "rawBytes": 2183400,
+      "fileCount": 57
+    },
+    "js": {
+      "rawBytes": 1879795,
+      "fileCount": 42
+    },
+    "css": {
+      "rawBytes": 131210,
+      "fileCount": 3
+    },
+    "media": {
+      "rawBytes": 172395,
+      "fileCount": 12
+    },
+    "largestJsBytes": 283666,
+    "largestCssBytes": 104571,
+    "routeCount": 62,
+    "routes": [
+      "/",
+      "/_global-error",
+      "/_not-found",
+      "/api/health",
+      "/api/m3-signed-medicine-history",
+      "/api/medicine-suggestions",
+      "/api/prescription-print-history",
+      "/api/prescription-reuse",
+      "/api/voice/token",
+      "/appointments",
+      "/assistant",
+      "/auth/callback",
+      "/consultation/[encounterId]",
+      "/contact",
+      "/dashboard",
+      "/dev/print-harness",
+      "/documents",
+      "/dr/[slug]",
+      "/dr/[slug]/book",
+      "/dr/[slug]/book/confirmed",
+      "/faq",
+      "/favicon.ico",
+      "/features",
+      "/followups",
+      "/forgot-password",
+      "/handover",
+      "/how-it-works",
+      "/login",
+      "/manifest.webmanifest",
+      "/medicines",
+      "/mfa",
+      "/mfa/enroll",
+      "/more",
+      "/onboarding",
+      "/owner",
+      "/owner/claims",
+      "/owner/payments",
+      "/patients",
+      "/patients/[id]",
+      "/patients/[id]/edit",
+      "/patients/new",
+      "/payments",
+      "/prescription/[prescriptionId]",
+      "/prescription/[prescriptionId]/review",
+      "/pricing",
+      "/queue",
+      "/reports",
+      "/reset-password",
+      "/robots.txt",
+      "/security",
+      "/settings",
+      "/settings/billing",
+      "/settings/booking",
+      "/settings/claim",
+      "/settings/prescription",
+      "/settings/prescription/sections",
+      "/settings/professional",
+      "/settings/professional/preview",
+      "/settings/profile",
+      "/settings/security",
+      "/signup",
+      "/sitemap.xml"
+    ]
+  },
+  "fingerprint": "db344be7428aff2be1a88508c05b14a4680303a672f639d9dd3cf8fd0d348d53"
+}

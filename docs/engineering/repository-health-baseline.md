@@ -1,7 +1,8 @@
 # Repository Health Baseline
 
 Owner lane: **CAE** (Claude Auxiliary Engineering). Produced by **CAE-01**,
-extended by **CAE-02** (§8), **CAE-03** (§6 D7), **CAE-04** + **CAE-04-R1** (§9).
+extended by **CAE-02** (§8), **CAE-03** (§6 D7), **CAE-04** + **CAE-04-R1** (§9),
+**CAE-05** (§10).
 Base SHA: `9ec7127611dd5576f9591cbd210be8075b8626ee` (CAE-01);
 `130f1abd300f0ce0882fc5ccc6d01eeff15a864e` (CAE-02 base = accepted CAE-01).
 Pinned repository `main`: `5d58f154a8fd18129e28614ccc038f0a6af66b8f` (verified equal at time of writing).
@@ -242,10 +243,12 @@ See the CAE-01 return report for full framing. In short:
 - **CAE-04 — Workflow policy / live-provider governance guard.** ✅ Delivered —
   `workflow-policy.mjs` + `workflow-policy-baseline.json`, see §9. Wired into
   `offline-verify.mjs` as a fail-closed gate.
-- **CAE-05 — Reusable-CI proposal.** Design (not build) a `workflow_call`
-  reusable workflow / composite action that collapses the duplicated verifier
-  tail, with the Node version and audit gate centralised. Return the proposal to
-  CENTRAL.
+- **CAE-05 — Build / route size regression baseline.** ✅ Delivered —
+  `build-size.mjs` + `build-size-baseline.json`, see §10.
+- **Reusable-CI proposal (was numbered CAE-05).** Still open — design (not build)
+  a `workflow_call` reusable workflow / composite action that collapses the
+  duplicated verifier tail, with the Node version and audit gate centralised.
+  Return the proposal to CENTRAL.
 
 ---
 
@@ -429,11 +432,92 @@ does not run product tests or the build.
 
 At `b0efa46` + CAE-04: `workflow-policy --strict` → PASS (exit 0), **only**
 because the 12 findings across 4 workflows are exact-hash grandfathered; the
-report shows all 12 as KNOWN DEBT. Self-test: 16/16.
+report shows all 12 as KNOWN DEBT. Self-test: 16/16 (33/33 after CAE-04-R1).
 
 ---
 
-## 10. Change log
+## 10. Build / route size regression baseline (CAE-05)
+
+`tools/repo-health/build-size.mjs` — offline, dependency-free. MEASURE → RECORD
+→ COMPARE → REPORT over `.next/**` after a successful `npm run build`. No
+product change, no optimisation, no network / provider / DB / Vercel call, no
+secret read, no CDN scrape. Full usage, metric definitions, thresholds and JSON
+contract: [`../../tools/repo-health/README.md`](../../tools/repo-health/README.md).
+
+### 10.1 What is measured
+
+**Canonical (raw bytes, fingerprinted, gated):** `static` / `js` / `css` /
+`media` `.rawBytes` + file counts over `.next/static/**` (source maps excluded);
+`largestJsBytes` / `largestCssBytes` (compared by size — chunk filenames are
+content-hashed); `routes` / `routeCount` from `routes-manifest.json`.
+**Informational (not gated):** gzip sizes (Node `zlib` only — not the CDN
+transfer size), `.next/server/**` bytes, source-map bytes, `largestAssets[]`.
+**`perRouteJsBytes` = `UNAVAILABLE`** — this Next 16 Turbopack build emits no
+`app-build-manifest.json`, so route→chunk byte attribution is not
+deterministically available; it is labelled, not estimated.
+
+### 10.2 Determinism (the verdict-A question)
+
+Four-plus clean rebuilds of the unchanged product tree, same env: byte-identical
+`static` / `js` / `css` / `media` / `largestJsBytes` and a byte-identical route
+manifest, **except** `0–~15 B` of Turbopack jitter in `js.rawBytes` (~0.001 % of
+the ~1.8 MB JS aggregate; never trips a threshold). Chunk filenames are
+content-hashed and some are unstable build-to-build — nothing is compared by
+name. `NEXT_PUBLIC_*` values are inlined into the bundle, so the baseline
+records the canonical `buildEnvironment` (identical to `offline-verify.mjs`) and
+comparison is only valid against a build made with those values.
+
+### 10.3 Thresholds
+
+Report every change; **WARN** needs the **absolute AND percentage** bound
+crossed; **HARD FAIL** only on clearly excessive growth or baseline-integrity
+failure. JS aggregate: WARN `> +100 KB & > +10 %`, FAIL `> +500 KB & > +25 %`.
+Largest JS chunk: WARN `> +75 KB & > +15 %`. CSS aggregate: WARN
+`> +25 KB & > +15 %`. Static aggregate: FAIL `> +750 KB & > +25 %`. Route
+add/remove: reported, never WARN/FAIL. Rationale in the README — validated
+against the real build shape (JS ≈ 1.79 MB, largest chunk ≈ 277 KB).
+
+### 10.4 Baseline & fingerprint
+
+`build-size-baseline.json` (CENTRAL-owned): `schemaVersion 1`, `recordedAt`,
+`recordedFromCommit fce4fe73…` (product tree byte-identical to accepted CAE-04 —
+CAE-05 touched only `tools/**` + `docs/**`), `buildEnvironment`, `thresholds`,
+`metrics`, `fingerprint` = `sha256` over a key-sorted serialisation of
+`metrics`. `--compare` **fails closed** on missing / malformed / schema-mismatch
+/ non-sha256 / fingerprint-mismatch baseline. `--write-baseline` refuses without
+`--confirm-central`; regenerating the accepted baseline is a **CENTRAL
+decision**.
+
+### 10.5 Recorded metrics (`fce4fe73…`, Node v22.16.0, Next 16.3.4)
+
+| metric | value |
+| ------ | ----- |
+| `.next/static` total (raw, maps excluded) | **2,183,400 B (2.08 MB)**, 57 files |
+| JS aggregate | **1,879,795 B (1.79 MB)**, 42 files · gzip ≈ 540 KB |
+| CSS aggregate | **131,210 B (128 KB)**, 3 files · gzip ≈ 24 KB |
+| media | 172,395 B (168 KB), 12 files |
+| largest JS chunk | **283,666 B (277 KB)** |
+| largest CSS asset | 104,571 B (102 KB) |
+| routes | **62** (54 static + 8 dynamic) |
+| `.next/server` (informational, not gated) | ≈ 45.8 MB |
+| per-route JS bytes | `UNAVAILABLE` |
+
+Same-tree `--compare`: **PASS, exit 0**, all deltas within a few bytes, routes
+unchanged, 0 warnings, 0 hard regressions. Self-test 15/15.
+
+### 10.6 offline-verify integration — NOT done in CAE-05
+
+`build-size.mjs` ships standalone; it is **not** a gate in `offline-verify.mjs`.
+Recommendation to CENTRAL: it is mature enough to add as a **non-blocking**
+(`WARN`-only, never fails the run) informational step once (a) a build is
+guaranteed to have run with the canonical `buildEnvironment` earlier in the same
+invocation, and (b) `--write-baseline` stays CENTRAL-gated. A blocking gate is
+premature while `recordedFromCommit` must be hand-maintained and `main` build
+env is not yet standardised. Full reasoning in the CAE-05 return report.
+
+---
+
+## 11. Change log
 
 | Date (base SHA)          | Change |
 | ----------------------- | ------ |
@@ -442,3 +526,4 @@ report shows all 12 as KNOWN DEBT. Self-test: 16/16.
 | CAE-03 / `9913c01`      | Resolved CAE-FINDING-006 / D7 — `\r\n`→`\n` canonicalisation at the read boundary in `correction-window-security.test.ts`, `global-visual-consistency.test.ts`, `prescription-paper-hierarchy.test.ts` only. No expected values changed; `.gitattributes` / `core.autocrlf` / any other `src/**` untouched. Full offline verifier green on the CRLF checkout (0 failed). |
 | CAE-04 / `b0efa46`      | Added `tools/repo-health/workflow-policy.mjs` (§9) + CENTRAL-owned `workflow-policy-baseline.json` (12 grandfathered findings across 4 workflows). Wired `workflow-policy --strict` into `offline-verify.mjs` as fail-closed gate 2 (full + `--quick`). Detection only — **no `.github/workflows/**` change**; remediation recommendations in §9.3. No `src/**` / `supabase/**` / dependency change. |
 | CAE-04-R1 / `53b5058`   | Trigger-parser fail-closed hardening in `workflow-policy.mjs` only: removed the finite `AUTOMATIC_TRIGGERS` allowlist — every non-`workflow_dispatch`/`workflow_call` event is now automatic; added `WF-014` (parse-uncertain → hard fail), `callable` classification, `triggerParseOk`/`triggerForm`/`triggerParseError`; rewrote `on:` parsing to handle scalar / flow-list / flow-map / block-map / quoted-`on` and fail closed on anything ambiguous. Self-test 16 → 33. Current repo: same 12 grandfathered findings, 0 new, 0 drift, 0 WF-014. **Baseline unchanged.** No `.github/workflows/**` / `src/**` / dependency change. |
+| CAE-05 / `fce4fe7`      | Added `tools/repo-health/build-size.mjs` (§10) + CENTRAL-owned `build-size-baseline.json` (fingerprinted; recorded from a build of the `fce4fe7` product tree with the canonical `NEXT_PUBLIC_*` env). Standalone tool — **not** wired into `offline-verify.mjs`; integration proposal returned to CENTRAL. Per-route JS attribution reported `UNAVAILABLE` (Turbopack emits no `app-build-manifest.json`). Same-tree `--compare` PASS. No `src/**` / `supabase/**` / `.github/workflows/**` / dependency change. |
