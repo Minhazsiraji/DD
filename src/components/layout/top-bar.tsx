@@ -21,7 +21,7 @@ export function TopBar({ doctorName, locations, activeLocationId }: TopBarProps)
   return (
     <header
       data-print-hidden
-      className="glass sticky top-0 z-30 min-w-0 border-b border-glass-border"
+      className="dd-topbar dd-material-chrome glass sticky top-0 z-30 min-w-0 border-b border-glass-border"
     >
       <div className="flex h-16 min-w-0 items-center gap-1.5 px-3 sm:gap-3 sm:px-6">
         {/* Brand — mobile only; the sidebar carries it from lg up. */}
