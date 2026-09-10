@@ -1,10 +1,21 @@
 .referenceBackgroundStyle {
-  /* Marker class for the authenticated background controller <style> node. */
+  display: none;
 }
 
-/* Keep the existing Appearance card design; only make its Default thumbnail
-   reflect the selected authoritative background instead of the former blue
-   gradient preview. */
+/* Explicit custom modes suppress only the reference organ pseudo-layer.
+   Default mode carries no marker, so the root reference stylesheet renders
+   byte-for-byte as authored. */
+:global(body[data-dd-background-mode="color"]::before),
+:global(body[data-dd-background-mode="image"]::before) {
+  content: none !important;
+  display: none !important;
+  background: none !important;
+  filter: none !important;
+  transform: none !important;
+}
+
+/* Keep the existing Appearance card design; its Default thumbnail mirrors the
+   authoritative reference background. */
 :global([data-dd-main-default-preview="true"]) {
   background-color: #e8e3ee !important;
   background-image:
