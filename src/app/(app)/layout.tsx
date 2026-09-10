@@ -10,6 +10,7 @@ import { cookies } from "next/headers";
 import { IdleLock } from "@/features/security/components/idle-lock";
 import { SHARED_DEVICE_COOKIE, requiresMfaChallenge } from "@/features/security/policy";
 import { redirect as nextRedirect } from "next/navigation";
+import { BackgroundCanvas } from "@/features/settings/components/background-canvas";
 
 /**
  * The authenticated workspace shell.
@@ -83,6 +84,7 @@ export default async function AppLayout({ children }: LayoutProps<"/">) {
 
   return (
     <div className="flex min-h-dvh min-w-0 overflow-x-clip">
+      <BackgroundCanvas />
       <DesktopSidebar counts={navCounts} />
 
       <div className="flex min-w-0 flex-1 flex-col">
