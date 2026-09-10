@@ -8,7 +8,7 @@ import { IconOrb } from "@/components/common/icon-orb";
  */
 export default function AuthLayout({ children }: LayoutProps<"/">) {
   return (
-    <div className="flex min-h-dvh flex-col items-center justify-center px-4 py-10">
+    <div className="dd-auth-shell flex min-h-dvh flex-col items-center justify-center px-4 py-10">
       <Link
         href="/login"
         className="mb-6 flex items-center gap-2.5 rounded-xl focus-visible:focus-ring"
