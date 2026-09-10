@@ -71,6 +71,9 @@ jobs:
           src/features/encounters/m2-responsive-widths.test.ts
           src/features/encounters/m2-consultation-workspace.test.ts
 
+      - name: Next route type generation
+        run: npx next typegen
+
       - name: TypeScript
         run: npm run typecheck
 
