@@ -12,6 +12,7 @@ import { SHARED_DEVICE_COOKIE } from "@/features/security/policy";
 import { localDateInTimeZone } from "@/features/patients/m1-context";
 import { todayInDhaka } from "@/features/appointments/schema";
 import { logPreviewElapsed, startPreviewTimer, timedPreviewStage } from "@/lib/preview-timing";
+import { BackgroundCanvas } from "@/features/settings/components/background-canvas";
 
 /**
  * Authenticated clinical workspace shell.
@@ -96,6 +97,7 @@ export default async function AppLayout({ children }: LayoutProps<"/">) {
 
   return (
     <div className="flex min-h-dvh min-w-0 overflow-x-clip">
+      <BackgroundCanvas />
       <DesktopSidebar countsPromise={navCountsPromise} />
 
       <div className="flex min-w-0 flex-1 flex-col">

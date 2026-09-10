@@ -10,6 +10,7 @@ import {
   Stethoscope,
   IdCard,
   CalendarClock,
+  Palette,
 } from "lucide-react";
 import { cookies } from "next/headers";
 import { PageHeader } from "@/components/common/page-header";
@@ -191,6 +192,23 @@ export default async function SettingsPage() {
       </SectionCard>
 
       <SectionCard className="overflow-hidden">
+        <SectionHeader title="Appearance" icon={<Palette className="size-4" />} />
+        <div className="p-4 sm:p-5">
+          <Link
+            href="/settings/appearance"
+            className="inline-flex h-10 items-center gap-2 rounded-xl border border-hairline bg-white px-4 text-sm font-semibold text-ink transition-colors hover:bg-surface-muted focus-visible:focus-ring"
+          >
+            <Palette className="size-4 text-brand" aria-hidden="true" />
+            Background appearance
+            <ChevronRight className="size-4 text-ink-muted" aria-hidden="true" />
+          </Link>
+          <p className="mt-2 text-xs text-ink-muted">
+            Keep the Doctor’s Diary default, choose a color, or use an image stored only in this browser.
+          </p>
+        </div>
+      </SectionCard>
+
+      <SectionCard className="overflow-hidden">
         <SectionHeader
           title="Account security"
           icon={<ShieldCheck className="size-4" />}
@@ -219,8 +237,3 @@ export default async function SettingsPage() {
     </div>
   );
 }
-
-
-
-
-

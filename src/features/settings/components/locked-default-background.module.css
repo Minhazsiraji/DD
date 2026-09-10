@@ -1,0 +1,38 @@
+.referenceBackgroundStyle {
+  display: none;
+}
+
+/* Explicit custom modes suppress only the reference organ pseudo-layer.
+   Default mode carries no marker, so the root reference stylesheet renders
+   byte-for-byte as authored. */
+:global(body[data-dd-background-mode="color"]::before),
+:global(body[data-dd-background-mode="image"]::before) {
+  content: none !important;
+  display: none !important;
+  background: none !important;
+  filter: none !important;
+  transform: none !important;
+}
+
+/* Keep the existing Appearance card design; its Default thumbnail mirrors the
+   authoritative reference background. */
+:global([data-dd-main-default-preview="true"]) {
+  background-color: #e8e3ee !important;
+  background-image:
+    linear-gradient(rgb(246 243 250 / 0.28), rgb(246 243 250 / 0.28)),
+    url("/dd-global-bg.webp") !important;
+  background-size: cover;
+  background-position: center center;
+  background-repeat: no-repeat;
+  filter: blur(8px);
+  transform: scale(1.02);
+  transform-origin: center;
+}
+
+@media (max-width: 767px) {
+  :global([data-dd-main-default-preview="true"]) {
+    background-position: center top;
+    filter: blur(7px);
+    transform: scale(1.035);
+  }
+}
