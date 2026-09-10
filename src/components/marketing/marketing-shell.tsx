@@ -54,3 +54,18 @@ export function MarketingShell({ children }: { children: ReactNode }) {
     </div>
   );
 }
+
+export function MarketingPage({ eyebrow, title, intro, children }: { eyebrow: string; title: string; intro: string; children: ReactNode }) {
+  return (
+    <MarketingShell>
+      <section className="mx-auto max-w-7xl px-5 pb-20 pt-16 lg:px-8 lg:pt-24">
+        <div className="max-w-3xl">
+          <p className="text-sm font-semibold uppercase tracking-[0.18em] text-teal-700">{eyebrow}</p>
+          <h1 className="mt-4 text-4xl font-semibold tracking-tight text-slate-950 sm:text-5xl">{title}</h1>
+          <p className="mt-5 text-lg leading-8 text-slate-600">{intro}</p>
+        </div>
+        <div className="mt-12">{children}</div>
+      </section>
+    </MarketingShell>
+  );
+}
