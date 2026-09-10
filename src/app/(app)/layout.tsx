@@ -12,6 +12,7 @@ import { SHARED_DEVICE_COOKIE } from "@/features/security/policy";
 import { localDateInTimeZone } from "@/features/patients/m1-context";
 import { todayInDhaka } from "@/features/appointments/schema";
 import { logPreviewElapsed, startPreviewTimer, timedPreviewStage } from "@/lib/preview-timing";
+import { BackgroundCanvas } from "@/features/settings/components/background-canvas";
 
 /**
  * Authenticated clinical workspace shell.
@@ -55,9 +56,6 @@ export default async function AppLayout({ children }: LayoutProps<"/">) {
   const nextAal = aalResult.data?.nextLevel ?? null;
 
   if (currentAal !== "aal2") {
-    // A verified factor exists: challenge it. Otherwise enroll first. Both are
-    // Auth-only routes outside the clinical shell, so AAL1 users are never
-    // stranded behind the clinical AAL2 gate.
     redirect(nextAal === "aal2" ? "/mfa" : "/mfa/enroll");
   }
 
@@ -80,14 +78,11 @@ export default async function AppLayout({ children }: LayoutProps<"/">) {
     : todayInDhaka();
   const fallbackDoctorName = user.email?.split("@")[0] ?? "Doctor";
 
-  // Informational badges start now but are consumed behind tiny Suspense
-  // boundaries in the sidebar. They never delay authenticated shell rendering.
   const navCountsPromise = timedPreviewStage(
     "m1-shell-timing",
     "nav_counts_streamed",
     getNavCounts(activeLocationId, sessionDate),
   ).catch(() => {
-    // No raw error object or request/clinical identifier enters production logs.
     console.error("[nav-counts] streamed read failed");
     return {};
   });
@@ -96,6 +91,7 @@ export default async function AppLayout({ children }: LayoutProps<"/">) {
 
   return (
     <div className="flex min-h-dvh min-w-0 overflow-x-clip">
+      <BackgroundCanvas />
       <DesktopSidebar countsPromise={navCountsPromise} />
 
       <div className="flex min-w-0 flex-1 flex-col">
