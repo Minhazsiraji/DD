@@ -1,6 +1,6 @@
 /* Doctor's Diary — isolated organ-image background preview.
    Same liquid/glass component system as the approved 90% pass.
-   The organ artwork is now softened behind the live UI so it supports the
+   The organ artwork is softened behind the live UI so it supports the
    glass material without competing with clinical/marketing text. */
 
 :root {
@@ -20,8 +20,8 @@ body {
 }
 
 /* Background image lives on its own layer so only the artwork is blurred —
-   never the cards, typography, buttons or interactive UI. 8px gives roughly
-   a 50% visual softening versus the current sharp preview. */
+   never the cards, typography, buttons or interactive UI. The neutral wash
+   also suppresses any directional/light-streak feel in the source artwork. */
 body::before {
   content: "";
   position: fixed;
@@ -29,7 +29,7 @@ body::before {
   z-index: 0;
   pointer-events: none;
   background-image:
-    linear-gradient(rgb(202 202 202 / 0.46), rgb(202 202 202 / 0.46)),
+    linear-gradient(rgb(202 202 202 / 0.50), rgb(202 202 202 / 0.50)),
     var(--dd-organ-bg);
   background-size: cover;
   background-position: center center;
@@ -39,7 +39,48 @@ body::before {
   transform-origin: center;
 }
 
-/* Keep every real app surface above the blurred background layer. */
+/* Soft, circular cloud-bubble light. Deliberately tiled and low-contrast so
+   the canvas gets small, even pools of light instead of long random streaks. */
+body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background-image:
+    radial-gradient(
+      circle at center,
+      rgb(255 255 255 / 0.18) 0 20px,
+      rgb(255 255 255 / 0.09) 36px,
+      rgb(255 255 255 / 0.03) 54px,
+      transparent 74px
+    ),
+    radial-gradient(
+      circle at center,
+      rgb(255 255 255 / 0.14) 0 16px,
+      rgb(255 255 255 / 0.07) 31px,
+      rgb(255 255 255 / 0.025) 47px,
+      transparent 66px
+    ),
+    radial-gradient(
+      circle at center,
+      rgb(255 255 255 / 0.11) 0 14px,
+      rgb(255 255 255 / 0.05) 27px,
+      transparent 58px
+    );
+  background-size:
+    300px 260px,
+    390px 340px,
+    500px 430px;
+  background-position:
+    0 0,
+    145px 115px,
+    70px 205px;
+  background-repeat: repeat;
+  opacity: 0.92;
+}
+
+/* Keep every real app surface above the blurred background layers. */
 body > * {
   position: relative;
   z-index: 1;
@@ -62,6 +103,18 @@ body > main[class*="min-h-dvh"] {
     background-position: center top;
     filter: blur(7px);
     transform: scale(1.035);
+  }
+
+  body::after {
+    background-size:
+      230px 210px,
+      310px 280px,
+      410px 360px;
+    background-position:
+      0 0,
+      105px 95px,
+      50px 170px;
+    opacity: 0.88;
   }
 }
 
@@ -92,7 +145,8 @@ body > main[class*="min-h-dvh"] {
     isolation: auto !important;
   }
 
-  body::before {
+  body::before,
+  body::after {
     content: none !important;
     display: none !important;
     background: none !important;
