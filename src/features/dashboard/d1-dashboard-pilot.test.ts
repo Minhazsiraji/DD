@@ -10,10 +10,12 @@ function gitBlobSha(file: string): string {
 }
 
 describe("D1 Doctor Dashboard pilot delta", () => {
-  it("reuses authoritative Doctor-owned encounter and prescription reads", () => {
+  it("re-derives Doctor authority and reuses authoritative encounter and prescription reads", () => {
     const source = read("src/features/dashboard/d1-queries.ts");
+    expect(source).toContain('rpc("current_doctor_id")');
+    expect(source).toContain("authoritativeDoctorId !== expectedDoctorId");
     expect(source).toContain('.from("encounters")');
-    expect(source).toContain('.eq("owner_doctor_id", doctorId)');
+    expect(source).toContain('.eq("owner_doctor_id", authoritativeDoctorId)');
     expect(source).toContain('.eq("practice_location_id", locationId)');
     expect(source).toContain('rpc("prescriptions_for_doctor"');
     expect(source).toContain("p_practice_location_id: locationId");
