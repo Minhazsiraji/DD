@@ -233,7 +233,11 @@ export function ConsultationWorkspace({
         </div>
       ) : null}
 
-      <div className="grid min-w-0 gap-4 xl:grid-cols-[minmax(0,1fr)_340px] xl:items-start">
+      <div
+        className={`grid min-w-0 gap-4${
+          previousVisit ? " xl:grid-cols-[minmax(0,1fr)_340px] xl:items-start" : ""
+        }`}
+      >
         {previousVisit ? (
           <aside className="order-1 min-w-0 xl:order-2 xl:sticky xl:top-[188px]">
             <PreviousVisitCard visit={previousVisit} expandedByDefault={expandPreviousVisit} />
