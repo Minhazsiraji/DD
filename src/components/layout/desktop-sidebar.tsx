@@ -24,7 +24,7 @@ export function DesktopSidebar({
 
   return (
     <aside
-      className="glass sticky top-0 hidden h-dvh shrink-0 flex-col border-r border-glass-border lg:flex lg:w-[76px] xl:w-[248px]"
+      className="dd-sidebar dd-material-chrome glass sticky top-0 hidden h-dvh shrink-0 flex-col border-r border-glass-border lg:flex lg:w-[76px] xl:w-[248px]"
       aria-label="Main navigation"
     >
       <div className="flex h-16 items-center gap-2.5 px-4 xl:px-5">
@@ -57,7 +57,7 @@ export function DesktopSidebar({
       <div className="border-t border-glass-border px-3 py-3">
         <Link
           href="/assistant"
-          className="flex items-center gap-3 rounded-xl bg-brand-soft px-3 py-2.5 text-brand transition-colors hover:bg-[#d8e5fd] focus-visible:focus-ring xl:px-3"
+          className="dd-assistant-link flex items-center gap-3 rounded-xl bg-brand-soft px-3 py-2.5 text-brand transition-colors hover:bg-[#d8e5fd] focus-visible:focus-ring xl:px-3"
         >
           <Sparkles className="size-[18px] shrink-0" aria-hidden="true" />
           <span className="hidden min-w-0 xl:block">
@@ -100,10 +100,10 @@ function SidebarLink({
         aria-current={active ? "page" : undefined}
         title={item.label}
         className={cn(
-          "group flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors focus-visible:focus-ring",
+          "dd-nav-item group flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors focus-visible:focus-ring",
           "lg:justify-center xl:justify-start",
           active
-            ? "bg-white text-brand shadow-soft"
+            ? "dd-nav-active bg-white text-brand shadow-soft"
             : "text-ink-secondary hover:bg-white/60 hover:text-ink",
         )}
       >
