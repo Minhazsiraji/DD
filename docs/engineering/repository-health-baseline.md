@@ -1,7 +1,7 @@
 # Repository Health Baseline
 
 Owner lane: **CAE** (Claude Auxiliary Engineering). Produced by **CAE-01**,
-extended by **CAE-02** (§8), **CAE-03** (§6 D7), **CAE-04** (§9).
+extended by **CAE-02** (§8), **CAE-03** (§6 D7), **CAE-04** + **CAE-04-R1** (§9).
 Base SHA: `9ec7127611dd5576f9591cbd210be8075b8626ee` (CAE-01);
 `130f1abd300f0ce0882fc5ccc6d01eeff15a864e` (CAE-02 base = accepted CAE-01).
 Pinned repository `main`: `5d58f154a8fd18129e28614ccc038f0a6af66b8f` (verified equal at time of writing).
@@ -364,12 +364,27 @@ limitations: [`../../tools/repo-health/README.md`](../../tools/repo-health/READM
 `OPENAI_API_KEY` · `WF-009` auto path references `DEEPGRAM` · `WF-010` auto path
 sets `PA1_SYNTHETIC_AI_EVAL=enabled` · `WF-011` auto path hits `api.openai.com`
 directly · `WF-012` auto + provider-sensitive with no human-dispatch guard ·
-`WF-013` auto deploy-like production-mutation command.
+`WF-013` auto deploy-like production-mutation command · `WF-014` **trigger
+structure could not be confidently parsed (fail-closed)**.
 
-`WF-008`–`WF-013` apply only when the workflow is **automatically executable**
-(any non-`workflow_dispatch`/`workflow_call` trigger). A `workflow_dispatch`
-workflow with a confirmation input that a run step checks is a **human-dispatch
-guard** and is exempt from `WF-012`.
+`WF-008`–`WF-013` apply only when the workflow is **automatically executable**.
+**Automatic/manual is not decided from a finite event-name list** (CAE-04-R1):
+the only manual events are `workflow_dispatch` and `workflow_call`; every other
+parsed `on:` event — `push`, `schedule`, `workflow_run`, `release`,
+`deployment_status`, an event GitHub adds later, an unrecognised name — is
+automatic. `workflow_call` alone is classified `callable` (reported distinctly;
+no call-graph analysis). A `workflow_dispatch` workflow with a confirmation
+input that a run step checks is a **human-dispatch guard**, exempt from `WF-012`.
+
+**`WF-014` / fail-closed parsing:** if the dependency-free `on:` parser cannot
+confidently read the trigger structure (an `on:` key with zero events, a
+malformed/ambiguous form, an unterminated flow `[…]`/`{…}`, an unreadable block
+line) the workflow is treated as **automatic** and `WF-014` fires as a hard
+governance failure. A conservative false positive is acceptable and needs
+CENTRAL review; an automatic provider/deploy/repo-write workflow must never look
+manual. `WF-014` should essentially never be grandfathered — fix the workflow's
+`on:` syntax. The eight current workflows all parse confidently (`form=block-map`);
+none raises `WF-014`.
 
 ### 9.2 Grandfathering model — why exact file hashes
 
@@ -426,3 +441,4 @@ report shows all 12 as KNOWN DEBT. Self-test: 16/16.
 | CAE-02 / `130f1ab`      | Added `tools/repo-health/offline-verify.mjs` (§8). Removed `// @ts-nocheck` from both `.mjs` tools (repo ESLint bans it) and an unused import from `repo-health.mjs`. Recorded CAE-FINDING-006 and debt D7–D9. No `src/**` / `supabase/**` / dependency / workflow change. |
 | CAE-03 / `9913c01`      | Resolved CAE-FINDING-006 / D7 — `\r\n`→`\n` canonicalisation at the read boundary in `correction-window-security.test.ts`, `global-visual-consistency.test.ts`, `prescription-paper-hierarchy.test.ts` only. No expected values changed; `.gitattributes` / `core.autocrlf` / any other `src/**` untouched. Full offline verifier green on the CRLF checkout (0 failed). |
 | CAE-04 / `b0efa46`      | Added `tools/repo-health/workflow-policy.mjs` (§9) + CENTRAL-owned `workflow-policy-baseline.json` (12 grandfathered findings across 4 workflows). Wired `workflow-policy --strict` into `offline-verify.mjs` as fail-closed gate 2 (full + `--quick`). Detection only — **no `.github/workflows/**` change**; remediation recommendations in §9.3. No `src/**` / `supabase/**` / dependency change. |
+| CAE-04-R1 / `53b5058`   | Trigger-parser fail-closed hardening in `workflow-policy.mjs` only: removed the finite `AUTOMATIC_TRIGGERS` allowlist — every non-`workflow_dispatch`/`workflow_call` event is now automatic; added `WF-014` (parse-uncertain → hard fail), `callable` classification, `triggerParseOk`/`triggerForm`/`triggerParseError`; rewrote `on:` parsing to handle scalar / flow-list / flow-map / block-map / quoted-`on` and fail closed on anything ambiguous. Self-test 16 → 33. Current repo: same 12 grandfathered findings, 0 new, 0 drift, 0 WF-014. **Baseline unchanged.** No `.github/workflows/**` / `src/**` / dependency change. |

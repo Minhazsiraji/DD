@@ -194,11 +194,29 @@ node tools/repo-health/workflow-policy.mjs --help
 | WF-011 | direct `api.openai.com` traffic | automatic only |
 | WF-012 | automatic + provider-sensitive **and** no explicit human-dispatch guard | automatic only |
 | WF-013 | deploy-like production-mutation command (`vercel deploy`, `supabase db push`, `supabase link`, `wrangler deploy`, `npm publish`, …) | automatic only |
+| WF-014 | **trigger structure could not be confidently parsed** — fail-closed | any |
 
-**Automatic execution** = any non-human trigger (`push`, `pull_request`,
-`pull_request_target`, `schedule`, `repository_dispatch`, `issue_comment`, …).
-`workflow_dispatch` alone is manual. `workflow_call` is treated as manual here;
-a caller can still be automatic — noted as a limitation, not assumed safe.
+**Automatic vs manual is not decided from a finite list of event names**
+(CAE-04-R1). The only manual events are `workflow_dispatch` and `workflow_call`.
+**Every** other parsed `on:` event is AUTOMATIC — `push`, `schedule`,
+`workflow_run`, `release`, `deployment`, `deployment_status`, `page_build`,
+`registry_package`, `status`, `check_run`, `branch_protection_rule`, a name
+GitHub adds next year, an unrecognised name. So a new automatic event can never
+become "manual/safe" by not being in an allowlist. `workflow_call` alone is
+reported as **`callable`** (a distinct classification; no call-graph analysis is
+done — the chain is not proven safe). WF-001/003/004 still key off the specific
+names `push` / `pull_request` / `schedule` for their own checks, but never for
+the basic classification.
+
+**Fail-closed parser (WF-014).** If the dependency-free `on:` parser cannot
+confidently interpret the trigger structure — an `on:` key present with zero
+events, a malformed/ambiguous form, an unterminated flow `[…]` / `{…}`, an
+unreadable line in the block — the workflow is treated as **automatic** and
+WF-014 fires as a hard governance failure. The guard is allowed a conservative
+false positive that needs CENTRAL review; it must never let an automatic
+provider / deploy / repo-write workflow look manual. WF-014 should essentially
+never be grandfathered — fix the workflow's `on:` syntax instead.
+
 **Human-dispatch guard** (WF-012 exemption) = `workflow_dispatch` with a
 confirmation-style input **and** a run step that tests it (e.g.
 `test "${{ inputs.confirmation }}" = "RUN_AUTHORIZED_LIVE_EVAL"`).
@@ -243,34 +261,49 @@ while still failing on anything new. Each exception binds:
 ## `--self-test`
 
 Builds throwaway workflow fixtures + baselines under the OS temp dir (never
-touches real `.github/workflows`) and asserts: safe dispatch-only → clean;
-`push`+`OPENAI_API_KEY` → WF-008/WF-012; `schedule`+`api.openai.com` →
-WF-004/WF-011; `contents: write` → WF-005; `git push`/`git commit` →
-WF-006/WF-007; exact-hash exception recognised; one-byte change →
-`EXCEPTION_DRIFT`; unknown baseline path reported; structurally invalid baseline
-fails closed; `workflow_dispatch`-only provider workflow is provider-sensitive
-but raises no automatic-provider finding; no secret values read. 16/16.
+touches real `.github/workflows`). **33 assertions.** Core (16): safe
+dispatch-only → clean; `push`+`OPENAI_API_KEY` → WF-008/WF-012;
+`schedule`+`api.openai.com` → WF-004/WF-011; `contents: write` → WF-005;
+`git push`/`git commit` → WF-006/WF-007; exact-hash exception recognised;
+one-byte change → `EXCEPTION_DRIFT`; unknown baseline path reported;
+structurally invalid baseline fails closed; `workflow_dispatch`-only provider
+workflow is provider-sensitive but raises no automatic-provider finding; no
+secret values read. Trigger-parser hardening (17, CAE-04-R1): `on: workflow_run`
+/ `release` / `deployment_status` → automatic + the right provider/deploy rule;
+unknown future event → automatic, not manual; inline list `[push, …]` → automatic;
+multi-event block → all events extracted; inline map `{ push: {}, … }` → parsed
+or explicit parser error; `"on":` / `'on':` quoted key → parsed or fail-closed;
+malformed / empty `on:` → WF-014 hard failure (never manual PASS);
+`workflow_dispatch` only → manual; `workflow_call` only → callable;
+`workflow_dispatch`+`workflow_call` → no automatic trigger;
+`workflow_run`+`workflow_dispatch` → automatic; WF-014 fails `--strict`;
+no-allowlist-regression invariant.
 
 ## JSON contract
 
 `--json` prints: `tool`, `overall` (`PASS`/`FAIL`), `exitCode`, `preflight`,
 `baselineInvalid`, `workflowDir`, `baselinePath`, `baselineMeta`,
-`unknownBaselinePaths`, `workflowCount`, `ruleIds`, `workflows[]` (`path`,
-`triggers`, `classification`, `automaticTriggers`, `providerSensitive`,
-`repoWriteSensitive`, `hasHumanDispatchGuard`, `sha256`, `grandfathered`),
-`findings[]` (`path`, `ruleId`, `ruleTitle`, `severity`, `evidence`,
-`automatic`, `classification`, `providerSensitive`, `repoWriteSensitive`,
-`grandfathered`, `status` = `GRANDFATHERED` | `NEW_VIOLATION` |
-`EXCEPTION_DRIFT`, `expectedDigest`, `actualDigest`), `grandfatheredCount`,
-`hardFailureCount`, `staleExceptions[]`. No secret values.
+`unknownBaselinePaths`, `workflowCount`, `ruleIds` (WF-001…WF-014),
+`workflows[]` (`path`, `triggers`, `triggerForm`, `triggerParseOk`,
+`triggerParseError`, `classification` = `automatic` | `manual` | `callable` |
+`parse-error (treated automatic)`, `automatic`, `automaticTriggers`, `callable`,
+`providerSensitive`, `repoWriteSensitive`, `hasHumanDispatchGuard`, `sha256`,
+`grandfathered`), `findings[]` (`path`, `ruleId`, `ruleTitle`, `severity`,
+`evidence`, `automatic`, `classification`, `triggerParseOk`,
+`providerSensitive`, `repoWriteSensitive`, `grandfathered`, `status` =
+`GRANDFATHERED` | `NEW_VIOLATION` | `EXCEPTION_DRIFT`, `expectedDigest`,
+`actualDigest`), `grandfatheredCount`, `hardFailureCount`, `staleExceptions[]`.
+No secret values.
 
 ## Limitations
 
-Line-based parsing, not a YAML engine: deeply nested or unusually formatted
-`on:` blocks may parse conservatively. It cannot see reusable-workflow callers,
-composite-action internals, or `run:` logic reached only at runtime. It reports
-static repository evidence — never whether a secret is actually configured, and
-never by executing anything.
+Line-based parsing, not a YAML engine — but it **fails closed** (WF-014) on any
+`on:` form it cannot confidently read, rather than guessing manual. Multi-line
+flow `on: [ … ]` / `on: { … }` and unusual representations are reported as a
+parse failure, not silently misclassified. It cannot see reusable-workflow
+callers, composite-action internals, or `run:` logic reached only at runtime. It
+reports static repository evidence — never whether a secret is actually
+configured, and never by executing anything.
 
 ## Current grandfathered debt (baseline v1, `b0efa46`)
 

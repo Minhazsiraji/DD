@@ -11,6 +11,20 @@
  * actually exists. Conservative static text/structure analysis only — it does
  * not attempt full GitHub Actions semantics.
  *
+ * Fail-closed classification (CAE-04-R1)
+ * -------------------------------------
+ * Automatic/manual is NOT decided from a finite list of event names. The only
+ * manual events are `workflow_dispatch` and `workflow_call`; EVERY other parsed
+ * `on:` event — `push`, `schedule`, `workflow_run`, `release`,
+ * `deployment_status`, `registry_package`, an event GitHub adds next year, an
+ * unrecognised name — is AUTOMATIC. `workflow_call` alone is reported as
+ * "callable" (not a direct auto event); no call-graph analysis is attempted.
+ * If the dependency-free `on:` parser cannot confidently interpret the trigger
+ * structure it FAILS CLOSED: the workflow is treated as automatic and rule
+ * WF-014 (TRIGGER_PARSE_UNCERTAIN) fires as a hard governance failure. The guard
+ * may raise a conservative false positive; it must never let an automatic
+ * provider/deploy/repo-write workflow look manual.
+ *
  * Grandfathering
  * -------------
  * `workflow-policy-baseline.json` lists the CENTRAL-known existing exceptions.
@@ -179,6 +193,12 @@ const RULES = [
       return patterns.filter((p) => p.test(w.text)).map((p) => `deploy-like command: ${p}`);
     },
   },
+  {
+    id: "WF-014",
+    title: "trigger structure could not be confidently parsed (fail-closed)",
+    autoOnly: false,
+    detect: (w) => (w.triggerParseOk ? [] : [w.triggerParseError || "unparseable `on:` structure"]),
+  },
 ];
 
 const RULE_IDS = RULES.map((r) => r.id);
@@ -187,22 +207,17 @@ const RULE_IDS = RULES.map((r) => r.id);
 // workflow parsing (conservative, line-based; no YAML dependency)
 // ---------------------------------------------------------------------------
 
-const AUTOMATIC_TRIGGERS = new Set([
-  "push",
-  "pull_request",
-  "pull_request_target",
-  "schedule",
-  "repository_dispatch",
-  "issue_comment",
-  "issues",
-  "merge_group",
-  "discussion",
-  "watch",
-  "fork",
-  "create",
-  "gollum",
-]);
-const MANUAL_TRIGGERS = new Set(["workflow_dispatch", "workflow_call"]);
+/**
+ * Automatic/manual classification is NOT driven by a finite allowlist of event
+ * names — that would let a future GitHub event (workflow_run, release,
+ * deployment_status, registry_package, …) or a brand-new event silently be
+ * treated as "manual/safe". The only events that are manual are the two that
+ * require a human or an explicit call:
+ */
+const MANUAL_ONLY_EVENTS = new Set(["workflow_dispatch", "workflow_call"]);
+/** workflow_call is "callable", reported distinctly; it is not a direct auto event by itself. */
+const CALLABLE_EVENT = "workflow_call";
+const EVENT_NAME = /^[A-Za-z_][A-Za-z0-9_-]*$/;
 
 function canonicalBytes(absPath) {
   return Buffer.from(readFileSync(absPath, "utf8").replace(/\r\n/g, "\n"), "utf8");
@@ -220,36 +235,136 @@ function countHits(text, reGlobal) {
   return (text.match(reGlobal) || []).length;
 }
 
+/**
+ * Parse the top-level `on:` structure, dependency-free, and FAIL CLOSED on any
+ * form it cannot confidently interpret.
+ *
+ * Returns { events, onBlock, ok, error, form }. When ok === false the caller
+ * must treat the workflow as a hard governance failure (WF-014) and classify it
+ * automatic — never manual.
+ */
+function parseOnTriggers(text) {
+  const lines = text.split("\n");
+  // top-level `on:` — bare, "on", or 'on' (YAML lowercases the boolean-looking
+  // key `on`, so authors quote it; accept all three).
+  let onIdx = -1;
+  let inlineRest = "";
+  for (let i = 0; i < lines.length; i++) {
+    const m = lines[i].match(/^(?:"on"|'on'|on)\s*:(.*)$/);
+    if (m) {
+      onIdx = i;
+      inlineRest = m[1].replace(/\s+#.*$/, "").trim(); // strip trailing comment
+      break;
+    }
+  }
+  if (onIdx < 0) {
+    return { events: [], onBlock: "", ok: false, error: "no top-level `on:` key found", form: "none" };
+  }
+
+  // collect the indented block under `on:` (for block-mapping form + downstream
+  // branch-filter parsing)
+  const blockLines = [lines[onIdx]];
+  for (let i = onIdx + 1; i < lines.length; i++) {
+    if (/^\S/.test(lines[i]) && lines[i].trim() !== "") break; // next top-level key
+    blockLines.push(lines[i]);
+  }
+  const onBlock = blockLines.join("\n");
+
+  const validate = (list, form) => {
+    const bad = list.filter((e) => !EVENT_NAME.test(e));
+    if (bad.length) return { events: [], onBlock, ok: false, error: `malformed event name(s): ${bad.join(", ")}`, form };
+    if (list.length === 0) return { events: [], onBlock, ok: false, error: "`on:` present but no events extracted", form };
+    return { events: [...new Set(list)], onBlock, ok: true, error: null, form };
+  };
+
+  // --- scalar: on: push ---
+  if (inlineRest && EVENT_NAME.test(inlineRest.replace(/^["']|["']$/g, ""))) {
+    return validate([inlineRest.replace(/^["']|["']$/g, "")], "scalar");
+  }
+
+  // --- flow sequence: on: [push, workflow_dispatch] ---
+  if (inlineRest.startsWith("[")) {
+    if (!inlineRest.endsWith("]")) {
+      return { events: [], onBlock, ok: false, error: "multi-line / unterminated flow sequence in `on:`", form: "flow-seq" };
+    }
+    const inner = inlineRest.slice(1, -1).trim();
+    const list = inner ? inner.split(",").map((s) => s.trim().replace(/^["']|["']$/g, "")) : [];
+    return validate(list, "flow-seq");
+  }
+
+  // --- flow mapping: on: { push: {}, workflow_dispatch: {} } ---
+  if (inlineRest.startsWith("{")) {
+    if (!inlineRest.endsWith("}")) {
+      return { events: [], onBlock, ok: false, error: "multi-line / unterminated flow mapping in `on:`", form: "flow-map" };
+    }
+    const inner = inlineRest.slice(1, -1);
+    // split on top-level commas (respect one level of nested {})
+    const segs = [];
+    let depth = 0;
+    let cur = "";
+    for (const ch of inner) {
+      if (ch === "{") depth++;
+      else if (ch === "}") depth--;
+      if (ch === "," && depth === 0) {
+        segs.push(cur);
+        cur = "";
+      } else cur += ch;
+    }
+    if (cur.trim()) segs.push(cur);
+    if (depth !== 0) {
+      return { events: [], onBlock, ok: false, error: "unbalanced braces in `on:` flow mapping", form: "flow-map" };
+    }
+    const list = segs.map((s) => s.split(":")[0].trim().replace(/^["']|["']$/g, "")).filter(Boolean);
+    return validate(list, "flow-map");
+  }
+
+  // --- non-empty but not a form we recognise (anchor, tag, quoted scalar we
+  //     could not read, …) -> fail closed ---
+  if (inlineRest !== "") {
+    return { events: [], onBlock, ok: false, error: `unrecognised inline \`on:\` value: ${inlineRest.slice(0, 60)}`, form: "unknown" };
+  }
+
+  // --- block mapping: keys at the first indent level under `on:` ---
+  const body = blockLines.slice(1);
+  let baseIndent = null;
+  const list = [];
+  let sawContent = false;
+  for (const line of body) {
+    if (line.trim() === "" || /^\s*#/.test(line)) continue;
+    sawContent = true;
+    const im = line.match(/^(\s+)(\S)/);
+    if (!im) continue;
+    const indent = im[1].length;
+    if (baseIndent === null) baseIndent = indent;
+    if (indent !== baseIndent) continue; // deeper -> config for the current event
+    const km = line.match(/^\s+(?:"([A-Za-z_][A-Za-z0-9_-]*)"|'([A-Za-z_][A-Za-z0-9_-]*)'|([A-Za-z_][A-Za-z0-9_-]*))\s*:/);
+    if (km) list.push(km[1] || km[2] || km[3]);
+    else return { events: [], onBlock, ok: false, error: `unparseable line in \`on:\` block: ${line.trim().slice(0, 60)}`, form: "block-map" };
+  }
+  if (!sawContent) {
+    return { events: [], onBlock, ok: false, error: "`on:` has no events (empty block)", form: "block-map" };
+  }
+  return validate(list, "block-map");
+}
+
 function parseWorkflow(absPath, name) {
   const raw = readFileSync(absPath, "utf8");
   const text = raw.replace(/\r\n/g, "\n");
-  const lines = text.split("\n");
 
-  // ---- `on:` block: from the `on:` line to the next top-level key ----
-  const onIdx = lines.findIndex((l) => /^on:(\s|$)/.test(l) || /^on:\s*\[/.test(l) || /^on:\s*\{/.test(l));
-  let onBlock = "";
-  const triggers = [];
-  if (onIdx >= 0) {
-    const collected = [lines[onIdx]];
-    for (let i = onIdx + 1; i < lines.length; i++) {
-      if (/^\S/.test(lines[i])) break;
-      collected.push(lines[i]);
-    }
-    onBlock = collected.join("\n");
-    // inline form: on: [push, workflow_dispatch]
-    const inline = onBlock.match(/^on:\s*\[([^\]]*)\]/);
-    if (inline) {
-      for (const t of inline[1].split(",").map((s) => s.trim()).filter(Boolean)) triggers.push(t);
-    }
-    for (const key of [...AUTOMATIC_TRIGGERS, ...MANUAL_TRIGGERS]) {
-      if (new RegExp(`^\\s{1,4}${key}:(\\s|$)`, "m").test(onBlock) || new RegExp(`^on:\\s*${key}(\\s|$)`, "m").test(onBlock)) {
-        if (!triggers.includes(key)) triggers.push(key);
-      }
-    }
-  }
+  const parsed = parseOnTriggers(text);
+  const triggerParseOk = parsed.ok;
+  const triggerParseError = parsed.error;
+  const triggerForm = parsed.form;
+  const onBlock = parsed.onBlock;
+  const triggers = parsed.events;
 
-  const automaticTriggers = triggers.filter((t) => AUTOMATIC_TRIGGERS.has(t));
-  const automatic = automaticTriggers.length > 0;
+  // Classification never depends on a finite allowlist: every parsed event that
+  // is not workflow_dispatch / workflow_call is automatic, known or not.
+  const automaticTriggers = triggers.filter((t) => !MANUAL_ONLY_EVENTS.has(t));
+  const callable = triggers.includes(CALLABLE_EVENT);
+  // Fail closed: a workflow whose triggers could not be parsed is treated as
+  // automatic so the auto-only rules also evaluate; WF-014 makes it a hard fail.
+  const automatic = !triggerParseOk || automaticTriggers.length > 0;
 
   // ---- push / pull_request branch filters ----
   const branchList = (block, kind) => {
@@ -291,14 +406,27 @@ function parseWorkflow(absPath, name) {
     /PA1_SYNTHETIC_AI_EVAL['"]?\s*[:=]\s*['"]?enabled/i.test(text);
   const repoWriteSensitive = permissionWrites.length > 0 || /\bgit\s+push\b/.test(text) || /\bgit\s+commit\b/.test(text);
 
+  const classification = !triggerParseOk
+    ? "parse-error (treated automatic)"
+    : automaticTriggers.length > 0
+      ? "automatic"
+      : callable
+        ? "callable"
+        : "manual";
+
   return {
     name,
     path: `.github/workflows/${name}`,
     absPath,
     text,
     triggers,
+    triggerForm,
+    triggerParseOk,
+    triggerParseError,
     automatic,
     automaticTriggers,
+    callable,
+    classification,
     hasPush,
     hasPullRequest,
     pushBranches,
@@ -404,7 +532,8 @@ function evaluate({ workflowDir, baselinePath }) {
         evidence,
         automatic: w.automatic,
         automaticTriggers: w.automaticTriggers,
-        classification: w.automatic ? "automatic" : "manual",
+        classification: w.classification,
+        triggerParseOk: w.triggerParseOk,
         providerSensitive: w.providerSensitive,
         repoWriteSensitive: w.repoWriteSensitive,
         grandfathered,
@@ -441,8 +570,13 @@ function evaluate({ workflowDir, baselinePath }) {
     workflows: workflows.map((w) => ({
       path: w.path,
       triggers: w.triggers,
-      classification: w.automatic ? "automatic" : "manual",
+      triggerForm: w.triggerForm,
+      triggerParseOk: w.triggerParseOk,
+      triggerParseError: w.triggerParseError,
+      classification: w.classification,
+      automatic: w.automatic,
       automaticTriggers: w.automaticTriggers,
+      callable: w.callable,
       providerSensitive: w.providerSensitive,
       repoWriteSensitive: w.repoWriteSensitive,
       hasHumanDispatchGuard: w.hasHumanDispatchGuard,
@@ -629,6 +763,87 @@ function runSelfTest() {
     // 10. no secret values read
     check("10: self-test reads no secret values (only ${{ secrets.* }} placeholders in fixtures)", true);
 
+    // ---- CAE-04-R1: trigger-parser fail-closed hardening ----
+    const tdir = mkdtempSync(join(tmpdir(), "cae04r1-"));
+    const twf = join(tdir, "workflows");
+    mkdirSync(twf, { recursive: true });
+    const emptyBaseline = join(tdir, "baseline-empty.json");
+    writeFileSync(emptyBaseline, JSON.stringify({ policyVersion: 1, exceptions: [] }, null, 2));
+
+    const wf = (n, body) => writeFileSync(join(twf, n), body.join("\n") + "\n");
+    wf("run-openai.yml", [
+      "name: workflow_run + openai",
+      "on:",
+      "  workflow_run:",
+      "    workflows: [Build]",
+      "    types: [completed]",
+      "jobs: { a: { runs-on: ubuntu-latest, env: { OPENAI_API_KEY: x }, steps: [{ run: node e.js }] } }",
+    ]);
+    wf("release-openai-url.yml", [
+      "name: release + api.openai.com",
+      "on:",
+      "  release:",
+      "    types: [published]",
+      "jobs: { a: { runs-on: ubuntu-latest, steps: [{ run: 'curl https://api.openai.com/v1/x' }] } }",
+    ]);
+    wf("deploystatus.yml", [
+      "name: deployment_status provider",
+      "on:",
+      "  deployment_status:",
+      "jobs: { a: { runs-on: ubuntu-latest, env: { OPENAI_API_KEY: x }, steps: [{ run: 'vercel deploy --prod' }] } }",
+    ]);
+    wf("future-event.yml", [
+      "name: unknown future event",
+      "on:",
+      "  some_future_github_event:",
+      "jobs: { a: { runs-on: ubuntu-latest, steps: [{ run: echo hi }] } }",
+    ]);
+    wf("inline-list.yml", ["name: inline list", "on: [push, workflow_dispatch]", "jobs: { a: { runs-on: ubuntu-latest, steps: [{ run: echo hi }] } }"]);
+    wf("multi-block.yml", [
+      "name: multi event block",
+      "on:",
+      "  push:",
+      "    branches: [main]",
+      "  workflow_run:",
+      "    workflows: [X]",
+      "  schedule:",
+      "    - cron: '0 0 * * *'",
+      "jobs: { a: { runs-on: ubuntu-latest, steps: [{ run: echo hi }] } }",
+    ]);
+    wf("inline-map.yml", ["name: inline map", "on: { push: {}, workflow_dispatch: {} }", "jobs: { a: { runs-on: ubuntu-latest, steps: [{ run: echo hi }] } }"]);
+    wf("quoted-on-dq.yml", ['name: quoted on', '"on":', "  push:", "    branches: [x]", "jobs: { a: { runs-on: ubuntu-latest, steps: [{ run: echo hi }] } }"]);
+    wf("quoted-on-sq.yml", ["name: quoted on sq", "'on':", "  push:", "    branches: [x]", "jobs: { a: { runs-on: ubuntu-latest, steps: [{ run: echo hi }] } }"]);
+    wf("malformed-on.yml", ["name: malformed", "on: [push, workflow_dispatch", "jobs: { a: { runs-on: ubuntu-latest, steps: [{ run: echo hi }] } }"]);
+    wf("empty-on.yml", ["name: empty on", "on:", "jobs: { a: { runs-on: ubuntu-latest, steps: [{ run: echo hi }] } }"]);
+    wf("dispatch-only.yml", ["name: dispatch only", "on:", "  workflow_dispatch:", "jobs: { a: { runs-on: ubuntu-latest, steps: [{ run: echo hi }] } }"]);
+    wf("call-only.yml", ["name: call only", "on:", "  workflow_call:", "jobs: { a: { runs-on: ubuntu-latest, steps: [{ run: echo hi }] } }"]);
+    wf("dispatch-and-call.yml", ["name: dispatch and call", "on:", "  workflow_dispatch:", "  workflow_call:", "jobs: { a: { runs-on: ubuntu-latest, steps: [{ run: echo hi }] } }"]);
+    wf("run-and-dispatch.yml", ["name: run and dispatch", "on:", "  workflow_run:", "    workflows: [X]", "  workflow_dispatch:", "jobs: { a: { runs-on: ubuntu-latest, env: { OPENAI_API_KEY: x }, steps: [{ run: node e.js }] } }"]);
+
+    const ev = evaluate({ workflowDir: twf, baselinePath: emptyBaseline });
+    const W = (n) => ev.workflows.find((w) => w.path.endsWith("/" + n));
+    const F = (n, id) => ev.findings.some((f) => f.path.endsWith("/" + n) && f.ruleId === id);
+
+    check("R1-1: on: workflow_run + OPENAI_API_KEY -> automatic + WF-008 + WF-012", W("run-openai.yml").automatic && F("run-openai.yml", "WF-008") && F("run-openai.yml", "WF-012"));
+    check("R1-2: on: release + api.openai.com -> automatic + WF-011", W("release-openai-url.yml").automatic && F("release-openai-url.yml", "WF-011"));
+    check("R1-3: on: deployment_status + deploy/provider -> automatic (WF-013 + WF-008/012)", W("deploystatus.yml").automatic && F("deploystatus.yml", "WF-013") && F("deploystatus.yml", "WF-008"));
+    check("R1-4: unknown future event -> automatic, NOT manual", W("future-event.yml").automatic === true && W("future-event.yml").classification === "automatic");
+    check("R1-5: inline list [push, workflow_dispatch] -> automatic (push present)", W("inline-list.yml").automatic && W("inline-list.yml").triggers.includes("push") && W("inline-list.yml").triggers.includes("workflow_dispatch"));
+    check("R1-6: block mapping with multiple events -> all extracted", (() => { const t = W("multi-block.yml").triggers; return t.includes("push") && t.includes("workflow_run") && t.includes("schedule"); })());
+    check("R1-7: inline mapping { push: {}, workflow_dispatch: {} } -> parsed OR explicit parser error", (() => { const w = W("inline-map.yml"); return (w.triggerParseOk && w.triggers.includes("push") && w.automatic) || (!w.triggerParseOk && F("inline-map.yml", "WF-014")); })());
+    check('R1-8: "on": (double-quoted key) -> parsed OR explicit fail-closed', (() => { const w = W("quoted-on-dq.yml"); return (w.triggerParseOk && w.triggers.includes("push") && w.automatic) || (!w.triggerParseOk && F("quoted-on-dq.yml", "WF-014")); })());
+    check("R1-9: 'on': (single-quoted key) -> parsed OR explicit fail-closed", (() => { const w = W("quoted-on-sq.yml"); return (w.triggerParseOk && w.triggers.includes("push") && w.automatic) || (!w.triggerParseOk && F("quoted-on-sq.yml", "WF-014")); })());
+    check("R1-10: malformed on: -> WF-014 hard failure, never manual PASS", !W("malformed-on.yml").triggerParseOk && F("malformed-on.yml", "WF-014") && W("malformed-on.yml").automatic === true);
+    check("R1-10b: empty on: (no events) -> WF-014 hard failure", !W("empty-on.yml").triggerParseOk && F("empty-on.yml", "WF-014"));
+    check("R1-11: workflow_dispatch only -> manual", W("dispatch-only.yml").classification === "manual" && W("dispatch-only.yml").automatic === false);
+    check("R1-12: workflow_call only -> callable, not automatic", W("call-only.yml").classification === "callable" && W("call-only.yml").automatic === false && W("call-only.yml").callable === true);
+    check("R1-13: workflow_dispatch + workflow_call only -> no automatic trigger", W("dispatch-and-call.yml").automatic === false && W("dispatch-and-call.yml").automaticTriggers.length === 0);
+    check("R1-14: workflow_run + workflow_dispatch -> automatic", W("run-and-dispatch.yml").automatic === true && W("run-and-dispatch.yml").automaticTriggers.includes("workflow_run") && F("run-and-dispatch.yml", "WF-008"));
+    check("R1-15: WF-014 hard failures fail --strict (hardFailureCount > 0)", ev.hardFailureCount > 0);
+    check("R1-16: no allowlist regression — every non-dispatch/call event is automatic", ev.workflows.filter((w) => w.triggerParseOk).every((w) => w.automatic === (w.triggers.some((t) => t !== "workflow_dispatch" && t !== "workflow_call"))));
+
+    rmSync(tdir, { recursive: true, force: true });
+
     const passed = results.filter((r) => r.pass).length;
     return { total: results.length, passed, allPass: passed === results.length, results };
   } finally {
@@ -702,10 +917,12 @@ function printHuman(r, overall, exitCode) {
       `  ${w.path}`,
     );
     out.push(
-      `      ${w.classification.padEnd(9)} triggers=[${w.triggers.join(", ")}]` +
+      `      ${w.classification.padEnd(9)} triggers=[${w.triggers.join(", ")}]  form=${w.triggerForm}` +
+        (w.callable ? " (callable)" : "") +
         `  provider-sensitive=${w.providerSensitive}  repo-write=${w.repoWriteSensitive}` +
         (w.grandfathered ? "  [baseline exception]" : ""),
     );
+    if (!w.triggerParseOk) out.push(`      ⚠ trigger parse failed: ${w.triggerParseError}  → treated AUTOMATIC, WF-014`);
   }
 
   const gf = r.findings.filter((f) => f.status === "GRANDFATHERED");
