@@ -1,0 +1,126 @@
+name: D1 Doctor Dashboard Pilot QA
+
+on:
+  push:
+    branches:
+      - md2/d1-doctor-dashboard-pilot-delta
+
+permissions:
+  contents: read
+
+jobs:
+  qa:
+    runs-on: ubuntu-24.04
+    env:
+      BASE_SHA: 99dfdcddffbe4ab24bcc677e1989246766367570
+      OPENAI_API_KEY: ""
+      DEEPGRAM_API_KEY: ""
+      PA1_SYNTHETIC_AI_EVAL: disabled
+    steps:
+      - name: Checkout full history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: D1 scope and ancestry guard
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git merge-base "$BASE_SHA" HEAD)" = "$BASE_SHA"
+          cat > /tmp/expected <<'EOF'
+          .github/workflows/d1-dashboard-pilot-qa.yml
+          src/app/(app)/dashboard/page.tsx
+          src/features/dashboard/components/d1-pilot-activity.tsx
+          src/features/dashboard/components/work-now.tsx
+          src/features/dashboard/d1-dashboard-pilot.test.ts
+          src/features/dashboard/d1-queries.ts
+          EOF
+          git diff --name-only "$BASE_SHA"...HEAD | sort > /tmp/actual
+          sort /tmp/expected -o /tmp/expected
+          diff -u /tmp/expected /tmp/actual
+          if git diff --name-only "$BASE_SHA"...HEAD | grep -E '(^|/)(supabase|migrations?|schema)(/|$)|\.sql$'; then exit 1; fi
+
+      - name: Frozen M3 and Investigation integrity
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git hash-object supabase/policies/0046_investigation_v1_foundation.sql)" = "5e105f3015f1251279e3ba94b5c3b745998b8e22"
+          test "$(git hash-object supabase/policies/0042_m3_prescription_reuse.sql)" = "f0d61c8ba472a57513eb0065a294a2ff65a09b69"
+          test "$(git hash-object supabase/policies/0043_m3_signed_medicine_history.sql)" = "16b417bf3117d4e19bb9c52383af5e8608f59a91"
+          test "$(git hash-object supabase/policies/0044_m3_prescription_print_audit.sql)" = "139684e77ef6fa2c5414611c32dfd8c6b9113524"
+          test "$(git hash-object src/features/prescriptions/components/print-sheet.tsx)" = "0b8afc336ff27faa0a33eaf22f6a8eac1b236c36"
+
+      - name: D1 Dashboard focused tests
+        run: npx vitest run src/features/dashboard/d1-dashboard-pilot.test.ts src/features/dashboard/m1-dashboard-performance.test.ts
+
+      - name: Doctor isolation regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          files=$(find src/features -type f -name '*isolation*.test.ts' -print)
+          test -n "$files"
+          npx vitest run $files
+
+      - name: Consultation and queue regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          files="src/features/encounters/m2-consultation-workspace.test.ts $(find src/features/queue -type f -name '*.test.ts' -print)"
+          npx vitest run $files
+
+      - name: M3 complete Prescription regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          files=$(find src/features/prescriptions -type f -name '*.test.ts' -print)
+          test -n "$files"
+          npx vitest run $files
+
+      - name: Investigation V1 regression
+        run: npx vitest run src/features/encounters/investigation-v1-ui.test.ts src/features/encounters/investigation-v1-foundation.test.ts src/features/encounters/investigation-v1-db.test.ts
+
+      - name: Mobile tablet desktop responsive regression
+        run: npx vitest run src/features/mobile-responsive.test.ts src/features/encounters/m2-responsive-widths.test.ts src/features/dashboard/d1-dashboard-pilot.test.ts
+
+      - name: Full repository tests
+        run: npm test
+
+      - name: Next route type generation
+        run: npx next typegen
+
+      - name: TypeScript
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Production build
+        run: npm run build
+
+      - name: Production dependency audit
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm audit --omit=dev --json > /tmp/audit.json || true
+          node <<'NODE'
+          const a = require('/tmp/audit.json');
+          const v = a.metadata?.vulnerabilities ?? {};
+          console.log('D1_PROD_AUDIT=' + JSON.stringify(v));
+          if ((v.high ?? 0) !== 0 || (v.critical ?? 0) !== 0) process.exit(1);
+          NODE
+
+      - name: Region and diff proof
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --check "$BASE_SHA"...HEAD
+          node -e "const v=require('./vercel.json'); if(JSON.stringify(v.regions)!=='[\"icn1\"]') process.exit(1); console.log('D1_ICN1=PASS')"
