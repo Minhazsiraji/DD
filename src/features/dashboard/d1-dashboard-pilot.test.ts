@@ -20,8 +20,10 @@ describe("D1 Doctor Dashboard pilot delta", () => {
   });
 
   it("does not add a Dashboard clinical write path", () => {
-    const source = read("src/features/dashboard/d1-queries.ts");
-    expect(source).not.toMatch(/\.insert\(|\.update\(|\.delete\(|open_prescription|open_encounter|confirm_encounter_investigations/);
+    const query = read("src/features/dashboard/d1-queries.ts");
+    const activity = read("src/features/dashboard/components/d1-pilot-activity.tsx");
+    expect(query).not.toMatch(/\.insert\(|\.update\(|\.delete\(|open_prescription|open_encounter|confirm_encounter_investigations/);
+    expect(activity).not.toMatch(/openPrescriptionAction|confirmInvestigationsAction|openEncounterAction|startConsultationAction/);
   });
 
   it("classifies pending work only as DRAFT encounter or DRAFT prescription", () => {
@@ -37,6 +39,14 @@ describe("D1 Doctor Dashboard pilot delta", () => {
     expect(source).toContain("Investigation via consultation");
     expect(source).toContain("`/consultation/${row.encounterId}`");
     expect(source).not.toMatch(/prescription\/new|investigation\/new|patientless/i);
+  });
+
+  it("provides an always-safe patient-selection fallback for both clinical shortcuts", () => {
+    const source = read("src/features/dashboard/components/d1-pilot-activity.tsx");
+    expect(source).toContain("Prescription · choose patient");
+    expect(source).toContain("Investigation · choose patient");
+    expect(source).toContain("Choose the patient first");
+    expect(source.match(/href="\/patients"/g)).toHaveLength(2);
   });
 
   it("links finalized and draft prescriptions only by authoritative prescription id", () => {
@@ -58,6 +68,7 @@ describe("D1 Doctor Dashboard pilot delta", () => {
     expect(page).toContain("w-full min-w-0 space-y-4");
     expect(activity).toContain("min-h-11");
     expect(activity).toContain("flex-wrap");
+    expect(activity).toContain("grid-cols-1");
     expect(activity).not.toMatch(/w-\[(?:[4-9]\d\d|\d{4,})px\]/);
   });
 
