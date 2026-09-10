@@ -1,16 +1,13 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 import {
   BACKGROUND_PREFERENCE_EVENT,
   loadBackgroundImage,
   overlayCss,
   readBackgroundPreference,
-  type BackgroundMode,
 } from "@/features/settings/background-preference";
 import styles from "./locked-default-background.module.css";
-
-const LOCKED_DEFAULT_COLOR = "#e8e3ee";
 
 const BODY_STYLE_PROPERTIES = [
   "background-color",
@@ -19,56 +16,105 @@ const BODY_STYLE_PROPERTIES = [
   "background-repeat",
   "background-size",
   "background-attachment",
-  "position",
-  "isolation",
-  "min-height",
 ] as const;
 
-const HTML_STYLE_PROPERTIES = ["background-color", "min-height"] as const;
+const HTML_STYLE_PROPERTIES = ["background-color"] as const;
 
-/** Clear only inline properties owned by browser-local background personalization. */
+/**
+ * Screen-only copy of the authoritative background declarations from
+ * md2/inv1-ui-02-layout-fix. The only adaptation is mode scoping so an
+ * explicitly selected Color/Image preference can replace the default.
+ *
+ * No print declarations live here: the frozen clinical print contract remains
+ * owned by src/app/globals.css.
+ */
+const EXACT_REFERENCE_BACKGROUND_CSS = `
+@media screen {
+  :root {
+    --dd-organ-bg: url("/dd-global-bg.webp");
+  }
+
+  html:not([data-dd-background-mode="color"]):not([data-dd-background-mode="image"]),
+  body:not([data-dd-background-mode="color"]):not([data-dd-background-mode="image"]) {
+    min-height: 100%;
+    background-color: #e8e3ee !important;
+  }
+
+  body:not([data-dd-background-mode="color"]):not([data-dd-background-mode="image"]) {
+    position: relative;
+    isolation: isolate;
+    background-image: none !important;
+  }
+
+  body:not([data-dd-background-mode="color"]):not([data-dd-background-mode="image"])::before {
+    content: "";
+    position: fixed;
+    inset: -18px;
+    z-index: 0;
+    pointer-events: none;
+    background-image:
+      linear-gradient(rgb(246 243 250 / 0.28), rgb(246 243 250 / 0.28)),
+      var(--dd-organ-bg);
+    background-size: cover;
+    background-position: center center;
+    background-repeat: no-repeat;
+    filter: blur(8px);
+    transform: scale(1.02);
+    transform-origin: center;
+  }
+
+  body:not([data-dd-background-mode="color"]):not([data-dd-background-mode="image"]) > * {
+    position: relative;
+    z-index: 1;
+  }
+
+  body:not([data-dd-background-mode="color"]):not([data-dd-background-mode="image"]) .dd-public-stage,
+  body:not([data-dd-background-mode="color"]):not([data-dd-background-mode="image"]) .dd-auth-shell,
+  body:not([data-dd-background-mode="color"]):not([data-dd-background-mode="image"]) > div[class*="min-h-dvh"],
+  body:not([data-dd-background-mode="color"]):not([data-dd-background-mode="image"]) > main[class*="min-h-dvh"] {
+    background-color: transparent !important;
+    background-image: none !important;
+  }
+
+  body:not([data-dd-background-mode="color"]):not([data-dd-background-mode="image"]) .dd-public-stage-light {
+    display: none !important;
+  }
+}
+
+@media screen and (max-width: 767px) {
+  body:not([data-dd-background-mode="color"]):not([data-dd-background-mode="image"])::before {
+    background-position: center top;
+    filter: blur(7px);
+    transform: scale(1.035);
+  }
+}
+`;
+
+/** Remove only inline properties and mode markers owned by personalization. */
 function clearOwnedCanvasStyles(): void {
   for (const property of HTML_STYLE_PROPERTIES) {
     document.documentElement.style.removeProperty(property);
   }
+  document.documentElement.removeAttribute("data-dd-background-mode");
 
   for (const property of BODY_STYLE_PROPERTIES) {
     document.body.style.removeProperty(property);
   }
-
   document.body.removeAttribute("data-dd-background-mode");
 }
 
-/**
- * Exact authenticated-app canvas selected from md2/inv1-ui-02-layout-fix.
- * The artwork/blur layer itself is rendered below by .defaultLayer; these are
- * the body/html properties that the source preview used around that layer.
- */
-function applyLockedDefaultCanvas(): void {
+function markMode(mode: "default" | "color" | "image"): void {
+  document.documentElement.setAttribute("data-dd-background-mode", mode);
+  document.body.setAttribute("data-dd-background-mode", mode);
+}
+
+function applyExactReferenceDefault(): void {
   clearOwnedCanvasStyles();
-
-  document.documentElement.style.setProperty("min-height", "100%");
-  document.documentElement.style.setProperty(
-    "background-color",
-    LOCKED_DEFAULT_COLOR,
-    "important",
-  );
-
-  document.body.style.setProperty("min-height", "100%");
-  document.body.style.setProperty("position", "relative");
-  document.body.style.setProperty("isolation", "isolate");
-  document.body.style.setProperty(
-    "background-color",
-    LOCKED_DEFAULT_COLOR,
-    "important",
-  );
-  document.body.style.setProperty("background-image", "none", "important");
-  document.body.setAttribute("data-dd-background-mode", "default");
+  markMode("default");
 }
 
 export function BackgroundCanvas() {
   const objectUrlRef = useRef<string | null>(null);
-  const [mode, setMode] = useState<BackgroundMode>("default");
 
   useEffect(() => {
     let cancelled = false;
@@ -85,8 +131,7 @@ export function BackgroundCanvas() {
 
       if (preference.mode === "default") {
         releaseObjectUrl();
-        applyLockedDefaultCanvas();
-        if (!cancelled) setMode("default");
+        applyExactReferenceDefault();
         return;
       }
 
@@ -94,10 +139,9 @@ export function BackgroundCanvas() {
         releaseObjectUrl();
         clearOwnedCanvasStyles();
         if (cancelled) return;
+        markMode("color");
         document.body.style.setProperty("background-color", preference.color);
         document.body.style.setProperty("background-image", "none");
-        document.body.setAttribute("data-dd-background-mode", "color");
-        setMode("color");
         return;
       }
 
@@ -108,10 +152,9 @@ export function BackgroundCanvas() {
         releaseObjectUrl();
         clearOwnedCanvasStyles();
 
-        // Missing/unreadable local image returns to the selected DD default.
+        // Missing/unreadable local image fails safely back to the exact default.
         if (!image) {
-          applyLockedDefaultCanvas();
-          setMode("default");
+          applyExactReferenceDefault();
           return;
         }
 
@@ -119,6 +162,7 @@ export function BackgroundCanvas() {
         objectUrlRef.current = imageUrl;
         const overlay = overlayCss(preference.overlay);
 
+        markMode("image");
         document.body.style.setProperty(
           "background-image",
           `linear-gradient(${overlay}, ${overlay}), url(${JSON.stringify(imageUrl)})`,
@@ -127,13 +171,8 @@ export function BackgroundCanvas() {
         document.body.style.setProperty("background-repeat", "no-repeat");
         document.body.style.setProperty("background-size", "cover");
         document.body.style.setProperty("background-attachment", "fixed");
-        document.body.setAttribute("data-dd-background-mode", "image");
-        setMode("image");
       } catch {
-        if (!cancelled) {
-          applyLockedDefaultCanvas();
-          setMode("default");
-        }
+        if (!cancelled) applyExactReferenceDefault();
       }
     };
 
@@ -146,18 +185,16 @@ export function BackgroundCanvas() {
       window.removeEventListener(BACKGROUND_PREFERENCE_EVENT, applyPreference);
       window.removeEventListener("storage", applyPreference);
       releaseObjectUrl();
-      // Never leak authenticated personalization into login/MFA/public routes.
+      // Leaving the authenticated shell must not leak personalization state.
       clearOwnedCanvasStyles();
     };
   }, []);
 
-  if (mode !== "default") return null;
-
   return (
-    <div
-      aria-hidden="true"
-      data-dd-locked-default-background="true"
-      className={styles.defaultLayer}
+    <style
+      data-dd-reference-background="true"
+      className={styles.referenceBackgroundStyle}
+      dangerouslySetInnerHTML={{ __html: EXACT_REFERENCE_BACKGROUND_CSS }}
     />
   );
 }
