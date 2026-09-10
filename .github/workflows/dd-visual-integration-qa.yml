@@ -147,7 +147,7 @@ jobs:
           test "$(git hash-object supabase/policies/0045_prelaunch_sec01b_security_closure.sql)" = "56a606e200a9f6ea43dd33e572511193a17a5f5a"
           grep -Fq '"regions": ["icn1"]' vercel.json
           grep -Fq '@media print' src/app/global-background-test.css
-          grep -Fq 'background: #fff !important' src/app/global-background-test.css
+          grep -Fq 'background: #ffffff !important' src/app/global-background-test.css
           echo "THEME_SECURITY_PRINT_REGION_LOCKS=PASS"
 
       - name: M1 focused tests
