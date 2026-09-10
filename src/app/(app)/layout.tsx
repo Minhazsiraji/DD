@@ -56,6 +56,9 @@ export default async function AppLayout({ children }: LayoutProps<"/">) {
   const nextAal = aalResult.data?.nextLevel ?? null;
 
   if (currentAal !== "aal2") {
+    // A verified factor exists: challenge it. Otherwise enroll first. Both are
+    // Auth-only routes outside the clinical shell, so AAL1 users are never
+    // stranded behind the clinical AAL2 gate.
     redirect(nextAal === "aal2" ? "/mfa" : "/mfa/enroll");
   }
 
@@ -78,11 +81,14 @@ export default async function AppLayout({ children }: LayoutProps<"/">) {
     : todayInDhaka();
   const fallbackDoctorName = user.email?.split("@")[0] ?? "Doctor";
 
+  // Informational badges start now but are consumed behind tiny Suspense
+  // boundaries in the sidebar. They never delay authenticated shell rendering.
   const navCountsPromise = timedPreviewStage(
     "m1-shell-timing",
     "nav_counts_streamed",
     getNavCounts(activeLocationId, sessionDate),
   ).catch(() => {
+    // No raw error object or request/clinical identifier enters production logs.
     console.error("[nav-counts] streamed read failed");
     return {};
   });
