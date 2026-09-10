@@ -24,7 +24,7 @@ export function DesktopSidebar({
 
   return (
     <aside
-      className="dd-sidebar dd-material-chrome glass sticky top-0 hidden h-dvh shrink-0 flex-col border-r border-glass-border lg:flex lg:w-[76px] xl:w-[248px]"
+      className="dd-material-chrome glass sticky top-0 hidden h-dvh shrink-0 flex-col border-r border-glass-border lg:flex lg:w-[76px] xl:w-[248px]"
       aria-label="Main navigation"
     >
       <div className="flex h-16 items-center gap-2.5 px-4 xl:px-5">
