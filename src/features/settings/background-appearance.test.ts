@@ -1,7 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
-  DEFAULT_BACKGROUND_COLOR,
   clampOverlay,
   hexToRgb,
   isAcceptedBackgroundImageType,
@@ -12,31 +11,47 @@ import {
 
 const read = (path: string) => readFileSync(path, "utf8");
 
-describe("DD-VISUAL-PERSONALIZATION-01-R1", () => {
-  it("keeps the original main canvas authoritative for Default", () => {
+describe("DD-VISUAL-PERSONALIZATION-01-R2 background lock", () => {
+  it("uses the exact selected INV1 preview treatment for authenticated Default", () => {
     const globals = read("src/app/globals.css");
     const rootLayout = read("src/app/layout.tsx");
     const canvas = read("src/features/settings/components/background-canvas.tsx");
+    const lockedCss = read(
+      "src/features/settings/components/locked-default-background.module.css",
+    );
 
-    expect(DEFAULT_BACKGROUND_COLOR).toBe("#DBE7FB");
+    expect(existsSync("public/dd-global-bg.webp")).toBe(true);
+    expect(canvas).toContain('const LOCKED_DEFAULT_COLOR = "#e8e3ee"');
+    expect(canvas).toContain("applyLockedDefaultCanvas();");
+    expect(canvas).toContain('data-dd-locked-default-background="true"');
+    expect(lockedCss).toContain('url("/dd-global-bg.webp")');
+    expect(lockedCss).toContain(
+      "linear-gradient(rgb(246 243 250 / 0.28), rgb(246 243 250 / 0.28))",
+    );
+    expect(lockedCss).toContain("filter: blur(8px)");
+    expect(lockedCss).toContain("transform: scale(1.02)");
+    expect(lockedCss).toContain("background-position: center center");
+    expect(lockedCss).toContain("@media (max-width: 767px)");
+    expect(lockedCss).toContain("background-position: center top");
+    expect(lockedCss).toContain("filter: blur(7px)");
+    expect(lockedCss).toContain("transform: scale(1.035)");
+
+    // The selected background is isolated from the canonical global stylesheet.
     expect(globals).toContain("--background: #dbe7fb;");
-    expect(globals).toContain("circle at 90% 10%");
-    expect(globals).toContain("circle at 4% 72%");
-    expect(globals).toContain("linear-gradient(160deg, #e4edfd 0%, #d5e3fb 46%, #c9dbf9 100%)");
     expect(rootLayout).toContain('import "./globals.css";');
     expect(rootLayout).not.toContain("global-background-test.css");
     expect(existsSync("src/app/global-background-test.css")).toBe(false);
-    expect(canvas).toContain('if (preference.mode === "default")');
-    expect(canvas).toContain("clearCustomBodyBackground();");
   });
 
-  it("keeps personalization inside the authenticated application shell", () => {
+  it("keeps the selected background and all personalization inside the authenticated shell", () => {
     const rootLayout = read("src/app/layout.tsx");
     const appLayout = read("src/app/(app)/layout.tsx");
+    const canvas = read("src/features/settings/components/background-canvas.tsx");
 
     expect(rootLayout).not.toContain("BackgroundCanvas");
     expect(appLayout).toContain('import { BackgroundCanvas }');
     expect(appLayout).toContain("<BackgroundCanvas />");
+    expect(canvas).toContain("clearOwnedCanvasStyles();");
   });
 
   it("keeps color parsing deterministic and bounded", () => {
@@ -50,7 +65,7 @@ describe("DD-VISUAL-PERSONALIZATION-01-R1", () => {
     expect(overlayCss(0)).toBe("rgb(255 255 255 / 0)");
   });
 
-  it("accepts only local V1 image formats and stores bytes in IndexedDB", () => {
+  it("accepts only local V1 image formats and stores custom image bytes in IndexedDB", () => {
     const storage = read("src/features/settings/background-preference.ts");
     const appearance = read("src/features/settings/components/background-appearance.tsx");
 
@@ -66,7 +81,7 @@ describe("DD-VISUAL-PERSONALIZATION-01-R1", () => {
     expect(appearance).not.toContain('type="url"');
   });
 
-  it("applies custom modes explicitly and restores every custom preference", () => {
+  it("keeps explicit custom modes and Restore Default behavior unchanged", () => {
     const canvas = read("src/features/settings/components/background-canvas.tsx");
     const appearance = read("src/features/settings/components/background-appearance.tsx");
 
@@ -78,7 +93,6 @@ describe("DD-VISUAL-PERSONALIZATION-01-R1", () => {
     expect(appearance).toContain("clearBackgroundPreference();");
     expect(appearance).toContain("await deleteBackgroundImage();");
     expect(appearance).toContain('setMode("default")');
-    expect(appearance).toContain("setOverlay(DEFAULT_BACKGROUND_PREFERENCE.overlay)");
     expect(appearance).toContain("Restore Doctor’s Diary Default");
   });
 
@@ -86,11 +100,16 @@ describe("DD-VISUAL-PERSONALIZATION-01-R1", () => {
     const preference = read("src/features/settings/background-preference.ts");
     const appearance = read("src/features/settings/components/background-appearance.tsx");
     const canvas = read("src/features/settings/components/background-canvas.tsx");
-    const combined = `${preference}\n${appearance}\n${canvas}`;
+    const lockedCss = read(
+      "src/features/settings/components/locked-default-background.module.css",
+    );
+    const combined = `${preference}\n${appearance}\n${canvas}\n${lockedCss}`;
 
     expect(combined).not.toMatch(/supabase|prescription item|investigation|encounter mutation/i);
     expect(combined).not.toMatch(/fetch\(|axios|XMLHttpRequest/);
     expect(combined).not.toContain("http://");
     expect(combined).not.toContain("https://");
+    expect(lockedCss).toContain("@media print");
+    expect(lockedCss).toContain("display: none !important");
   });
 });
