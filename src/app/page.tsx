@@ -89,7 +89,7 @@ export default function RootPage() {
       </section>
 
       <section className="mx-auto max-w-7xl px-5 py-20 lg:px-8">
-        <div className="dd-bg-exposure-dark-panel rounded-[2rem] bg-slate-950 px-6 py-10 text-white sm:px-10 lg:flex lg:items-center lg:justify-between">
+        <div className="dd-bg-exposure-panel rounded-[2rem] bg-slate-950 px-6 py-10 text-white sm:px-10 lg:flex lg:items-center lg:justify-between">
           <div>
             <p className="text-sm font-semibold uppercase tracking-[0.18em] text-teal-300">Founding doctors</p>
             <h2 className="mt-3 text-3xl font-semibold tracking-tight">Help shape the workflow before the wider launch.</h2>
