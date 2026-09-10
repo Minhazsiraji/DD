@@ -1,0 +1,110 @@
+name: INV1 UAT C1 QA
+
+on:
+  push:
+    branches:
+      - md2/inv1-uat-c1-header-fix
+
+permissions:
+  contents: read
+
+jobs:
+  qa:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      BASE_SHA: 097955c1b1ce43bcda9b2bc98c141d0487279b4b
+      OPENAI_API_KEY: ""
+      DEEPGRAM_API_KEY: ""
+      PA1_SYNTHETIC_AI_EVAL: disabled
+    steps:
+      - name: Checkout full history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Narrow UAT scope guard
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git merge-base "$BASE_SHA" HEAD)" = "$BASE_SHA"
+          mapfile -t changed < <(git diff --name-only "$BASE_SHA"...HEAD | sort)
+          expected=(
+            '.github/workflows/inv1-uat-c1-qa.yml'
+            'src/features/encounters/components/consultation-workspace.tsx'
+          )
+          printf '%s\n' "${expected[@]}" | sort > /tmp/expected.txt
+          printf '%s\n' "${changed[@]}" > /tmp/changed.txt
+          diff -u /tmp/expected.txt /tmp/changed.txt
+          if printf '%s\n' "${changed[@]}" | grep -E '(^|/)(supabase|db|migrations?|schema)(/|$)|\.sql$'; then
+            echo 'Unauthorized DB/schema/migration delta detected.' >&2
+            exit 1
+          fi
+
+      - name: Header visual contract guard
+        shell: bash
+        run: |
+          set -euo pipefail
+          node - <<'NODE'
+          const fs = require('node:fs');
+          const s = fs.readFileSync('src/features/encounters/components/consultation-workspace.tsx','utf8');
+          const header = '<div className="sticky top-0 z-30 -mx-4 px-4 pt-1 pb-3 sm:-mx-6 sm:px-6">';
+          if (!s.includes(header)) throw new Error('corrected transparent sticky wrapper missing');
+          if (s.includes('bg-background/72 px-4 pt-1 pb-3 backdrop-blur-md')) throw new Error('outer tinted slab still present');
+          if (!s.includes('<ConsultationIdentity patient={consultation.patient} locationName={locationName} />')) throw new Error('patient glass card changed/missing');
+          if (!s.includes('<FastEntry visibility={visibility} blocked={s.blocked} />')) throw new Error('Go to section control changed/missing');
+          console.log('INV1_UAT_C1_HEADER_CONTRACT=PASS');
+          NODE
+
+      - name: Investigation focused tests
+        run: >-
+          npx vitest run
+          src/features/encounters/investigation-v1-ui.test.ts
+          src/features/encounters/investigation-v1-foundation.test.ts
+          src/features/encounters/investigation-v1-db.test.ts
+
+      - name: Consultation workspace regression
+        run: >-
+          npx vitest run
+          src/features/encounters/m2-consultation-workspace.test.ts
+          src/features/encounters/m2-uat-corrections.test.ts
+          src/features/encounters/mutation-gate.test.ts
+          src/features/encounters/desync-outcomes.test.ts
+          src/features/encounters/finding-conflict.test.ts
+          src/features/encounters/removal-conflict.test.ts
+
+      - name: Mobile responsive test
+        run: npx vitest run src/features/encounters/m2-responsive-widths.test.ts -t "360px mobile"
+
+      - name: Tablet responsive test
+        run: npx vitest run src/features/encounters/m2-responsive-widths.test.ts -t "820px tablet"
+
+      - name: Desktop responsive test
+        run: npx vitest run src/features/encounters/m2-responsive-widths.test.ts -t "1440px desktop"
+
+      - name: Full repository tests
+        run: npm test
+
+      - name: Next route type generation
+        run: npx next typegen
+
+      - name: TypeScript
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Production build
+        run: npm run build
+
+      - name: Diff whitespace check
+        run: git diff --check "$BASE_SHA"...HEAD
