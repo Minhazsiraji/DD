@@ -110,19 +110,19 @@ describe("DD-VISUAL-PERSONALIZATION exact reference background", () => {
     expect(storage).toContain("store.put(file, IMAGE_KEY)");
     expect(storage).not.toContain("FileReader");
     expect(storage).not.toContain("readAsDataURL");
+    expect(appearance).toContain('type="file"');
   });
 
   it("does not alter frozen global, application, backend, security or print files", () => {
     const globals = read("src/app/globals.css");
     const rootLayout = read("src/app/layout.tsx");
     const appLayout = read("src/app/(app)/layout.tsx");
-    const appearance = read("src/features/settings/components/background-appearance.tsx");
     const preference = read("src/features/settings/background-preference.ts");
     const canvas = read("src/features/settings/components/background-canvas.tsx");
     const lockedCss = read(
       "src/features/settings/components/locked-default-background.module.css",
     );
-    const combined = `${preference}\n${appearance}\n${canvas}\n${lockedCss}`;
+    const combined = `${preference}\n${canvas}\n${lockedCss}`;
 
     expect(globals).toContain("--background: #dbe7fb;");
     expect(rootLayout).toContain('import "./globals.css";');
