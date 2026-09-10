@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { MarketingShell } from "@/components/marketing/marketing-shell";
+import styles from "@/components/marketing/reference-background-exposure.module.css";
 
 const benefits = [
   {
@@ -56,8 +57,8 @@ export default function RootPage() {
           </p>
         </div>
 
-        <div className="rounded-[2rem] border border-slate-200 bg-white p-5 shadow-[0_24px_80px_rgba(15,23,42,.08)] sm:p-7">
-          <div className="rounded-3xl bg-[#edf4ff] p-6">
+        <div className={`${styles.panel} rounded-[2rem] border border-slate-200 bg-white p-5 shadow-[0_24px_80px_rgba(15,23,42,.08)] sm:p-7`}>
+          <div className={`${styles.inner} rounded-3xl bg-[#edf4ff] p-6`}>
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Today</p>
@@ -77,7 +78,7 @@ export default function RootPage() {
         </div>
       </section>
 
-      <section className="border-y border-slate-200 bg-white">
+      <section className={`${styles.section} border-y border-slate-200 bg-white`}>
         <div className="mx-auto grid max-w-7xl gap-5 px-5 py-16 md:grid-cols-3 lg:px-8">
           {benefits.map((benefit) => (
             <article key={benefit.title} className="rounded-3xl border border-slate-200 bg-[#fbfdff] p-6">
@@ -89,7 +90,7 @@ export default function RootPage() {
       </section>
 
       <section className="mx-auto max-w-7xl px-5 py-20 lg:px-8">
-        <div className="rounded-[2rem] bg-slate-950 px-6 py-10 text-white sm:px-10 lg:flex lg:items-center lg:justify-between">
+        <div className={`${styles.darkPanel} rounded-[2rem] bg-slate-950 px-6 py-10 text-white sm:px-10 lg:flex lg:items-center lg:justify-between`}>
           <div>
             <p className="text-sm font-semibold uppercase tracking-[0.18em] text-teal-300">Founding doctors</p>
             <h2 className="mt-3 text-3xl font-semibold tracking-tight">Help shape the workflow before the wider launch.</h2>
