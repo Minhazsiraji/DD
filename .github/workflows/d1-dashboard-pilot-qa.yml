@@ -62,13 +62,8 @@ jobs:
       - name: D1 Dashboard focused tests
         run: npx vitest run src/features/dashboard/d1-dashboard-pilot.test.ts src/features/dashboard/m1-dashboard-performance.test.ts
 
-      - name: Doctor isolation regression
-        shell: bash
-        run: |
-          set -euo pipefail
-          files=$(find src/features -type f -name '*isolation*.test.ts' -print)
-          test -n "$files"
-          npx vitest run $files
+      - name: Doctor authority and isolation regression
+        run: npx vitest run src/features/patients/m1-implementation.test.ts src/features/security/prelaunch-sec01b.test.ts
 
       - name: Consultation and queue regression
         shell: bash
