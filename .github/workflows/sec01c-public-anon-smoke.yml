@@ -1,0 +1,64 @@
+name: SEC-01C Public and Anon Preview Smoke
+
+on:
+  push:
+    branches:
+      - md2/sec01c-uat-fixture-01-runner
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-24.04
+    env:
+      PREVIEW_URL: https://dd-git-md2-sec01c-runtime-final-01-minhazs-projects-d28f7aed.vercel.app
+    steps:
+      - name: Public doctor/profile and booking surfaces
+        shell: bash
+        run: |
+          set -euo pipefail
+          check_public() {
+            path="$1"
+            name="$2"
+            result=$(curl -sS -L -o /dev/null -w '%{http_code} %{url_effective}' "$PREVIEW_URL$path")
+            code=${result%% *}
+            effective=${result#* }
+            echo "$name HTTP=$code"
+            case "$effective" in
+              "$PREVIEW_URL"*) ;;
+              *) echo "$name EFFECTIVE_HOST=UNEXPECTED"; exit 1;;
+            esac
+            test "$code" = "200"
+          }
+          check_public "/dr/dr-siraji" "PUBLIC_PROFILE"
+          check_public "/dr/dr-siraji/book" "PUBLIC_BOOKING_SURFACE"
+          echo "PUBLIC_READ_SURFACES=PASS"
+
+      - name: Anonymous direct clinical access remains denied
+        shell: bash
+        run: |
+          set -euo pipefail
+          check_denied() {
+            path="$1"
+            name="$2"
+            headers=$(mktemp)
+            code=$(curl -sS -o /dev/null -D "$headers" -w '%{http_code}' "$PREVIEW_URL$path")
+            location=$(awk 'BEGIN{IGNORECASE=1} /^location:/{sub(/^[^:]+:[[:space:]]*/,""); gsub(/\r/,""); print; exit}' "$headers")
+            echo "$name HTTP=$code"
+            if [ "$code" = "307" ] || [ "$code" = "302" ] || [ "$code" = "303" ] || [ "$code" = "308" ]; then
+              case "$location" in
+                /login*|"$PREVIEW_URL/login"*) ;;
+                *) echo "$name REDIRECT=UNEXPECTED"; exit 1;;
+              esac
+            elif [ "$code" = "401" ] || [ "$code" = "403" ]; then
+              :
+            else
+              echo "$name DENIAL=FAIL"
+              exit 1
+            fi
+          }
+          check_denied "/dashboard" "ANON_DASHBOARD"
+          check_denied "/patients" "ANON_PATIENTS"
+          check_denied "/owner" "ANON_OWNER"
+          echo "ANON_CLINICAL_DENIAL=PASS"
