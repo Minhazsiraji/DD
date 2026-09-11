@@ -8,9 +8,10 @@ export const metadata: Metadata = { title: "Platform" };
  * The owner boundary, and only the boundary.
  *
  * This page exists to prove the authority layer works end to end. It shows what
- * the primitive unblocks and what it deliberately cannot reach — no metrics, no
- * doctor list, no clinical data, because none of that is built and none of it
- * should appear by accident.
+ * the primitive unblocks and what it deliberately cannot reach. Metrics live in
+ * `/owner/dashboard`, which reads aggregate totals only and renders "Not
+ * measured" wherever no approved source exists; no clinical data appears on
+ * any owner surface, by accident or otherwise.
  *
  * `/owner` sits OUTSIDE the `(app)` group on purpose. That group's layout is
  * the clinical shell — location switcher, patient search, clinical navigation —
@@ -34,6 +35,20 @@ export default async function OwnerPage() {
       </p>
 
       <section className="clinical-surface mt-6 rounded-glass-lg p-5">
+        <h2 className="text-sm font-semibold text-ink">Pilot dashboard</h2>
+        <p className="mt-2 text-sm text-ink-secondary">
+          Doctors, adoption, AI usage, cost, pilot health and security — counts
+          and totals only.
+        </p>
+        <Link
+          href="/owner/dashboard"
+          className="mt-3 inline-flex h-11 items-center font-medium text-brand"
+        >
+          Open the owner dashboard →
+        </Link>
+      </section>
+
+      <section className="clinical-surface mt-4 rounded-glass-lg p-5">
         <h2 className="text-sm font-semibold text-ink">Decisions waiting for you</h2>
         <ul className="mt-3 grid gap-2 text-sm">
           <li>
