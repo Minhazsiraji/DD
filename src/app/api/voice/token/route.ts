@@ -1,6 +1,12 @@
 import "server-only";
 import { NextResponse, type NextRequest } from "next/server";
 import { requirePermission } from "@/lib/auth/session";
+import {
+  buildVoiceGrant,
+  mintVoiceGrantId,
+  type VoiceGrantDenialReason,
+} from "@/features/ai/telemetry";
+import { emitAiTelemetry, getAiTelemetrySink } from "@/features/ai/telemetry-sink";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -18,17 +24,25 @@ type VoiceQaDiagnostic =
   | "TOKEN_GRANT_NETWORK";
 
 /** Pilot-only best-effort limiter. Replace with distributed quota before scale. */
-const rate = new Map<string, { startedAt: number; count: number }>();
+const rate = new Map<string, { startedAt: number; count: number; denialRecorded: boolean }>();
 
-function rateLimited(userId: string): boolean {
+/**
+ * `DENIED_FIRST` marks the first refusal in a window. Only that one is
+ * recorded as telemetry, so a client hammering a refused endpoint cannot turn
+ * each request into a telemetry write.
+ */
+function rateDecision(userId: string): "ALLOWED" | "DENIED_FIRST" | "DENIED" {
   const now = Date.now();
   const current = rate.get(userId);
   if (!current || now - current.startedAt >= WINDOW_MS) {
-    rate.set(userId, { startedAt: now, count: 1 });
-    return false;
+    rate.set(userId, { startedAt: now, count: 1, denialRecorded: false });
+    return "ALLOWED";
   }
   current.count += 1;
-  return current.count > MAX_GRANTS_PER_WINDOW;
+  if (current.count <= MAX_GRANTS_PER_WINDOW) return "ALLOWED";
+  if (current.denialRecorded) return "DENIED";
+  current.denialRecorded = true;
+  return "DENIED_FIRST";
 }
 
 function qaDiagnosticsEnabled(): boolean {
@@ -74,12 +88,26 @@ export async function POST(request: NextRequest) {
     return noStore({ code: "forbidden" }, 403, "TOKEN_ROUTE_FORBIDDEN");
   }
 
-  if (rateLimited(userId)) {
+  // Usage telemetry: a random grant id and the auth user — no patient,
+  // encounter or prescription context, and no audio or transcript. The grant
+  // id travels with the token so the browser's streaming report can be matched
+  // to the grant it streamed under.
+  const grantId = mintVoiceGrantId();
+  const recordGrant = (denialReason: VoiceGrantDenialReason | null) =>
+    emitAiTelemetry(
+      getAiTelemetrySink(),
+      buildVoiceGrant({ occurredAt: new Date(), actorUserId: userId, grantId, denialReason }),
+    );
+
+  const decision = rateDecision(userId);
+  if (decision !== "ALLOWED") {
+    if (decision === "DENIED_FIRST") await recordGrant("RATE_LIMITED");
     return noStore({ code: "rate-limited" }, 429, "TOKEN_RATE_LIMIT");
   }
 
   const apiKey = process.env.DEEPGRAM_API_KEY;
   if (!apiKey) {
+    await recordGrant("CONFIG_MISSING");
     return noStore({ code: "provider-unavailable" }, 503, "TOKEN_CONFIG_MISSING");
   }
 
@@ -100,6 +128,7 @@ export async function POST(request: NextRequest) {
 
     if (!response.ok) {
       const unavailable = response.status === 401 || response.status === 403;
+      await recordGrant("GRANT_REJECTED");
       return noStore(
         { code: unavailable ? "provider-unavailable" : "provider-error" },
         unavailable ? 503 : 502,
@@ -110,6 +139,7 @@ export async function POST(request: NextRequest) {
 
     const payload = (await response.json()) as { access_token?: string; expires_in?: number };
     if (!payload.access_token) {
+      await recordGrant("GRANT_REJECTED");
       return noStore(
         { code: "provider-error" },
         502,
@@ -118,12 +148,15 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    await recordGrant(null);
     return noStore({
       accessToken: payload.access_token,
       expiresIn: payload.expires_in ?? TOKEN_TTL_SECONDS,
+      grantId,
       ...(qaDiagnosticsEnabled() ? { qaDiagnostics: true } : {}),
     });
   } catch {
+    await recordGrant("GRANT_NETWORK");
     return noStore({ code: "provider-error" }, 502, "TOKEN_GRANT_NETWORK");
   } finally {
     clearTimeout(timeout);

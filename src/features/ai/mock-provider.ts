@@ -1,7 +1,9 @@
-import type {
-  ClinicalProposalParser,
-  ProposalParseInput,
-  ProposalParseResult,
+import {
+  UNKNOWN_USAGE,
+  type ClinicalProposalParser,
+  type ProposalParseInput,
+  type ProposalParseResult,
+  type ProviderUsageReport,
 } from "./providers";
 
 /**
@@ -10,9 +12,19 @@ import type {
  *
  * Speech-to-text is deliberately absent: PA1 reuses DD's existing audited
  * Deepgram Nova-3 streaming subsystem instead of mocking or duplicating it.
+ *
+ * USAGE DEFAULTS TO UNKNOWN, NOT ZERO. This mock reports no consumption, and
+ * "not reported" must never be represented as an authoritative 0 — that is the
+ * pattern every test using this class would otherwise learn. A test that needs
+ * reported usage passes it explicitly.
  */
 export class MockProposalParser implements ClinicalProposalParser {
-  constructor(private readonly output: unknown) {}
+  readonly descriptor = { provider: "mock", model: "mock-parser-v1" };
+
+  constructor(
+    private readonly output: unknown,
+    private readonly usage: ProviderUsageReport = UNKNOWN_USAGE,
+  ) {}
 
   async parse(
     _input: ProposalParseInput,
@@ -22,12 +34,14 @@ export class MockProposalParser implements ClinicalProposalParser {
     return {
       rawProposal: this.output,
       provider: { provider: "mock", model: "mock-parser-v1" },
-      usage: { inputTokens: 0, outputTokens: 0, estimatedCostUsdMicros: 0 },
+      usage: this.usage,
     };
   }
 }
 
 export class NeverResolvingParser implements ClinicalProposalParser {
+  readonly descriptor = { provider: "mock", model: "never-resolving-v1" };
+
   async parse(
     _input: ProposalParseInput,
     _signal: AbortSignal,

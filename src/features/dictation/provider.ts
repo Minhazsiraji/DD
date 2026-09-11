@@ -8,6 +8,9 @@ import {
   deepgramBearerProtocols,
   type DeepgramResultsMessage,
 } from "./deepgram-stream";
+import { mintVoiceSessionId, parseGrantId, type VoiceStreamUsage } from "./voice-usage";
+
+export type { VoiceStreamUsage } from "./voice-usage";
 
 export const VOICE_TRANSCRIPTION_PROVIDER_IDS = ["deepgram"] as const;
 export type VoiceTranscriptionProviderId = (typeof VOICE_TRANSCRIPTION_PROVIDER_IDS)[number];
@@ -32,6 +35,12 @@ export interface VoiceTranscriptionCallbacks {
   onLatency: (latency: VoiceLatencySnapshot) => void;
   onError: (code: string) => void;
   onEnd: (finalTranscript: string) => void;
+  /**
+   * Accounting, not UI state: fired exactly once per session on EVERY terminal
+   * path — end, error and cancel — because audio streamed before a Discard was
+   * still sent to the provider. Carries no transcript.
+   */
+  onUsage?: (usage: VoiceStreamUsage) => void;
 }
 
 export interface VoiceTranscriptionSession {
@@ -87,6 +96,7 @@ interface DeepgramTokenPayload {
   accessToken?: string;
   diagnostic?: string;
   qaDiagnostics?: boolean;
+  grantId?: unknown;
 }
 
 function tokenQaDiagnostic(value: unknown): string | null {
@@ -96,6 +106,7 @@ function tokenQaDiagnostic(value: unknown): string | null {
 async function requestDeepgramAccessToken(signal: AbortSignal): Promise<{
   accessToken: string;
   qaDiagnostics: boolean;
+  grantId: string | null;
 }> {
   const response = await fetch("/api/voice/token", {
     method: "POST",
@@ -115,7 +126,11 @@ async function requestDeepgramAccessToken(signal: AbortSignal): Promise<{
     throw new Error(response.status === 503 ? "provider-unavailable" : "provider-error");
   }
   if (!payload.accessToken) throw new Error("provider-error");
-  return { accessToken: payload.accessToken, qaDiagnostics: payload.qaDiagnostics === true };
+  return {
+    accessToken: payload.accessToken,
+    qaDiagnostics: payload.qaDiagnostics === true,
+    grantId: parseGrantId(payload.grantId),
+  };
 }
 
 const deepgramProvider: VoiceTranscriptionProvider = {
@@ -148,6 +163,29 @@ const deepgramProvider: VoiceTranscriptionProvider = {
     let qaDiagnostics = false;
     const assembler = new DeepgramTranscriptAssembler();
     const latency: VoiceLatencySnapshot = {};
+
+    // Usage accounting. Streamed audio is measured from recorder start to the
+    // last chunk actually SENT, so audio captured after the socket died is not
+    // counted as streamed. Reported once, on whichever terminal path comes first.
+    const voiceSessionId = mintVoiceSessionId();
+    let grantId: string | null = null;
+    let recorderStartedAt: number | null = null;
+    let lastChunkSentAt: number | null = null;
+    let usageReported = false;
+    const reportUsage = () => {
+      if (usageReported) return;
+      usageReported = true;
+      callbacks.onUsage?.({
+        voiceSessionId,
+        grantId,
+        streamedAudioMs:
+          recorderStartedAt !== null && lastChunkSentAt !== null
+            ? Math.max(0, Math.round(lastChunkSentAt - recorderStartedAt))
+            : 0,
+        connectLatencyMs: latency.providerConnectedMs ?? null,
+        firstResultLatencyMs: latency.firstTranscriptMs ?? null,
+      });
+    };
 
     const emitLatency = () => callbacks.onLatency({ ...latency });
     const clearTimer = (timer: ReturnType<typeof setTimeout> | null) => {
@@ -200,6 +238,7 @@ const deepgramProvider: VoiceTranscriptionProvider = {
     const fail = (code: string) => {
       if (cancelled || terminal) return;
       terminal = true;
+      reportUsage();
       cleanup();
       callbacks.onError(code);
     };
@@ -209,6 +248,7 @@ const deepgramProvider: VoiceTranscriptionProvider = {
       terminal = true;
       if (stopAt !== null) latency.stopToFinalMs = Math.round(performance.now() - stopAt);
       emitLatency();
+      reportUsage();
       cleanup();
       callbacks.onEnd(latestTranscript.trim());
     };
@@ -247,12 +287,14 @@ const deepgramProvider: VoiceTranscriptionProvider = {
             );
           }
           socket.send(event.data);
+          lastChunkSentAt = performance.now();
         };
         recorder.onerror = () => fail(qaCode("AUDIO_CAPTURE", "audio-capture"));
         recorder.onstop = () => {
           releaseTracks();
           if (!cancelled && !terminal) beginFinalize();
         };
+        recorderStartedAt = performance.now();
         recorder.start(DEEPGRAM_MEDIA_TIMESLICE_MS);
         callbacks.onPhase("listening");
         if (stopped && recorder.state !== "inactive") recorder.stop();
@@ -288,6 +330,7 @@ const deepgramProvider: VoiceTranscriptionProvider = {
           const grant = await requestDeepgramAccessToken(tokenController.signal);
           accessToken = grant.accessToken;
           qaDiagnostics = grant.qaDiagnostics;
+          grantId = grant.grantId;
         } finally {
           clearTimeout(tokenTimeout);
         }
@@ -387,6 +430,9 @@ const deepgramProvider: VoiceTranscriptionProvider = {
         else if (socket?.readyState === WebSocket.OPEN) beginFinalize();
       },
       abort() {
+        // A cancelled or Discarded run still streamed whatever it streamed.
+        // No-op if the session already reported on end or error.
+        reportUsage();
         cancelled = true;
         terminal = true;
         cleanup();

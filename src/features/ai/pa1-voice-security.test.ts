@@ -37,7 +37,7 @@ function deepgramTranscript(text: string, language: string) {
     provider: { provider: "deepgram", model: "nova-3" },
     language,
     confidence: null,
-    usage: { audioSeconds: 4, estimatedCostUsdMicros: 0 },
+    usage: { audioSeconds: 4 },
   };
 }
 
@@ -110,6 +110,18 @@ describe("PA1 voice and secret containment", () => {
       "./orchestrator.ts",
       "./mock-provider.ts",
       "./openai-terra-provider.ts",
+      // O1-E telemetry and cost accounting: the same containment applies.
+      "./money.ts",
+      "./pricing.ts",
+      "./telemetry-events.ts",
+      "./telemetry-allowlist.ts",
+      "./telemetry-validation.ts",
+      "./telemetry-privacy.ts",
+      "./telemetry-builders.ts",
+      "./telemetry-voice.ts",
+      "./telemetry-sink.ts",
+      "./proposal-decision.ts",
+      "./owner-projection.ts",
     ];
     const source = productionFiles
       .map((file) => readFileSync(new URL(file, import.meta.url), "utf8"))
