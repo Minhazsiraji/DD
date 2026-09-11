@@ -1,0 +1,143 @@
+name: SEC-01C Runtime Final Exact-SHA QA
+
+on:
+  push:
+    branches:
+      - md2/sec01c-runtime-final-01-qa-runner
+
+permissions:
+  contents: read
+
+env:
+  NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
+  NEXT_PUBLIC_SUPABASE_ANON_KEY: sb_publishable_sec01c_runtime_final_placeholder_000000000000
+  NEXT_PUBLIC_SITE_URL: https://example.com
+  SEC01B_TEST_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/sec01b
+  CI: true
+
+jobs:
+  qa:
+    runs-on: ubuntu-24.04
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: sec01b
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d sec01b"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+    steps:
+      - name: Checkout exact unified candidate SHA
+        uses: actions/checkout@v4
+        with:
+          ref: 7dd53576022fa50706eb5e57a2f34fd59425ad96
+          fetch-depth: 0
+
+      - name: Set up Node 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install exact lockfile
+        run: npm ci --ignore-scripts
+
+      - name: Exact SHA and changed-file inventory
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE=4c198a333ac50bf91fcb6908ef44d926be89d74b
+          FINAL=7dd53576022fa50706eb5e57a2f34fd59425ad96
+          test "$(git rev-parse HEAD)" = "$FINAL"
+          git diff --name-only "$BASE" "$FINAL" | sort > /tmp/actual.txt
+          cat > /tmp/expected.txt <<'EOF'
+          src/app/(auth)/mfa/enroll/page.tsx
+          src/app/(auth)/mfa/page.tsx
+          src/features/security/actions.ts
+          src/features/security/post-mfa-destination.test.ts
+          src/features/security/post-mfa-destination.ts
+          supabase/policies/0046_investigation_v1_foundation.sql
+          EOF
+          sort -o /tmp/expected.txt /tmp/expected.txt
+          diff -u /tmp/expected.txt /tmp/actual.txt
+          echo "EXACT_SHA_AND_SCOPE=PASS"
+
+      - name: Locked migrations and region
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git hash-object supabase/policies/0041_prescription_correction_window.sql)" = "b89f8759d737afee950567788a715ba9a947f175"
+          test "$(git hash-object supabase/policies/0042_m3_prescription_reuse.sql)" = "f0d61c8ba472a57513eb0065a294a2ff65a09b69"
+          test "$(git hash-object supabase/policies/0043_m3_signed_medicine_history.sql)" = "16b417bf3117d4e19bb9c52383af5e8608f59a91"
+          test "$(git hash-object supabase/policies/0044_m3_prescription_print_audit.sql)" = "139684e77ef6fa2c5414611c32dfd8c6b9113524"
+          test "$(git hash-object supabase/policies/0045_prelaunch_sec01b_security_closure.sql)" = "56a606e200a9f6ea43dd33e572511193a17a5f5a"
+          test "$(git hash-object supabase/policies/0046_investigation_v1_foundation.sql)" = "5e105f3015f1251279e3ba94b5c3b745998b8e22"
+          grep -Fq '"regions": ["icn1"]' vercel.json
+          echo "MIGRATION_CHAIN_AND_REGION=PASS"
+
+      - name: M1 focused tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t files < <(find src/features/dashboard src/features/patients -type f -name '*.test.ts' | sort)
+          test ${#files[@]} -gt 0
+          npx vitest run "${files[@]}"
+
+      - name: M2 focused tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t files < <(find src/features/encounters src/features/consultation -type f -name '*.test.ts' 2>/dev/null | sort)
+          test ${#files[@]} -gt 0
+          npx vitest run "${files[@]}"
+
+      - name: M3 focused tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t files < <(find src/features/prescriptions -type f -name '*.test.ts' | sort)
+          test ${#files[@]} -gt 0
+          npx vitest run "${files[@]}"
+
+      - name: SEC-01B verification
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx vitest run src/features/security/prelaunch-sec01b.test.ts
+          node scripts/verify-prelaunch-sec01b-sql.mjs
+
+      - name: SEC-01C routing tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t files < <(find src/features/security -maxdepth 1 -type f -name '*.test.ts' | sort)
+          test ${#files[@]} -gt 0
+          npx vitest run "${files[@]}"
+
+      - name: Appearance personalization
+        run: npx vitest run src/features/settings/background-appearance.test.ts
+
+      - name: Full repository tests
+        run: npm test
+
+      - name: Next route type generation
+        run: npx next typegen
+
+      - name: TypeScript
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Production build
+        run: npm run build
+
+      - name: Git diff check
+        run: git diff --check 4c198a333ac50bf91fcb6908ef44d926be89d74b 7dd53576022fa50706eb5e57a2f34fd59425ad96
