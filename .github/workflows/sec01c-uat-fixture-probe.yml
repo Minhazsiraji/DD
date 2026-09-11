@@ -1,0 +1,40 @@
+name: SEC-01C UAT Fixture Capability Probe
+
+on:
+  push:
+    branches:
+      - md2/sec01c-uat-fixture-01-runner
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    env:
+      SRK_PRIMARY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      SRK_DD: ${{ secrets.DD_SUPABASE_SERVICE_ROLE_KEY }}
+      SRK_ALT: ${{ secrets.SUPABASE_SERVICE_KEY }}
+      PREVIEW_URL: https://dd-git-md2-sec01c-runtime-final-01-minhazs-projects-d28f7aed.vercel.app
+    steps:
+      - name: Capability probe without secret disclosure
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -n "${SRK_PRIMARY:-}" ]; then
+            echo "SERVICE_ROLE_SECRET_SOURCE=SUPABASE_SERVICE_ROLE_KEY"
+          elif [ -n "${SRK_DD:-}" ]; then
+            echo "SERVICE_ROLE_SECRET_SOURCE=DD_SUPABASE_SERVICE_ROLE_KEY"
+          elif [ -n "${SRK_ALT:-}" ]; then
+            echo "SERVICE_ROLE_SECRET_SOURCE=SUPABASE_SERVICE_KEY"
+          else
+            echo "SERVICE_ROLE_SECRET_SOURCE=NONE"
+          fi
+
+          code=$(curl -sS -o /tmp/preview.html -w '%{http_code}' "$PREVIEW_URL/login" || true)
+          echo "PREVIEW_HTTP_STATUS=$code"
+          if [ "$code" -ge 200 ] && [ "$code" -lt 400 ]; then
+            echo "PREVIEW_PUBLIC_REACHABLE=PASS"
+          else
+            echo "PREVIEW_PUBLIC_REACHABLE=FAIL"
+          fi
