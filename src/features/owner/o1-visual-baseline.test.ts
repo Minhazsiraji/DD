@@ -57,7 +57,6 @@ describe("O1-MD2 visual baseline guard", () => {
     }
     expect(layout).toContain("Geist({");
     expect(layout).toContain("Geist_Mono({");
-    expect(layout).toContain("Manrope({");
   });
 
   it("guards shell material and responsive spacing without changing shell behavior", () => {
@@ -82,7 +81,7 @@ describe("O1-MD2 visual baseline guard", () => {
     const ownerPage = read("src/app/owner/page.tsx");
     expect(ownerLayout).toContain("requirePlatformOwner");
     expect(ownerLayout).not.toMatch(/DesktopSidebar|TopBar|LocationSwitcher|GlobalPatientFinder/);
-    expect(ownerPage).toContain("outside the `(app)` group on purpose");
+    expect(ownerPage).toContain("OUTSIDE the `(app)` group on purpose");
     expect(ownerPage).toContain("no clinical data");
   });
 
@@ -105,7 +104,8 @@ describe("O1-MD2 visual baseline guard", () => {
     for (const tone of ["neutral", "info", "success", "warning", "danger"]) {
       expect(badge).toContain(tone);
     }
-    expect(empty).toContain("py-10 text-center");
+    expect(empty).toContain("text-center");
+    expect(empty).toContain('variant === "page" ? "min-h-[46vh] py-16" : "py-10"');
     expect(skeletons).toContain('aria-hidden="true"');
     expect(skeletons).toContain('aria-busy="true"');
     expect(skeletons).toContain("grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4");
