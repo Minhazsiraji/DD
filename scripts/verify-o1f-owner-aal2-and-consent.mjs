@@ -11,6 +11,7 @@
 import postgres from "postgres";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
+import { applyFileIdempotent, readMigrationFile, createProfile } from "./o1f-test-support.mjs";
 
 const url = process.env.DIRECT_URL ?? process.env.DATABASE_URL;
 if (!url) { console.error("DIRECT_URL or DATABASE_URL must be set."); process.exit(1); }
@@ -53,23 +54,25 @@ const sql = postgres(url, { max: 1, prepare: false, onnotice: () => {} });
 try {
   await sql.begin(async (tx) => {
     for (const file of FILES) {
-      const text = await readFile(path.resolve(file), "utf8");
-      for (const stmt of text.split("--> statement-breakpoint")) if (stmt.trim()) await tx.unsafe(stmt);
+      const text = await readMigrationFile(file);
+      await applyFileIdempotent(tx, text);
     }
 
     // --- fixtures ---
-    const [ownerProfile] = await tx`insert into profiles(id, full_name) values (gen_random_uuid(), 'QA Owner @qa.invalid') returning id`;
-    await tx`insert into platform_owners(user_id, is_active) values (${ownerProfile.id}, true)`;
-    const [notOwnerProfile] = await tx`insert into profiles(id, full_name) values (gen_random_uuid(), 'QA Not-Owner @qa.invalid') returning id`;
+    const ownerProfileId = await createProfile(tx, "QA Owner @qa.invalid");
+    await tx`insert into platform_owners(user_id, is_active) values (${ownerProfileId}, true)`;
+    const notOwnerProfileId = await createProfile(tx, "QA Not-Owner @qa.invalid");
+    const ownerProfile = { id: ownerProfileId };
+    const notOwnerProfile = { id: notOwnerProfileId };
 
-    const [cohort] = await tx`insert into pilot_cohorts(cohort_code, display_name, started_on, created_by) values ('QA_COHORT', 'QA cohort', current_date, ${ownerProfile.id}) returning cohort_code`;
+    const [cohort] = await tx`insert into pilot_cohorts(cohort_code, display_name, started_on, created_by) values ('QA_COHORT', 'QA cohort', current_date, ${ownerProfileId}) returning cohort_code`;
 
     async function makeDoctor(label, { active = true, consent = true } = {}) {
-      const [p] = await tx`insert into profiles(id, full_name) values (gen_random_uuid(), ${`QA ${label} @qa.invalid`}) returning id`;
-      const [d] = await tx`insert into doctor_profiles(user_id) values (${p.id}) returning id`;
+      const pId = await createProfile(tx, `QA ${label} @qa.invalid`);
+      const [d] = await tx`insert into doctor_profiles(user_id) values (${pId}) returning id`;
       const [pt] = await tx`insert into pilot_participations(cohort_code, doctor_id, status) values (${cohort.cohort_code}, ${d.id}, ${active ? "ACTIVE" : "WITHDRAWN"}) returning participation_id`;
       if (consent) {
-        await tx`insert into pilot_consent_events(participation_id, consent_scope, consent_version, event, effective_at) values (${pt.participation_id}, 'PRODUCT_USAGE_ANALYTICS', 'v1', 'CONSENT_GRANTED', now() - interval '3 days')`;
+        await tx`insert into pilot_consent_events(participation_id, consent_scope, consent_version, event, effective_at, recorded_by) values (${pt.participation_id}, 'PRODUCT_USAGE_ANALYTICS', 'v1', 'CONSENT_GRANTED', now() - interval '3 days', ${ownerProfileId})`;
       }
       return { doctorId: d.id, participationId: pt.participation_id };
     }
@@ -103,7 +106,7 @@ try {
     const notMember = { doctorId: null, participationId: "00000000-0000-0000-0000-000000000000" };
     const withdrawnParticipation = await makeDoctor("Withdrawn-Participation", { active: false, consent: true });
     const withdrawnConsentDoctor = await makeDoctor("Withdrawn-Consent", { active: true, consent: true });
-    await tx`insert into pilot_consent_events(participation_id, consent_scope, consent_version, event, effective_at) values (${withdrawnConsentDoctor.participationId}, 'PRODUCT_USAGE_ANALYTICS', 'v1', 'CONSENT_WITHDRAWN', now() - interval '1 day')`;
+    await tx`insert into pilot_consent_events(participation_id, consent_scope, consent_version, event, effective_at, recorded_by) values (${withdrawnConsentDoctor.participationId}, 'PRODUCT_USAGE_ANALYTICS', 'v1', 'CONSENT_WITHDRAWN', now() - interval '1 day', ${ownerProfileId})`;
     const authorizedDoctor = await makeDoctor("Authorized");
 
     await as(tx, ownerProfile.id, "aal2", async () => {

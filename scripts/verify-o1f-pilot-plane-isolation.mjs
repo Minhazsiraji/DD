@@ -5,17 +5,31 @@
  * 0033 (platform owner), 0045 (AAL2 primitives) and 0047 (O1-F) inside ONE
  * transaction, proves, rolls back. Nothing is installed and no row survives.
  *
- * NOT EXECUTED as part of this task — this environment has no local Postgres,
- * Docker, or Supabase CLI (checked: `docker`, `psql`, `supabase` all absent).
- * Ready to run the moment DIRECT_URL/DATABASE_URL points at a disposable
- * Track-A-equivalent database.
+ * The role-assumption checks (section 5) additionally require a REAL
+ * non-superuser login role (conventionally "authenticator", matching
+ * Supabase's own PostgREST connection identity) granted anon/authenticated/
+ * service_role membership only. SET ROLE's permission check is against
+ * session_user, and a superuser session_user can SET ROLE to anything
+ * regardless of grants — so those specific checks open a second connection
+ * as AUTHENTICATOR_URL (falling back to a same-host, same-port URL with
+ * user "authenticator" derived from DIRECT_URL/DATABASE_URL) rather than
+ * reusing the primary superuser connection.
  */
 import postgres from "postgres";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
+import { applyFileIdempotent, readMigrationFile } from "./o1f-test-support.mjs";
 
 const url = process.env.DIRECT_URL ?? process.env.DATABASE_URL;
 if (!url) { console.error("DIRECT_URL or DATABASE_URL must be set."); process.exit(1); }
+
+function authenticatorUrl() {
+  if (process.env.AUTHENTICATOR_URL) return process.env.AUTHENTICATOR_URL;
+  const u = new URL(url);
+  u.username = "authenticator";
+  u.password = process.env.AUTHENTICATOR_PASSWORD ?? "qa_test_only";
+  return u.toString();
+}
 
 const FILES = [
   "drizzle/migrations/0019_open_whizzer.sql",
@@ -50,10 +64,8 @@ try {
   await sql.begin(async (tx) => {
     console.log("1. Applying 0019 → 0033 → 0045 → 0047 in deployment order");
     for (const file of FILES) {
-      const text = await readFile(path.resolve(file), "utf8");
-      for (const stmt of text.split("--> statement-breakpoint")) {
-        if (stmt.trim()) await tx.unsafe(stmt);
-      }
+      const text = await readMigrationFile(file);
+      await applyFileIdempotent(tx, text);
     }
     check(true, "all four files applied in order");
 
@@ -88,15 +100,30 @@ try {
     }
 
     console.log("\n5. No new role can be assumed by anon/authenticated/service_role");
-    for (const assumer of ["anon", "authenticated", "service_role"]) {
-      for (const role of NEW_ROLES) {
-        await tx`select set_config('role', ${assumer}, true)`;
-        let refused = false;
-        try {
-          await tx.savepoint(async (sp) => { await sp`select set_config('role', ${role}, true)`; });
-        } catch { refused = true; }
-        await tx`select set_config('role', null, true)`;
-        check(refused, `${assumer} cannot assume ${role}`);
+    console.log("   (via a genuine non-superuser 'authenticator' login connection —");
+    console.log("    session_user is what SET ROLE's membership check tests, and the");
+    console.log("    primary connection here is a superuser, which would make this test");
+    console.log("    vacuous if reused)");
+    {
+      const authSql = postgres(authenticatorUrl(), { max: 1, prepare: false, onnotice: () => {} });
+      try {
+        for (const assumer of ["anon", "authenticated", "service_role"]) {
+          for (const role of NEW_ROLES) {
+            await authSql.begin(async (atx) => {
+              await atx.unsafe(`set role ${assumer}`);
+              let refused = false;
+              try {
+                await atx.savepoint(async (sp) => { await sp.unsafe(`set role ${role}`); });
+              } catch (e) {
+                refused = e?.code === "42501"; // insufficient_privilege
+              }
+              check(refused, `${assumer} cannot assume ${role}`);
+              throw new Error("__qa_rollback__");
+            }).catch((e) => { if (e.message !== "__qa_rollback__") throw e; });
+          }
+        }
+      } finally {
+        await authSql.end({ timeout: 1 });
       }
     }
 

@@ -42,6 +42,24 @@ create type pilot_consent_scope as enum ('PRODUCT_USAGE_ANALYTICS');
 create type pilot_consent_event_kind as enum ('CONSENT_GRANTED','CONSENT_WITHDRAWN');
 
 -- ===========================================================================
+-- SECTION 0a — roles, created FIRST because Section 2 onward reassigns
+-- function ownership to them (ALTER FUNCTION ... OWNER TO) as each function
+-- is defined. Four new roles. NOLOGIN, internal, not assumable by anon/
+-- authenticated/service_role, zero grant on any clinical table. No
+-- "dd_owner_analytics" / "dd_owner_authority" / "dd_activity_producer" role
+-- is introduced — the Owner-facing surface is reached the same way every
+-- other owner-gated action in this codebase is reached (EXECUTE to
+-- authenticated + an in-body check), and the trusted-server ingestion path
+-- uses this codebase's own existing service_role convention instead of a
+-- bespoke role.
+-- ===========================================================================
+
+create role dd_metrics_reader noinherit;
+create role dd_metrics_rollup noinherit;
+create role dd_pilot_writer noinherit;
+create role dd_retention noinherit; -- created, granted nothing beyond the blanket revoke below. No job attached.
+
+-- ===========================================================================
 -- SECTION 1 — Owner + AAL2 authority: a thin composition, nothing more
 --
 -- assert_o1_owner_aal2() introduces ZERO new identity/authority state. It
@@ -342,7 +360,9 @@ begin
   for rec in
     select
       ac.doctor_id,
-      max(pp.participation_id) filter (where pp.doctor_id = ac.doctor_id) as participation_id
+      -- max(uuid) does not exist in PostgreSQL (found by executing this file, Gate 1) —
+      -- take any one matching participation deterministically instead.
+      (array_agg(pp.participation_id) filter (where pp.doctor_id = ac.doctor_id))[1] as participation_id
     from public.activity_contributions ac
     left join public.pilot_participations pp on pp.doctor_id = ac.doctor_id
     where ac.period_day = target_period_day
@@ -646,20 +666,8 @@ $$;
 alter function public.admin_pilot_consent_set(uuid, pilot_consent_scope, text, pilot_consent_event_kind, timestamptz) owner to dd_pilot_writer;
 
 -- ===========================================================================
--- SECTION 10 — roles
--- Four new roles. NOLOGIN, internal, not assumable by anon/authenticated/
--- service_role, zero grant on any clinical table. No "dd_owner_analytics" /
--- "dd_owner_authority" / "dd_activity_producer" role is introduced — the
--- Owner-facing surface is reached the same way every other owner-gated
--- action in this codebase is reached (EXECUTE to authenticated + an in-body
--- check), and the trusted-server ingestion path uses this codebase's own
--- existing service_role convention instead of a bespoke role.
+-- SECTION 10 — (roles moved to Section 0a, before first use in Section 2)
 -- ===========================================================================
-
-create role dd_metrics_reader noinherit;
-create role dd_metrics_rollup noinherit;
-create role dd_pilot_writer noinherit;
-create role dd_retention noinherit; -- created, granted nothing beyond the blanket revoke below. No job attached.
 
 -- ===========================================================================
 -- SECTION 11 — RLS. Forced on every new table. Baseline denies everyone;
@@ -732,6 +740,18 @@ grant select, insert, update on public.pilot_cohorts, public.pilot_participation
 grant insert on public.pilot_status_events, public.pilot_consent_events to dd_pilot_writer;
 grant select on public.pilot_participations, public.pilot_consent_events to dd_pilot_writer;
 grant usage on sequence public.pilot_consent_events_id_seq, public.pilot_status_events_id_seq to dd_pilot_writer;
+
+-- FLAG FOR CENTRAL: found only by actually executing this file against a real
+-- Postgres (Gate 1). dd_metrics_reader / dd_pilot_writer are new roles Supabase's
+-- own bootstrap has no knowledge of, so they hold no USAGE on the `auth` schema —
+-- a real Supabase project grants that only to postgres/anon/authenticated/
+-- service_role. Without it, auth.uid() inside owner_doctor_activity's audit
+-- write (and any future auth.uid()/auth.jwt() call owned by either role) fails
+-- with "permission denied for schema auth" before EXECUTE on the function is
+-- even considered — confirmed by execution, not assumed. USAGE ON SCHEMA does
+-- not grant any privilege beyond identifier resolution; it is not a table or
+-- function grant, and it is scoped to exactly these two new roles.
+grant usage on schema auth to dd_metrics_reader, dd_pilot_writer;
 
 -- The two accepted primitives, granted ONLY to the two roles that call them
 -- (assert_o1_owner_aal2 is owned by the deploy role, but calls these as

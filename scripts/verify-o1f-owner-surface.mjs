@@ -5,6 +5,7 @@
 import postgres from "postgres";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
+import { applyFileIdempotent, readMigrationFile } from "./o1f-test-support.mjs";
 
 const url = process.env.DIRECT_URL ?? process.env.DATABASE_URL;
 if (!url) { console.error("DIRECT_URL or DATABASE_URL must be set."); process.exit(1); }
@@ -31,8 +32,8 @@ const sql = postgres(url, { max: 1, prepare: false, onnotice: () => {} });
 try {
   await sql.begin(async (tx) => {
     for (const file of FILES) {
-      const text = await readFile(path.resolve(file), "utf8");
-      for (const stmt of text.split("--> statement-breakpoint")) if (stmt.trim()) await tx.unsafe(stmt);
+      const text = await readMigrationFile(file);
+      await applyFileIdempotent(tx, text);
     }
 
     const rows = await tx`
