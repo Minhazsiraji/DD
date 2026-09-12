@@ -1,0 +1,78 @@
+name: O1 MD2 Visual QA Baseline
+
+on:
+  push:
+    branches:
+      - o1/md2-visual-qa
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: sb_publishable_o1_visual_placeholder_000000000000
+      NEXT_PUBLIC_SITE_URL: https://example.com
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install exact lockfile
+        run: npm ci --ignore-scripts
+
+      - name: Guard QA-only scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE=7dd53576022fa50706eb5e57a2f34fd59425ad96
+          git merge-base --is-ancestor "$BASE" HEAD
+          cat > /tmp/expected.txt <<'EOF'
+          .github/workflows/o1-md2-visual-qa-temp.yml
+          docs/qa/o1-owner-visual-baseline.md
+          qa/o1-owner-visual-matrix.json
+          src/features/owner/o1-visual-baseline.test.ts
+          EOF
+          sed -i 's/^          //' /tmp/expected.txt
+          sort -u /tmp/expected.txt -o /tmp/expected.txt
+          git diff --name-only "$BASE" HEAD | sort -u > /tmp/actual.txt
+          diff -u /tmp/expected.txt /tmp/actual.txt
+          test ! -e src/app/owner/dashboard
+          test -z "$(git diff --name-only "$BASE" HEAD -- supabase)"
+          echo "O1_MD2_QA_ONLY_SCOPE=PASS"
+          echo "O1_FUTURE_ROUTES_NOT_IMPLEMENTED=PASS"
+
+      - name: Focused visual baseline and Appearance guards
+        run: npx vitest run src/features/owner/o1-visual-baseline.test.ts src/features/settings/background-appearance.test.ts
+
+      - name: Full repository regression
+        run: npm test
+
+      - name: Generate Next route types
+        run: npx next typegen
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Production build
+        run: npm run build
+
+      - name: Diff check
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --check 7dd53576022fa50706eb5e57a2f34fd59425ad96 HEAD
+          echo "O1_MD2_DIFF_CHECK=PASS"
+          echo "O1_MD2_TESTED_SHA=$(git rev-parse HEAD)"
