@@ -1,0 +1,57 @@
+{
+  "authorityBase": "7dd53576022fa50706eb5e57a2f34fd59425ad96",
+  "referenceTheme": "097955c1b1ce43bcda9b2bc98c141d0487279b4b",
+  "routes": [
+    "/owner/dashboard",
+    "/owner/dashboard/doctors",
+    "/owner/dashboard/adoption",
+    "/owner/dashboard/ai-usage",
+    "/owner/dashboard/costs",
+    "/owner/dashboard/pilot-health",
+    "/owner/dashboard/security"
+  ],
+  "viewports": [
+    { "name": "desktop", "width": 1440, "height": 900 },
+    { "name": "tablet", "width": 1024, "height": 768 },
+    { "name": "mobile", "width": 390, "height": 844 }
+  ],
+  "checksPerRoute": [
+    "canvas-background-visible",
+    "owner-chrome-material-consistent",
+    "no-clinical-shell-leakage",
+    "heading-hierarchy-consistent",
+    "state-truth-distinguishable",
+    "no-horizontal-page-overflow",
+    "dense-content-remains-readable",
+    "focus-and-hover-visible-where-applicable",
+    "reduced-motion-safe",
+    "reduced-transparency-readable"
+  ],
+  "visualStates": {
+    "zero": {
+      "label": "0",
+      "kind": "measured-number",
+      "presentation": "tabular numeric value in normal metric/value styling; never a placeholder badge",
+      "requiredText": "0"
+    },
+    "notMeasured": {
+      "label": "Not measured",
+      "kind": "neutral-absence-of-measurement",
+      "presentation": "explicit nonnumeric neutral text or neutral badge; never rendered as 0, dash-only, or blank",
+      "requiredText": "Not measured"
+    },
+    "unavailable": {
+      "label": "Unavailable",
+      "kind": "temporary-or-source-unavailable",
+      "presentation": "explicit warning treatment with text; visually stronger than Not measured and never rendered as 0",
+      "requiredText": "Unavailable"
+    },
+    "insufficientCohort": {
+      "label": "Insufficient cohort",
+      "kind": "privacy-or-statistical-insufficiency",
+      "presentation": "explicit informational/privacy treatment with text; distinct from warning, neutral absence, and numeric zero",
+      "requiredText": "Insufficient cohort"
+    }
+  },
+  "baselineRouteStatus": "future-not-implemented-at-authority-base"
+}
