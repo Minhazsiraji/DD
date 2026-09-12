@@ -13,6 +13,8 @@ import { localDateInTimeZone } from "@/features/patients/m1-context";
 import { todayInDhaka } from "@/features/appointments/schema";
 import { logPreviewElapsed, startPreviewTimer, timedPreviewStage } from "@/lib/preview-timing";
 import { BackgroundCanvas } from "@/features/settings/components/background-canvas";
+import { EngagementBeacon } from "@/features/engagement/components/engagement-beacon";
+import { engagementPipelineWired } from "@/features/engagement/ports";
 
 /**
  * Authenticated clinical workspace shell.
@@ -118,6 +120,13 @@ export default async function AppLayout({ children }: LayoutProps<"/">) {
 
       <MobileBottomNav />
       <IdleLock sharedDevice={sharedDevice} />
+      {/*
+        Rendered only once BOTH halves of the pipeline are wired — the minute
+        store and O1-F's activity sink. Until then no engagement code runs in
+        the browser and no request is made: collecting minutes that cannot be
+        stored or forwarded would be dropping them while appearing to work.
+      */}
+      {engagementPipelineWired() ? <EngagementBeacon /> : null}
     </div>
   );
 }
