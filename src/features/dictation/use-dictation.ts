@@ -7,6 +7,7 @@ import {
   type VoiceLatencySnapshot,
   type VoiceTranscriptionSession,
 } from "./provider";
+import { sendVoiceUsageBeacon } from "./voice-usage";
 
 interface ActiveVoiceLease {
   owner: symbol;
@@ -172,6 +173,13 @@ export function useDictation({
           setDiagnosticCode(qaDiagnostic(code));
           setError(dictationErrorMessage(code));
           setState(providerUnavailable(code) ? "provider-unavailable" : "error");
+        },
+        onUsage(usage) {
+          // Accounting, not UI state, so deliberately NOT behind the stale-run
+          // guard: cancelling bumps the run before aborting, and a Discarded
+          // run's streamed audio must still be reported. The provider fires
+          // this at most once per session; the report carries no transcript.
+          sendVoiceUsageBeacon(usage);
         },
         onEnd(said) {
           if (activeRun.current !== runId || ended) return;
