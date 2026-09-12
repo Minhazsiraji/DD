@@ -70,7 +70,17 @@ try {
     async function makeDoctor(label, { active = true, consent = true } = {}) {
       const pId = await createProfile(tx, `QA ${label} @qa.invalid`);
       const [d] = await tx`insert into doctor_profiles(user_id) values (${pId}) returning id`;
-      const [pt] = await tx`insert into pilot_participations(cohort_code, doctor_id, status) values (${cohort.cohort_code}, ${d.id}, ${active ? "ENROLLED" : "WITHDRAWN"}) returning participation_id`;
+      const [pt] = await tx`insert into pilot_participations(cohort_code, doctor_id, status) values (${cohort.cohort_code}, ${d.id}, 'INVITED') returning participation_id`;
+      await tx`insert into pilot_status_events(participation_id, cohort_code, event_code, event_day, recorded_by) values (${pt.participation_id}, ${cohort.cohort_code}, 'INVITED', current_date, ${ownerProfileId})`;
+
+      if (active) {
+        await tx`update pilot_participations set status = 'ENROLLED' where participation_id = ${pt.participation_id}`;
+        await tx`insert into pilot_status_events(participation_id, cohort_code, event_code, event_day, recorded_by) values (${pt.participation_id}, ${cohort.cohort_code}, 'ENROLLED', current_date, ${ownerProfileId})`;
+      } else {
+        await tx`update pilot_participations set status = 'WITHDRAWN' where participation_id = ${pt.participation_id}`;
+        await tx`insert into pilot_status_events(participation_id, cohort_code, event_code, event_day, recorded_by) values (${pt.participation_id}, ${cohort.cohort_code}, 'WITHDRAWN', current_date, ${ownerProfileId})`;
+      }
+
       if (consent) {
         await tx`insert into pilot_consent_events(participation_id, cohort_code, consent_scope, consent_version, event, effective_at, recorded_by) values (${pt.participation_id}, ${cohort.cohort_code}, 'PRODUCT_USAGE_ANALYTICS', 'v1', 'CONSENT_GRANTED', now() - interval '10 days', ${ownerProfileId})`;
       }

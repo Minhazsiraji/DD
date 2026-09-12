@@ -116,9 +116,32 @@ async function makeDoctor(tx, ownerId, cohortCode, label) {
       cohort_code, doctor_id, status, enrolled_on
     )
     values (
-      ${cohortCode}, ${doctor.id}, 'ENROLLED', current_date - 10
+      ${cohortCode}, ${doctor.id}, 'INVITED', current_date - 10
     )
     returning participation_id
+  `;
+  await tx`
+    insert into pilot_status_events(
+      participation_id, cohort_code, event_code, event_day, recorded_by
+    )
+    values (
+      ${p.participation_id}, ${cohortCode}, 'INVITED',
+      current_date - 10, ${ownerId}
+    )
+  `;
+  await tx`
+    update pilot_participations
+    set status = 'ENROLLED'
+    where participation_id = ${p.participation_id}
+  `;
+  await tx`
+    insert into pilot_status_events(
+      participation_id, cohort_code, event_code, event_day, recorded_by
+    )
+    values (
+      ${p.participation_id}, ${cohortCode}, 'ENROLLED',
+      current_date - 10, ${ownerId}
+    )
   `;
   await tx`
     insert into pilot_consent_events(
@@ -222,9 +245,20 @@ try {
         `;
       });
     } catch (e) {
-      terminalBlocked = e.message.includes("PILOT_PARTICIPATION_WITHDRAWN_TERMINAL");
+      terminalBlocked = e?.code === "P0001";
     }
-    check(terminalBlocked, "WITHDRAWN is terminal");
+
+    const [terminalState] = await tx`
+      select status
+      from pilot_participations
+      where participation_id = ${terminalDoctor.participationId}
+    `;
+
+    check(
+      terminalBlocked && terminalState?.status === "WITHDRAWN",
+      "WITHDRAWN is terminal",
+      terminalState?.status
+    );
 
     console.log("\n4. Owner AAL gates");
     await as(tx, ownerId, "aal1", async () => {
@@ -247,13 +281,24 @@ try {
     `;
     const [pa] = await tx`
       insert into pilot_participations(cohort_code, doctor_id, status)
-      values ('R2_A', ${sharedDoctor.id}, 'ENROLLED')
+      values ('R2_A', ${sharedDoctor.id}, 'INVITED')
       returning participation_id
     `;
+    await tx`
+      update pilot_participations
+      set status = 'ENROLLED'
+      where participation_id = ${pa.participation_id}
+    `;
+
     const [pb] = await tx`
       insert into pilot_participations(cohort_code, doctor_id, status)
-      values ('R2_B', ${sharedDoctor.id}, 'ENROLLED')
+      values ('R2_B', ${sharedDoctor.id}, 'INVITED')
       returning participation_id
+    `;
+    await tx`
+      update pilot_participations
+      set status = 'ENROLLED'
+      where participation_id = ${pb.participation_id}
     `;
     await tx`
       insert into pilot_consent_events(

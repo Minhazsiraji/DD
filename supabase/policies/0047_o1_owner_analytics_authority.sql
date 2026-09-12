@@ -71,15 +71,37 @@ language plpgsql
 set search_path = public, pg_temp
 as $$
 begin
-  if old.status = 'WITHDRAWN' and new.status <> 'WITHDRAWN' then
-    raise exception 'PILOT_PARTICIPATION_WITHDRAWN_TERMINAL' using errcode = 'P0001';
+  if tg_op = 'INSERT' then
+    if new.status <> 'INVITED' then
+      raise exception 'PILOT_PARTICIPATION_INITIAL_STATE_INVALID'
+        using errcode = 'P0001';
+    end if;
+    return new;
   end if;
-  return new;
+
+  if new.status = old.status then
+    return new;
+  end if;
+
+  if old.status = 'INVITED'
+     and new.status in ('ENROLLED','WITHDRAWN')
+  then
+    return new;
+  end if;
+
+  if old.status = 'ENROLLED'
+     and new.status in ('COMPLETED','WITHDRAWN')
+  then
+    return new;
+  end if;
+
+  raise exception 'PILOT_PARTICIPATION_TRANSITION_INVALID'
+    using errcode = 'P0001';
 end;
 $$;
 
 create trigger pilot_participations_terminal
-before update on public.pilot_participations
+before insert or update on public.pilot_participations
 for each row execute function public.enforce_pilot_participation_terminal();
 
 create table public.pilot_consent_events (
@@ -230,7 +252,15 @@ create table public.feature_registry (
   is_active boolean not null default true
 );
 insert into public.feature_registry(code, display_name)
-values ('*', 'Non-feature sentinel');
+values
+  ('*', 'Non-feature sentinel'),
+  ('dashboard', 'Dashboard'),
+  ('patients', 'Patients'),
+  ('consultation', 'Consultation'),
+  ('prescription', 'Prescription'),
+  ('appointments', 'Appointments'),
+  ('queue', 'Queue'),
+  ('settings', 'Settings');
 
 create table public.activity_contributions (
   metric_code text not null check (metric_code in (
@@ -283,7 +313,7 @@ create table public.service_usage_daily_agg (
     and model_id ~ '^[A-Za-z0-9][A-Za-z0-9._:/-]*$'
   ),
   unit text not null check (unit ~ '^[A-Za-z][A-Za-z0-9_/-]{0,31}$'),
-  quantity_total numeric(38,18) not null check (quantity_total >= 0),
+  quantity_total numeric(38,18) check (quantity_total is null or quantity_total >= 0),
   event_count bigint not null check (event_count >= 0),
   estimated_cost_minor numeric(38,18) check (estimated_cost_minor is null or estimated_cost_minor >= 0),
   currency_code text not null check (currency_code ~ '^[A-Z]{3}$'),
@@ -552,34 +582,75 @@ begin
     active_doctor_count,
     computed_at
   )
+  with lifecycle_as_of as (
+    select
+      p.participation_id,
+      p.cohort_code,
+      p.doctor_id,
+      (
+        select e.event_code
+        from public.pilot_status_events e
+        where e.participation_id = p.participation_id
+          and e.cohort_code = p.cohort_code
+          and e.event_code in (
+            'INVITED',
+            'ENROLLED',
+            'COMPLETED',
+            'WITHDRAWN'
+          )
+          and e.event_day <= target_period_day
+        order by e.event_day desc, e.id desc
+        limit 1
+      ) as lifecycle_status
+    from public.pilot_participations p
+    where p.cohort_code = target_cohort_code
+  )
   select
     target_period_day,
     target_cohort_code,
-    count(*) filter (where p.status = 'INVITED'),
-    count(*) filter (where p.status = 'ENROLLED'),
-    count(*) filter (where p.status = 'COMPLETED'),
-    count(*) filter (where p.status = 'WITHDRAWN'),
+
     count(*) filter (
-      where p.status in ('ENROLLED','COMPLETED')
+      where l.lifecycle_status = 'INVITED'
+    ),
+
+    count(*) filter (
+      where l.lifecycle_status = 'ENROLLED'
+    ),
+
+    count(*) filter (
+      where l.lifecycle_status = 'COMPLETED'
+    ),
+
+    count(*) filter (
+      where l.lifecycle_status = 'WITHDRAWN'
+    ),
+
+    count(*) filter (
+      where l.lifecycle_status in ('ENROLLED','COMPLETED')
         and public.pilot_consent_covers_day(
-          p.cohort_code,
-          p.participation_id,
+          l.cohort_code,
+          l.participation_id,
           'PRODUCT_USAGE_ANALYTICS',
           target_period_day
         )
     ),
-    count(distinct p.doctor_id) filter (
-      where exists (
-        select 1
-        from public.doctor_daily_activity_agg a
-        where a.participation_id = p.participation_id
-          and a.period_day = target_period_day
-          and a.active_day
-      )
+
+    count(distinct l.doctor_id) filter (
+      where l.lifecycle_status in ('ENROLLED','COMPLETED')
+        and exists (
+          select 1
+          from public.doctor_daily_activity_agg a
+          where a.participation_id = l.participation_id
+            and a.cohort_code = l.cohort_code
+            and a.period_day = target_period_day
+            and a.active_day
+        )
     ),
+
     clock_timestamp()
-  from public.pilot_participations p
-  where p.cohort_code = target_cohort_code
+
+  from lifecycle_as_of l
+
   on conflict (period_day, cohort_code) do update set
     invited_count = excluded.invited_count,
     enrolled_count = excluded.enrolled_count,
@@ -1114,6 +1185,8 @@ create or replace function public.owner_service_usage_summary(
   window_end date
 ) returns table (
   status text,
+  provider_id text,
+  model_id text,
   service_kind text,
   unit text,
   quantity_total numeric,
@@ -1146,15 +1219,31 @@ begin
 
   if v_doctors = 0 then
     return query
-    select 'UNAVAILABLE', null::text, null::text,
-           null::numeric, null::numeric, null::numeric, null::text;
+    select
+      'UNAVAILABLE',
+      null::text,
+      null::text,
+      null::text,
+      null::text,
+      null::numeric,
+      null::numeric,
+      null::numeric,
+      null::text;
     return;
   end if;
 
   if v_doctors < 5 then
     return query
-    select 'INSUFFICIENT_COHORT', null::text, null::text,
-           null::numeric, null::numeric, null::numeric, null::text;
+    select
+      'INSUFFICIENT_COHORT',
+      null::text,
+      null::text,
+      null::text,
+      null::text,
+      null::numeric,
+      null::numeric,
+      null::numeric,
+      null::text;
     return;
   end if;
 
@@ -1178,8 +1267,16 @@ begin
       ) = 'UNAVAILABLE'
   ) then
     return query
-    select 'UNAVAILABLE', null::text, null::text,
-           null::numeric, null::numeric, null::numeric, null::text;
+    select
+      'UNAVAILABLE',
+      null::text,
+      null::text,
+      null::text,
+      null::text,
+      null::numeric,
+      null::numeric,
+      null::numeric,
+      null::text;
     return;
   end if;
 
@@ -1203,8 +1300,16 @@ begin
       ) = 'NOT_MEASURED'
   ) then
     return query
-    select 'NOT_MEASURED', null::text, null::text,
-           null::numeric, null::numeric, null::numeric, null::text;
+    select
+      'NOT_MEASURED',
+      null::text,
+      null::text,
+      null::text,
+      null::text,
+      null::numeric,
+      null::numeric,
+      null::numeric,
+      null::text;
     return;
   end if;
 
@@ -1214,7 +1319,9 @@ begin
     join public.pilot_participations p
       on p.doctor_id = s.principal_doctor_id
      and p.cohort_code = target_cohort_code
-    where s.period_day between greatest(window_start, p.enrolled_on) and window_end
+    where s.period_day
+          between greatest(window_start, p.enrolled_on)
+          and window_end
       and p.status in ('ENROLLED','COMPLETED')
       and public.pilot_consent_covers_day(
         p.cohort_code,
@@ -1222,34 +1329,64 @@ begin
         'PRODUCT_USAGE_ANALYTICS',
         s.period_day
       )
-  ) into v_has_rows;
+  )
+  into v_has_rows;
 
   if not v_has_rows then
     return query
-    select 'OK', null::text, null::text,
-           0::numeric, 0::numeric, 0::numeric, null::text;
+    select
+      'OK',
+      null::text,
+      null::text,
+      null::text,
+      null::text,
+      0::numeric,
+      0::numeric,
+      0::numeric,
+      null::text;
     return;
   end if;
 
   return query
   with grouped as (
     select
+      s.provider_id,
+      s.model_id,
       s.service_kind,
       s.unit,
       s.currency_code,
-      count(distinct s.principal_doctor_id) as doctor_count,
-      sum(s.quantity_total) as quantity_total,
-      sum(s.event_count)::numeric as event_count,
+
+      count(
+        distinct s.principal_doctor_id
+      ) as doctor_count,
+
       case
-        when count(*) filter (where s.estimated_cost_minor is null) > 0
+        when count(*) filter (
+          where s.quantity_total is null
+        ) > 0
+          then null::numeric
+        else sum(s.quantity_total)
+      end as quantity_total,
+
+      sum(s.event_count)::numeric as event_count,
+
+      case
+        when count(*) filter (
+          where s.estimated_cost_minor is null
+        ) > 0
           then null::numeric
         else sum(s.estimated_cost_minor)
       end as estimated_cost_minor
+
     from public.service_usage_daily_agg s
+
     join public.pilot_participations p
       on p.doctor_id = s.principal_doctor_id
      and p.cohort_code = target_cohort_code
-    where s.period_day between greatest(window_start, p.enrolled_on) and window_end
+
+    where s.period_day
+          between greatest(window_start, p.enrolled_on)
+          and window_end
       and p.status in ('ENROLLED','COMPLETED')
       and public.pilot_consent_covers_day(
         p.cohort_code,
@@ -1257,10 +1394,19 @@ begin
         'PRODUCT_USAGE_ANALYTICS',
         s.period_day
       )
-    group by s.service_kind, s.unit, s.currency_code
+
+    group by
+      s.provider_id,
+      s.model_id,
+      s.service_kind,
+      s.unit,
+      s.currency_code
   )
+
   select
     'OK',
+    g.provider_id,
+    g.model_id,
     g.service_kind,
     g.unit,
     g.quantity_total,
@@ -1274,15 +1420,24 @@ begin
     select 1
     from (
       select
+        s.provider_id,
+        s.model_id,
         s.service_kind,
         s.unit,
         s.currency_code,
-        count(distinct s.principal_doctor_id) as doctor_count
+        count(
+          distinct s.principal_doctor_id
+        ) as doctor_count
+
       from public.service_usage_daily_agg s
+
       join public.pilot_participations p
         on p.doctor_id = s.principal_doctor_id
        and p.cohort_code = target_cohort_code
-      where s.period_day between greatest(window_start, p.enrolled_on) and window_end
+
+      where s.period_day
+            between greatest(window_start, p.enrolled_on)
+            and window_end
         and p.status in ('ENROLLED','COMPLETED')
         and public.pilot_consent_covers_day(
           p.cohort_code,
@@ -1290,15 +1445,30 @@ begin
           'PRODUCT_USAGE_ANALYTICS',
           s.period_day
         )
-      group by s.service_kind, s.unit, s.currency_code
+
+      group by
+        s.provider_id,
+        s.model_id,
+        s.service_kind,
+        s.unit,
+        s.currency_code
     ) x
     where x.doctor_count < 5
-  ) into v_has_suppressed;
+  )
+  into v_has_suppressed;
 
   if v_has_suppressed then
     return query
-    select 'INSUFFICIENT_COHORT', null::text, null::text,
-           null::numeric, null::numeric, null::numeric, null::text;
+    select
+      'INSUFFICIENT_COHORT',
+      null::text,
+      null::text,
+      null::text,
+      null::text,
+      null::numeric,
+      null::numeric,
+      null::numeric,
+      null::text;
   end if;
 end;
 $$;
@@ -1378,41 +1548,65 @@ as $$
 declare
   result uuid;
   prior_status pilot_participation_status;
+  created_new boolean := false;
 begin
   perform public.assert_o1_owner_aal2();
 
-  select p.participation_id, p.status
-  into result, prior_status
+  select
+    p.participation_id,
+    p.status
+  into
+    result,
+    prior_status
   from public.pilot_participations p
   where p.cohort_code = target_cohort_code
     and p.doctor_id = target_doctor_id
   for update;
 
   if result is null then
-    insert into public.pilot_participations(
-      cohort_code, doctor_id, status
-    )
-    values (
-      target_cohort_code, target_doctor_id, target_status
-    )
-    returning participation_id into result;
-  else
-    if prior_status = 'WITHDRAWN' and target_status <> 'WITHDRAWN' then
-      raise exception 'PILOT_PARTICIPATION_WITHDRAWN_TERMINAL'
+    if target_status <> 'INVITED' then
+      raise exception 'PILOT_PARTICIPATION_INITIAL_STATE_INVALID'
         using errcode = 'P0001';
     end if;
 
+    insert into public.pilot_participations(
+      cohort_code,
+      doctor_id,
+      status
+    )
+    values (
+      target_cohort_code,
+      target_doctor_id,
+      'INVITED'
+    )
+    returning participation_id into result;
+
+    created_new := true;
+
+  elsif prior_status <> target_status then
     update public.pilot_participations
     set status = target_status
     where participation_id = result;
   end if;
 
-  insert into public.pilot_status_events(
-    participation_id, cohort_code, event_code, event_day, recorded_by
-  )
-  values (
-    result, target_cohort_code, target_status::text, current_date, auth.uid()
-  );
+  if created_new
+     or prior_status is distinct from target_status
+  then
+    insert into public.pilot_status_events(
+      participation_id,
+      cohort_code,
+      event_code,
+      event_day,
+      recorded_by
+    )
+    values (
+      result,
+      target_cohort_code,
+      target_status::text,
+      current_date,
+      auth.uid()
+    );
+  end if;
 
   return result;
 end;
@@ -1434,6 +1628,16 @@ set search_path = public, pg_temp
 as $$
 begin
   perform public.assert_o1_owner_aal2();
+
+  if target_event_code in (
+    'INVITED',
+    'ENROLLED',
+    'COMPLETED',
+    'WITHDRAWN'
+  ) then
+    raise exception 'PILOT_LIFECYCLE_EVENT_WRITER_REQUIRED'
+      using errcode = 'P0001';
+  end if;
 
   insert into public.pilot_status_events(
     participation_id,
@@ -1555,6 +1759,8 @@ create policy pilot_consent_events_writer_read
 
 create policy pilot_status_events_writer_insert
   on public.pilot_status_events for insert to dd_pilot_writer with check (true);
+create policy pilot_status_events_rollup_read
+  on public.pilot_status_events for select to dd_metrics_rollup using (true);
 
 create policy activity_contributions_rollup_all
   on public.activity_contributions for all to dd_metrics_rollup using (true) with check (true);
@@ -1618,6 +1824,7 @@ grant insert on public.audit_events to dd_metrics_reader;
 
 grant select on public.activity_contributions,
   public.pilot_consent_events,
+  public.pilot_status_events,
   public.pilot_participations,
   public.telemetry_day_coverage,
   public.service_usage_daily_agg
