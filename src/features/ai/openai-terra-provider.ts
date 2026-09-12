@@ -1,28 +1,64 @@
 import "server-only";
 
-import type {
-  ClinicalProposalParser,
-  ProposalParseInput,
-  ProposalParseResult,
+import {
+  NOT_DISPATCHED_USAGE,
+  UNKNOWN_USAGE,
+  reportedUsage,
+  type ClinicalProposalParser,
+  type ProposalParseInput,
+  type ProposalParseResult,
+  type ProviderAttemptFacts,
+  type ProviderAttemptFailure,
+  type ProviderUsageReport,
 } from "./providers";
 
 export const PA1_TERRA_MODEL = "gpt-5.6-terra";
 const RESPONSES_URL = "https://api.openai.com/v1/responses";
 const MAX_OUTPUT_TOKENS = 2500;
 
-export class OpenAiProposalProviderError extends Error {
+type OpenAiProviderErrorCode =
+  | "OPENAI_SYNTHETIC_EVAL_DISABLED"
+  | "OPENAI_API_KEY_MISSING"
+  | "OPENAI_PROVIDER_HTTP"
+  | "OPENAI_PROVIDER_REFUSAL"
+  | "OPENAI_PROVIDER_INCOMPLETE"
+  | "OPENAI_PROVIDER_MALFORMED";
+
+/** Refused before any request left DD: consumption is an authoritative zero. */
+const PRE_DISPATCH_CODES: readonly OpenAiProviderErrorCode[] = [
+  "OPENAI_SYNTHETIC_EVAL_DISABLED",
+  "OPENAI_API_KEY_MISSING",
+];
+
+/**
+ * Usage the provider reported on a response DD then rejected. An `incomplete`
+ * response that hit the output limit is billed in full; that usage must survive
+ * the exception rather than vanish with it.
+ *
+ * Held beside the error rather than on it, so the error's own shape stays
+ * exactly `{ code, status }` — the shape callers and tests already compare.
+ */
+const usageOnFailure = new WeakMap<OpenAiProposalProviderError, ProviderUsageReport>();
+
+export class OpenAiProposalProviderError extends Error implements ProviderAttemptFailure {
   constructor(
-    public readonly code:
-      | "OPENAI_SYNTHETIC_EVAL_DISABLED"
-      | "OPENAI_API_KEY_MISSING"
-      | "OPENAI_PROVIDER_HTTP"
-      | "OPENAI_PROVIDER_REFUSAL"
-      | "OPENAI_PROVIDER_INCOMPLETE"
-      | "OPENAI_PROVIDER_MALFORMED",
+    public readonly code: OpenAiProviderErrorCode,
     public readonly status?: number,
+    usage?: ProviderUsageReport,
   ) {
     super(code);
     this.name = "OpenAiProposalProviderError";
+    if (usage) usageOnFailure.set(this, usage);
+  }
+
+  get providerAttempt(): ProviderAttemptFacts {
+    const dispatched = !PRE_DISPATCH_CODES.includes(this.code);
+    return {
+      failureCode: this.code,
+      dispatched,
+      usage: usageOnFailure.get(this) ?? (dispatched ? UNKNOWN_USAGE : NOT_DISPATCHED_USAGE),
+      httpStatus: this.status ?? null,
+    };
   }
 }
 
@@ -42,7 +78,31 @@ interface OpenAiResponseBody {
   usage?: {
     input_tokens?: number;
     output_tokens?: number;
-  };
+    total_tokens?: number;
+    input_tokens_details?: { cached_tokens?: number } | null;
+    output_tokens_details?: { reasoning_tokens?: number } | null;
+  } | null;
+}
+
+function tokenCount(value: unknown): number | null {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0 ? value : null;
+}
+
+/**
+ * Every component the provider returned, preserved. A component it did not
+ * return stays null — never inferred and never zero-filled. A response with no
+ * usage block at all is unknown consumption, not zero consumption.
+ */
+function usageFromBody(body: OpenAiResponseBody | null): ProviderUsageReport {
+  const usage = body?.usage;
+  if (!usage || typeof usage !== "object") return UNKNOWN_USAGE;
+  return reportedUsage({
+    inputTokens: tokenCount(usage.input_tokens),
+    cachedInputTokens: tokenCount(usage.input_tokens_details?.cached_tokens),
+    outputTokens: tokenCount(usage.output_tokens),
+    reasoningTokens: tokenCount(usage.output_tokens_details?.reasoning_tokens),
+    totalTokens: tokenCount(usage.total_tokens),
+  });
 }
 
 function refusalText(body: OpenAiResponseBody): string | null {
@@ -110,6 +170,8 @@ function systemInstruction(taskType: ProposalParseInput["taskType"]): string {
 }
 
 export class OpenAiTerraProposalParser implements ClinicalProposalParser {
+  readonly descriptor = { provider: "openai", model: PA1_TERRA_MODEL };
+
   constructor(
     private readonly config: {
       apiKey: string;
@@ -169,24 +231,28 @@ export class OpenAiTerraProposalParser implements ClinicalProposalParser {
       throw new OpenAiProposalProviderError("OPENAI_PROVIDER_MALFORMED", response.status);
     }
 
+    // From here the provider has answered. Whatever it reported consuming is
+    // carried on every failure below, because a rejected response can be billed.
+    const usage = usageFromBody(body);
+
     if (!response.ok) {
-      throw new OpenAiProposalProviderError("OPENAI_PROVIDER_HTTP", response.status);
+      throw new OpenAiProposalProviderError("OPENAI_PROVIDER_HTTP", response.status, usage);
     }
     if (body.status === "incomplete") {
-      throw new OpenAiProposalProviderError("OPENAI_PROVIDER_INCOMPLETE");
+      throw new OpenAiProposalProviderError("OPENAI_PROVIDER_INCOMPLETE", undefined, usage);
     }
     if (refusalText(body)) {
-      throw new OpenAiProposalProviderError("OPENAI_PROVIDER_REFUSAL");
+      throw new OpenAiProposalProviderError("OPENAI_PROVIDER_REFUSAL", undefined, usage);
     }
 
     const text = outputText(body);
-    if (!text) throw new OpenAiProposalProviderError("OPENAI_PROVIDER_MALFORMED");
+    if (!text) throw new OpenAiProposalProviderError("OPENAI_PROVIDER_MALFORMED", undefined, usage);
 
     let rawProposal: unknown;
     try {
       rawProposal = JSON.parse(text);
     } catch {
-      throw new OpenAiProposalProviderError("OPENAI_PROVIDER_MALFORMED");
+      throw new OpenAiProposalProviderError("OPENAI_PROVIDER_MALFORMED", undefined, usage);
     }
 
     return {
@@ -197,11 +263,9 @@ export class OpenAiTerraProposalParser implements ClinicalProposalParser {
         model: PA1_TERRA_MODEL,
         requestRef: typeof body.id === "string" ? body.id : null,
       },
-      usage: {
-        inputTokens: body.usage?.input_tokens ?? null,
-        outputTokens: body.usage?.output_tokens ?? null,
-        estimatedCostUsdMicros: null,
-      },
+      // Cost is not computed here: the adapter reports consumption, and pricing
+      // applies a snapshot captured at event time (see ./pricing).
+      usage,
     };
   }
 }

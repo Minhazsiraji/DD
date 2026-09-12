@@ -20,11 +20,17 @@ import {
   NeverResolvingParser,
 } from "./mock-provider";
 import {
-  addTelemetry,
   assertPrivacySafeTelemetry,
-  emptyOwnerAggregate,
+  buildProviderOutcome,
+  mintTelemetryOperationId,
+  validateAiTelemetryEvent,
 } from "./telemetry";
-import type { ClinicalProposalParser } from "./providers";
+import { costForTokenUsage, createPricingBook } from "./pricing";
+import {
+  UNKNOWN_USAGE,
+  reportedUsage,
+  type ClinicalProposalParser,
+} from "./providers";
 
 const binding = {
   actorUserId: "11111111-1111-4111-8111-111111111111",
@@ -59,7 +65,9 @@ function voiceTranscript(text: string, language = "bn-en") {
     provider: { provider: "deepgram", model: "nova-3" },
     language,
     confidence: null,
-    usage: { audioSeconds: 4, estimatedCostUsdMicros: 0 },
+    // Voice cost is accounted once, on the voice session itself — never passed
+    // in here, where it was a caller-supplied zero.
+    usage: { audioSeconds: 4 },
   };
 }
 
@@ -158,7 +166,8 @@ describe("PA1 clinical proposal safety foundation", () => {
         return {
           rawProposal: validRx,
           provider: { provider: "mock", model: "capture-v1" },
-          usage: { inputTokens: 0, outputTokens: 0, estimatedCostUsdMicros: 0 },
+          // This capture parser reports no consumption: that is unknown, not zero.
+          usage: UNKNOWN_USAGE,
         };
       },
     };
@@ -300,36 +309,43 @@ describe("PA1 clinical proposal safety foundation", () => {
     ).rejects.toThrow("AI_INPUT_EXACTLY_ONE_SOURCE_REQUIRED");
   });
 
-  it("keeps owner telemetry clinical-payload-free while aggregating cost", () => {
-    const event = {
-      operationId: "op-cost",
-      actorUserId: binding.actorUserId,
-      doctorProfileId: binding.doctorProfileId,
-      taskType: "PRESCRIPTION_MEDICINE" as const,
-      source: "VOICE_TRANSCRIPT" as const,
-      startedAt: "2026-09-07T10:00:00Z",
-      completedAt: "2026-09-07T10:00:01Z",
-      provider: { provider: "mock", model: "mock-v1" },
-      outcome: "SUCCEEDED" as const,
-      latencyMs: 1000,
-      decision: "EDITED" as const,
-      usage: {
-        audioSeconds: 4,
-        inputTokens: 100,
-        outputTokens: 50,
-        estimatedCostUsdMicros: 250,
+  it("keeps owner telemetry clinical-payload-free while accounting cost exactly", () => {
+    const usage = reportedUsage({ inputTokens: 100, cachedInputTokens: 0, outputTokens: 50 });
+    const snapshot = createPricingBook([
+      {
+        id: "test-snapshot-1",
+        providerId: "mock",
+        modelId: "mock-v1",
+        capturedAt: "2026-01-01T00:00:00.000Z",
+        sourceRef: "illustrative",
+        unitPriceUsdMicros: { INPUT_TOKENS: BigInt(1_000_000), OUTPUT_TOKENS: BigInt(3_000_000) },
       },
-    };
-    assertPrivacySafeTelemetry(event);
-    const aggregate = addTelemetry(
-      emptyOwnerAggregate(binding.doctorProfileId, "PRESCRIPTION_MEDICINE"),
-      event,
-    );
-    expect(aggregate.requestCount).toBe(1);
-    expect(aggregate.editedCount).toBe(1);
-    expect(aggregate.estimatedCostUsdMicros).toBe(250);
+    ]).snapshotFor("mock", "mock-v1", new Date("2026-09-07T10:00:00Z"));
+    const event = buildProviderOutcome({
+      type: "AI_PROVIDER_SUCCEEDED",
+      occurredAt: new Date("2026-09-07T10:00:01Z"),
+      principal: { actorUserId: binding.actorUserId, doctorProfileId: binding.doctorProfileId },
+      operationId: mintTelemetryOperationId(),
+      attemptNo: 1,
+      providerId: "mock",
+      modelId: "mock-v1",
+      taskType: "PRESCRIPTION_MEDICINE",
+      latencyMs: 1000,
+      failureCode: null,
+      httpStatus: null,
+      usage,
+      cost: costForTokenUsage(usage, snapshot),
+    });
+
+    // 100 × $1/M + 50 × $3/M = 250 micros, exactly — and the event passes the allowlist.
+    expect(() => validateAiTelemetryEvent(event)).not.toThrow();
+    expect(event.estimated_cost_usd_micros).toBe("250.000000");
+    // The binding's patient and record ids never reach the event in any form.
+    const serialized = JSON.stringify(event);
+    expect(serialized).not.toContain(binding.patientId);
+    expect(serialized).not.toContain(binding.clinicalRecordId);
     expect(() => assertPrivacySafeTelemetry({ ...event, transcript: "clinical text" })).toThrow(
-      /privacy-unsafe/,
+      /PRIVACY_UNSAFE_KEY/,
     );
   });
 });
