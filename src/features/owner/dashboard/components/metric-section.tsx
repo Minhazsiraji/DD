@@ -1,47 +1,47 @@
 import * as React from "react";
 import { MetricGrid } from "./metric-grid";
-import { AwaitingPanel } from "./awaiting-panel";
 import type { MetricSpec } from "../catalog";
-import type { MeasurementMap } from "../sources";
-import { describePeriod, type Period } from "../periods";
+import type { MeasurementMap } from "../measurement";
 
 /**
- * One dashboard section: a heading, the metric grid, and — only while anything
- * is unmeasured — the panel saying what each missing number is waiting on.
+ * A titled block of tiles with the window it was measured over.
  *
- * Every metric tab renders through this so the five sections cannot drift in
- * how they present absence.
+ * The window is printed, not implied. "Sessions: 412" means nothing without
+ * the dates it covers, and an owner comparing two tabs needs to see that both
+ * are answering the same question.
  */
 export function MetricSection({
   title,
   description,
-  period,
+  window: windowLabel,
   specs,
   measurements,
-  columns = 3,
+  columns,
   children,
 }: {
   title: string;
-  description: string;
-  period: Period;
+  description?: string;
+  window: string;
   specs: readonly MetricSpec[];
   measurements: MeasurementMap;
-  columns?: 3 | 5;
+  columns?: 3 | 6;
   children?: React.ReactNode;
 }) {
   return (
-    <section aria-labelledby="dashboard-section-title" className="min-w-0 space-y-4 sm:space-y-5">
-      <div className="flex min-w-0 flex-col gap-1 sm:flex-row sm:items-baseline sm:justify-between">
-        <h2 id="dashboard-section-title" className="text-lg font-semibold text-ink">
-          {title}
-        </h2>
-        <p className="text-xs text-ink-muted">Period: {describePeriod(period)}</p>
-      </div>
-      <p className="-mt-2 max-w-3xl text-sm text-ink-secondary">{description}</p>
+    <section className="min-w-0 space-y-4" aria-label={title}>
+      <header className="min-w-0">
+        <div className="flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-1">
+          <h1 className="text-lg font-semibold text-ink sm:text-xl">{title}</h1>
+          <p className="text-xs text-ink-muted tabular-nums">{windowLabel}</p>
+        </div>
+        {description ? <p className="mt-1 max-w-2xl text-sm text-ink-secondary">{description}</p> : null}
+      </header>
 
-      <MetricGrid specs={specs} measurements={measurements} columns={columns} label={title} />
+      {specs.length > 0 ? (
+        <MetricGrid specs={specs} measurements={measurements} columns={columns} label={title} />
+      ) : null}
+
       {children}
-      <AwaitingPanel specs={specs} measurements={measurements} />
     </section>
   );
 }

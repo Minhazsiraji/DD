@@ -1,27 +1,26 @@
 import * as React from "react";
 import {
   Activity,
-  BadgeCheck,
-  CalendarDays,
+  CalendarCheck,
   CircleDollarSign,
   Clock,
+  EyeOff,
   Gauge,
   KeyRound,
-  Mic,
-  Pill,
+  LogOut,
+  MailPlus,
   ShieldCheck,
-  Sparkles,
-  Stethoscope,
+  Timer,
   TrendingUp,
-  UserPlus,
+  UserCheck,
+  UserMinus,
   Users,
-  Wallet,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { OrbAccent } from "@/components/common/icon-orb";
 import { MetricTile } from "./metric-tile";
 import type { MetricSpec } from "../catalog";
-import type { MeasurementMap } from "../sources";
+import type { MeasurementMap } from "../measurement";
 
 /**
  * Icons are chosen here, not in the catalog, so the catalog stays pure data
@@ -29,42 +28,24 @@ import type { MeasurementMap } from "../sources";
  */
 const ICON = "size-5";
 const ICONS: Record<string, React.ReactNode> = {
-  totalDoctors: <Users className={ICON} />,
-  doctorsRegistered: <Users className={ICON} />,
-  activeToday: <Activity className={ICON} />,
-  active7d: <Activity className={ICON} />,
-  active30d: <Activity className={ICON} />,
-  newDoctors: <UserPlus className={ICON} />,
-  doctorsVerified: <BadgeCheck className={ICON} />,
-  consultationsCompleted: <Stethoscope className={ICON} />,
-  firstConsultation: <Stethoscope className={ICON} />,
-  consultationsAbandoned: <Stethoscope className={ICON} />,
-  prescriptionsFinalized: <Pill className={ICON} />,
-  prescriptionsCorrected: <Pill className={ICON} />,
-  appointmentsNoShow: <CalendarDays className={ICON} />,
-  bookingEnabled: <CalendarDays className={ICON} />,
-  aiRequests: <Sparkles className={ICON} />,
-  aiAdoption: <Sparkles className={ICON} />,
-  inputTokens: <Sparkles className={ICON} />,
-  outputTokens: <Sparkles className={ICON} />,
-  acceptanceRate: <TrendingUp className={ICON} />,
-  voiceMinutes: <Mic className={ICON} />,
-  aiSpend: <Wallet className={ICON} />,
-  aiSpendUsd: <Wallet className={ICON} />,
-  voiceSpendUsd: <Wallet className={ICON} />,
-  fixedCostUsd: <CircleDollarSign className={ICON} />,
-  totalOperatingUsd: <CircleDollarSign className={ICON} />,
-  totalOperatingBdt: <CircleDollarSign className={ICON} />,
-  costPerActiveUsd: <CircleDollarSign className={ICON} />,
-  providerErrorRate: <Gauge className={ICON} />,
-  providerFailures: <Gauge className={ICON} />,
-  providerRetries: <Gauge className={ICON} />,
-  systemHealth: <Gauge className={ICON} />,
-  mfaEnrolled: <ShieldCheck className={ICON} />,
-  authFailures: <KeyRound className={ICON} />,
-  privilegedGrants: <ShieldCheck className={ICON} />,
-  selfGrantedRoles: <ShieldCheck className={ICON} />,
-  publicProfiles: <Users className={ICON} />,
+  activeDoctors: <Activity className={ICON} />,
+  sessions: <Timer className={ICON} />,
+  engagedMinutes: <Clock className={ICON} />,
+  invited: <MailPlus className={ICON} />,
+  enrolled: <UserCheck className={ICON} />,
+  completed: <CalendarCheck className={ICON} />,
+  withdrawn: <UserMinus className={ICON} />,
+  consented: <ShieldCheck className={ICON} />,
+  activeDays: <CalendarCheck className={ICON} />,
+  featureTouches: <TrendingUp className={ICON} />,
+  dau: <Users className={ICON} />,
+  timeSaved: <Timer className={ICON} />,
+  totalCost: <CircleDollarSign className={ICON} />,
+  mfaEnrolment: <ShieldCheck className={ICON} />,
+  failedOwnerAuth: <KeyRound className={ICON} />,
+  consentWithdrawals: <LogOut className={ICON} />,
+  suppressedBuckets: <EyeOff className={ICON} />,
+  providerHealth: <Gauge className={ICON} />,
 };
 
 const ACCENTS: OrbAccent[] = ["brand", "violet", "success", "info"];
@@ -72,10 +53,8 @@ const ACCENTS: OrbAccent[] = ["brand", "violet", "success", "info"];
 /**
  * A responsive grid of tiles.
  *
- * `columns` picks the desktop density: the Overview's ten cards sit five across
- * at `xl` (two rows), the six-metric sections three across. Below 480px every
- * grid is a single column — a 360px phone cannot hold two tiles whose labels
- * are sentences.
+ * `columns` picks the desktop density. Below 480px every grid is a single
+ * column — a 360px phone cannot hold two tiles whose values are sentences.
  */
 export function MetricGrid({
   specs,
@@ -85,7 +64,7 @@ export function MetricGrid({
 }: {
   specs: readonly MetricSpec[];
   measurements: MeasurementMap;
-  columns?: 3 | 5;
+  columns?: 3 | 6;
   label: string;
 }) {
   return (
@@ -94,14 +73,23 @@ export function MetricGrid({
       data-mobile-metric-grid
       className={cn(
         "grid w-full min-w-0 grid-cols-1 gap-3 [&>*]:min-w-0 min-[480px]:grid-cols-2 sm:gap-4",
-        columns === 5 ? "lg:grid-cols-3 xl:grid-cols-5" : "lg:grid-cols-3",
+        columns === 6 ? "lg:grid-cols-3 xl:grid-cols-6" : "lg:grid-cols-3",
       )}
     >
       {specs.map((spec, i) => (
         <li key={spec.key} className="min-w-0">
           <MetricTile
             spec={spec}
-            measurement={measurements[spec.key] ?? { state: "unavailable" }}
+            /**
+             * A key the source never mentioned is never a zero. Which absence
+             * it is depends on why: a metric with a named lane still owed has
+             * no source at all yet (`Not measured`); anything else had a source
+             * that did not answer (`Unavailable`).
+             */
+            measurement={
+              measurements[spec.key] ??
+              (spec.awaiting ? { state: "not-measured", lane: spec.awaiting.lane } : { state: "unavailable" })
+            }
             icon={ICONS[spec.key] ?? <Clock className={ICON} />}
             accent={ACCENTS[i % ACCENTS.length]}
           />

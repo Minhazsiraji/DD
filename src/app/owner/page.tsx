@@ -9,9 +9,10 @@ export const metadata: Metadata = { title: "Platform" };
  *
  * This page exists to prove the authority layer works end to end. It shows what
  * the primitive unblocks and what it deliberately cannot reach. Metrics live in
- * `/owner/dashboard`, which reads aggregate totals only and renders "Not
- * measured" wherever no approved source exists; no clinical data appears on
- * any owner surface, by accident or otherwise.
+ * `/owner/dashboard`, which reads approved aggregate functions only and
+ * distinguishes a measured zero from "Not measured", "Unavailable" and
+ * "Insufficient cohort" rather than collapsing them; no clinical data appears
+ * on any owner surface, by accident or otherwise.
  *
  * `/owner` sits OUTSIDE the `(app)` group on purpose. That group's layout is
  * the clinical shell — location switcher, patient search, clinical navigation —

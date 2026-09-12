@@ -1,5 +1,5 @@
 import * as React from "react";
-import { CircleSlash, CloudOff } from "lucide-react";
+import { CircleSlash, CloudOff, EyeOff } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { GlassCard } from "@/components/glass/glass-card";
 import { IconOrb, type OrbAccent } from "@/components/common/icon-orb";
@@ -7,18 +7,38 @@ import { formatMeasurement, LANE_LABEL, type Measurement } from "../measurement"
 import type { MetricSpec } from "../catalog";
 
 /**
- * One dashboard number — or an honest statement that there is no number.
+ * One dashboard number — or an honest statement of which kind of nothing it is.
  *
  * Visually the same object as `StatCard` (same `GlassCard`, same
  * `dd-dashboard-card` material, same `IconOrb`), so a measured tile and the
  * doctor dashboard's tiles read as one system. `StatCard` itself is not reused
  * because it prints `value` at 28–32px bold: right for a numeral, wrong for the
- * words "Not measured", which must read as a state and not as a headline.
+ * words "Insufficient cohort", which must read as a state and not as a headline.
  *
- * NEVER A ZERO FOR ABSENCE. The value comes from `formatMeasurement`, which
- * cannot produce a digit for a not-measured or unavailable metric. Absence is
- * shown with an icon AND words — never colour alone.
+ * FOUR STATES, FOUR SETS OF WORDS. Absence never renders as a digit, the three
+ * absent states never render as each other, and none of them is distinguished
+ * by colour alone — each carries its own icon and its own sentence.
  */
+
+const ABSENT_ICON = {
+  "not-measured": CircleSlash,
+  unavailable: CloudOff,
+  "insufficient-cohort": EyeOff,
+} as const;
+
+function footnote(m: Measurement): string {
+  switch (m.state) {
+    case "measured":
+      return "Measured for this window";
+    case "not-measured":
+      return `Coverage incomplete — ${LANE_LABEL[m.lane]}`;
+    case "unavailable":
+      return "Source did not answer — not a zero";
+    case "insufficient-cohort":
+      return "Withheld: too few doctors to report (k=5)";
+  }
+}
+
 export function MetricTile({
   spec,
   measurement,
@@ -32,6 +52,7 @@ export function MetricTile({
 }) {
   const f = formatMeasurement(measurement, spec.unit);
   const absent = f.kind === "absent";
+  const AbsentIcon = measurement.state === "measured" ? null : ABSENT_ICON[measurement.state];
 
   return (
     <GlassCard
@@ -44,16 +65,12 @@ export function MetricTile({
           {icon}
         </IconOrb>
 
-        {absent ? (
+        {absent && AbsentIcon ? (
           <span
             className="inline-flex min-w-0 items-center gap-1.5 rounded-full bg-surface-muted px-2.5 py-1 text-xs font-semibold text-ink-secondary ring-1 ring-hairline ring-inset"
             aria-hidden="true"
           >
-            {measurement.state === "unavailable" ? (
-              <CloudOff className="size-3.5 shrink-0" />
-            ) : (
-              <CircleSlash className="size-3.5 shrink-0" />
-            )}
+            <AbsentIcon className="size-3.5 shrink-0" />
             <span className="truncate">{f.display}</span>
           </span>
         ) : (
@@ -70,13 +87,10 @@ export function MetricTile({
         <p className="text-sm font-semibold text-ink">{spec.label}</p>
         {/* The full sentence for assistive tech — never just "Not measured". */}
         <p className="sr-only">{`${spec.label}: ${f.spoken}`}</p>
-        <p className={cn("mt-0.5 text-xs", absent ? "text-ink-muted" : "text-ink-secondary")}>
-          {measurement.state === "not-measured"
-            ? `Awaiting ${LANE_LABEL[measurement.lane]}`
-            : measurement.state === "unavailable"
-              ? "Source did not answer — not a zero"
-              : `As of ${measurement.asOf.slice(0, 10)}`}
-        </p>
+        <p className={cn("mt-0.5 text-xs", absent ? "text-ink-muted" : "text-ink-secondary")}>{footnote(measurement)}</p>
+        {spec.awaiting && measurement.state !== "measured" ? (
+          <p className="mt-1 text-xs text-ink-muted">Needs: {spec.awaiting.what}</p>
+        ) : null}
       </div>
     </GlassCard>
   );

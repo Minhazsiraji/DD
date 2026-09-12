@@ -1,37 +1,49 @@
 import type { Metadata } from "next";
 import { requirePlatformOwner } from "@/features/owner/authority";
-import { DoctorTable } from "@/features/owner/dashboard/components/doctor-table";
-import { describePeriod, parsePeriod } from "@/features/owner/dashboard/periods";
-import { readDoctorRows } from "@/features/owner/dashboard/sources";
+import { resolveCohort } from "@/features/owner/dashboard/catalog";
+import { MetricSection } from "@/features/owner/dashboard/components/metric-section";
+import { ParticipationTable } from "@/features/owner/dashboard/components/participation-table";
+import { describeWindow, parsePeriod, periodWindow, todayIsoUtc } from "@/features/owner/dashboard/periods";
+import { readCohortDetail, readPilotStatus } from "@/features/owner/dashboard/sources";
 
 export const metadata: Metadata = { title: "Doctors · Owner dashboard" };
 
 /**
- * Doctors — per-doctor usage.
+ * Doctors, seen only as pilot participations.
  *
- * Doctor identity and usage counts only. A row links to nothing clinical; the
- * owner's drill-down is usage and cost, never a doctor's patients.
+ * THERE IS NO DOCTOR SELECTOR HERE, and there is not meant to be one. The page
+ * reads a whole cohort through `owner_pilot_cohort_detail` — the consent-gated
+ * surface O1-F publishes for exactly this purpose — so no doctor-shaped
+ * identifier is ever accepted from the URL and no arbitrary subject can be
+ * probed. The cohort itself is validated against the list F returned.
+ *
+ * WITHDRAWAL TAKES EFFECT AT THE SOURCE. When a participation is withdrawn or
+ * its consent lapses, F returns `UNAVAILABLE` for that row and the metrics
+ * disappear. Nothing is cached here to outlive that: the page is
+ * request-scoped, reads the owner's own session, and stores nothing.
  */
 export default async function OwnerDashboardDoctorsPage(props: PageProps<"/owner/dashboard/doctors">) {
   await requirePlatformOwner();
 
-  const period = parsePeriod(await props.searchParams);
-  const result = await readDoctorRows(period);
+  const params = await props.searchParams;
+  const period = parsePeriod(params);
+  const window = periodWindow(period, todayIsoUtc());
+
+  const status = await readPilotStatus(window);
+  const cohorts = status.state === "measured" ? status.cohorts.map((c) => c.cohortCode) : [];
+  const cohort = resolveCohort(params, cohorts);
+
+  const detail = cohort ? await readCohortDetail(cohort, window) : ({ state: "unavailable" } as const);
 
   return (
-    <section aria-labelledby="dashboard-section-title" className="min-w-0 space-y-4 sm:space-y-5">
-      <div className="flex min-w-0 flex-col gap-1 sm:flex-row sm:items-baseline sm:justify-between">
-        <h2 id="dashboard-section-title" className="text-lg font-semibold text-ink">
-          Doctors
-        </h2>
-        <p className="text-xs text-ink-muted">Period: {describePeriod(period)}</p>
-      </div>
-      <p className="-mt-2 max-w-3xl text-sm text-ink-secondary">
-        Activity, usage and cost for each doctor in the pilot. Usage and cost
-        drill-down only — this view never reaches a doctor&apos;s patients or
-        records.
-      </p>
-      <DoctorTable result={result} />
-    </section>
+    <MetricSection
+      title="Doctors"
+      description="One row per pilot participation. Identity, usage and measurement state only — no clinical record of any kind is reachable from this page."
+      window={describeWindow(window)}
+      specs={[]}
+      measurements={{}}
+    >
+      <ParticipationTable result={detail} cohort={cohort} />
+    </MetricSection>
   );
 }

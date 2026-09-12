@@ -28,8 +28,15 @@ export function PeriodFilter() {
   const [to, setTo] = React.useState(current.kind === "custom" ? current.to : "");
   const [customOpen, setCustomOpen] = React.useState(current.kind === "custom");
 
+  /**
+   * Merge into the existing query rather than replacing it, so changing the
+   * period keeps the cohort the owner is looking at.
+   */
   function go(query: string) {
-    startTransition(() => router.replace(`${pathname}?${query}`));
+    const next = new URLSearchParams(params.toString());
+    for (const key of ["period", "from", "to"]) next.delete(key);
+    for (const [key, value] of new URLSearchParams(query)) next.set(key, value);
+    startTransition(() => router.replace(`${pathname}?${next.toString()}`));
   }
 
   function choose(kind: PeriodKind) {

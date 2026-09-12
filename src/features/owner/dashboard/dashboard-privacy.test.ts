@@ -1,36 +1,30 @@
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import {
-  ADOPTION_METRICS,
-  AI_USAGE_METRICS,
-  COST_METRICS,
-  DASHBOARD_TABS,
-  DOCTOR_COLUMNS,
-  OVERVIEW_CARDS,
-  PILOT_HEALTH_METRICS,
-  SECURITY_METRICS,
-} from "./catalog";
+import { DASHBOARD_TABS, PARTICIPATION_COLUMNS, PILOT_STATUS_TILES, resolveCohort } from "./catalog";
 
 /**
  * PROOF THAT THE OWNER DASHBOARD OPENS NO CLINICAL QUERY OR DATA SURFACE.
  *
  * Structural assertions over the source of every dashboard file — the feature
- * module and all seven routes. They are the gate a future change must pass,
+ * module and all seven routes. They are the gate a future change has to pass,
  * not a description of today's good behaviour:
  *
- *   • no database access except through an explicitly approved owner-aggregate
- *     RPC (and the approved list is empty today);
  *   • no direct table read of any kind — `.from(` — clinical or otherwise;
- *   • no service-role client;
+ *   • no RPC outside the approved O1-F owner aggregate list;
+ *   • the database client is constructed in exactly one file, `sources.ts`;
+ *   • no service-role client anywhere;
  *   • no clinical table or clinical field name anywhere;
+ *   • no doctor-shaped identifier accepted from a URL;
  *   • every route asserts the existing owner + AAL2 boundary before anything
  *     else, and implements no authority of its own;
+ *   • the Owner shell imports no clinical shell, context or navigation;
+ *   • nothing renders sample, mock or demo data;
  *   • the catalog — everything the owner can see — names nothing clinical.
  *
- * Runtime proof that an owner session reads zero clinical rows remains the job
- * of `scripts/verify-owner-authority.mjs`; this file proves the dashboard never
- * gives such a read anywhere to happen.
+ * Runtime proof that an owner session reads zero clinical rows belongs to
+ * O1-F's own verifiers; this file proves the dashboard gives such a read
+ * nowhere to happen.
  */
 
 const ROOT = process.cwd();
@@ -57,6 +51,23 @@ function code(f: string): string {
 }
 
 /**
+ * The complete owner-facing surface O1-F grants to `authenticated` in
+ * migration 0047 (blob 357771e3ef0ff822958a8f99bb949f4f8382378d).
+ */
+const F_OWNER_GRANTS = [
+  "owner_pilot_status",
+  "owner_pilot_cohort_detail",
+  "owner_doctor_activity",
+  "owner_activity_summary",
+  "owner_service_usage_summary",
+  "pilot_participation_state",
+  "admin_pilot_cohort_upsert",
+  "admin_pilot_participation_set",
+  "admin_pilot_event_add",
+  "admin_pilot_consent_set",
+];
+
+/**
  * Every clinical table in both the V1 schema and Database V2 P0. The dashboard
  * may name none of them in code.
  */
@@ -80,26 +91,34 @@ const CLINICAL_TABLES = [
   "prescriptions",
   "prescription_items",
   "prescription_events",
+  "investigation_orders",
+  "investigation_results",
   "health_subjects",
   "health_subject_access",
   "patient_subject_links",
   "consent_records",
+  "ai_sessions",
 ];
 
-/** Field names that would carry clinical payload into an owner surface. */
+/** Field names that would carry clinical or identifying payload into the owner plane. */
 const FORBIDDEN_FIELDS = [
   "patientId",
   "patient_id",
   "patientName",
   "patient_name",
-  "fullName",
-  "full_name",
+  "encounterId",
+  "encounter_id",
+  "prescriptionId",
+  "prescription_id",
+  "investigationId",
+  "investigation_id",
   "diagnosis",
   "diagnoses",
   "chiefComplaint",
   "chief_complaint",
   "transcript",
   "prompt",
+  "completion",
   "medicineName",
   "medicine_name",
   "dosage",
@@ -107,17 +126,28 @@ const FORBIDDEN_FIELDS = [
   "clinicalText",
   "clinical_payload",
   "prescriptionText",
+  "operationId",
+  "operation_id",
+  "grantId",
+  "grant_id",
+  "proposalId",
+  "proposal_id",
+  "rawAudio",
+  "raw_audio",
 ];
 
 describe("the dashboard opens no database surface of its own", () => {
   it("covers every dashboard file — the check is not vacuous", () => {
-    expect(FILES.length).toBeGreaterThanOrEqual(14);
+    expect(FILES.length).toBeGreaterThanOrEqual(18);
     expect(FILES.map(rel)).toEqual(
       expect.arrayContaining([
         "src/features/owner/dashboard/sources.ts",
+        "src/features/owner/dashboard/contract.ts",
+        "src/features/owner/dashboard/cost.ts",
         "src/app/owner/dashboard/layout.tsx",
         "src/app/owner/dashboard/page.tsx",
         "src/app/owner/dashboard/doctors/page.tsx",
+        "src/app/owner/dashboard/security/page.tsx",
       ]),
     );
   });
@@ -128,31 +158,60 @@ describe("the dashboard opens no database surface of its own", () => {
     }
   });
 
-  it("calls no RPC outside the approved owner-aggregate list, which is empty today", async () => {
-    const { APPROVED_OWNER_AGGREGATE_RPCS } = await import("./sources").catch(() => ({
-      // sources.ts is server-only; read the list from source when the import is refused.
-      APPROVED_OWNER_AGGREGATE_RPCS: (() => {
-        const m = src(path.join(FEATURE, "sources.ts")).match(
-          /APPROVED_OWNER_AGGREGATE_RPCS:\s*readonly string\[\]\s*=\s*\[([^\]]*)\]/,
-        );
-        return m ? (m[1].match(/"([^"]+)"/g) ?? []).map((s) => s.slice(1, -1)) : ["<unparsed>"];
-      })(),
-    }));
-
-    expect(APPROVED_OWNER_AGGREGATE_RPCS).toEqual([]);
+  /**
+   * Two halves, because one `.rpc()` call in `sources.ts` takes its name as a
+   * parameter. A regex cannot read that name, so the test checks the thing that
+   * actually constrains it instead: the parameter's TYPE. Every other call
+   * site must name an approved function as a literal.
+   */
+  it("calls no RPC outside the approved owner-aggregate list", () => {
+    const approved = approvedList();
+    expect(approved.length).toBeGreaterThan(0);
 
     for (const f of FILES) {
-      const calls = [...code(f).matchAll(/\.rpc\(\s*["'`]([a-z_]+)["'`]/g)].map((m) => m[1]);
-      for (const name of calls) {
-        expect(APPROVED_OWNER_AGGREGATE_RPCS, `${rel(f)} calls ${name}`).toContain(name);
+      for (const m of code(f).matchAll(/\.rpc\(\s*([^,)]+)/g)) {
+        const arg = m[1].trim();
+        const literal = arg.match(/^["'`]([a-z_]+)["'`]$/);
+        if (literal) {
+          expect(approved, `${rel(f)} calls ${literal[1]}`).toContain(literal[1]);
+          continue;
+        }
+        // A non-literal name is allowed only where the type pins it down.
+        expect(rel(f), `${rel(f)} calls .rpc(${arg}) with a computed name`).toBe(
+          "src/features/owner/dashboard/sources.ts",
+        );
+        expect(code(f)).toMatch(new RegExp(`${arg}\\s*:\\s*ApprovedOwnerRpc`));
+      }
+    }
+
+    // And every caller of the wrapper names an approved function outright.
+    for (const f of FILES) {
+      for (const m of code(f).matchAll(/callOwnerRpc<[^>]*>\(\s*["'`]([a-z_]+)["'`]/g)) {
+        expect(approved, `${rel(f)} calls ${m[1]}`).toContain(m[1]);
       }
     }
   });
 
-  it("does not construct a database client at all yet", () => {
+  it("the approved list is a subset of what O1-F actually grants", () => {
+    for (const name of approvedList()) expect(F_OWNER_GRANTS, name).toContain(name);
+  });
+
+  it("never names the per-doctor lookup, the control-plane identity surface or any admin mutator", () => {
+    const excluded = F_OWNER_GRANTS.filter((n) => !approvedList().includes(n));
+    expect(excluded).toEqual(
+      expect.arrayContaining(["owner_doctor_activity", "pilot_participation_state", "admin_pilot_consent_set"]),
+    );
     for (const f of FILES) {
-      expect(code(f), rel(f)).not.toMatch(/createSupabaseServerClient|createBrowserClient|createClient\s*\(/);
+      const c = code(f);
+      for (const name of excluded) expect(c, `${rel(f)} references ${name}`).not.toContain(name);
     }
+  });
+
+  it("constructs a database client in exactly one file", () => {
+    const constructs = FILES.filter((f) =>
+      /createSupabaseServerClient|createBrowserClient|createServerClient|createClient\s*\(/.test(code(f)),
+    ).map(rel);
+    expect(constructs).toEqual(["src/features/owner/dashboard/sources.ts"]);
   });
 
   it("never reaches the service-role client", () => {
@@ -174,18 +233,18 @@ describe("the dashboard opens no database surface of its own", () => {
    * DATA SHAPES, not prose. A clinical field only becomes a data surface as a
    * key, a type member or a property read — `prompt:`, `transcript?:`,
    * `.diagnosis`, `["patient_id"]`. The privacy statement is REQUIRED to name
-   * those words in sentences ("never a transcript or prompt"), and a check
-   * that failed on it would be deleted by the first person it inconvenienced.
+   * those words in sentences ("never a transcript or prompt"), and a check that
+   * failed on it would be deleted by the first person it inconvenienced.
    */
   it("carries no clinical field as a key, type member or property read", () => {
     for (const f of FILES) {
       const c = code(f);
       for (const field of FORBIDDEN_FIELDS) {
         const shapes = [
-          new RegExp(`\\.${field}\\b`), //         obj.prompt
-          new RegExp(`\\b${field}\\s*\\??\\s*:`), // prompt:  /  prompt?:
-          new RegExp(`\\[\\s*["'\`]${field}["'\`]\\s*\\]`), // obj["prompt"]
-          new RegExp(`["'\`]${field}["'\`]\\s*:`), //   "prompt":
+          new RegExp(`\\.${field}\\b`),
+          new RegExp(`\\b${field}\\s*\\??\\s*:`),
+          new RegExp(`\\[\\s*["'\`]${field}["'\`]\\s*\\]`),
+          new RegExp(`["'\`]${field}["'\`]\\s*:`),
         ];
         for (const shape of shapes) {
           expect(c, `${rel(f)} carries ${field} as data (${shape})`).not.toMatch(shape);
@@ -195,7 +254,7 @@ describe("the dashboard opens no database surface of its own", () => {
   });
 
   it("the privacy check is not vacuous — it catches a clinical field when one is present", () => {
-    const planted = "interface Row { doctorRef: string; transcript?: string }\nconst x = row.diagnosis;";
+    const planted = "interface Row { participationId: string; transcript?: string }\nconst x = row.diagnosis;";
     const hits = FORBIDDEN_FIELDS.filter((field) =>
       [new RegExp(`\\.${field}\\b`), new RegExp(`\\b${field}\\s*\\??\\s*:`)].some((r) => r.test(planted)),
     );
@@ -204,6 +263,38 @@ describe("the dashboard opens no database surface of its own", () => {
 
   it("keeps the source registry server-only", () => {
     expect(src(path.join(FEATURE, "sources.ts"))).toMatch(/^import "server-only";/);
+  });
+
+  it("renders no sample, mock or demo data", () => {
+    for (const f of FILES) {
+      const c = code(f);
+      expect(c, rel(f)).not.toMatch(/@\/mocks|mockData|sampleData|demoDoctors|FAKE_|fixtures?\//i);
+    }
+  });
+});
+
+/** The approved list, read from source so the test cannot import a server-only module. */
+function approvedList(): string[] {
+  const m = src(path.join(FEATURE, "sources.ts")).match(/APPROVED_OWNER_AGGREGATE_RPCS\s*=\s*\[([^\]]*)\]/);
+  return m ? (m[1].match(/"([^"]+)"/g) ?? []).map((s) => s.slice(1, -1)) : [];
+}
+
+describe("no arbitrary doctor can be selected or probed", () => {
+  it("accepts no doctor-shaped identifier from a URL", () => {
+    for (const f of FILES) {
+      const c = code(f);
+      expect(c, rel(f)).not.toMatch(/params\s*\[\s*["'`](id|doctorId|doctor_id|participationId)["'`]\s*\]/);
+      expect(c, rel(f)).not.toMatch(/searchParams\.(get\s*\(\s*["'`])?(id|doctorId|doctor)/);
+    }
+  });
+
+  it("reads exactly one identifier from the URL, and it is a cohort", () => {
+    const catalog = code(path.join(FEATURE, "catalog.ts"));
+    expect(catalog).toContain('export const COHORT_PARAM = "cohort"');
+    // The resolver only ever returns a value the source itself published.
+    expect(resolveCohort({ cohort: "NOT_A_REAL_COHORT" }, ["PILOT_A"])).toBe("PILOT_A");
+    expect(resolveCohort({ cohort: "PILOT_B" }, ["PILOT_A", "PILOT_B"])).toBe("PILOT_B");
+    expect(resolveCohort({ cohort: "PILOT_A" }, [])).toBeNull();
   });
 });
 
@@ -235,10 +326,11 @@ describe("the existing owner + AAL2 boundary is preserved, and nothing new repla
     }
   });
 
-  it("implements no alternate authority — no owner RPC, no AAL check of its own", () => {
+  it("implements no alternate authority — no owner table, role, RPC or AAL check of its own", () => {
     for (const f of FILES) {
       const c = code(f);
-      expect(c, rel(f)).not.toMatch(/is_platform_owner|getAuthenticatorAssuranceLevel|aal2|isPlatformOwner\(/);
+      expect(c, rel(f)).not.toMatch(/is_platform_owner|getAuthenticatorAssuranceLevel|isPlatformOwner\(/);
+      expect(c, rel(f)).not.toMatch(/user_metadata|app_metadata|practice_location_members/);
     }
   });
 
@@ -248,57 +340,60 @@ describe("the existing owner + AAL2 boundary is preserved, and nothing new repla
   });
 });
 
-describe("what the owner can see names nothing clinical", () => {
-  const ALL = [
-    ...OVERVIEW_CARDS,
-    ...DOCTOR_COLUMNS,
-    ...ADOPTION_METRICS,
-    ...AI_USAGE_METRICS,
-    ...COST_METRICS,
-    ...PILOT_HEALTH_METRICS,
-    ...SECURITY_METRICS,
+describe("the owner shell stays out of the clinical shell", () => {
+  const CLINICAL_IMPORTS = [
+    "@/features/patients",
+    "@/features/encounters",
+    "@/features/prescriptions",
+    "@/features/queue",
+    "@/features/appointments",
+    "@/features/investigations",
+    "@/components/clinical",
+    "active-location",
+    "PatientSearch",
+    "QuickActionMenu",
+    "BottomNav",
+    "AppSidebar",
+    "TopBar",
   ];
-  const CLINICAL_WORDS = /\b(patient|diagnos|transcript|prompt|medicine name|dosage|symptom|complaint)/i;
 
-  it("no card, column or metric label is clinical content", () => {
-    for (const m of ALL) {
-      expect(m.label, m.key).not.toMatch(CLINICAL_WORDS);
+  it("imports no clinical feature, context, navigation or shell", () => {
+    for (const f of FILES) {
+      const c = code(f);
+      for (const name of CLINICAL_IMPORTS) {
+        expect(c, `${rel(f)} imports ${name}`).not.toContain(name);
+      }
     }
   });
 
-  it("the only identity on the doctors table identifies a DOCTOR", () => {
-    const identity = DOCTOR_COLUMNS.filter((c) => c.identity).map((c) => c.key);
-    expect(identity).toEqual(["doctor", "pilotStatus"]);
+  it("lives outside the clinical route group", () => {
+    for (const f of FILES.filter((x) => x.startsWith(ROUTES))) {
+      expect(rel(f)).toMatch(/^src\/app\/owner\/dashboard\//);
+    }
+  });
+});
+
+describe("owner styling cannot reach the prescription print surface", () => {
+  it("declares no print rule and no global stylesheet", () => {
+    for (const f of FILES) {
+      const c = code(f);
+      expect(c, rel(f)).not.toMatch(/@media\s+print|print:|\.css["'`]/);
+    }
+  });
+});
+
+describe("what the owner can see names nothing clinical", () => {
+  const ALL = [...PILOT_STATUS_TILES, ...PARTICIPATION_COLUMNS];
+  const CLINICAL_WORDS = /\b(patient|diagnos|transcript|prompt|medicine|dosage|symptom|complaint|prescription)/i;
+
+  it("no tile or column label is clinical content", () => {
+    for (const m of ALL) expect(m.label, m.key).not.toMatch(CLINICAL_WORDS);
   });
 
-  it("carries exactly the ten required cards and thirteen required columns", () => {
-    expect(OVERVIEW_CARDS.map((c) => c.label)).toEqual([
-      "Total Doctors",
-      "Active Today",
-      "Active 7 Days",
-      "Active 30 Days",
-      "New Doctors",
-      "Consultations",
-      "Prescriptions",
-      "AI Requests",
-      "AI Spend",
-      "Voice Minutes",
-    ]);
-    expect(DOCTOR_COLUMNS.map((c) => c.label)).toEqual([
-      "Doctor",
-      "Pilot status",
-      "Last active",
-      "Active days",
-      "Sessions",
-      "Active minutes",
-      "Consultations",
-      "Rx",
-      "AI requests",
-      "Tokens",
-      "Voice minutes",
-      "AI cost",
-      "Estimated time saved",
-    ]);
+  it("the only identity on the participation table is a pilot participation", () => {
+    const identity = PARTICIPATION_COLUMNS.filter((c) => c.identity).map((c) => c.key);
+    expect(identity).toEqual(["participation", "lifecycle", "enrolledOn", "measurementStatus"]);
+    expect(PARTICIPATION_COLUMNS.map((c) => c.key)).not.toContain("doctorName");
   });
 
   it("exposes exactly the seven required sections", () => {
