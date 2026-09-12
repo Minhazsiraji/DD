@@ -1979,3 +1979,958 @@ revoke all on sequence
   public.pilot_consent_events_id_seq,
   public.pilot_status_events_id_seq
 from public, anon, authenticated, service_role;
+
+-- ============================================================================
+-- O1-F-I1 — Integration storage + trusted day-close authority
+-- CENTRAL-authorized amendment to the still-unapplied 0047 only.
+-- This block introduces no clinical analytics and does not change the frozen
+-- Owner aggregate contract above.
+-- ============================================================================
+
+-- A: short-lived authoritative engaged-minute set. Exactly the four logical
+-- fields frozen by O1-A; no path, patient, encounter, device, IP or payload.
+create table public.engagement_minute_store (
+  doctor_id uuid not null references public.doctor_profiles(id),
+  period_day date not null,
+  minute_bucket timestamptz not null,
+  surface text not null check (surface in (
+    'DASHBOARD',
+    'PATIENTS',
+    'CONSULTATION',
+    'PRESCRIPTION',
+    'APPOINTMENTS',
+    'QUEUE',
+    'SETTINGS',
+    'OWNER'
+  )),
+  primary key (doctor_id, period_day, minute_bucket, surface),
+  check (minute_bucket = date_trunc('minute', minute_bucket))
+);
+create index engagement_minute_store_retention_idx
+  on public.engagement_minute_store(minute_bucket);
+
+create or replace function public.purge_expired_engagement_minutes()
+returns bigint
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_deleted bigint;
+begin
+  delete from public.engagement_minute_store
+  where minute_bucket < clock_timestamp() - interval '48 hours';
+  get diagnostics v_deleted = row_count;
+  return v_deleted;
+end;
+$$;
+alter function public.purge_expired_engagement_minutes()
+  owner to dd_metrics_rollup;
+
+create or replace function public.record_engagement_minute(
+  target_doctor_id uuid,
+  target_period_day date,
+  target_surface text
+) returns boolean
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_now timestamptz := clock_timestamp();
+  v_bucket timestamptz;
+  v_inserted bigint;
+begin
+  if target_doctor_id is null or target_period_day is null then
+    raise exception 'O1A_MINUTE_CONTEXT_REQUIRED' using errcode = '22023';
+  end if;
+
+  if target_surface not in (
+    'DASHBOARD',
+    'PATIENTS',
+    'CONSULTATION',
+    'PRESCRIPTION',
+    'APPOINTMENTS',
+    'QUEUE',
+    'SETTINGS',
+    'OWNER'
+  ) then
+    raise exception 'O1A_MINUTE_SURFACE_INVALID' using errcode = '22023';
+  end if;
+
+  -- The trusted server supplies the clinic day, but never a timestamp. The DB
+  -- is the sole minute clock. A ±1 UTC-day guard admits legitimate timezone
+  -- boundaries while refusing arbitrary historical/future bucket placement.
+  v_bucket := date_trunc('minute', v_now);
+  if target_period_day < ((v_bucket at time zone 'UTC')::date - 1)
+     or target_period_day > ((v_bucket at time zone 'UTC')::date + 1)
+  then
+    raise exception 'O1A_MINUTE_PERIOD_DAY_OUT_OF_RANGE' using errcode = '22023';
+  end if;
+
+  delete from public.engagement_minute_store
+  where minute_bucket < v_now - interval '48 hours';
+
+  insert into public.engagement_minute_store(
+    doctor_id,
+    period_day,
+    minute_bucket,
+    surface
+  )
+  values (
+    target_doctor_id,
+    target_period_day,
+    v_bucket,
+    target_surface
+  )
+  on conflict (doctor_id, period_day, minute_bucket, surface) do nothing;
+
+  get diagnostics v_inserted = row_count;
+  return v_inserted = 1;
+end;
+$$;
+alter function public.record_engagement_minute(uuid, date, text)
+  owner to dd_metrics_rollup;
+
+create or replace function public.snapshot_engagement_minutes(
+  target_doctor_id uuid,
+  target_period_day date
+) returns table (
+  minute_bucket timestamptz,
+  surface text
+)
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_now timestamptz := clock_timestamp();
+begin
+  if target_doctor_id is null or target_period_day is null then
+    raise exception 'O1A_MINUTE_CONTEXT_REQUIRED' using errcode = '22023';
+  end if;
+
+  delete from public.engagement_minute_store m
+  where m.minute_bucket < v_now - interval '48 hours';
+
+  return query
+  select m.minute_bucket, m.surface
+  from public.engagement_minute_store m
+  where m.doctor_id = target_doctor_id
+    and m.period_day = target_period_day
+    and m.minute_bucket >= v_now - interval '48 hours'
+  order by m.minute_bucket, m.surface;
+end;
+$$;
+alter function public.snapshot_engagement_minutes(uuid, date)
+  owner to dd_metrics_rollup;
+
+-- E: durable privacy-safe L0 telemetry. No JSONB or opaque payload is persisted.
+-- event_key is the idempotency primary key frozen by O1-E.
+create table public.ai_voice_telemetry_l0 (
+  event_key text primary key check (char_length(event_key) between 1 and 160),
+  event_type text not null check (event_type in (
+    'AI_OPERATION_STARTED',
+    'AI_PROVIDER_ATTEMPTED',
+    'AI_PROVIDER_SUCCEEDED',
+    'AI_PROVIDER_FAILED',
+    'AI_PROVIDER_TIMEOUT',
+    'AI_PROPOSAL_PRODUCED',
+    'AI_PROPOSAL_ACCEPTED',
+    'AI_PROPOSAL_EDITED',
+    'AI_PROPOSAL_REJECTED',
+    'AI_PROPOSAL_EXPIRED',
+    'VOICE_GRANT_ISSUED',
+    'VOICE_GRANT_DENIED',
+    'VOICE_SESSION_REPORTED'
+  )),
+  schema_version integer not null check (schema_version = 1),
+  occurred_at timestamptz not null,
+  actor_user_id uuid,
+  doctor_profile_id uuid,
+  operation_id text check (
+    operation_id is null or operation_id ~ '^ddop_[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
+  ),
+  proposal_id text check (
+    proposal_id is null or proposal_id ~ '^ddprop_[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
+  ),
+  voice_session_id text check (
+    voice_session_id is null or voice_session_id ~ '^ddvs_[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
+  ),
+  grant_id text check (
+    grant_id is null or grant_id ~ '^ddgr_[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
+  ),
+  provider_id text check (
+    provider_id is null or provider_id ~ '^[a-z0-9][a-z0-9._-]{0,63}$'
+  ),
+  model_id text check (
+    model_id is null or model_id ~ '^[a-z0-9][a-z0-9._-]{0,63}$'
+  ),
+  task_type text check (task_type is null or task_type in (
+    'PRESCRIPTION_MEDICINE',
+    'INVESTIGATION_LIST',
+    'CLINICAL_NOTE',
+    'NAVIGATION_COMMAND'
+  )),
+  source text check (source is null or source in ('TEXT','VOICE_TRANSCRIPT')),
+  attempt_no smallint check (attempt_no is null or attempt_no between 1 and 100),
+  latency_ms bigint check (latency_ms is null or latency_ms between 0 and 9007199254740991),
+  failure_code text check (failure_code is null or failure_code in (
+    'VALIDATION_REJECTED',
+    'PROVIDER_TIMEOUT',
+    'PROVIDER_ABORTED',
+    'PROVIDER_ERROR_UNCLASSIFIED',
+    'POST_PROVIDER_INTERNAL',
+    'OPENAI_SYNTHETIC_EVAL_DISABLED',
+    'OPENAI_API_KEY_MISSING',
+    'OPENAI_PROVIDER_HTTP',
+    'OPENAI_PROVIDER_REFUSAL',
+    'OPENAI_PROVIDER_INCOMPLETE',
+    'OPENAI_PROVIDER_MALFORMED'
+  )),
+  provider_http_status integer check (
+    provider_http_status is null or provider_http_status between 100 and 599
+  ),
+  usage_state text check (usage_state is null or usage_state in (
+    'REPORTED',
+    'UNKNOWN_PENDING_RECONCILIATION',
+    'NOT_APPLICABLE'
+  )),
+  input_tokens bigint check (input_tokens is null or input_tokens between 0 and 9007199254740991),
+  cached_input_tokens bigint check (cached_input_tokens is null or cached_input_tokens between 0 and 9007199254740991),
+  output_tokens bigint check (output_tokens is null or output_tokens between 0 and 9007199254740991),
+  reasoning_tokens bigint check (reasoning_tokens is null or reasoning_tokens between 0 and 9007199254740991),
+  total_tokens bigint check (total_tokens is null or total_tokens between 0 and 9007199254740991),
+  cost_state text check (cost_state is null or cost_state in (
+    'ESTIMATED',
+    'PROVIDER_REPORTED',
+    'RECONCILED',
+    'UNKNOWN_PENDING_RECONCILIATION',
+    'UNPRICED',
+    'NOT_INCURRED'
+  )),
+  cost_source text check (cost_source is null or cost_source in (
+    'PRICING_SNAPSHOT',
+    'PROVIDER_REPORTED',
+    'RECONCILIATION'
+  )),
+  cost_attribution_mode text check (
+    cost_attribution_mode is null or cost_attribution_mode in ('ALLOCATED','CANONICAL')
+  ),
+  pricing_snapshot_id text check (
+    pricing_snapshot_id is null or pricing_snapshot_id ~ '^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$'
+  ),
+  estimated_cost_usd_micros numeric(24,6) check (
+    estimated_cost_usd_micros is null or estimated_cost_usd_micros >= 0
+  ),
+  input_cost_usd_micros numeric(24,6) check (
+    input_cost_usd_micros is null or input_cost_usd_micros >= 0
+  ),
+  cached_input_cost_usd_micros numeric(24,6) check (
+    cached_input_cost_usd_micros is null or cached_input_cost_usd_micros >= 0
+  ),
+  output_cost_usd_micros numeric(24,6) check (
+    output_cost_usd_micros is null or output_cost_usd_micros >= 0
+  ),
+  uncertainty_count bigint check (
+    uncertainty_count is null or uncertainty_count between 0 and 9007199254740991
+  ),
+  denial_reason text check (denial_reason is null or denial_reason in (
+    'RATE_LIMITED',
+    'CONFIG_MISSING',
+    'GRANT_REJECTED',
+    'GRANT_NETWORK'
+  )),
+  streamed_audio_ms bigint check (
+    streamed_audio_ms is null or streamed_audio_ms between 0 and 900000
+  ),
+  measurement_quality text check (measurement_quality is null or measurement_quality in (
+    'CLIENT_ESTIMATE',
+    'PROVIDER_REPORTED',
+    'RECONCILED',
+    'UNKNOWN'
+  )),
+  connect_latency_ms bigint check (
+    connect_latency_ms is null or connect_latency_ms between 0 and 9007199254740991
+  ),
+  first_result_latency_ms bigint check (
+    first_result_latency_ms is null or first_result_latency_ms between 0 and 9007199254740991
+  ),
+
+  -- Identifier/shape confinement: typed columns cannot be populated by an
+  -- event type that did not carry them in frozen E.
+  check (
+    (operation_id is null or event_type in (
+      'AI_OPERATION_STARTED','AI_PROVIDER_ATTEMPTED','AI_PROVIDER_SUCCEEDED',
+      'AI_PROVIDER_FAILED','AI_PROVIDER_TIMEOUT','AI_PROPOSAL_PRODUCED'
+    ))
+    and (proposal_id is null or event_type in (
+      'AI_PROPOSAL_PRODUCED','AI_PROPOSAL_ACCEPTED','AI_PROPOSAL_EDITED',
+      'AI_PROPOSAL_REJECTED','AI_PROPOSAL_EXPIRED'
+    ))
+    and (voice_session_id is null or event_type = 'VOICE_SESSION_REPORTED')
+    and (grant_id is null or event_type in (
+      'VOICE_GRANT_ISSUED','VOICE_GRANT_DENIED','VOICE_SESSION_REPORTED'
+    ))
+  ),
+
+  -- Required fields per event family.
+  check (
+    (event_type <> 'AI_OPERATION_STARTED' or
+      (operation_id is not null and provider_id is not null and model_id is not null
+       and task_type is not null and source is not null))
+    and
+    (event_type <> 'AI_PROVIDER_ATTEMPTED' or
+      (operation_id is not null and attempt_no is not null and provider_id is not null
+       and model_id is not null and task_type is not null))
+    and
+    (event_type not in ('AI_PROVIDER_SUCCEEDED','AI_PROVIDER_FAILED','AI_PROVIDER_TIMEOUT') or
+      (operation_id is not null and attempt_no is not null and provider_id is not null
+       and model_id is not null and task_type is not null and latency_ms is not null
+       and usage_state is not null and cost_state is not null))
+    and
+    (event_type <> 'AI_PROPOSAL_PRODUCED' or
+      (operation_id is not null and proposal_id is not null and provider_id is not null
+       and model_id is not null and task_type is not null and uncertainty_count is not null))
+    and
+    (event_type not in (
+      'AI_PROPOSAL_ACCEPTED','AI_PROPOSAL_EDITED','AI_PROPOSAL_REJECTED','AI_PROPOSAL_EXPIRED'
+    ) or (proposal_id is not null and task_type is not null))
+    and
+    (event_type not in ('VOICE_GRANT_ISSUED','VOICE_GRANT_DENIED') or
+      (grant_id is not null and provider_id is not null and model_id is not null))
+    and
+    (event_type <> 'VOICE_SESSION_REPORTED' or
+      (voice_session_id is not null and grant_id is not null and provider_id is not null
+       and model_id is not null and measurement_quality is not null and cost_state is not null))
+  ),
+
+  -- Frozen outcome truth rules.
+  check (
+    event_type not in ('AI_PROVIDER_SUCCEEDED','AI_PROVIDER_FAILED','AI_PROVIDER_TIMEOUT')
+    or (
+      (event_type <> 'AI_PROVIDER_SUCCEEDED' or failure_code is null)
+      and (event_type = 'AI_PROVIDER_SUCCEEDED' or failure_code is not null)
+      and (event_type <> 'AI_PROVIDER_TIMEOUT' or
+        (failure_code = 'PROVIDER_TIMEOUT' and usage_state = 'UNKNOWN_PENDING_RECONCILIATION'))
+      and (usage_state = 'REPORTED' or
+        (input_tokens is null and cached_input_tokens is null and output_tokens is null
+         and reasoning_tokens is null and total_tokens is null))
+      and (usage_state <> 'UNKNOWN_PENDING_RECONCILIATION'
+        or cost_state = 'UNKNOWN_PENDING_RECONCILIATION')
+      and (usage_state <> 'NOT_APPLICABLE' or cost_state = 'NOT_INCURRED')
+      and (input_tokens is null or cached_input_tokens is null or cached_input_tokens <= input_tokens)
+      and (output_tokens is null or reasoning_tokens is null or reasoning_tokens <= output_tokens)
+    )
+  ),
+
+  -- Frozen grant/report truth rules.
+  check (
+    (event_type <> 'VOICE_GRANT_ISSUED' or denial_reason is null)
+    and (event_type <> 'VOICE_GRANT_DENIED' or denial_reason is not null)
+    and (event_type <> 'VOICE_SESSION_REPORTED' or
+      (streamed_audio_ms is not null or cost_state = 'UNKNOWN_PENDING_RECONCILIATION'))
+  ),
+
+  -- Frozen cost completeness. Unknown is NULL, authoritative zero is numeric 0.
+  check (
+    cost_state is null
+    or (
+      (cost_state not in ('UNKNOWN_PENDING_RECONCILIATION','UNPRICED')
+       or (estimated_cost_usd_micros is null
+           and input_cost_usd_micros is null
+           and cached_input_cost_usd_micros is null
+           and output_cost_usd_micros is null
+           and cost_source is null
+           and cost_attribution_mode is null))
+      and
+      (cost_state <> 'NOT_INCURRED' or (estimated_cost_usd_micros is not null and estimated_cost_usd_micros = 0))
+      and
+      (cost_state not in ('ESTIMATED','PROVIDER_REPORTED','RECONCILED')
+       or (estimated_cost_usd_micros is not null
+           and cost_source is not null
+           and cost_attribution_mode is not null))
+    )
+  ),
+
+  check (
+    event_type not in ('AI_PROVIDER_SUCCEEDED','AI_PROVIDER_FAILED','AI_PROVIDER_TIMEOUT')
+    or cost_state not in ('ESTIMATED','PROVIDER_REPORTED','RECONCILED')
+    or (
+      input_cost_usd_micros is not null
+      and cached_input_cost_usd_micros is not null
+      and output_cost_usd_micros is not null
+      and input_cost_usd_micros + cached_input_cost_usd_micros + output_cost_usd_micros
+          = estimated_cost_usd_micros
+      and (
+        cost_attribution_mode <> 'CANONICAL'
+        or (input_cost_usd_micros = 0 and cached_input_cost_usd_micros = 0)
+      )
+    )
+  )
+);
+create index ai_voice_telemetry_l0_occurred_key_idx
+  on public.ai_voice_telemetry_l0(occurred_at, event_key);
+create index ai_voice_telemetry_l0_proposal_idx
+  on public.ai_voice_telemetry_l0(proposal_id)
+  where proposal_id is not null;
+create index ai_voice_telemetry_l0_grant_idx
+  on public.ai_voice_telemetry_l0(grant_id, occurred_at, event_key)
+  where grant_id is not null;
+
+create or replace function public.o1e_telemetry_allowed_keys(
+  target_event_type text
+) returns text[]
+language sql
+immutable
+set search_path = public, pg_temp
+as $$
+  select case target_event_type
+    when 'AI_OPERATION_STARTED' then array[
+      'event_type','schema_version','event_key','occurred_at','actor_user_id','doctor_profile_id',
+      'operation_id','provider_id','model_id','task_type','source'
+    ]::text[]
+    when 'AI_PROVIDER_ATTEMPTED' then array[
+      'event_type','schema_version','event_key','occurred_at','actor_user_id','doctor_profile_id',
+      'operation_id','attempt_no','provider_id','model_id','task_type'
+    ]::text[]
+    when 'AI_PROVIDER_SUCCEEDED' then array[
+      'event_type','schema_version','event_key','occurred_at','actor_user_id','doctor_profile_id',
+      'operation_id','attempt_no','provider_id','model_id','task_type','latency_ms','failure_code',
+      'provider_http_status','usage_state','input_tokens','cached_input_tokens','output_tokens',
+      'reasoning_tokens','total_tokens','cost_state','cost_source','cost_attribution_mode',
+      'pricing_snapshot_id','estimated_cost_usd_micros','input_cost_usd_micros',
+      'cached_input_cost_usd_micros','output_cost_usd_micros'
+    ]::text[]
+    when 'AI_PROVIDER_FAILED' then array[
+      'event_type','schema_version','event_key','occurred_at','actor_user_id','doctor_profile_id',
+      'operation_id','attempt_no','provider_id','model_id','task_type','latency_ms','failure_code',
+      'provider_http_status','usage_state','input_tokens','cached_input_tokens','output_tokens',
+      'reasoning_tokens','total_tokens','cost_state','cost_source','cost_attribution_mode',
+      'pricing_snapshot_id','estimated_cost_usd_micros','input_cost_usd_micros',
+      'cached_input_cost_usd_micros','output_cost_usd_micros'
+    ]::text[]
+    when 'AI_PROVIDER_TIMEOUT' then array[
+      'event_type','schema_version','event_key','occurred_at','actor_user_id','doctor_profile_id',
+      'operation_id','attempt_no','provider_id','model_id','task_type','latency_ms','failure_code',
+      'provider_http_status','usage_state','input_tokens','cached_input_tokens','output_tokens',
+      'reasoning_tokens','total_tokens','cost_state','cost_source','cost_attribution_mode',
+      'pricing_snapshot_id','estimated_cost_usd_micros','input_cost_usd_micros',
+      'cached_input_cost_usd_micros','output_cost_usd_micros'
+    ]::text[]
+    when 'AI_PROPOSAL_PRODUCED' then array[
+      'event_type','schema_version','event_key','occurred_at','actor_user_id','doctor_profile_id',
+      'operation_id','proposal_id','provider_id','model_id','task_type','uncertainty_count'
+    ]::text[]
+    when 'AI_PROPOSAL_ACCEPTED' then array[
+      'event_type','schema_version','event_key','occurred_at','actor_user_id','doctor_profile_id',
+      'proposal_id','task_type'
+    ]::text[]
+    when 'AI_PROPOSAL_EDITED' then array[
+      'event_type','schema_version','event_key','occurred_at','actor_user_id','doctor_profile_id',
+      'proposal_id','task_type'
+    ]::text[]
+    when 'AI_PROPOSAL_REJECTED' then array[
+      'event_type','schema_version','event_key','occurred_at','actor_user_id','doctor_profile_id',
+      'proposal_id','task_type'
+    ]::text[]
+    when 'AI_PROPOSAL_EXPIRED' then array[
+      'event_type','schema_version','event_key','occurred_at','actor_user_id','doctor_profile_id',
+      'proposal_id','task_type'
+    ]::text[]
+    when 'VOICE_GRANT_ISSUED' then array[
+      'event_type','schema_version','event_key','occurred_at','actor_user_id','doctor_profile_id',
+      'grant_id','provider_id','model_id','denial_reason'
+    ]::text[]
+    when 'VOICE_GRANT_DENIED' then array[
+      'event_type','schema_version','event_key','occurred_at','actor_user_id','doctor_profile_id',
+      'grant_id','provider_id','model_id','denial_reason'
+    ]::text[]
+    when 'VOICE_SESSION_REPORTED' then array[
+      'event_type','schema_version','event_key','occurred_at','actor_user_id','doctor_profile_id',
+      'voice_session_id','grant_id','provider_id','model_id','streamed_audio_ms',
+      'measurement_quality','connect_latency_ms','first_result_latency_ms','cost_state','cost_source',
+      'cost_attribution_mode','pricing_snapshot_id','estimated_cost_usd_micros'
+    ]::text[]
+    else null::text[]
+  end;
+$$;
+alter function public.o1e_telemetry_allowed_keys(text)
+  owner to dd_metrics_rollup;
+
+create or replace function public.ingest_ai_voice_telemetry_event(
+  target_event jsonb
+) returns boolean
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_type text;
+  v_allowed text[];
+  v_key text;
+  v_kind text;
+  v_expected_key text;
+  v_inserted bigint;
+  v_numeric_keys constant text[] := array[
+    'schema_version','attempt_no','latency_ms','provider_http_status','input_tokens',
+    'cached_input_tokens','output_tokens','reasoning_tokens','total_tokens','uncertainty_count',
+    'streamed_audio_ms','connect_latency_ms','first_result_latency_ms'
+  ];
+  v_nullable_keys constant text[] := array[
+    'actor_user_id','doctor_profile_id','failure_code','provider_http_status','input_tokens',
+    'cached_input_tokens','output_tokens','reasoning_tokens','total_tokens','cost_source',
+    'cost_attribution_mode','pricing_snapshot_id','estimated_cost_usd_micros',
+    'input_cost_usd_micros','cached_input_cost_usd_micros','output_cost_usd_micros',
+    'denial_reason','streamed_audio_ms','connect_latency_ms','first_result_latency_ms'
+  ];
+  v_micros_keys constant text[] := array[
+    'estimated_cost_usd_micros','input_cost_usd_micros',
+    'cached_input_cost_usd_micros','output_cost_usd_micros'
+  ];
+begin
+  if target_event is null or jsonb_typeof(target_event) <> 'object' then
+    raise exception 'O1E_EVENT_OBJECT_REQUIRED' using errcode = '22023';
+  end if;
+
+  v_type := target_event ->> 'event_type';
+  v_allowed := public.o1e_telemetry_allowed_keys(v_type);
+  if v_allowed is null then
+    raise exception 'O1E_EVENT_TYPE_INVALID' using errcode = '22023';
+  end if;
+
+  if exists (
+    select 1 from jsonb_object_keys(target_event) k
+    where not (k = any(v_allowed))
+  ) or exists (
+    select 1 from unnest(v_allowed) k
+    where not (target_event ? k)
+  ) then
+    raise exception 'O1E_EVENT_FIELDS_INVALID' using errcode = '22023';
+  end if;
+
+  foreach v_key in array v_allowed
+  loop
+    v_kind := jsonb_typeof(target_event -> v_key);
+    if v_kind = 'null' then
+      if not (v_key = any(v_nullable_keys)) then
+        raise exception 'O1E_EVENT_NULL_INVALID:%', v_key using errcode = '22023';
+      end if;
+    elsif v_key = any(v_numeric_keys) then
+      if v_kind <> 'number' or (target_event ->> v_key) !~ '^\d+$' then
+        raise exception 'O1E_EVENT_NUMBER_INVALID:%', v_key using errcode = '22023';
+      end if;
+    elsif v_kind <> 'string' then
+      raise exception 'O1E_EVENT_STRING_INVALID:%', v_key using errcode = '22023';
+    end if;
+  end loop;
+
+  if target_event ->> 'schema_version' <> '1' then
+    raise exception 'O1E_SCHEMA_VERSION_INVALID' using errcode = '22023';
+  end if;
+
+  if (target_event ->> 'occurred_at') !~
+     '^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$'
+  then
+    raise exception 'O1E_OCCURRED_AT_INVALID' using errcode = '22023';
+  end if;
+
+  foreach v_key in array v_micros_keys
+  loop
+    if target_event ? v_key
+       and jsonb_typeof(target_event -> v_key) <> 'null'
+       and (target_event ->> v_key) !~ '^\d{1,18}\.\d{6}$'
+    then
+      raise exception 'O1E_MICROS_INVALID:%', v_key using errcode = '22023';
+    end if;
+  end loop;
+
+  v_expected_key := case v_type
+    when 'AI_OPERATION_STARTED' then 'op:' || (target_event ->> 'operation_id')
+    when 'AI_PROVIDER_ATTEMPTED' then
+      'att:' || (target_event ->> 'operation_id') || ':' || (target_event ->> 'attempt_no')
+    when 'AI_PROVIDER_SUCCEEDED' then
+      'out:' || (target_event ->> 'operation_id') || ':' || (target_event ->> 'attempt_no')
+    when 'AI_PROVIDER_FAILED' then
+      'out:' || (target_event ->> 'operation_id') || ':' || (target_event ->> 'attempt_no')
+    when 'AI_PROVIDER_TIMEOUT' then
+      'out:' || (target_event ->> 'operation_id') || ':' || (target_event ->> 'attempt_no')
+    when 'AI_PROPOSAL_PRODUCED' then 'prop:' || (target_event ->> 'proposal_id')
+    when 'AI_PROPOSAL_ACCEPTED' then 'dec:' || (target_event ->> 'proposal_id')
+    when 'AI_PROPOSAL_EDITED' then 'dec:' || (target_event ->> 'proposal_id')
+    when 'AI_PROPOSAL_REJECTED' then 'dec:' || (target_event ->> 'proposal_id')
+    when 'AI_PROPOSAL_EXPIRED' then 'exp:' || (target_event ->> 'proposal_id')
+    when 'VOICE_GRANT_ISSUED' then 'grant:' || (target_event ->> 'grant_id')
+    when 'VOICE_GRANT_DENIED' then 'grant:' || (target_event ->> 'grant_id')
+    when 'VOICE_SESSION_REPORTED' then 'voice:' || (target_event ->> 'voice_session_id')
+  end;
+
+  if v_expected_key is null or target_event ->> 'event_key' <> v_expected_key then
+    raise exception 'O1E_EVENT_KEY_MISMATCH' using errcode = '22023';
+  end if;
+
+  insert into public.ai_voice_telemetry_l0(
+    event_key,
+    event_type,
+    schema_version,
+    occurred_at,
+    actor_user_id,
+    doctor_profile_id,
+    operation_id,
+    proposal_id,
+    voice_session_id,
+    grant_id,
+    provider_id,
+    model_id,
+    task_type,
+    source,
+    attempt_no,
+    latency_ms,
+    failure_code,
+    provider_http_status,
+    usage_state,
+    input_tokens,
+    cached_input_tokens,
+    output_tokens,
+    reasoning_tokens,
+    total_tokens,
+    cost_state,
+    cost_source,
+    cost_attribution_mode,
+    pricing_snapshot_id,
+    estimated_cost_usd_micros,
+    input_cost_usd_micros,
+    cached_input_cost_usd_micros,
+    output_cost_usd_micros,
+    uncertainty_count,
+    denial_reason,
+    streamed_audio_ms,
+    measurement_quality,
+    connect_latency_ms,
+    first_result_latency_ms
+  ) values (
+    target_event ->> 'event_key',
+    v_type,
+    (target_event ->> 'schema_version')::integer,
+    (target_event ->> 'occurred_at')::timestamptz,
+    nullif(target_event ->> 'actor_user_id', '')::uuid,
+    nullif(target_event ->> 'doctor_profile_id', '')::uuid,
+    target_event ->> 'operation_id',
+    target_event ->> 'proposal_id',
+    target_event ->> 'voice_session_id',
+    target_event ->> 'grant_id',
+    target_event ->> 'provider_id',
+    target_event ->> 'model_id',
+    target_event ->> 'task_type',
+    target_event ->> 'source',
+    (target_event ->> 'attempt_no')::smallint,
+    (target_event ->> 'latency_ms')::bigint,
+    target_event ->> 'failure_code',
+    (target_event ->> 'provider_http_status')::integer,
+    target_event ->> 'usage_state',
+    (target_event ->> 'input_tokens')::bigint,
+    (target_event ->> 'cached_input_tokens')::bigint,
+    (target_event ->> 'output_tokens')::bigint,
+    (target_event ->> 'reasoning_tokens')::bigint,
+    (target_event ->> 'total_tokens')::bigint,
+    target_event ->> 'cost_state',
+    target_event ->> 'cost_source',
+    target_event ->> 'cost_attribution_mode',
+    target_event ->> 'pricing_snapshot_id',
+    (target_event ->> 'estimated_cost_usd_micros')::numeric(24,6),
+    (target_event ->> 'input_cost_usd_micros')::numeric(24,6),
+    (target_event ->> 'cached_input_cost_usd_micros')::numeric(24,6),
+    (target_event ->> 'output_cost_usd_micros')::numeric(24,6),
+    (target_event ->> 'uncertainty_count')::bigint,
+    target_event ->> 'denial_reason',
+    (target_event ->> 'streamed_audio_ms')::bigint,
+    target_event ->> 'measurement_quality',
+    (target_event ->> 'connect_latency_ms')::bigint,
+    (target_event ->> 'first_result_latency_ms')::bigint
+  )
+  on conflict (event_key) do nothing;
+
+  get diagnostics v_inserted = row_count;
+  return v_inserted = 1;
+end;
+$$;
+alter function public.ingest_ai_voice_telemetry_event(jsonb)
+  owner to dd_metrics_rollup;
+
+create or replace function public.read_ai_voice_telemetry_events(
+  target_from timestamptz,
+  target_until timestamptz,
+  target_after_occurred timestamptz default null,
+  target_after_event_key text default null,
+  target_limit integer default 1000
+) returns setof public.ai_voice_telemetry_l0
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+begin
+  if target_from is null or target_until is null
+     or target_until <= target_from
+     or target_until - target_from > interval '48 hours'
+  then
+    raise exception 'O1E_READ_WINDOW_INVALID' using errcode = '22023';
+  end if;
+
+  if target_limit is null or target_limit < 1 or target_limit > 5000 then
+    raise exception 'O1E_READ_LIMIT_INVALID' using errcode = '22023';
+  end if;
+
+  if (target_after_occurred is null) <> (target_after_event_key is null) then
+    raise exception 'O1E_READ_CURSOR_INVALID' using errcode = '22023';
+  end if;
+
+  return query
+  select e.*
+  from public.ai_voice_telemetry_l0 e
+  where e.occurred_at >= target_from
+    and e.occurred_at < target_until
+    and (
+      target_after_occurred is null
+      or (e.occurred_at, e.event_key) > (target_after_occurred, target_after_event_key)
+    )
+  order by e.occurred_at, e.event_key
+  limit target_limit;
+end;
+$$;
+alter function public.read_ai_voice_telemetry_events(
+  timestamptz, timestamptz, timestamptz, text, integer
+) owner to dd_metrics_rollup;
+
+-- Trusted day-close authorities. The boolean is an explicit worker attestation;
+-- false never mutates coverage. Existing ingestion/rebuild authorities remain
+-- internal and are invoked under the rollup owner, not granted to callers.
+create or replace function public.finalize_activity_measurement_day(
+  target_period_day date,
+  target_source_version bigint,
+  target_ingestion_complete boolean
+) returns void
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  d record;
+  c record;
+begin
+  if target_period_day is null or target_source_version is null or target_source_version < 0 then
+    raise exception 'O1F_ACTIVITY_CLOSE_ARGUMENT_INVALID' using errcode = '22023';
+  end if;
+  if target_ingestion_complete is distinct from true then
+    raise exception 'O1F_ACTIVITY_CLOSE_ATTESTATION_REQUIRED' using errcode = '22023';
+  end if;
+
+  for d in
+    select distinct p.doctor_id
+    from public.pilot_participations p
+    where p.status in ('ENROLLED','COMPLETED')
+      and p.enrolled_on <= target_period_day
+      and public.pilot_consent_covers_day(
+        p.cohort_code,
+        p.participation_id,
+        'PRODUCT_USAGE_ANALYTICS',
+        target_period_day
+      )
+  loop
+    perform public.mark_telemetry_day_coverage(
+      target_period_day,
+      d.doctor_id,
+      'ACTIVITY',
+      true,
+      target_source_version
+    );
+  end loop;
+
+  if exists (
+    select 1
+    from public.pilot_participations p
+    where p.status in ('ENROLLED','COMPLETED')
+      and p.enrolled_on <= target_period_day
+      and public.pilot_consent_covers_day(
+        p.cohort_code,
+        p.participation_id,
+        'PRODUCT_USAGE_ANALYTICS',
+        target_period_day
+      )
+      and not exists (
+        select 1
+        from public.telemetry_day_coverage t
+        where t.period_day = target_period_day
+          and t.principal_doctor_id = p.doctor_id
+          and t.measurement_domain = 'ACTIVITY'
+          and t.is_complete
+      )
+  ) then
+    raise exception 'O1F_ACTIVITY_CLOSE_SOURCE_VERSION_STALE' using errcode = '40001';
+  end if;
+
+  perform public.rebuild_doctor_daily_activity_agg(target_period_day);
+
+  for c in select distinct p.cohort_code from public.pilot_participations p
+  loop
+    perform public.rebuild_pilot_status_daily_agg(target_period_day, c.cohort_code);
+  end loop;
+
+  perform public.purge_expired_engagement_minutes();
+end;
+$$;
+alter function public.finalize_activity_measurement_day(date, bigint, boolean)
+  owner to dd_metrics_rollup;
+
+create or replace function public.finalize_ai_voice_measurement_day(
+  target_period_day date,
+  target_source_version bigint,
+  target_projection_complete boolean
+) returns void
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  d record;
+begin
+  if target_period_day is null or target_source_version is null or target_source_version < 0 then
+    raise exception 'O1F_AI_VOICE_CLOSE_ARGUMENT_INVALID' using errcode = '22023';
+  end if;
+  if target_projection_complete is distinct from true then
+    raise exception 'O1F_AI_VOICE_CLOSE_ATTESTATION_REQUIRED' using errcode = '22023';
+  end if;
+
+  for d in
+    select distinct p.doctor_id
+    from public.pilot_participations p
+    where p.status in ('ENROLLED','COMPLETED')
+      and p.enrolled_on <= target_period_day
+      and public.pilot_consent_covers_day(
+        p.cohort_code,
+        p.participation_id,
+        'PRODUCT_USAGE_ANALYTICS',
+        target_period_day
+      )
+  loop
+    perform public.mark_telemetry_day_coverage(
+      target_period_day,
+      d.doctor_id,
+      'AI_VOICE',
+      true,
+      target_source_version
+    );
+  end loop;
+
+  if exists (
+    select 1
+    from public.pilot_participations p
+    where p.status in ('ENROLLED','COMPLETED')
+      and p.enrolled_on <= target_period_day
+      and public.pilot_consent_covers_day(
+        p.cohort_code,
+        p.participation_id,
+        'PRODUCT_USAGE_ANALYTICS',
+        target_period_day
+      )
+      and not exists (
+        select 1
+        from public.telemetry_day_coverage t
+        where t.period_day = target_period_day
+          and t.principal_doctor_id = p.doctor_id
+          and t.measurement_domain = 'AI_VOICE'
+          and t.is_complete
+      )
+  ) then
+    raise exception 'O1F_AI_VOICE_CLOSE_SOURCE_VERSION_STALE' using errcode = '40001';
+  end if;
+end;
+$$;
+alter function public.finalize_ai_voice_measurement_day(date, bigint, boolean)
+  owner to dd_metrics_rollup;
+
+-- Every new table is RLS-forced. No API role gets a direct policy.
+alter table public.engagement_minute_store enable row level security;
+alter table public.engagement_minute_store force row level security;
+create policy engagement_minute_store_deny_default
+  on public.engagement_minute_store for all
+  using (false) with check (false);
+create policy engagement_minute_store_rollup_all
+  on public.engagement_minute_store for all to dd_metrics_rollup
+  using (true) with check (true);
+
+alter table public.ai_voice_telemetry_l0 enable row level security;
+alter table public.ai_voice_telemetry_l0 force row level security;
+create policy ai_voice_telemetry_l0_deny_default
+  on public.ai_voice_telemetry_l0 for all
+  using (false) with check (false);
+create policy ai_voice_telemetry_l0_rollup_read
+  on public.ai_voice_telemetry_l0 for select to dd_metrics_rollup
+  using (true);
+create policy ai_voice_telemetry_l0_rollup_insert
+  on public.ai_voice_telemetry_l0 for insert to dd_metrics_rollup
+  with check (true);
+
+-- No direct table path for any Supabase API role, including service_role.
+revoke all on public.engagement_minute_store, public.ai_voice_telemetry_l0
+  from public, anon, authenticated, service_role,
+       dd_metrics_reader, dd_metrics_rollup, dd_pilot_writer, dd_retention;
+
+grant select, insert, delete on public.engagement_minute_store
+  to dd_metrics_rollup;
+grant select, insert on public.ai_voice_telemetry_l0
+  to dd_metrics_rollup;
+
+-- Default function EXECUTE is removed before the narrow grants.
+revoke execute on function public.purge_expired_engagement_minutes()
+  from public, anon, authenticated, service_role,
+       dd_metrics_reader, dd_pilot_writer, dd_retention;
+revoke execute on function public.record_engagement_minute(uuid, date, text)
+  from public, anon, authenticated, service_role,
+       dd_metrics_reader, dd_pilot_writer, dd_retention;
+revoke execute on function public.snapshot_engagement_minutes(uuid, date)
+  from public, anon, authenticated, service_role,
+       dd_metrics_reader, dd_pilot_writer, dd_retention;
+revoke execute on function public.o1e_telemetry_allowed_keys(text)
+  from public, anon, authenticated, service_role,
+       dd_metrics_reader, dd_pilot_writer, dd_retention;
+revoke execute on function public.ingest_ai_voice_telemetry_event(jsonb)
+  from public, anon, authenticated, service_role,
+       dd_metrics_reader, dd_pilot_writer, dd_retention;
+revoke execute on function public.read_ai_voice_telemetry_events(
+  timestamptz, timestamptz, timestamptz, text, integer
+) from public, anon, authenticated, service_role,
+       dd_metrics_reader, dd_pilot_writer, dd_retention;
+revoke execute on function public.finalize_activity_measurement_day(date, bigint, boolean)
+  from public, anon, authenticated, service_role,
+       dd_metrics_reader, dd_pilot_writer, dd_retention;
+revoke execute on function public.finalize_ai_voice_measurement_day(date, bigint, boolean)
+  from public, anon, authenticated, service_role,
+       dd_metrics_reader, dd_pilot_writer, dd_retention;
+
+grant execute on function public.purge_expired_engagement_minutes()
+  to service_role;
+grant execute on function public.record_engagement_minute(uuid, date, text)
+  to service_role;
+grant execute on function public.snapshot_engagement_minutes(uuid, date)
+  to service_role;
+grant execute on function public.ingest_ai_voice_telemetry_event(jsonb)
+  to service_role;
+grant execute on function public.read_ai_voice_telemetry_events(
+  timestamptz, timestamptz, timestamptz, text, integer
+) to service_role;
+grant execute on function public.finalize_activity_measurement_day(date, bigint, boolean)
+  to service_role;
+grant execute on function public.finalize_ai_voice_measurement_day(date, bigint, boolean)
+  to service_role;
+
+
+-- The trusted wrappers execute accepted F authorities as the private internal
+-- rollup role. These grants do NOT reach any API role and are intentionally
+-- narrower than exposing the rollup functions to service_role.
+grant execute on function public.mark_telemetry_day_coverage(
+  date, uuid, telemetry_measurement_domain, boolean, bigint
+) to dd_metrics_rollup;
+grant execute on function public.rebuild_doctor_daily_activity_agg(date)
+  to dd_metrics_rollup;
+grant execute on function public.rebuild_pilot_status_daily_agg(date, text)
+  to dd_metrics_rollup;
