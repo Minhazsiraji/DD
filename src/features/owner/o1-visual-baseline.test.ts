@@ -94,12 +94,14 @@ describe("O1-MD2 visual baseline guard", () => {
     const empty = read("src/components/common/empty-state.tsx");
     const skeletons = read("src/components/common/skeletons.tsx");
 
-    expect(section).toContain("<GlassCard");
+    expect(section).toContain("dd-app-panel dd-material-panel");
     expect(section).toContain("dd-section-header");
-    expect(stat).toContain('tone?: "brand" | "blue" | "green"');
-    expect(stat).toContain("text-2xl font-extrabold tracking-tight text-ink");
-    expect(glass).toContain('export type GlassVariant = "default" | "subtle" | "strong"');
-    expect(glass).toContain("border backdrop-blur");
+    expect(stat).toContain("value: number | string");
+    expect(stat).toContain("text-[28px] leading-none font-bold text-ink tabular-nums sm:text-[32px]");
+    expect(glass).toContain('type Tone = "default" | "strong"');
+    expect(glass).toContain('interactive?: boolean');
+    expect(glass).toContain('blur?: boolean');
+    expect(glass).toContain("glass-flat-strong");
     for (const tone of ["neutral", "info", "success", "warning", "danger"]) {
       expect(badge).toContain(tone);
     }
