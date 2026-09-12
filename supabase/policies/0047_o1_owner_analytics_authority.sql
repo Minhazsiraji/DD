@@ -1,72 +1,35 @@
--- O1-F — Owner Analytics Authority. Runtime migration 0047.
+-- O1-F-R2 — Owner Analytics Authority. Runtime migration 0047.
 -- FORWARD ONLY. Do not edit 0041–0046.
 --
--- Rebased per Central O1-F-R1 correction: this candidate is built directly on
--- the unified runtime's OWN accepted primitives —
---   public.is_platform_owner()   (0033_platform_owner_authority.sql)
---   public.session_is_aal2() / public.require_aal2()   (0045_prelaunch_sec01b_security_closure.sql)
--- — and introduces NO alternate Owner table, NO alternate AAL claim reader, and
--- NO parallel identity/authority state. It does not touch db/manifest.toml or
--- the separate Database V2 P0 Track-A program; that program is untouched and
--- stays separate until Central explicitly reconciles/cuts it over.
+-- Authority reuse:
+--   public.is_platform_owner() (0033)
+--   public.session_is_aal2() / public.require_aal2() (0045)
+-- No alternate Owner/AAL authority is introduced.
 --
--- Domain L (metric_definitions / metric_contributions / metric_rollups /
--- service_usage_daily_agg / dd_metrics_reader / dd_metrics_rollup /
--- dd_owner_analytics) DOES NOT EXIST anywhere in this unified runtime —
--- confirmed by inspection, not assumed. Consequently:
---   - there is no metric_contributions grant/policy in this file at all: the
---     table does not exist, so the "conditionally approved" read has nothing
---     to attach to. If Domain L's raw contribution ledger is introduced later,
---     its read grant belongs with THAT introducing migration, not here.
---   - operational counts derived from real clinical activity (consultations
---     completed, prescriptions finalized, appointments booked) are OUT OF
---     SCOPE for this file. Populating them safely requires a privacy-safe
---     contribution-fact mechanism (an AFTER trigger on encounters/
---     prescriptions/appointments emitting a non-clinical fact, exactly the
---     shape the frozen O1-F architecture describes for Domain L) that does not
---     exist in this codebase yet. This file does not fabricate that data and
---     does not read encounters/prescriptions/appointments/patients from any
---     Domain-L object, directly or indirectly.
+-- R2 closes:
+--   * explicit function ACLs
+--   * frozen participation lifecycle
+--   * participation-scoped consent and named aggregates
+--   * exact 10-column E->F AI/Voice persistence contract
+--   * explicit day-grain measurement coverage
+--   * unknown-vs-zero semantics
+--   * trusted ingestion / no direct client access
+--   * k=5 / anti-reconstruction
+--   * narrow audit_events insertion authority
 --
--- Everything below is additive only. No existing table, policy, grant, role,
--- or function is altered. No protected apply — this file is authored and
--- reviewable, not run against Track A or Track B in this task.
-
--- ===========================================================================
--- SECTION 0 — new enums
--- ===========================================================================
+-- This migration does not read clinical tables and must not be applied to a
+-- protected runtime by this task.
 
 create type pilot_cohort_status as enum ('PLANNED','RUNNING','CLOSED');
-create type pilot_participation_status as enum ('INVITED','ONBOARDING','ACTIVE','PAUSED','COMPLETED','WITHDRAWN');
+create type pilot_participation_status as enum ('INVITED','ENROLLED','COMPLETED','WITHDRAWN');
 create type pilot_consent_scope as enum ('PRODUCT_USAGE_ANALYTICS');
 create type pilot_consent_event_kind as enum ('CONSENT_GRANTED','CONSENT_WITHDRAWN');
-
--- ===========================================================================
--- SECTION 0a — roles, created FIRST because Section 2 onward reassigns
--- function ownership to them (ALTER FUNCTION ... OWNER TO) as each function
--- is defined. Four new roles. NOLOGIN, internal, not assumable by anon/
--- authenticated/service_role, zero grant on any clinical table. No
--- "dd_owner_analytics" / "dd_owner_authority" / "dd_activity_producer" role
--- is introduced — the Owner-facing surface is reached the same way every
--- other owner-gated action in this codebase is reached (EXECUTE to
--- authenticated + an in-body check), and the trusted-server ingestion path
--- uses this codebase's own existing service_role convention instead of a
--- bespoke role.
--- ===========================================================================
+create type telemetry_measurement_domain as enum ('ACTIVITY','AI_VOICE');
 
 create role dd_metrics_reader noinherit;
 create role dd_metrics_rollup noinherit;
 create role dd_pilot_writer noinherit;
-create role dd_retention noinherit; -- created, granted nothing beyond the blanket revoke below. No job attached.
-
--- ===========================================================================
--- SECTION 1 — Owner + AAL2 authority: a thin composition, nothing more
---
--- assert_o1_owner_aal2() introduces ZERO new identity/authority state. It
--- reads no table of its own, accepts no caller-supplied identity, and derives
--- nothing from profile metadata or location membership. It composes exactly
--- the two accepted primitives, in order, and fails closed on either.
--- ===========================================================================
+create role dd_retention noinherit;
 
 create or replace function public.assert_o1_owner_aal2()
 returns void
@@ -78,22 +41,11 @@ begin
   if not public.is_platform_owner() then
     raise exception 'O1_OWNER_REQUIRED' using errcode = '42501';
   end if;
-  perform public.require_aal2(); -- raises 'AAL2_REQUIRED' (42501) on its own if not AAL2
+  perform public.require_aal2();
 end;
 $$;
 
-comment on function public.assert_o1_owner_aal2() is
-  'O1-F gate. Composes public.is_platform_owner() (0033) and public.require_aal2() '
-  '(0045) only — no alternate Owner table, no alternate AAL reader, no parallel '
-  'authority model. First statement of every O1-F owner-facing function.';
-
-revoke all on function public.assert_o1_owner_aal2() from public, anon, authenticated, service_role;
-
--- ===========================================================================
--- SECTION 2 — pilot cohort / participation / consent authority
--- ===========================================================================
-
-create table pilot_cohorts (
+create table public.pilot_cohorts (
   cohort_code text primary key check (cohort_code ~ '^[A-Z0-9_]{3,40}$'),
   display_name text not null check (char_length(display_name) between 1 and 120 and display_name !~ '[\n\r]'),
   status pilot_cohort_status not null default 'PLANNED',
@@ -103,174 +55,249 @@ create table pilot_cohorts (
   created_at timestamptz not null default clock_timestamp()
 );
 
--- Doctor resolution happens ONLY through a stable participation. No function
--- anywhere in this file accepts a bare doctor_id as a drill-down key.
-create table pilot_participations (
+create table public.pilot_participations (
   participation_id uuid primary key default gen_random_uuid(),
   cohort_code text not null references public.pilot_cohorts(cohort_code),
   doctor_id uuid not null references public.doctor_profiles(id),
   status pilot_participation_status not null default 'INVITED',
   enrolled_on date not null default current_date,
-  unique (cohort_code, doctor_id)
+  unique (cohort_code, doctor_id),
+  unique (participation_id, cohort_code)
 );
 
--- Versioned + scoped consent, event-sourced (append-only). effective_at /
--- recorded_at are CONSENT PROVENANCE timestamps — a different domain from
--- activity telemetry, which stays day-grain with no timestamptz anywhere.
-create table pilot_consent_events (
+create or replace function public.enforce_pilot_participation_terminal()
+returns trigger
+language plpgsql
+set search_path = public, pg_temp
+as $$
+begin
+  if old.status = 'WITHDRAWN' and new.status <> 'WITHDRAWN' then
+    raise exception 'PILOT_PARTICIPATION_WITHDRAWN_TERMINAL' using errcode = 'P0001';
+  end if;
+  return new;
+end;
+$$;
+
+create trigger pilot_participations_terminal
+before update on public.pilot_participations
+for each row execute function public.enforce_pilot_participation_terminal();
+
+create table public.pilot_consent_events (
   id bigserial primary key,
-  participation_id uuid not null references public.pilot_participations(participation_id),
+  participation_id uuid not null,
+  cohort_code text not null,
   consent_scope pilot_consent_scope not null,
   consent_version text not null check (consent_version ~ '^[A-Za-z0-9._-]{1,40}$'),
   event pilot_consent_event_kind not null,
   effective_at timestamptz not null,
   recorded_at timestamptz not null default clock_timestamp(),
-  recorded_by uuid not null references public.profiles(id)
+  recorded_by uuid not null references public.profiles(id),
+  foreign key (participation_id, cohort_code)
+    references public.pilot_participations(participation_id, cohort_code)
 );
-create index pilot_consent_events_lookup on public.pilot_consent_events (participation_id, consent_scope, effective_at desc);
+create index pilot_consent_events_lookup
+  on public.pilot_consent_events
+  (participation_id, cohort_code, consent_scope, effective_at desc);
 
 create or replace function public.prevent_pilot_consent_event_mutation()
-returns trigger language plpgsql as $$
+returns trigger
+language plpgsql
+set search_path = public, pg_temp
+as $$
 begin
   raise exception 'PILOT_CONSENT_EVENT_APPEND_ONLY' using errcode = 'P0001';
 end;
 $$;
+
 create trigger pilot_consent_events_append_only
 before update or delete on public.pilot_consent_events
 for each row execute function public.prevent_pilot_consent_event_mutation();
 
--- Authoritative, read-time liveness decision. NEVER materialised as a flag.
 create or replace function public.pilot_consent_is_live(
+  target_cohort_code text,
   target_participation_id uuid,
   target_scope pilot_consent_scope,
   as_of timestamptz default clock_timestamp()
 ) returns boolean
-language sql stable security definer set search_path = public, pg_temp as $$
+language sql
+stable
+security definer
+set search_path = public, pg_temp
+as $$
   select coalesce(
-    (select e.event = 'CONSENT_GRANTED'
-       from public.pilot_consent_events e
+    (
+      select e.event = 'CONSENT_GRANTED'
+      from public.pilot_consent_events e
       where e.participation_id = target_participation_id
+        and e.cohort_code = target_cohort_code
         and e.consent_scope = target_scope
         and e.effective_at <= as_of
       order by e.effective_at desc, e.id desc
-      limit 1),
-    false);
+      limit 1
+    ),
+    false
+  );
 $$;
-alter function public.pilot_consent_is_live(uuid, pilot_consent_scope, timestamptz) owner to dd_metrics_rollup;
+alter function public.pilot_consent_is_live(text, uuid, pilot_consent_scope, timestamptz)
+  owner to dd_metrics_rollup;
 
--- Fold-time gate: true only if consent was live for the ENTIRE business day
--- (live at day start, no withdrawal recorded during the day). An uncovered
--- day produces no named aggregate row and is never backfilled on re-grant.
 create or replace function public.pilot_consent_covers_day(
+  target_cohort_code text,
   target_participation_id uuid,
   target_scope pilot_consent_scope,
   target_day date
 ) returns boolean
-language sql stable security definer set search_path = public, pg_temp as $$
-  select public.pilot_consent_is_live(target_participation_id, target_scope, target_day::timestamptz)
-     and not exists (
-       select 1 from public.pilot_consent_events e
-        where e.participation_id = target_participation_id
-          and e.consent_scope = target_scope
-          and e.event = 'CONSENT_WITHDRAWN'
-          and e.effective_at >= target_day::timestamptz
-          and e.effective_at <  (target_day + 1)::timestamptz
-     );
+language sql
+stable
+security definer
+set search_path = public, pg_temp
+as $$
+  select
+    public.pilot_consent_is_live(
+      target_cohort_code,
+      target_participation_id,
+      target_scope,
+      target_day::timestamptz
+    )
+    and not exists (
+      select 1
+      from public.pilot_consent_events e
+      where e.participation_id = target_participation_id
+        and e.cohort_code = target_cohort_code
+        and e.consent_scope = target_scope
+        and e.event = 'CONSENT_WITHDRAWN'
+        and e.effective_at >= target_day::timestamptz
+        and e.effective_at < (target_day + 1)::timestamptz
+    );
 $$;
-alter function public.pilot_consent_covers_day(uuid, pilot_consent_scope, date) owner to dd_metrics_rollup;
+alter function public.pilot_consent_covers_day(text, uuid, pilot_consent_scope, date)
+  owner to dd_metrics_rollup;
 
--- ===========================================================================
--- SECTION 3 — pilot status log + registries (bounded codes, never free text)
--- ===========================================================================
-
-create table pilot_event_registry (
+create table public.pilot_event_registry (
   code text primary key check (code ~ '^[A-Z][A-Z0-9_]{1,39}$'),
   display_name text not null
 );
 insert into public.pilot_event_registry(code, display_name) values
-  ('INVITED','Invited to pilot'), ('FIRST_ENGAGED','First engaged day'),
-  ('PAUSED','Paused'), ('RESUMED','Resumed'), ('WITHDRAWN','Withdrawn'),
-  ('COMPLETED','Completed'), ('COHORT_OPENED','Cohort opened'), ('COHORT_CLOSED','Cohort closed');
+  ('INVITED','Invited to pilot'),
+  ('ENROLLED','Enrolled in pilot'),
+  ('COMPLETED','Completed pilot'),
+  ('WITHDRAWN','Withdrawn from pilot'),
+  ('FIRST_ENGAGED','First engaged day'),
+  ('COHORT_OPENED','Cohort opened'),
+  ('COHORT_CLOSED','Cohort closed');
 
-create table pilot_reason_registry (
+create table public.pilot_reason_registry (
   code text primary key check (code ~ '^[A-Z][A-Z0-9_]{1,39}$'),
   display_name text not null
 );
 insert into public.pilot_reason_registry(code, display_name) values
-  ('SCHEDULE_CONFLICT','Doctor scheduling conflict'), ('TECHNICAL_ISSUE','Technical issue reported'),
-  ('NO_LONGER_INTERESTED','No longer interested'), ('PILOT_CONCLUDED','Pilot concluded on schedule'),
-  ('OTHER_REVIEWED','Other — Central-reviewed');
+  ('SCHEDULE_CONFLICT','Doctor scheduling conflict'),
+  ('TECHNICAL_ISSUE','Technical issue reported'),
+  ('NO_LONGER_INTERESTED','No longer interested'),
+  ('PILOT_CONCLUDED','Pilot concluded on schedule'),
+  ('OTHER_REVIEWED','Other - Central-reviewed');
 
-create table pilot_status_events (
+create table public.pilot_status_events (
   id bigserial primary key,
+  participation_id uuid,
   cohort_code text not null references public.pilot_cohorts(cohort_code),
-  doctor_id uuid references public.doctor_profiles(id),
   event_code text not null references public.pilot_event_registry(code),
   reason_code text references public.pilot_reason_registry(code),
   event_day date not null,
   recorded_by uuid not null references public.profiles(id),
-  recorded_at timestamptz not null default clock_timestamp()
+  recorded_at timestamptz not null default clock_timestamp(),
+  foreign key (participation_id, cohort_code)
+    references public.pilot_participations(participation_id, cohort_code)
 );
 
 create or replace function public.prevent_pilot_status_event_mutation()
-returns trigger language plpgsql as $$
+returns trigger
+language plpgsql
+set search_path = public, pg_temp
+as $$
 begin
   raise exception 'PILOT_STATUS_EVENT_APPEND_ONLY' using errcode = 'P0001';
 end;
 $$;
+
 create trigger pilot_status_events_append_only
 before update or delete on public.pilot_status_events
 for each row execute function public.prevent_pilot_status_event_mutation();
 
--- ===========================================================================
--- SECTION 4 — activity_contributions: non-clinical idempotency scheme
--- No FK to any clinical/generic contribution-fact mechanism (none exists here).
--- No per-session/per-event row. No timestamptz anywhere in this table.
--- ===========================================================================
-
-create table feature_registry (
+create table public.feature_registry (
   code text primary key check (code ~ '^[a-z][a-z0-9_]{1,63}$' or code = '*'),
   display_name text not null,
   is_active boolean not null default true
 );
-insert into public.feature_registry(code, display_name) values ('*', 'Non-feature sentinel — reserved. Never a real feature.');
+insert into public.feature_registry(code, display_name)
+values ('*', 'Non-feature sentinel');
 
-create table activity_contributions (
-  metric_code text not null check (metric_code in
-    ('DOCTOR_ACTIVE_DAY','DOCTOR_ENGAGED_MINUTES_DAILY','DOCTOR_SESSION_COUNT_DAILY','DOCTOR_FEATURE_TOUCH_DAILY')),
+create table public.activity_contributions (
+  metric_code text not null check (metric_code in (
+    'DOCTOR_ACTIVE_DAY',
+    'DOCTOR_ENGAGED_MINUTES_DAILY',
+    'DOCTOR_SESSION_COUNT_DAILY',
+    'DOCTOR_FEATURE_TOUCH_DAILY'
+  )),
   doctor_id uuid not null references public.doctor_profiles(id),
   period_day date not null,
   feature_code text not null references public.feature_registry(code),
   value bigint not null check (value >= 0),
-  source_stream text not null check (source_stream in ('O1A_INTERACTION_METER','AUTH_DAILY','APP_FEATURE')),
-  source_version bigint not null,
+  source_stream text not null check (source_stream in (
+    'O1A_INTERACTION_METER','AUTH_DAILY','APP_FEATURE'
+  )),
+  source_version bigint not null check (source_version >= 0),
   ingested_on date not null default current_date,
   primary key (metric_code, doctor_id, period_day, feature_code),
-  -- feature_code applicability is EXACT: the sentinel '*' is mandatory for the
-  -- three non-feature metrics (collapsing their key to one row per Doctor/day/
-  -- metric, so a minute/session/day is never split or double-counted across
-  -- features) and forbidden for the one metric where feature_code is the
-  -- controlled dimension.
   check (
     (metric_code = 'DOCTOR_FEATURE_TOUCH_DAILY' and feature_code <> '*')
     or
-    (metric_code in ('DOCTOR_ACTIVE_DAY','DOCTOR_ENGAGED_MINUTES_DAILY','DOCTOR_SESSION_COUNT_DAILY') and feature_code = '*')
+    (metric_code in (
+      'DOCTOR_ACTIVE_DAY',
+      'DOCTOR_ENGAGED_MINUTES_DAILY',
+      'DOCTOR_SESSION_COUNT_DAILY'
+    ) and feature_code = '*')
   )
 );
-comment on table public.activity_contributions is
-  'RAW TIER. No timestamptz. No per-session/per-event row. SET-not-increment on '
-  'ingest. Idempotency is the primary key itself, guarded by a monotonic '
-  'non-clinical source_version. No clinical FK of any kind.';
 
--- Engaged-activity ingestion authority required by A / day-grain telemetry
--- ingestion required by E's usage counters (the four metrics this file
--- defines only — E's own AI/Voice usage/cost surface is a separate, larger
--- piece of work this file does not attempt; its source tables do not exist).
---
--- O1-F does not create the interaction/minute producer. O1-A remains the
--- metric-definition authority for what counts as an engaged minute; this
--- function only accepts and idempotently stores whatever day-grain totals a
--- conformant, trusted server-side producer supplies.
+create table public.telemetry_day_coverage (
+  period_day date not null,
+  principal_doctor_id uuid not null references public.doctor_profiles(id),
+  measurement_domain telemetry_measurement_domain not null,
+  is_complete boolean not null,
+  source_version bigint not null check (source_version >= 0),
+  primary key (period_day, principal_doctor_id, measurement_domain)
+);
+
+-- Frozen E->F contract: EXACTLY these ten columns.
+create table public.service_usage_daily_agg (
+  period_day date not null,
+  principal_doctor_id uuid not null references public.doctor_profiles(id),
+  provider_id text not null check (
+    char_length(provider_id) between 1 and 80
+    and provider_id ~ '^[A-Za-z0-9][A-Za-z0-9._:/-]*$'
+  ),
+  service_kind text not null check (service_kind ~ '^[A-Z][A-Z0-9_]{1,31}$'),
+  model_id text not null check (
+    char_length(model_id) between 1 and 120
+    and model_id ~ '^[A-Za-z0-9][A-Za-z0-9._:/-]*$'
+  ),
+  unit text not null check (unit ~ '^[A-Za-z][A-Za-z0-9_/-]{0,31}$'),
+  quantity_total numeric(38,18) not null check (quantity_total >= 0),
+  event_count bigint not null check (event_count >= 0),
+  estimated_cost_minor numeric(38,18) check (estimated_cost_minor is null or estimated_cost_minor >= 0),
+  currency_code text not null check (currency_code ~ '^[A-Z]{3}$'),
+  primary key (
+    period_day,
+    principal_doctor_id,
+    provider_id,
+    service_kind,
+    model_id,
+    unit,
+    currency_code
+  )
+);
+
 create or replace function public.ingest_activity_contribution(
   target_metric_code text,
   target_doctor_id uuid,
@@ -280,523 +307,1468 @@ create or replace function public.ingest_activity_contribution(
   target_source_stream text,
   target_source_version bigint
 ) returns void
-language plpgsql security definer set search_path = public, pg_temp as $$
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
 begin
-  insert into public.activity_contributions(metric_code, doctor_id, period_day, feature_code, value, source_stream, source_version)
-  values (target_metric_code, target_doctor_id, target_period_day, target_feature_code, target_value, target_source_stream, target_source_version)
+  insert into public.activity_contributions(
+    metric_code, doctor_id, period_day, feature_code,
+    value, source_stream, source_version
+  )
+  values (
+    target_metric_code, target_doctor_id, target_period_day, target_feature_code,
+    target_value, target_source_stream, target_source_version
+  )
   on conflict (metric_code, doctor_id, period_day, feature_code) do update
-    set value = excluded.value, source_version = excluded.source_version, ingested_on = current_date
+    set value = excluded.value,
+        source_stream = excluded.source_stream,
+        source_version = excluded.source_version,
+        ingested_on = current_date
     where excluded.source_version > public.activity_contributions.source_version;
 end;
 $$;
-alter function public.ingest_activity_contribution(text, uuid, date, text, bigint, text, bigint) owner to dd_metrics_rollup;
+alter function public.ingest_activity_contribution(
+  text, uuid, date, text, bigint, text, bigint
+) owner to dd_metrics_rollup;
 
--- Trusted server-only caller, matching this codebase's existing convention for
--- trusted writes (SUPABASE_SERVICE_ROLE_KEY, never exposed to a client bundle
--- — see prescription-assets / src/lib/supabase/service.ts). Not a bare table
--- grant: service_role gets EXECUTE on this function only; the INSERT itself
--- always runs as dd_metrics_rollup (the function's owner), which is the only
--- identity with any grant on activity_contributions.
-revoke all on function public.ingest_activity_contribution(text, uuid, date, text, bigint, text, bigint) from public, anon, authenticated;
-grant execute on function public.ingest_activity_contribution(text, uuid, date, text, bigint, text, bigint) to service_role;
+create or replace function public.mark_telemetry_day_coverage(
+  target_period_day date,
+  target_principal_doctor_id uuid,
+  target_measurement_domain telemetry_measurement_domain,
+  target_is_complete boolean,
+  target_source_version bigint
+) returns void
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+begin
+  insert into public.telemetry_day_coverage(
+    period_day, principal_doctor_id, measurement_domain,
+    is_complete, source_version
+  )
+  values (
+    target_period_day, target_principal_doctor_id, target_measurement_domain,
+    target_is_complete, target_source_version
+  )
+  on conflict (period_day, principal_doctor_id, measurement_domain) do update
+    set is_complete = excluded.is_complete,
+        source_version = excluded.source_version
+    where excluded.source_version > public.telemetry_day_coverage.source_version;
+end;
+$$;
+alter function public.mark_telemetry_day_coverage(
+  date, uuid, telemetry_measurement_domain, boolean, bigint
+) owner to dd_metrics_rollup;
 
--- ===========================================================================
--- SECTION 5 — named aggregate (RC-2) + de-identified aggregate (RC-3)
---
--- consultations_completed / prescriptions_finalized / appointments_booked are
--- DELIBERATELY ABSENT from this table in this candidate (see file header):
--- no privacy-safe contribution-fact source exists yet in this runtime for
--- them, and this file will not read encounters/prescriptions/appointments
--- directly to fabricate a substitute.
--- ===========================================================================
+create or replace function public.ingest_service_usage_daily(
+  target_period_day date,
+  target_principal_doctor_id uuid,
+  target_provider_id text,
+  target_service_kind text,
+  target_model_id text,
+  target_unit text,
+  target_quantity_total numeric,
+  target_event_count bigint,
+  target_estimated_cost_minor numeric,
+  target_currency_code text
+) returns void
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+begin
+  insert into public.service_usage_daily_agg(
+    period_day,
+    principal_doctor_id,
+    provider_id,
+    service_kind,
+    model_id,
+    unit,
+    quantity_total,
+    event_count,
+    estimated_cost_minor,
+    currency_code
+  )
+  values (
+    target_period_day,
+    target_principal_doctor_id,
+    target_provider_id,
+    target_service_kind,
+    target_model_id,
+    target_unit,
+    target_quantity_total,
+    target_event_count,
+    target_estimated_cost_minor,
+    target_currency_code
+  )
+  on conflict (
+    period_day,
+    principal_doctor_id,
+    provider_id,
+    service_kind,
+    model_id,
+    unit,
+    currency_code
+  ) do update
+    set quantity_total = excluded.quantity_total,
+        event_count = excluded.event_count,
+        estimated_cost_minor = excluded.estimated_cost_minor;
+end;
+$$;
+alter function public.ingest_service_usage_daily(
+  date, uuid, text, text, text, text, numeric, bigint, numeric, text
+) owner to dd_metrics_rollup;
 
-create table doctor_daily_activity_agg (
+create table public.doctor_daily_activity_agg (
   period_day date not null,
+  participation_id uuid not null,
+  cohort_code text not null,
   doctor_id uuid not null references public.doctor_profiles(id),
-  engaged_minutes integer not null default 0,
-  active_day boolean not null default false,
-  session_count integer not null default 0,
-  feature_touch_count integer not null default 0,
-  source_high_water bigint not null default 0,
+  engaged_minutes bigint not null,
+  active_day boolean not null,
+  session_count bigint not null,
+  feature_touch_count bigint not null,
+  source_high_water bigint not null,
   computed_at timestamptz not null default clock_timestamp(),
-  primary key (period_day, doctor_id)
+  primary key (period_day, participation_id),
+  foreign key (participation_id, cohort_code)
+    references public.pilot_participations(participation_id, cohort_code)
 );
-comment on table public.doctor_daily_activity_agg is
-  'AGGREGATE TIER, named. A row exists for (doctor_id, period_day) ONLY IF '
-  'consent covered the whole business day (fold-time gate). No patient/'
-  'encounter/prescription/document id. No free text. No timestamptz other '
-  'than computed_at (staleness only).';
 
-create table pilot_status_daily_agg (
+create table public.pilot_status_daily_agg (
   period_day date not null,
   cohort_code text not null references public.pilot_cohorts(cohort_code),
-  invited_count bigint not null default 0,
-  onboarding_count bigint not null default 0,
-  active_count bigint not null default 0,
-  paused_count bigint not null default 0,
-  completed_count bigint not null default 0,
-  withdrawn_count bigint not null default 0,
-  consented_count bigint not null default 0,
-  active_doctor_count bigint not null default 0,
+  invited_count bigint not null,
+  enrolled_count bigint not null,
+  completed_count bigint not null,
+  withdrawn_count bigint not null,
+  consented_count bigint not null,
+  active_doctor_count bigint not null,
   computed_at timestamptz not null default clock_timestamp(),
   primary key (period_day, cohort_code)
 );
-comment on table public.pilot_status_daily_agg is
-  'AGGREGATE TIER, de-identified — no doctor_id column. active_doctor_count is '
-  'RAW here; k=5 suppression is applied only at the owner_* read boundary, '
-  'never stored pre-suppressed, never exposed directly (RLS forces zero direct read).';
 
--- ===========================================================================
--- SECTION 6 — fold jobs (dd_metrics_rollup only; no owner-facing function
--- calls these; invocation cadence is an operational decision, not authored
--- here — no pg_cron, no Edge Function trigger, nothing scheduled)
--- ===========================================================================
-
-create or replace function public.rebuild_doctor_daily_activity_agg(target_period_day date)
-returns void
-language plpgsql security definer set search_path = public, pg_temp as $$
-declare rec record;
+create or replace function public.rebuild_doctor_daily_activity_agg(
+  target_period_day date
+) returns void
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
 begin
-  for rec in
-    select
-      ac.doctor_id,
-      -- max(uuid) does not exist in PostgreSQL (found by executing this file, Gate 1) —
-      -- take any one matching participation deterministically instead.
-      (array_agg(pp.participation_id) filter (where pp.doctor_id = ac.doctor_id))[1] as participation_id
-    from public.activity_contributions ac
-    left join public.pilot_participations pp on pp.doctor_id = ac.doctor_id
-    where ac.period_day = target_period_day
-    group by ac.doctor_id
-  loop
-    if rec.participation_id is null
-       or not public.pilot_consent_covers_day(rec.participation_id, 'PRODUCT_USAGE_ANALYTICS', target_period_day)
-    then
-      delete from public.doctor_daily_activity_agg where period_day = target_period_day and doctor_id = rec.doctor_id;
-      continue;
-    end if;
+  delete from public.doctor_daily_activity_agg
+  where period_day = target_period_day;
 
-    insert into public.doctor_daily_activity_agg (
-      period_day, doctor_id, engaged_minutes, active_day, session_count, feature_touch_count, source_high_water, computed_at
-    )
-    select
-      target_period_day,
-      rec.doctor_id,
-      coalesce((select value from public.activity_contributions where metric_code='DOCTOR_ENGAGED_MINUTES_DAILY' and doctor_id=rec.doctor_id and period_day=target_period_day and feature_code='*'), 0),
-      coalesce((select value from public.activity_contributions where metric_code='DOCTOR_ACTIVE_DAY' and doctor_id=rec.doctor_id and period_day=target_period_day and feature_code='*'), 0) > 0,
-      coalesce((select value from public.activity_contributions where metric_code='DOCTOR_SESSION_COUNT_DAILY' and doctor_id=rec.doctor_id and period_day=target_period_day and feature_code='*'), 0),
-      coalesce((select count(*) from public.activity_contributions where metric_code='DOCTOR_FEATURE_TOUCH_DAILY' and doctor_id=rec.doctor_id and period_day=target_period_day and feature_code <> '*' and value > 0), 0),
-      (select max(source_version) from public.activity_contributions where doctor_id=rec.doctor_id and period_day=target_period_day),
-      clock_timestamp()
-    on conflict (period_day, doctor_id) do update set
-      engaged_minutes = excluded.engaged_minutes, active_day = excluded.active_day,
-      session_count = excluded.session_count, feature_touch_count = excluded.feature_touch_count,
-      source_high_water = excluded.source_high_water, computed_at = excluded.computed_at;
-  end loop;
+  insert into public.doctor_daily_activity_agg(
+    period_day,
+    participation_id,
+    cohort_code,
+    doctor_id,
+    engaged_minutes,
+    active_day,
+    session_count,
+    feature_touch_count,
+    source_high_water,
+    computed_at
+  )
+  select
+    target_period_day,
+    p.participation_id,
+    p.cohort_code,
+    p.doctor_id,
+    coalesce((
+      select ac.value
+      from public.activity_contributions ac
+      where ac.metric_code = 'DOCTOR_ENGAGED_MINUTES_DAILY'
+        and ac.doctor_id = p.doctor_id
+        and ac.period_day = target_period_day
+        and ac.feature_code = '*'
+    ), 0),
+    coalesce((
+      select ac.value
+      from public.activity_contributions ac
+      where ac.metric_code = 'DOCTOR_ACTIVE_DAY'
+        and ac.doctor_id = p.doctor_id
+        and ac.period_day = target_period_day
+        and ac.feature_code = '*'
+    ), 0) > 0,
+    coalesce((
+      select ac.value
+      from public.activity_contributions ac
+      where ac.metric_code = 'DOCTOR_SESSION_COUNT_DAILY'
+        and ac.doctor_id = p.doctor_id
+        and ac.period_day = target_period_day
+        and ac.feature_code = '*'
+    ), 0),
+    (
+      select count(*)::bigint
+      from public.activity_contributions ac
+      where ac.metric_code = 'DOCTOR_FEATURE_TOUCH_DAILY'
+        and ac.doctor_id = p.doctor_id
+        and ac.period_day = target_period_day
+        and ac.feature_code <> '*'
+        and ac.value > 0
+    ),
+    c.source_version,
+    clock_timestamp()
+  from public.pilot_participations p
+  join public.telemetry_day_coverage c
+    on c.principal_doctor_id = p.doctor_id
+   and c.period_day = target_period_day
+   and c.measurement_domain = 'ACTIVITY'
+   and c.is_complete
+  where p.status in ('ENROLLED','COMPLETED')
+    and p.enrolled_on <= target_period_day
+    and public.pilot_consent_covers_day(
+      p.cohort_code,
+      p.participation_id,
+      'PRODUCT_USAGE_ANALYTICS',
+      target_period_day
+    );
 end;
 $$;
-alter function public.rebuild_doctor_daily_activity_agg(date) owner to dd_metrics_rollup;
-comment on function public.rebuild_doctor_daily_activity_agg(date) is
-  'Maintenance role only. Recomputes from activity_contributions alone — never '
-  'reads a clinical table. Deterministic, re-runnable, never invoked by an '
-  'owner-facing function.';
+alter function public.rebuild_doctor_daily_activity_agg(date)
+  owner to dd_metrics_rollup;
 
-create or replace function public.rebuild_pilot_status_daily_agg(target_period_day date, target_cohort_code text)
-returns void
-language plpgsql security definer set search_path = public, pg_temp as $$
+create or replace function public.rebuild_pilot_status_daily_agg(
+  target_period_day date,
+  target_cohort_code text
+) returns void
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
 begin
-  insert into public.pilot_status_daily_agg (
-    period_day, cohort_code, invited_count, onboarding_count, active_count, paused_count,
-    completed_count, withdrawn_count, consented_count, active_doctor_count, computed_at
+  insert into public.pilot_status_daily_agg(
+    period_day,
+    cohort_code,
+    invited_count,
+    enrolled_count,
+    completed_count,
+    withdrawn_count,
+    consented_count,
+    active_doctor_count,
+    computed_at
   )
   select
     target_period_day,
     target_cohort_code,
     count(*) filter (where p.status = 'INVITED'),
-    count(*) filter (where p.status = 'ONBOARDING'),
-    count(*) filter (where p.status = 'ACTIVE'),
-    count(*) filter (where p.status = 'PAUSED'),
+    count(*) filter (where p.status = 'ENROLLED'),
     count(*) filter (where p.status = 'COMPLETED'),
     count(*) filter (where p.status = 'WITHDRAWN'),
-    count(*) filter (where public.pilot_consent_is_live(p.participation_id, 'PRODUCT_USAGE_ANALYTICS', target_period_day::timestamptz)),
+    count(*) filter (
+      where p.status in ('ENROLLED','COMPLETED')
+        and public.pilot_consent_covers_day(
+          p.cohort_code,
+          p.participation_id,
+          'PRODUCT_USAGE_ANALYTICS',
+          target_period_day
+        )
+    ),
     count(distinct p.doctor_id) filter (
-      where public.pilot_consent_is_live(p.participation_id, 'PRODUCT_USAGE_ANALYTICS', target_period_day::timestamptz)
-        and exists (select 1 from public.doctor_daily_activity_agg a where a.doctor_id = p.doctor_id and a.period_day = target_period_day and a.active_day)
+      where exists (
+        select 1
+        from public.doctor_daily_activity_agg a
+        where a.participation_id = p.participation_id
+          and a.period_day = target_period_day
+          and a.active_day
+      )
     ),
     clock_timestamp()
   from public.pilot_participations p
   where p.cohort_code = target_cohort_code
   on conflict (period_day, cohort_code) do update set
-    invited_count = excluded.invited_count, onboarding_count = excluded.onboarding_count,
-    active_count = excluded.active_count, paused_count = excluded.paused_count,
-    completed_count = excluded.completed_count, withdrawn_count = excluded.withdrawn_count,
-    consented_count = excluded.consented_count, active_doctor_count = excluded.active_doctor_count,
+    invited_count = excluded.invited_count,
+    enrolled_count = excluded.enrolled_count,
+    completed_count = excluded.completed_count,
+    withdrawn_count = excluded.withdrawn_count,
+    consented_count = excluded.consented_count,
+    active_doctor_count = excluded.active_doctor_count,
     computed_at = excluded.computed_at;
 end;
 $$;
-alter function public.rebuild_pilot_status_daily_agg(date, text) owner to dd_metrics_rollup;
+alter function public.rebuild_pilot_status_daily_agg(date, text)
+  owner to dd_metrics_rollup;
 
--- ===========================================================================
--- SECTION 7 — k=5 small-cohort suppression primitive
--- ===========================================================================
-
-create or replace function public.k_anon_suppress(raw_value bigint, distinct_doctors bigint, k integer default 5)
-returns text
-language sql immutable as $$
-  select case when distinct_doctors < k then 'INSUFFICIENT_COHORT' else raw_value::text end;
+create or replace function public.k_anon_suppress(
+  raw_value bigint,
+  distinct_doctors bigint,
+  k integer default 5
+) returns text
+language sql
+immutable
+as $$
+  select case
+    when distinct_doctors < k then 'INSUFFICIENT_COHORT'
+    else raw_value::text
+  end;
 $$;
-comment on function public.k_anon_suppress(bigint, bigint, integer) is
-  'Server-side only. Returns a distinct sentinel string, never 0, never '
-  'NULL-as-unknown, when fewer than k distinct Doctors contribute. No owner_* '
-  'return type in this file carries an "other"/"remainder" column, so a '
-  'suppressed cell cannot be solved by subtraction from a visible total.';
 
--- ===========================================================================
--- SECTION 8 — the Owner RPC boundary
--- EXECUTE is granted to `authenticated`, matching this codebase's existing
--- owner-gated pattern (is_platform_owner() itself is EXECUTE-to-authenticated,
--- §0033) — the actual authority check runs FIRST, inside the function, via
--- assert_o1_owner_aal2(). Every function's OWNER is reassigned to a narrow,
--- NOLOGIN, table-scoped role so that even a defect in the function body
--- cannot reach a table that role has no grant on (defense in depth beyond the
--- in-body check).
--- ===========================================================================
-
-create or replace function public.owner_pilot_status(window_start date, window_end date)
-returns table (
-  cohort_code text, invited_count text, onboarding_count text, active_count text, paused_count text,
-  completed_count text, withdrawn_count text, consented_count text, active_doctor_count text
-) language plpgsql security definer set search_path = public, pg_temp as $$
-begin
-  perform public.assert_o1_owner_aal2();
-  return query
-  select
-    a.cohort_code,
-    (array_agg(a.invited_count order by a.period_day desc))[1]::text,
-    (array_agg(a.onboarding_count order by a.period_day desc))[1]::text,
-    (array_agg(a.active_count order by a.period_day desc))[1]::text,
-    (array_agg(a.paused_count order by a.period_day desc))[1]::text,
-    (array_agg(a.completed_count order by a.period_day desc))[1]::text,
-    (array_agg(a.withdrawn_count order by a.period_day desc))[1]::text,
-    (array_agg(a.consented_count order by a.period_day desc))[1]::text,
-    public.k_anon_suppress(
-      count(distinct d.doctor_id) filter (where d.active_day),
-      count(distinct d.doctor_id) filter (where d.active_day)
-    )
-  from public.pilot_status_daily_agg a
-  left join public.pilot_participations p on p.cohort_code = a.cohort_code
-  left join public.doctor_daily_activity_agg d on d.doctor_id = p.doctor_id and d.period_day between window_start and window_end
-  where a.period_day between window_start and window_end
-  group by a.cohort_code;
-end;
-$$;
-alter function public.owner_pilot_status(date, date) owner to dd_metrics_reader;
-
-create or replace function public.owner_pilot_cohort_detail(target_cohort_code text, window_start date, window_end date)
-returns table (
-  participation_id uuid, status pilot_participation_status, enrolled_on date,
-  engaged_minutes bigint, active_days bigint, session_count bigint, feature_touch_count bigint
-) language plpgsql security definer set search_path = public, pg_temp as $$
-begin
-  perform public.assert_o1_owner_aal2();
-  return query
-  select
-    p.participation_id, p.status, p.enrolled_on,
-    coalesce(sum(a.engaged_minutes), 0), coalesce(sum(a.active_day::int), 0),
-    coalesce(sum(a.session_count), 0), coalesce(sum(a.feature_touch_count), 0)
-  from public.pilot_participations p
-  left join public.doctor_daily_activity_agg a
-    on a.doctor_id = p.doctor_id and a.period_day between window_start and window_end
-  where p.cohort_code = target_cohort_code
-    and public.pilot_consent_is_live(p.participation_id, 'PRODUCT_USAGE_ANALYTICS', clock_timestamp())
-  group by p.participation_id, p.status, p.enrolled_on;
-end;
-$$;
-alter function public.owner_pilot_cohort_detail(text, date, date) owner to dd_metrics_reader;
-
--- The only per-Doctor function. Requires (cohort_code, participation_id) —
--- never a bare doctor_id. On ANY precondition failure it returns the single
--- generic 'ANALYTICS_UNAVAILABLE' row and performs the same lookups
--- regardless of which precondition failed; the caller cannot distinguish
--- "no such participation" from "wrong cohort" from "consent withdrawn". The
--- true cause is written to audit_events only, as the action code.
-create or replace function public.owner_doctor_activity(target_cohort_code text, target_participation_id uuid, window_start date, window_end date)
-returns table (
-  status text, engaged_minutes bigint, active_days bigint, session_count bigint, feature_touch_count bigint
-) language plpgsql security definer set search_path = public, pg_temp as $$
+create or replace function public.participation_measurement_state(
+  target_cohort_code text,
+  target_participation_id uuid,
+  window_start date,
+  window_end date,
+  target_domain telemetry_measurement_domain
+) returns text
+language plpgsql
+stable
+security definer
+set search_path = public, pg_temp
+as $$
 declare
   v_doctor_id uuid;
   v_status pilot_participation_status;
-  v_authorized boolean := false;
+  v_enrolled_on date;
+  v_start date;
+begin
+  if window_start is null or window_end is null or window_end < window_start then
+    return 'UNAVAILABLE';
+  end if;
+
+  select p.doctor_id, p.status, p.enrolled_on
+  into v_doctor_id, v_status, v_enrolled_on
+  from public.pilot_participations p
+  where p.cohort_code = target_cohort_code
+    and p.participation_id = target_participation_id;
+
+  if v_doctor_id is null
+     or v_status not in ('ENROLLED','COMPLETED')
+     or not public.pilot_consent_is_live(
+       target_cohort_code,
+       target_participation_id,
+       'PRODUCT_USAGE_ANALYTICS',
+       clock_timestamp()
+     )
+  then
+    return 'UNAVAILABLE';
+  end if;
+
+  v_start := greatest(window_start, v_enrolled_on);
+  if v_start > window_end then
+    return 'UNAVAILABLE';
+  end if;
+
+  if exists (
+    select 1
+    from generate_series(v_start, window_end, interval '1 day') g(day)
+    where not public.pilot_consent_covers_day(
+      target_cohort_code,
+      target_participation_id,
+      'PRODUCT_USAGE_ANALYTICS',
+      g.day::date
+    )
+  ) then
+    return 'UNAVAILABLE';
+  end if;
+
+  if exists (
+    select 1
+    from generate_series(v_start, window_end, interval '1 day') g(day)
+    where not exists (
+      select 1
+      from public.telemetry_day_coverage c
+      where c.period_day = g.day::date
+        and c.principal_doctor_id = v_doctor_id
+        and c.measurement_domain = target_domain
+        and c.is_complete
+    )
+  ) then
+    return 'NOT_MEASURED';
+  end if;
+
+  if target_domain = 'ACTIVITY'
+     and exists (
+       select 1
+       from generate_series(v_start, window_end, interval '1 day') g(day)
+       where not exists (
+         select 1
+         from public.doctor_daily_activity_agg a
+         where a.period_day = g.day::date
+           and a.participation_id = target_participation_id
+           and a.cohort_code = target_cohort_code
+       )
+     )
+  then
+    return 'UNAVAILABLE';
+  end if;
+
+  return 'OK';
+end;
+$$;
+alter function public.participation_measurement_state(
+  text, uuid, date, date, telemetry_measurement_domain
+) owner to dd_metrics_reader;
+
+create or replace function public.owner_pilot_status(
+  window_start date,
+  window_end date
+) returns table (
+  cohort_code text,
+  invited_count text,
+  enrolled_count text,
+  completed_count text,
+  withdrawn_count text,
+  consented_count text,
+  active_doctor_count text
+)
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  c record;
+  s record;
+  v_doctors bigint;
+  v_active bigint;
+  v_state text;
+begin
+  perform public.assert_o1_owner_aal2();
+
+  for c in select pc.cohort_code from public.pilot_cohorts pc order by pc.cohort_code
+  loop
+    select a.*
+    into s
+    from public.pilot_status_daily_agg a
+    where a.cohort_code = c.cohort_code
+      and a.period_day between window_start and window_end
+    order by a.period_day desc
+    limit 1;
+
+    cohort_code := c.cohort_code;
+
+    if s.cohort_code is null then
+      invited_count := 'UNAVAILABLE';
+      enrolled_count := 'UNAVAILABLE';
+      completed_count := 'UNAVAILABLE';
+      withdrawn_count := 'UNAVAILABLE';
+      consented_count := 'UNAVAILABLE';
+    else
+      invited_count := s.invited_count::text;
+      enrolled_count := s.enrolled_count::text;
+      completed_count := s.completed_count::text;
+      withdrawn_count := s.withdrawn_count::text;
+      consented_count := s.consented_count::text;
+    end if;
+
+    select count(distinct p.doctor_id)
+    into v_doctors
+    from public.pilot_participations p
+    where p.cohort_code = c.cohort_code
+      and p.status in ('ENROLLED','COMPLETED')
+      and public.pilot_consent_is_live(
+        p.cohort_code,
+        p.participation_id,
+        'PRODUCT_USAGE_ANALYTICS',
+        clock_timestamp()
+      );
+
+    if v_doctors = 0 then
+      active_doctor_count := 'UNAVAILABLE';
+    elsif v_doctors < 5 then
+      active_doctor_count := 'INSUFFICIENT_COHORT';
+    elsif exists (
+      select 1
+      from public.pilot_participations p
+      where p.cohort_code = c.cohort_code
+        and p.status in ('ENROLLED','COMPLETED')
+        and public.pilot_consent_is_live(
+          p.cohort_code,
+          p.participation_id,
+          'PRODUCT_USAGE_ANALYTICS',
+          clock_timestamp()
+        )
+        and public.participation_measurement_state(
+          p.cohort_code,
+          p.participation_id,
+          window_start,
+          window_end,
+          'ACTIVITY'
+        ) = 'NOT_MEASURED'
+    ) then
+      active_doctor_count := 'NOT_MEASURED';
+    elsif exists (
+      select 1
+      from public.pilot_participations p
+      where p.cohort_code = c.cohort_code
+        and p.status in ('ENROLLED','COMPLETED')
+        and public.pilot_consent_is_live(
+          p.cohort_code,
+          p.participation_id,
+          'PRODUCT_USAGE_ANALYTICS',
+          clock_timestamp()
+        )
+        and public.participation_measurement_state(
+          p.cohort_code,
+          p.participation_id,
+          window_start,
+          window_end,
+          'ACTIVITY'
+        ) = 'UNAVAILABLE'
+    ) then
+      active_doctor_count := 'UNAVAILABLE';
+    else
+      select count(distinct a.doctor_id)
+      into v_active
+      from public.doctor_daily_activity_agg a
+      where a.cohort_code = c.cohort_code
+        and a.period_day between window_start and window_end
+        and a.active_day;
+      if v_active > 0 and v_active < 5 then
+        active_doctor_count := 'INSUFFICIENT_COHORT';
+      else
+        active_doctor_count := v_active::text;
+      end if;
+    end if;
+
+    return next;
+  end loop;
+end;
+$$;
+alter function public.owner_pilot_status(date, date)
+  owner to dd_metrics_reader;
+
+create or replace function public.owner_pilot_cohort_detail(
+  target_cohort_code text,
+  window_start date,
+  window_end date
+) returns table (
+  participation_id uuid,
+  status pilot_participation_status,
+  enrolled_on date,
+  measurement_status text,
+  engaged_minutes bigint,
+  active_days bigint,
+  session_count bigint,
+  feature_touch_count bigint
+)
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+begin
+  perform public.assert_o1_owner_aal2();
+
+  return query
+  select
+    p.participation_id,
+    p.status,
+    p.enrolled_on,
+    st.state,
+    case when st.state = 'OK' then (
+      select sum(a.engaged_minutes)::bigint
+      from public.doctor_daily_activity_agg a
+      where a.participation_id = p.participation_id
+        and a.cohort_code = p.cohort_code
+        and a.period_day between greatest(window_start, p.enrolled_on) and window_end
+    ) end,
+    case when st.state = 'OK' then (
+      select sum(a.active_day::int)::bigint
+      from public.doctor_daily_activity_agg a
+      where a.participation_id = p.participation_id
+        and a.cohort_code = p.cohort_code
+        and a.period_day between greatest(window_start, p.enrolled_on) and window_end
+    ) end,
+    case when st.state = 'OK' then (
+      select sum(a.session_count)::bigint
+      from public.doctor_daily_activity_agg a
+      where a.participation_id = p.participation_id
+        and a.cohort_code = p.cohort_code
+        and a.period_day between greatest(window_start, p.enrolled_on) and window_end
+    ) end,
+    case when st.state = 'OK' then (
+      select sum(a.feature_touch_count)::bigint
+      from public.doctor_daily_activity_agg a
+      where a.participation_id = p.participation_id
+        and a.cohort_code = p.cohort_code
+        and a.period_day between greatest(window_start, p.enrolled_on) and window_end
+    ) end
+  from public.pilot_participations p
+  cross join lateral (
+    select public.participation_measurement_state(
+      p.cohort_code,
+      p.participation_id,
+      window_start,
+      window_end,
+      'ACTIVITY'
+    ) as state
+  ) st
+  where p.cohort_code = target_cohort_code;
+end;
+$$;
+alter function public.owner_pilot_cohort_detail(text, date, date)
+  owner to dd_metrics_reader;
+
+create or replace function public.owner_doctor_activity(
+  target_cohort_code text,
+  target_participation_id uuid,
+  window_start date,
+  window_end date
+) returns table (
+  status text,
+  engaged_minutes bigint,
+  active_days bigint,
+  session_count bigint,
+  feature_touch_count bigint
+)
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_doctor_id uuid;
+  v_status pilot_participation_status;
+  v_state text;
   v_reason text;
 begin
   perform public.assert_o1_owner_aal2();
 
-  select p.doctor_id, p.status into v_doctor_id, v_status
-    from public.pilot_participations p
-    where p.participation_id = target_participation_id and p.cohort_code = target_cohort_code;
+  select p.doctor_id, p.status
+  into v_doctor_id, v_status
+  from public.pilot_participations p
+  where p.participation_id = target_participation_id
+    and p.cohort_code = target_cohort_code;
 
   if v_doctor_id is null then
     v_reason := 'OWNER_DOCTOR_ACTIVITY_LOOKUP_NOT_MEMBER';
+    v_state := 'UNAVAILABLE';
   elsif v_status = 'WITHDRAWN' then
     v_reason := 'OWNER_DOCTOR_ACTIVITY_LOOKUP_PARTICIPATION_WITHDRAWN';
-  elsif not public.pilot_consent_is_live(target_participation_id, 'PRODUCT_USAGE_ANALYTICS', clock_timestamp()) then
+    v_state := 'UNAVAILABLE';
+  elsif v_status not in ('ENROLLED','COMPLETED') then
+    v_reason := 'OWNER_DOCTOR_ACTIVITY_LOOKUP_NOT_ENROLLED';
+    v_state := 'UNAVAILABLE';
+  elsif not public.pilot_consent_is_live(
+    target_cohort_code,
+    target_participation_id,
+    'PRODUCT_USAGE_ANALYTICS',
+    clock_timestamp()
+  ) then
     v_reason := 'OWNER_DOCTOR_ACTIVITY_LOOKUP_CONSENT_WITHDRAWN';
+    v_state := 'UNAVAILABLE';
   else
-    v_authorized := true;
-    v_reason := 'OWNER_DOCTOR_ACTIVITY_LOOKUP_OK';
+    v_state := public.participation_measurement_state(
+      target_cohort_code,
+      target_participation_id,
+      window_start,
+      window_end,
+      'ACTIVITY'
+    );
+    if v_state = 'NOT_MEASURED' then
+      v_reason := 'OWNER_DOCTOR_ACTIVITY_LOOKUP_NOT_MEASURED';
+    elsif v_state = 'UNAVAILABLE' then
+      v_reason := 'OWNER_DOCTOR_ACTIVITY_LOOKUP_AGG_UNAVAILABLE';
+    else
+      v_reason := 'OWNER_DOCTOR_ACTIVITY_LOOKUP_OK';
+    end if;
   end if;
 
-  -- this codebase's audit_events has no actor_kind column (checked against
-  -- drizzle/migrations/0000_parallel_mentor.sql) — actor_id + action + resource_type/id only.
   insert into public.audit_events(actor_id, action, resource_type, resource_id)
   values (auth.uid(), v_reason, 'pilot_participation', target_participation_id);
 
-  if not v_authorized then
-    return query select 'ANALYTICS_UNAVAILABLE'::text, null::bigint, null::bigint, null::bigint, null::bigint;
+  if v_state <> 'OK' then
+    return query
+    select v_state, null::bigint, null::bigint, null::bigint, null::bigint;
     return;
   end if;
 
   return query
   select
     'OK'::text,
-    coalesce(sum(a.engaged_minutes), 0), coalesce(sum(a.active_day::int), 0),
-    coalesce(sum(a.session_count), 0), coalesce(sum(a.feature_touch_count), 0)
+    sum(a.engaged_minutes)::bigint,
+    sum(a.active_day::int)::bigint,
+    sum(a.session_count)::bigint,
+    sum(a.feature_touch_count)::bigint
   from public.doctor_daily_activity_agg a
-  where a.doctor_id = v_doctor_id and a.period_day between window_start and window_end;
+  where a.participation_id = target_participation_id
+    and a.cohort_code = target_cohort_code
+    and a.period_day between window_start and window_end;
 end;
 $$;
-alter function public.owner_doctor_activity(text, uuid, date, date) owner to dd_metrics_reader;
+alter function public.owner_doctor_activity(text, uuid, date, date)
+  owner to dd_metrics_reader;
 
-create or replace function public.owner_activity_summary(window_start date, window_end date)
-returns table (active_doctor_count text, total_sessions text, total_engaged_minutes text)
-language plpgsql security definer set search_path = public, pg_temp as $$
-declare v_distinct bigint;
+create or replace function public.owner_activity_summary(
+  window_start date,
+  window_end date
+) returns table (
+  active_doctor_count text,
+  total_sessions text,
+  total_engaged_minutes text
+)
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_doctors bigint;
 begin
   perform public.assert_o1_owner_aal2();
-  select count(distinct a.doctor_id) into v_distinct
-    from public.doctor_daily_activity_agg a where a.period_day between window_start and window_end and a.active_day;
 
+  select count(distinct p.doctor_id)
+  into v_doctors
+  from public.pilot_participations p
+  where p.status in ('ENROLLED','COMPLETED')
+    and public.pilot_consent_is_live(
+      p.cohort_code,
+      p.participation_id,
+      'PRODUCT_USAGE_ANALYTICS',
+      clock_timestamp()
+    );
+
+  if v_doctors = 0 then
+    return query select 'UNAVAILABLE', 'UNAVAILABLE', 'UNAVAILABLE';
+    return;
+  end if;
+
+  if v_doctors < 5 then
+    return query select
+      'INSUFFICIENT_COHORT',
+      'INSUFFICIENT_COHORT',
+      'INSUFFICIENT_COHORT';
+    return;
+  end if;
+
+  if exists (
+    select 1
+    from public.pilot_participations p
+    where p.status in ('ENROLLED','COMPLETED')
+      and public.pilot_consent_is_live(
+        p.cohort_code,
+        p.participation_id,
+        'PRODUCT_USAGE_ANALYTICS',
+        clock_timestamp()
+      )
+      and public.participation_measurement_state(
+        p.cohort_code,
+        p.participation_id,
+        window_start,
+        window_end,
+        'ACTIVITY'
+      ) = 'NOT_MEASURED'
+  ) then
+    return query select 'NOT_MEASURED', 'NOT_MEASURED', 'NOT_MEASURED';
+    return;
+  end if;
+
+  if exists (
+    select 1
+    from public.pilot_participations p
+    where p.status in ('ENROLLED','COMPLETED')
+      and public.pilot_consent_is_live(
+        p.cohort_code,
+        p.participation_id,
+        'PRODUCT_USAGE_ANALYTICS',
+        clock_timestamp()
+      )
+      and public.participation_measurement_state(
+        p.cohort_code,
+        p.participation_id,
+        window_start,
+        window_end,
+        'ACTIVITY'
+      ) = 'UNAVAILABLE'
+  ) then
+    return query select 'UNAVAILABLE', 'UNAVAILABLE', 'UNAVAILABLE';
+    return;
+  end if;
+
+  return query
+  with dedup as (
+    select
+      a.doctor_id,
+      a.period_day,
+      bool_or(a.active_day) as active_day,
+      max(a.session_count) as session_count,
+      max(a.engaged_minutes) as engaged_minutes
+    from public.doctor_daily_activity_agg a
+    join public.pilot_participations p
+      on p.participation_id = a.participation_id
+     and p.cohort_code = a.cohort_code
+    where a.period_day between window_start and window_end
+      and p.status in ('ENROLLED','COMPLETED')
+      and public.pilot_consent_is_live(
+        p.cohort_code,
+        p.participation_id,
+        'PRODUCT_USAGE_ANALYTICS',
+        clock_timestamp()
+      )
+    group by a.doctor_id, a.period_day
+  )
+  select
+    count(distinct doctor_id) filter (where active_day)::text,
+    sum(session_count)::text,
+    sum(engaged_minutes)::text
+  from dedup;
+end;
+$$;
+alter function public.owner_activity_summary(date, date)
+  owner to dd_metrics_reader;
+
+create or replace function public.owner_service_usage_summary(
+  target_cohort_code text,
+  window_start date,
+  window_end date
+) returns table (
+  status text,
+  service_kind text,
+  unit text,
+  quantity_total numeric,
+  event_count numeric,
+  estimated_cost_minor numeric,
+  currency_code text
+)
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_doctors bigint;
+  v_has_rows boolean;
+  v_has_suppressed boolean;
+begin
+  perform public.assert_o1_owner_aal2();
+
+  select count(distinct p.doctor_id)
+  into v_doctors
+  from public.pilot_participations p
+  where p.cohort_code = target_cohort_code
+    and p.status in ('ENROLLED','COMPLETED')
+    and public.pilot_consent_is_live(
+      p.cohort_code,
+      p.participation_id,
+      'PRODUCT_USAGE_ANALYTICS',
+      clock_timestamp()
+    );
+
+  if v_doctors = 0 then
+    return query
+    select 'UNAVAILABLE', null::text, null::text,
+           null::numeric, null::numeric, null::numeric, null::text;
+    return;
+  end if;
+
+  if v_doctors < 5 then
+    return query
+    select 'INSUFFICIENT_COHORT', null::text, null::text,
+           null::numeric, null::numeric, null::numeric, null::text;
+    return;
+  end if;
+
+  if exists (
+    select 1
+    from public.pilot_participations p
+    where p.cohort_code = target_cohort_code
+      and p.status in ('ENROLLED','COMPLETED')
+      and public.pilot_consent_is_live(
+        p.cohort_code,
+        p.participation_id,
+        'PRODUCT_USAGE_ANALYTICS',
+        clock_timestamp()
+      )
+      and public.participation_measurement_state(
+        p.cohort_code,
+        p.participation_id,
+        window_start,
+        window_end,
+        'AI_VOICE'
+      ) = 'UNAVAILABLE'
+  ) then
+    return query
+    select 'UNAVAILABLE', null::text, null::text,
+           null::numeric, null::numeric, null::numeric, null::text;
+    return;
+  end if;
+
+  if exists (
+    select 1
+    from public.pilot_participations p
+    where p.cohort_code = target_cohort_code
+      and p.status in ('ENROLLED','COMPLETED')
+      and public.pilot_consent_is_live(
+        p.cohort_code,
+        p.participation_id,
+        'PRODUCT_USAGE_ANALYTICS',
+        clock_timestamp()
+      )
+      and public.participation_measurement_state(
+        p.cohort_code,
+        p.participation_id,
+        window_start,
+        window_end,
+        'AI_VOICE'
+      ) = 'NOT_MEASURED'
+  ) then
+    return query
+    select 'NOT_MEASURED', null::text, null::text,
+           null::numeric, null::numeric, null::numeric, null::text;
+    return;
+  end if;
+
+  select exists (
+    select 1
+    from public.service_usage_daily_agg s
+    join public.pilot_participations p
+      on p.doctor_id = s.principal_doctor_id
+     and p.cohort_code = target_cohort_code
+    where s.period_day between greatest(window_start, p.enrolled_on) and window_end
+      and p.status in ('ENROLLED','COMPLETED')
+      and public.pilot_consent_covers_day(
+        p.cohort_code,
+        p.participation_id,
+        'PRODUCT_USAGE_ANALYTICS',
+        s.period_day
+      )
+  ) into v_has_rows;
+
+  if not v_has_rows then
+    return query
+    select 'OK', null::text, null::text,
+           0::numeric, 0::numeric, 0::numeric, null::text;
+    return;
+  end if;
+
+  return query
+  with grouped as (
+    select
+      s.service_kind,
+      s.unit,
+      s.currency_code,
+      count(distinct s.principal_doctor_id) as doctor_count,
+      sum(s.quantity_total) as quantity_total,
+      sum(s.event_count)::numeric as event_count,
+      case
+        when count(*) filter (where s.estimated_cost_minor is null) > 0
+          then null::numeric
+        else sum(s.estimated_cost_minor)
+      end as estimated_cost_minor
+    from public.service_usage_daily_agg s
+    join public.pilot_participations p
+      on p.doctor_id = s.principal_doctor_id
+     and p.cohort_code = target_cohort_code
+    where s.period_day between greatest(window_start, p.enrolled_on) and window_end
+      and p.status in ('ENROLLED','COMPLETED')
+      and public.pilot_consent_covers_day(
+        p.cohort_code,
+        p.participation_id,
+        'PRODUCT_USAGE_ANALYTICS',
+        s.period_day
+      )
+    group by s.service_kind, s.unit, s.currency_code
+  )
+  select
+    'OK',
+    g.service_kind,
+    g.unit,
+    g.quantity_total,
+    g.event_count,
+    g.estimated_cost_minor,
+    g.currency_code
+  from grouped g
+  where g.doctor_count >= 5;
+
+  select exists (
+    select 1
+    from (
+      select
+        s.service_kind,
+        s.unit,
+        s.currency_code,
+        count(distinct s.principal_doctor_id) as doctor_count
+      from public.service_usage_daily_agg s
+      join public.pilot_participations p
+        on p.doctor_id = s.principal_doctor_id
+       and p.cohort_code = target_cohort_code
+      where s.period_day between greatest(window_start, p.enrolled_on) and window_end
+        and p.status in ('ENROLLED','COMPLETED')
+        and public.pilot_consent_covers_day(
+          p.cohort_code,
+          p.participation_id,
+          'PRODUCT_USAGE_ANALYTICS',
+          s.period_day
+        )
+      group by s.service_kind, s.unit, s.currency_code
+    ) x
+    where x.doctor_count < 5
+  ) into v_has_suppressed;
+
+  if v_has_suppressed then
+    return query
+    select 'INSUFFICIENT_COHORT', null::text, null::text,
+           null::numeric, null::numeric, null::numeric, null::text;
+  end if;
+end;
+$$;
+alter function public.owner_service_usage_summary(text, date, date)
+  owner to dd_metrics_reader;
+
+create or replace function public.pilot_participation_state(
+  target_cohort_code text
+) returns table (
+  participation_id uuid,
+  doctor_id uuid,
+  status pilot_participation_status,
+  enrolled_on date,
+  consent_live boolean
+)
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+begin
+  perform public.assert_o1_owner_aal2();
   return query
   select
-    public.k_anon_suppress((select count(distinct doctor_id) from public.doctor_daily_activity_agg where period_day between window_start and window_end and active_day), v_distinct),
-    public.k_anon_suppress((select coalesce(sum(session_count),0) from public.doctor_daily_activity_agg where period_day between window_start and window_end), v_distinct),
-    public.k_anon_suppress((select coalesce(sum(engaged_minutes),0) from public.doctor_daily_activity_agg where period_day between window_start and window_end), v_distinct);
+    p.participation_id,
+    p.doctor_id,
+    p.status,
+    p.enrolled_on,
+    public.pilot_consent_is_live(
+      p.cohort_code,
+      p.participation_id,
+      'PRODUCT_USAGE_ANALYTICS',
+      clock_timestamp()
+    )
+  from public.pilot_participations p
+  where p.cohort_code = target_cohort_code;
 end;
 $$;
-alter function public.owner_activity_summary(date, date) owner to dd_metrics_reader;
+alter function public.pilot_participation_state(text)
+  owner to dd_pilot_writer;
 
--- Consent-management state is control-plane, never analytics. Not an owner_*
--- analytics function; separate authority surface, same gate.
-create or replace function public.pilot_participation_state(target_cohort_code text)
-returns table (participation_id uuid, doctor_id uuid, status pilot_participation_status, enrolled_on date, consent_live boolean)
-language plpgsql security definer set search_path = public, pg_temp as $$
+create or replace function public.admin_pilot_cohort_upsert(
+  target_cohort_code text,
+  target_display_name text,
+  target_started_on date,
+  target_planned_end_on date default null
+) returns void
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
 begin
   perform public.assert_o1_owner_aal2();
-  return query
-  select p.participation_id, p.doctor_id, p.status, p.enrolled_on,
-         public.pilot_consent_is_live(p.participation_id, 'PRODUCT_USAGE_ANALYTICS', clock_timestamp())
-  from public.pilot_participations p where p.cohort_code = target_cohort_code;
+  insert into public.pilot_cohorts(
+    cohort_code, display_name, started_on, planned_end_on, created_by
+  )
+  values (
+    target_cohort_code, target_display_name,
+    target_started_on, target_planned_end_on, auth.uid()
+  )
+  on conflict (cohort_code) do update
+    set display_name = excluded.display_name,
+        planned_end_on = excluded.planned_end_on;
 end;
 $$;
-alter function public.pilot_participation_state(text) owner to dd_pilot_writer;
+alter function public.admin_pilot_cohort_upsert(text, text, date, date)
+  owner to dd_pilot_writer;
 
--- ===========================================================================
--- SECTION 9 — pilot control-plane writers (dd_pilot_writer)
--- ===========================================================================
-
-create or replace function public.admin_pilot_cohort_upsert(target_cohort_code text, target_display_name text, target_started_on date, target_planned_end_on date default null)
-returns void
-language plpgsql security definer set search_path = public, pg_temp as $$
+create or replace function public.admin_pilot_participation_set(
+  target_cohort_code text,
+  target_doctor_id uuid,
+  target_status pilot_participation_status
+) returns uuid
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  result uuid;
+  prior_status pilot_participation_status;
 begin
   perform public.assert_o1_owner_aal2();
-  insert into public.pilot_cohorts(cohort_code, display_name, started_on, planned_end_on, created_by)
-  values (target_cohort_code, target_display_name, target_started_on, target_planned_end_on, auth.uid())
-  on conflict (cohort_code) do update set display_name = excluded.display_name, planned_end_on = excluded.planned_end_on;
-end;
-$$;
-alter function public.admin_pilot_cohort_upsert(text, text, date, date) owner to dd_pilot_writer;
 
-create or replace function public.admin_pilot_participation_set(target_cohort_code text, target_doctor_id uuid, target_status pilot_participation_status)
-returns uuid
-language plpgsql security definer set search_path = public, pg_temp as $$
-declare result uuid;
-begin
-  perform public.assert_o1_owner_aal2();
-  insert into public.pilot_participations(cohort_code, doctor_id, status)
-  values (target_cohort_code, target_doctor_id, target_status)
-  on conflict (cohort_code, doctor_id) do update set status = excluded.status
-  returning participation_id into result;
+  select p.participation_id, p.status
+  into result, prior_status
+  from public.pilot_participations p
+  where p.cohort_code = target_cohort_code
+    and p.doctor_id = target_doctor_id
+  for update;
 
-  insert into public.pilot_status_events(cohort_code, doctor_id, event_code, event_day, recorded_by)
-  values (target_cohort_code, target_doctor_id,
-    case target_status
-      when 'INVITED' then 'INVITED' when 'PAUSED' then 'PAUSED' when 'ACTIVE' then 'RESUMED'
-      when 'COMPLETED' then 'COMPLETED' when 'WITHDRAWN' then 'WITHDRAWN' else 'INVITED' end,
-    current_date, auth.uid());
+  if result is null then
+    insert into public.pilot_participations(
+      cohort_code, doctor_id, status
+    )
+    values (
+      target_cohort_code, target_doctor_id, target_status
+    )
+    returning participation_id into result;
+  else
+    if prior_status = 'WITHDRAWN' and target_status <> 'WITHDRAWN' then
+      raise exception 'PILOT_PARTICIPATION_WITHDRAWN_TERMINAL'
+        using errcode = 'P0001';
+    end if;
+
+    update public.pilot_participations
+    set status = target_status
+    where participation_id = result;
+  end if;
+
+  insert into public.pilot_status_events(
+    participation_id, cohort_code, event_code, event_day, recorded_by
+  )
+  values (
+    result, target_cohort_code, target_status::text, current_date, auth.uid()
+  );
 
   return result;
 end;
 $$;
-alter function public.admin_pilot_participation_set(text, uuid, pilot_participation_status) owner to dd_pilot_writer;
+alter function public.admin_pilot_participation_set(
+  text, uuid, pilot_participation_status
+) owner to dd_pilot_writer;
 
-create or replace function public.admin_pilot_event_add(target_cohort_code text, target_doctor_id uuid, target_event_code text, target_reason_code text, target_event_day date)
-returns void
-language plpgsql security definer set search_path = public, pg_temp as $$
-begin
-  perform public.assert_o1_owner_aal2();
-  insert into public.pilot_status_events(cohort_code, doctor_id, event_code, reason_code, event_day, recorded_by)
-  values (target_cohort_code, target_doctor_id, target_event_code, target_reason_code, target_event_day, auth.uid());
-end;
-$$;
-alter function public.admin_pilot_event_add(text, uuid, text, text, date) owner to dd_pilot_writer;
-
--- The only write path for consent. Withdrawal is effective immediately at
--- read time everywhere because every named read calls pilot_consent_is_live() fresh.
-create or replace function public.admin_pilot_consent_set(
-  target_participation_id uuid, target_scope pilot_consent_scope, target_version text,
-  target_event pilot_consent_event_kind, target_effective_at timestamptz default clock_timestamp()
+create or replace function public.admin_pilot_event_add(
+  target_cohort_code text,
+  target_participation_id uuid,
+  target_event_code text,
+  target_reason_code text,
+  target_event_day date
 ) returns void
-language plpgsql security definer set search_path = public, pg_temp as $$
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
 begin
   perform public.assert_o1_owner_aal2();
-  insert into public.pilot_consent_events(participation_id, consent_scope, consent_version, event, effective_at, recorded_by)
-  values (target_participation_id, target_scope, target_version, target_event, target_effective_at, auth.uid());
+
+  insert into public.pilot_status_events(
+    participation_id,
+    cohort_code,
+    event_code,
+    reason_code,
+    event_day,
+    recorded_by
+  )
+  values (
+    target_participation_id,
+    target_cohort_code,
+    target_event_code,
+    target_reason_code,
+    target_event_day,
+    auth.uid()
+  );
 end;
 $$;
-alter function public.admin_pilot_consent_set(uuid, pilot_consent_scope, text, pilot_consent_event_kind, timestamptz) owner to dd_pilot_writer;
+alter function public.admin_pilot_event_add(text, uuid, text, text, date)
+  owner to dd_pilot_writer;
 
--- ===========================================================================
--- SECTION 10 — (roles moved to Section 0a, before first use in Section 2)
--- ===========================================================================
+create or replace function public.admin_pilot_consent_set(
+  target_cohort_code text,
+  target_participation_id uuid,
+  target_scope pilot_consent_scope,
+  target_version text,
+  target_event pilot_consent_event_kind,
+  target_effective_at timestamptz default clock_timestamp()
+) returns void
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+begin
+  perform public.assert_o1_owner_aal2();
 
--- ===========================================================================
--- SECTION 11 — RLS. Forced on every new table. Baseline denies everyone;
--- each service role gets its own narrow, explicitly scoped policy —
--- PostgreSQL PERMISSIVE policies are OR'd, so the blanket deny does not block
--- a role that also matches its own scoped policy, and a role with no scoped
--- policy sees nothing. No interactive role (anon, authenticated, service_role)
--- ever receives a scoped policy on any O1-F table.
--- ===========================================================================
+  if not exists (
+    select 1
+    from public.pilot_participations p
+    where p.participation_id = target_participation_id
+      and p.cohort_code = target_cohort_code
+  ) then
+    raise exception 'PILOT_PARTICIPATION_REQUIRED' using errcode = 'P0001';
+  end if;
 
-do $$ declare item text; begin
+  insert into public.pilot_consent_events(
+    participation_id,
+    cohort_code,
+    consent_scope,
+    consent_version,
+    event,
+    effective_at,
+    recorded_by
+  )
+  values (
+    target_participation_id,
+    target_cohort_code,
+    target_scope,
+    target_version,
+    target_event,
+    target_effective_at,
+    auth.uid()
+  );
+end;
+$$;
+alter function public.admin_pilot_consent_set(
+  text, uuid, pilot_consent_scope, text, pilot_consent_event_kind, timestamptz
+) owner to dd_pilot_writer;
+
+-- RLS: every new table is forced. API roles get no direct table policy.
+do $$
+declare item text;
+begin
   foreach item in array array[
-    'pilot_cohorts','pilot_participations','pilot_consent_events','pilot_event_registry',
-    'pilot_reason_registry','pilot_status_events','feature_registry','activity_contributions',
-    'doctor_daily_activity_agg','pilot_status_daily_agg'
-  ] loop
+    'pilot_cohorts',
+    'pilot_participations',
+    'pilot_consent_events',
+    'pilot_event_registry',
+    'pilot_reason_registry',
+    'pilot_status_events',
+    'feature_registry',
+    'activity_contributions',
+    'telemetry_day_coverage',
+    'service_usage_daily_agg',
+    'doctor_daily_activity_agg',
+    'pilot_status_daily_agg'
+  ]
+  loop
     execute format('alter table public.%I enable row level security', item);
     execute format('alter table public.%I force row level security', item);
-    execute format('create policy %I_deny_default on public.%I for all using (false) with check (false)', item, item);
+    execute format(
+      'create policy %I_deny_default on public.%I for all using (false) with check (false)',
+      item,
+      item
+    );
   end loop;
-end $$;
+end
+$$;
 
-create policy pilot_cohorts_reader_read on public.pilot_cohorts for select to dd_metrics_reader using (true);
-create policy pilot_cohorts_writer_all on public.pilot_cohorts for all to dd_pilot_writer using (true) with check (true);
+create policy pilot_cohorts_reader_read
+  on public.pilot_cohorts for select to dd_metrics_reader using (true);
+create policy pilot_cohorts_writer_all
+  on public.pilot_cohorts for all to dd_pilot_writer using (true) with check (true);
 
-create policy pilot_participations_reader_read on public.pilot_participations for select to dd_metrics_reader using (true);
-create policy pilot_participations_writer_all on public.pilot_participations for all to dd_pilot_writer using (true) with check (true);
-create policy pilot_participations_rollup_read on public.pilot_participations for select to dd_metrics_rollup using (true);
+create policy pilot_participations_reader_read
+  on public.pilot_participations for select to dd_metrics_reader using (true);
+create policy pilot_participations_writer_all
+  on public.pilot_participations for all to dd_pilot_writer using (true) with check (true);
+create policy pilot_participations_rollup_read
+  on public.pilot_participations for select to dd_metrics_rollup using (true);
 
-create policy pilot_consent_events_rollup_read on public.pilot_consent_events for select to dd_metrics_rollup using (true);
-create policy pilot_consent_events_writer_insert on public.pilot_consent_events for insert to dd_pilot_writer with check (true);
-create policy pilot_consent_events_writer_read on public.pilot_consent_events for select to dd_pilot_writer using (true);
+create policy pilot_consent_events_rollup_read
+  on public.pilot_consent_events for select to dd_metrics_rollup using (true);
+create policy pilot_consent_events_writer_insert
+  on public.pilot_consent_events for insert to dd_pilot_writer with check (true);
+create policy pilot_consent_events_writer_read
+  on public.pilot_consent_events for select to dd_pilot_writer using (true);
 
-create policy pilot_status_events_rollup_read on public.pilot_status_events for select to dd_metrics_rollup using (true);
-create policy pilot_status_events_writer_insert on public.pilot_status_events for insert to dd_pilot_writer with check (true);
+create policy pilot_status_events_writer_insert
+  on public.pilot_status_events for insert to dd_pilot_writer with check (true);
 
-create policy activity_contributions_rollup_all on public.activity_contributions for all to dd_metrics_rollup using (true) with check (true);
+create policy activity_contributions_rollup_all
+  on public.activity_contributions for all to dd_metrics_rollup using (true) with check (true);
 
-create policy doctor_daily_activity_agg_reader_read on public.doctor_daily_activity_agg for select to dd_metrics_reader using (true);
-create policy doctor_daily_activity_agg_rollup_all on public.doctor_daily_activity_agg for all to dd_metrics_rollup using (true) with check (true);
+create policy telemetry_day_coverage_reader_read
+  on public.telemetry_day_coverage for select to dd_metrics_reader using (true);
+create policy telemetry_day_coverage_rollup_all
+  on public.telemetry_day_coverage for all to dd_metrics_rollup using (true) with check (true);
 
-create policy pilot_status_daily_agg_reader_read on public.pilot_status_daily_agg for select to dd_metrics_reader using (true);
-create policy pilot_status_daily_agg_rollup_all on public.pilot_status_daily_agg for all to dd_metrics_rollup using (true) with check (true);
+create policy service_usage_daily_agg_reader_read
+  on public.service_usage_daily_agg for select to dd_metrics_reader using (true);
+create policy service_usage_daily_agg_rollup_all
+  on public.service_usage_daily_agg for all to dd_metrics_rollup using (true) with check (true);
 
--- FLAG FOR CENTRAL: the existing public.audit_events (0001_rls.sql) is RLS-forced with an
--- INSERT policy scoped to authenticated practice-location members (audit_events_insert_member) —
--- dd_metrics_reader satisfies neither that role nor that membership check. owner_doctor_activity
--- needs to record its true unauthorized-lookup cause somewhere internal-only (never returned to
--- the caller — see Section 8), so this adds ONE narrow, INSERT-ONLY policy for dd_metrics_reader.
--- It cannot SELECT any audit_events row (no read policy is added), cannot UPDATE/DELETE (no such
--- policy is added, and 0020_revoke_truncate.sql's TRUNCATE revoke is untouched), and the existing
--- audit_events_insert_member / audit_events_select policies for `authenticated` are unmodified.
-create policy audit_events_o1f_reader_insert on public.audit_events for insert to dd_metrics_reader with check (true);
+create policy doctor_daily_activity_agg_reader_read
+  on public.doctor_daily_activity_agg for select to dd_metrics_reader using (true);
+create policy doctor_daily_activity_agg_rollup_all
+  on public.doctor_daily_activity_agg for all to dd_metrics_rollup using (true) with check (true);
 
--- ===========================================================================
--- SECTION 12 — grants
--- ===========================================================================
+create policy pilot_status_daily_agg_reader_read
+  on public.pilot_status_daily_agg for select to dd_metrics_reader using (true);
+create policy pilot_status_daily_agg_rollup_all
+  on public.pilot_status_daily_agg for all to dd_metrics_rollup using (true) with check (true);
 
-revoke all on all tables in schema public from dd_metrics_reader, dd_metrics_rollup, dd_pilot_writer, dd_retention;
-revoke all on all functions in schema public from dd_metrics_reader, dd_metrics_rollup, dd_pilot_writer, dd_retention;
+alter table public.audit_events enable row level security;
+alter table public.audit_events force row level security;
 
-grant select on public.pilot_cohorts, public.pilot_participations, public.doctor_daily_activity_agg, public.pilot_status_daily_agg to dd_metrics_reader;
--- INSERT-ONLY, paired with the scoped RLS policy above (Section 11) — no SELECT/UPDATE/DELETE.
+-- Narrow accepted exception: bounded INSERT-only audit path.
+create policy audit_events_o1f_reader_insert
+on public.audit_events
+for insert
+to dd_metrics_reader
+with check (
+  actor_id = auth.uid()
+  and resource_type = 'pilot_participation'
+  and action in (
+    'OWNER_DOCTOR_ACTIVITY_LOOKUP_NOT_MEMBER',
+    'OWNER_DOCTOR_ACTIVITY_LOOKUP_PARTICIPATION_WITHDRAWN',
+    'OWNER_DOCTOR_ACTIVITY_LOOKUP_NOT_ENROLLED',
+    'OWNER_DOCTOR_ACTIVITY_LOOKUP_CONSENT_WITHDRAWN',
+    'OWNER_DOCTOR_ACTIVITY_LOOKUP_NOT_MEASURED',
+    'OWNER_DOCTOR_ACTIVITY_LOOKUP_AGG_UNAVAILABLE',
+    'OWNER_DOCTOR_ACTIVITY_LOOKUP_OK'
+  )
+);
+
+-- Internal-role baseline.
+revoke all on all tables in schema public
+  from dd_metrics_reader, dd_metrics_rollup, dd_pilot_writer, dd_retention;
+revoke all on all functions in schema public
+  from dd_metrics_reader, dd_metrics_rollup, dd_pilot_writer, dd_retention;
+
+grant select on public.pilot_cohorts,
+  public.pilot_participations,
+  public.telemetry_day_coverage,
+  public.service_usage_daily_agg,
+  public.doctor_daily_activity_agg,
+  public.pilot_status_daily_agg
+to dd_metrics_reader;
 grant insert on public.audit_events to dd_metrics_reader;
-grant select, insert, update on public.doctor_daily_activity_agg, public.pilot_status_daily_agg to dd_metrics_rollup;
-grant select on public.activity_contributions, public.pilot_status_events, public.pilot_consent_events, public.pilot_participations to dd_metrics_rollup;
-grant insert, update on public.activity_contributions to dd_metrics_rollup;
 
-grant select, insert, update on public.pilot_cohorts, public.pilot_participations to dd_pilot_writer;
-grant insert on public.pilot_status_events, public.pilot_consent_events to dd_pilot_writer;
-grant select on public.pilot_participations, public.pilot_consent_events to dd_pilot_writer;
-grant usage on sequence public.pilot_consent_events_id_seq, public.pilot_status_events_id_seq to dd_pilot_writer;
+grant select on public.activity_contributions,
+  public.pilot_consent_events,
+  public.pilot_participations,
+  public.telemetry_day_coverage,
+  public.service_usage_daily_agg
+to dd_metrics_rollup;
+grant insert, update on public.activity_contributions,
+  public.telemetry_day_coverage,
+  public.service_usage_daily_agg
+to dd_metrics_rollup;
+grant select, insert, update, delete on
+  public.doctor_daily_activity_agg,
+  public.pilot_status_daily_agg
+to dd_metrics_rollup;
 
--- FLAG FOR CENTRAL: found only by actually executing this file against a real
--- Postgres (Gate 1). dd_metrics_reader / dd_pilot_writer are new roles Supabase's
--- own bootstrap has no knowledge of, so they hold no USAGE on the `auth` schema —
--- a real Supabase project grants that only to postgres/anon/authenticated/
--- service_role. Without it, auth.uid() inside owner_doctor_activity's audit
--- write (and any future auth.uid()/auth.jwt() call owned by either role) fails
--- with "permission denied for schema auth" before EXECUTE on the function is
--- even considered — confirmed by execution, not assumed. USAGE ON SCHEMA does
--- not grant any privilege beyond identifier resolution; it is not a table or
--- function grant, and it is scoped to exactly these two new roles.
+grant select, insert, update on
+  public.pilot_cohorts,
+  public.pilot_participations
+to dd_pilot_writer;
+grant insert on
+  public.pilot_status_events,
+  public.pilot_consent_events
+to dd_pilot_writer;
+grant select on
+  public.pilot_participations,
+  public.pilot_consent_events
+to dd_pilot_writer;
+grant usage on sequence
+  public.pilot_consent_events_id_seq,
+  public.pilot_status_events_id_seq
+to dd_pilot_writer;
+
 grant usage on schema auth to dd_metrics_reader, dd_pilot_writer;
 
--- The two accepted primitives, granted ONLY to the two roles that call them
--- (assert_o1_owner_aal2 is owned by the deploy role, but calls these as
--- itself — dd_metrics_reader / dd_pilot_writer are the roles that own the
--- owner_*/admin_pilot_* functions that call assert_o1_owner_aal2 in turn, and
--- Postgres re-checks EXECUTE at each call regardless of nesting).
-grant execute on function public.is_platform_owner() to dd_metrics_reader, dd_pilot_writer;
-grant execute on function public.require_aal2() to dd_metrics_reader, dd_pilot_writer;
-grant execute on function public.assert_o1_owner_aal2() to dd_metrics_reader, dd_pilot_writer;
+-- Explicit function ACL hardening. Every function created by 0047 loses
+-- default API execution before exact allow-list grants below.
+revoke execute on function public.assert_o1_owner_aal2()
+  from public, anon, authenticated, service_role;
+revoke execute on function public.enforce_pilot_participation_terminal()
+  from public, anon, authenticated, service_role;
+revoke execute on function public.prevent_pilot_consent_event_mutation()
+  from public, anon, authenticated, service_role;
+revoke execute on function public.pilot_consent_is_live(
+  text, uuid, pilot_consent_scope, timestamptz
+) from public, anon, authenticated, service_role;
+revoke execute on function public.pilot_consent_covers_day(
+  text, uuid, pilot_consent_scope, date
+) from public, anon, authenticated, service_role;
+revoke execute on function public.prevent_pilot_status_event_mutation()
+  from public, anon, authenticated, service_role;
+revoke execute on function public.ingest_activity_contribution(
+  text, uuid, date, text, bigint, text, bigint
+) from public, anon, authenticated, service_role;
+revoke execute on function public.mark_telemetry_day_coverage(
+  date, uuid, telemetry_measurement_domain, boolean, bigint
+) from public, anon, authenticated, service_role;
+revoke execute on function public.ingest_service_usage_daily(
+  date, uuid, text, text, text, text, numeric, bigint, numeric, text
+) from public, anon, authenticated, service_role;
+revoke execute on function public.rebuild_doctor_daily_activity_agg(date)
+  from public, anon, authenticated, service_role;
+revoke execute on function public.rebuild_pilot_status_daily_agg(date, text)
+  from public, anon, authenticated, service_role;
+revoke execute on function public.k_anon_suppress(bigint, bigint, integer)
+  from public, anon, authenticated, service_role;
+revoke execute on function public.participation_measurement_state(
+  text, uuid, date, date, telemetry_measurement_domain
+) from public, anon, authenticated, service_role;
+revoke execute on function public.owner_pilot_status(date, date)
+  from public, anon, authenticated, service_role;
+revoke execute on function public.owner_pilot_cohort_detail(text, date, date)
+  from public, anon, authenticated, service_role;
+revoke execute on function public.owner_doctor_activity(text, uuid, date, date)
+  from public, anon, authenticated, service_role;
+revoke execute on function public.owner_activity_summary(date, date)
+  from public, anon, authenticated, service_role;
+revoke execute on function public.owner_service_usage_summary(text, date, date)
+  from public, anon, authenticated, service_role;
+revoke execute on function public.pilot_participation_state(text)
+  from public, anon, authenticated, service_role;
+revoke execute on function public.admin_pilot_cohort_upsert(text, text, date, date)
+  from public, anon, authenticated, service_role;
+revoke execute on function public.admin_pilot_participation_set(
+  text, uuid, pilot_participation_status
+) from public, anon, authenticated, service_role;
+revoke execute on function public.admin_pilot_event_add(
+  text, uuid, text, text, date
+) from public, anon, authenticated, service_role;
+revoke execute on function public.admin_pilot_consent_set(
+  text, uuid, pilot_consent_scope, text, pilot_consent_event_kind, timestamptz
+) from public, anon, authenticated, service_role;
 
-grant execute on function public.pilot_consent_is_live(uuid, pilot_consent_scope, timestamptz) to dd_metrics_reader, dd_pilot_writer, dd_metrics_rollup;
-grant execute on function public.pilot_consent_covers_day(uuid, pilot_consent_scope, date) to dd_metrics_rollup;
-grant execute on function public.k_anon_suppress(bigint, bigint, integer) to dd_metrics_reader;
+grant execute on function public.is_platform_owner()
+  to dd_metrics_reader, dd_pilot_writer;
+grant execute on function public.require_aal2()
+  to dd_metrics_reader, dd_pilot_writer;
+grant execute on function public.assert_o1_owner_aal2()
+  to dd_metrics_reader, dd_pilot_writer;
+
+grant execute on function public.pilot_consent_is_live(
+  text, uuid, pilot_consent_scope, timestamptz
+) to dd_metrics_reader, dd_metrics_rollup, dd_pilot_writer;
+grant execute on function public.pilot_consent_covers_day(
+  text, uuid, pilot_consent_scope, date
+) to dd_metrics_reader, dd_metrics_rollup;
+grant execute on function public.k_anon_suppress(bigint, bigint, integer)
+  to dd_metrics_reader;
+grant execute on function public.participation_measurement_state(
+  text, uuid, date, date, telemetry_measurement_domain
+) to dd_metrics_reader;
+
+grant execute on function public.ingest_activity_contribution(
+  text, uuid, date, text, bigint, text, bigint
+) to service_role;
+grant execute on function public.mark_telemetry_day_coverage(
+  date, uuid, telemetry_measurement_domain, boolean, bigint
+) to service_role;
+grant execute on function public.ingest_service_usage_daily(
+  date, uuid, text, text, text, text, numeric, bigint, numeric, text
+) to service_role;
 
 grant execute on function
   public.owner_pilot_status(date, date),
   public.owner_pilot_cohort_detail(text, date, date),
   public.owner_doctor_activity(text, uuid, date, date),
   public.owner_activity_summary(date, date),
+  public.owner_service_usage_summary(text, date, date),
   public.pilot_participation_state(text),
   public.admin_pilot_cohort_upsert(text, text, date, date),
   public.admin_pilot_participation_set(text, uuid, pilot_participation_status),
   public.admin_pilot_event_add(text, uuid, text, text, date),
-  public.admin_pilot_consent_set(uuid, pilot_consent_scope, text, pilot_consent_event_kind, timestamptz)
+  public.admin_pilot_consent_set(
+    text, uuid, pilot_consent_scope, text, pilot_consent_event_kind, timestamptz
+  )
 to authenticated;
 
--- Supabase grants `authenticated` every verb on a new table by default;
--- omitting a REVOKE leaves it there. Explicit, table by table.
-revoke all on public.pilot_cohorts, public.pilot_participations, public.pilot_consent_events,
-  public.pilot_event_registry, public.pilot_reason_registry, public.pilot_status_events,
-  public.feature_registry, public.activity_contributions, public.doctor_daily_activity_agg,
+-- Supabase API roles have no direct O1-F table/sequence path.
+revoke all on
+  public.pilot_cohorts,
+  public.pilot_participations,
+  public.pilot_consent_events,
+  public.pilot_event_registry,
+  public.pilot_reason_registry,
+  public.pilot_status_events,
+  public.feature_registry,
+  public.activity_contributions,
+  public.telemetry_day_coverage,
+  public.service_usage_daily_agg,
+  public.doctor_daily_activity_agg,
   public.pilot_status_daily_agg
-from anon, authenticated;
+from public, anon, authenticated, service_role;
 
-revoke all on sequence public.pilot_consent_events_id_seq, public.pilot_status_events_id_seq from anon, authenticated;
-
--- End of 0047. Confirmations:
---   * no accepted runtime object (0000–0046, or their Drizzle-owned shapes)
---     was altered — every grant above targets a NEW role or a NEW object;
---   * no clinical table (patients, encounters, prescriptions, appointments,
---     queue_entries, or any patient_*/encounter_*/prescription_* table) is
---     read, written, or referenced by any object in this file;
---   * no free text, no clinical identifier, no prompt/completion/transcript/
---     audio/provider-payload field exists on any table this file creates;
---   * db/manifest.toml and the separate Database V2 P0 Track-A program are
---     untouched;
---   * this file is authored for review only — it has not been applied to any
---     database in this task.
+revoke all on sequence
+  public.pilot_consent_events_id_seq,
+  public.pilot_status_events_id_seq
+from public, anon, authenticated, service_role;

@@ -70,9 +70,9 @@ try {
     async function makeDoctor(label, { active = true, consent = true } = {}) {
       const pId = await createProfile(tx, `QA ${label} @qa.invalid`);
       const [d] = await tx`insert into doctor_profiles(user_id) values (${pId}) returning id`;
-      const [pt] = await tx`insert into pilot_participations(cohort_code, doctor_id, status) values (${cohort.cohort_code}, ${d.id}, ${active ? "ACTIVE" : "WITHDRAWN"}) returning participation_id`;
+      const [pt] = await tx`insert into pilot_participations(cohort_code, doctor_id, status) values (${cohort.cohort_code}, ${d.id}, ${active ? "ENROLLED" : "WITHDRAWN"}) returning participation_id`;
       if (consent) {
-        await tx`insert into pilot_consent_events(participation_id, consent_scope, consent_version, event, effective_at, recorded_by) values (${pt.participation_id}, 'PRODUCT_USAGE_ANALYTICS', 'v1', 'CONSENT_GRANTED', now() - interval '3 days', ${ownerProfileId})`;
+        await tx`insert into pilot_consent_events(participation_id, cohort_code, consent_scope, consent_version, event, effective_at, recorded_by) values (${pt.participation_id}, ${cohort.cohort_code}, 'PRODUCT_USAGE_ANALYTICS', 'v1', 'CONSENT_GRANTED', now() - interval '10 days', ${ownerProfileId})`;
       }
       return { doctorId: d.id, participationId: pt.participation_id };
     }
@@ -106,8 +106,12 @@ try {
     const notMember = { doctorId: null, participationId: "00000000-0000-0000-0000-000000000000" };
     const withdrawnParticipation = await makeDoctor("Withdrawn-Participation", { active: false, consent: true });
     const withdrawnConsentDoctor = await makeDoctor("Withdrawn-Consent", { active: true, consent: true });
-    await tx`insert into pilot_consent_events(participation_id, consent_scope, consent_version, event, effective_at, recorded_by) values (${withdrawnConsentDoctor.participationId}, 'PRODUCT_USAGE_ANALYTICS', 'v1', 'CONSENT_WITHDRAWN', now() - interval '1 day', ${ownerProfileId})`;
+    await tx`insert into pilot_consent_events(participation_id, cohort_code, consent_scope, consent_version, event, effective_at, recorded_by) values (${withdrawnConsentDoctor.participationId}, ${cohort.cohort_code}, 'PRODUCT_USAGE_ANALYTICS', 'v1', 'CONSENT_WITHDRAWN', now() - interval '1 day', ${ownerProfileId})`;
     const authorizedDoctor = await makeDoctor("Authorized");
+    for (let i = 0; i <= 7; i += 1) {
+      await tx`select mark_telemetry_day_coverage(current_date - ${i}::int, ${authorizedDoctor.doctorId}, 'ACTIVITY', true, ${i + 1})`;
+      await tx`select rebuild_doctor_daily_activity_agg(current_date - ${i}::int)`;
+    }
 
     await as(tx, ownerProfile.id, "aal2", async () => {
       const [a] = await tx`select * from owner_doctor_activity(${cohort.cohort_code}, ${notMember.participationId}, current_date - 7, current_date)`;
@@ -117,7 +121,7 @@ try {
 
       const shape = (r) => JSON.stringify(r);
       check(shape(a) === shape(b) && shape(b) === shape(c), "all three unauthorized fixtures return byte-identical payloads");
-      check(a.status === "ANALYTICS_UNAVAILABLE", "unauthorized status is the single generic marker", a.status);
+      check(a.status === "UNAVAILABLE", "unauthorized status is the single generic marker", a.status);
       check(ok.status === "OK", "authorized fixture returns OK", ok.status);
     });
 
@@ -128,6 +132,7 @@ try {
     const smallCohortDoctors = [];
     for (let i = 0; i < 4; i += 1) smallCohortDoctors.push(await makeDoctor(`Small${i}`));
     for (const d of smallCohortDoctors) {
+      await tx`select mark_telemetry_day_coverage(current_date, ${d.doctorId}, 'ACTIVITY', true, 1)`;
       await tx`insert into activity_contributions(metric_code, doctor_id, period_day, feature_code, value, source_stream, source_version) values ('DOCTOR_ACTIVE_DAY', ${d.doctorId}, current_date, '*', 1, 'O1A_INTERACTION_METER', 1)`;
       await tx`select rebuild_doctor_daily_activity_agg(current_date)`;
     }
@@ -138,6 +143,7 @@ try {
     });
 
     const fifth = await makeDoctor("Small4");
+    await tx`select mark_telemetry_day_coverage(current_date, ${fifth.doctorId}, 'ACTIVITY', true, 1)`;
     await tx`insert into activity_contributions(metric_code, doctor_id, period_day, feature_code, value, source_stream, source_version) values ('DOCTOR_ACTIVE_DAY', ${fifth.doctorId}, current_date, '*', 1, 'O1A_INTERACTION_METER', 1)`;
     await tx`select rebuild_doctor_daily_activity_agg(current_date)`;
     await tx`select rebuild_pilot_status_daily_agg(current_date, ${cohort.cohort_code})`;

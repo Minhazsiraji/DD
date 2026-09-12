@@ -56,6 +56,3 @@ next-env.d.ts
 # offered for commit on every P0 run. `.temp/project-ref` in particular records
 # a REMOTE project link, which the determinism harness refuses to run beside.
 supabase/.temp/
-
-# Disposable local Postgres used only for O1-F verifier execution (never committed)
-.scratch-pg/

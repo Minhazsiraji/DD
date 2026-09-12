@@ -99,31 +99,40 @@ try {
       check(!clinicalGrant, `${role}: zero clinical table grant`, clinicalGrant?.table_name);
     }
 
-    console.log("\n5. No new role can be assumed by anon/authenticated/service_role");
-    console.log("   (via a genuine non-superuser 'authenticator' login connection —");
-    console.log("    session_user is what SET ROLE's membership check tests, and the");
-    console.log("    primary connection here is a superuser, which would make this test");
-    console.log("    vacuous if reused)");
-    {
-      const authSql = postgres(authenticatorUrl(), { max: 1, prepare: false, onnotice: () => {} });
-      try {
-        for (const assumer of ["anon", "authenticated", "service_role"]) {
-          for (const role of NEW_ROLES) {
-            await authSql.begin(async (atx) => {
-              await atx.unsafe(`set role ${assumer}`);
-              let refused = false;
-              try {
-                await atx.savepoint(async (sp) => { await sp.unsafe(`set role ${role}`); });
-              } catch (e) {
-                refused = e?.code === "42501"; // insufficient_privilege
-              }
-              check(refused, `${assumer} cannot assume ${role}`);
-              throw new Error("__qa_rollback__");
-            }).catch((e) => { if (e.message !== "__qa_rollback__") throw e; });
-          }
-        }
-      } finally {
-        await authSql.end({ timeout: 1 });
+    console.log("\n5. No API role has a SET-role membership path to any O1-F internal role");
+    console.log("   (structural pg_auth_members proof inside the same migration transaction)");
+    for (const assumer of ["anon", "authenticated", "service_role"]) {
+      for (const role of NEW_ROLES) {
+        const [membership] = await tx`
+          with recursive can_set(roleid) as (
+            select m.roleid
+            from pg_auth_members m
+            join pg_roles member_role
+              on member_role.oid = m.member
+            where member_role.rolname = ${assumer}
+              and m.set_option
+
+            union
+
+            select m.roleid
+            from pg_auth_members m
+            join can_set prior
+              on prior.roleid = m.member
+            where m.set_option
+          )
+          select exists (
+            select 1
+            from can_set c
+            join pg_roles target
+              on target.oid = c.roleid
+            where target.rolname = ${role}
+          ) as can_assume
+        `;
+
+        check(
+          membership?.can_assume === false,
+          `${assumer} cannot assume ${role}`
+        );
       }
     }
 
