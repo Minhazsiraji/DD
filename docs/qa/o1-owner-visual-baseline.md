@@ -17,7 +17,7 @@ Root order is authoritative and must remain:
 5. `app-unified-liquid.css`
 6. `dd-material-system.css`
 
-Typography at the root uses Geist Sans, Geist Mono, and Manrope. Workspace headings use the existing `PageHeader` hierarchy; metric values use tabular numerals where the product already marks clinical/value content.
+Typography at the root uses Geist Sans, Geist Mono, and Manrope. Workspace headings use the existing `PageHeader` hierarchy; metric values use tabular numerals where the product already marks value content.
 
 The accepted global canvas is the lavender/organ treatment from `global-background-test.css` plus `/dd-global-bg.webp`: `#e8e3ee`, fixed organ artwork, 28% pale wash, cover/center placement, 8px blur/1.02 scale on desktop, and center-top 7px blur/1.035 scale on mobile.
 
@@ -65,21 +65,24 @@ At the authority base, `/owner/dashboard` and its requested child routes are not
 - 2xl/28px title scale, brand eyebrow, secondary subtitle
 - actions stack full-width on mobile and collapse to intrinsic width on `sm+`
 
-### `GlassCard`
+### `GlassCard` / `GlassPanel`
 
-Variants: `default`, `subtle`, `strong`; rounded 2xl, border + material shadow, with the existing global glass layer supplying final accepted appearance.
+- tone contract is `default | strong`
+- blur is explicit; `GlassCard` defaults to flat glass (`glass-flat` / `glass-flat-strong`) and `GlassPanel` defaults to blurred strong glass
+- optional `interactive` state on `GlassCard` preserves hover lift, focus shadow and reduced-motion behavior
+- both retain the accepted rounded-glass geometry and existing material shadow tokens.
 
-### `SectionCard`
+### `SectionCard` / `SectionHeader`
 
-Wraps `GlassCard`; section header uses `dd-section-header`, flex-wrap, 5-unit horizontal padding, and 4-unit vertical padding; content uses 5-unit padding.
+`SectionCard` is a semantic `<section>` using `dd-app-panel dd-material-panel min-w-0 rounded-glass-lg shadow-soft`; it does not wrap `GlassCard`. `SectionHeader` is a separate primitive using `dd-section-header`, responsive wrapping, `px-4 py-3` with `sm:px-5`, and an optional tabular numeric count.
 
 ### `StatCard`
 
-Accepted value hierarchy: uppercase muted label, `text-2xl font-extrabold tracking-tight text-ink` value, optional muted hint. Current icon tones are brand / blue / green. O1 must not overload those tones to encode data truth without explicit text.
+A summary `GlassCard` using `dd-dashboard-card`. The value is top-right, `text-[28px]` / `sm:text-[32px]`, bold, `text-ink`, and `tabular-nums`. The icon uses the existing `IconOrb` accent vocabulary (`brand`, `violet`, `success`, `warning`, `danger`, `info`); the label uses the matching readable accent and the optional hint is muted. O1 must not use those colors alone to encode data truth.
 
 ### `StatusBadge`
 
-Accepted semantic tones: `neutral`, `info`, `success`, `warning`, `danger`. A badge's label must remain present; color alone is not the meaning.
+Accepted palette includes `neutral`, `brand`, `success`, `warning`, `danger`, `critical`, and `info`. Existing badge shells always include both an icon and visible text. O1 state meaning must likewise never depend on color alone.
 
 ### `EmptyState`
 
