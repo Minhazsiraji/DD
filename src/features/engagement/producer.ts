@@ -15,7 +15,7 @@ import {
   O1A_SOURCE_STREAM,
   type ActivityContribution,
 } from "./ports";
-import { featureCodeForSurface, type EngagementSurface } from "./surfaces";
+import { A_FEATURE_CODES, featureCodeForSurface, type EngagementSurface } from "./surfaces";
 
 /**
  * The O1-A producer: a day's engaged minutes → O1-F's day-grain rows.
@@ -59,8 +59,6 @@ export interface ProducerInput {
   periodDay: string;
   /** Every minute the store holds for that doctor. Filtered to the day here. */
   minutes: readonly EngagedMinute[];
-  /** Codes present in O1-F's `feature_registry`. Unregistered codes are skipped. */
-  registeredFeatureCodes?: ReadonlySet<string>;
   timeZone?: string | null;
 }
 
@@ -114,12 +112,15 @@ export function buildActivityContributions(input: ProducerInput): ActivityContri
    * Settings time is a real onboarding signal and is recorded here; it simply
    * cannot make a doctor ACTIVE, which is why `DOCTOR_ACTIVE_DAY` above counts
    * qualifying surfaces only.
+   *
+   * DETERMINISTIC, against the frozen vocabulary. Every mapped surface with a
+   * minute produces a row. The only surface with no code is OWNER, which is
+   * platform administration rather than a doctor feature.
    */
-  const registered = input.registeredFeatureCodes ?? new Set<string>();
   const perSurface = minutesBySurface(forDay);
   for (const [surface, count] of Object.entries(perSurface) as Array<[EngagementSurface, number]>) {
     const code = featureCodeForSurface(surface);
-    if (!code || !registered.has(code) || count <= 0) continue;
+    if (!code || !A_FEATURE_CODES.has(code) || count <= 0) continue;
     rows.push({
       ...base,
       metricCode: "DOCTOR_FEATURE_TOUCH_DAILY",

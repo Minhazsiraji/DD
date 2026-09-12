@@ -51,8 +51,6 @@ export interface IngestDeps {
   resolveTimeZone: () => Promise<string | null>;
   minuteStore: EngagementMinuteStore;
   activitySink: ActivitySink;
-  /** Codes present in O1-F's `feature_registry`. Empty unless supplied. */
-  registeredFeatureCodes?: ReadonlySet<string>;
 }
 
 export type IngestResult =
@@ -110,7 +108,6 @@ export async function ingestEngagement(body: unknown, deps: IngestDeps): Promise
     doctorId,
     periodDay,
     minutes: snapshot,
-    registeredFeatureCodes: deps.registeredFeatureCodes,
     timeZone,
   });
 

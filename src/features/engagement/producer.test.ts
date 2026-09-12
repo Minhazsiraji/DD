@@ -6,6 +6,7 @@ import {
   O1A_SOURCE_STREAM,
 } from "./ports";
 import { assertConformant, buildActivityContributions, snapshotVersion } from "./producer";
+import { A_FEATURE_CODES } from "./surfaces";
 
 /**
  * Conformance with O1-F's `activity_contributions` contract
@@ -17,7 +18,6 @@ import { assertConformant, buildActivityContributions, snapshotVersion } from ".
 
 const DOCTOR = "11111111-2222-4333-8444-555555555555";
 const DAY = "2026-09-10";
-const ALL_FEATURES = new Set(["dashboard", "patients", "consultation", "prescription", "appointments", "queue", "settings"]);
 
 /** 09:00 Dhaka onwards, so the clinic day is unambiguous. */
 const at = (minute: number, surface: EngagedMinute["surface"] = "CONSULTATION"): EngagedMinute => ({
@@ -25,18 +25,27 @@ const at = (minute: number, surface: EngagedMinute["surface"] = "CONSULTATION"):
   surface,
 });
 
-const build = (minutes: readonly EngagedMinute[], registered = ALL_FEATURES) =>
-  buildActivityContributions({ doctorId: DOCTOR, periodDay: DAY, minutes, registeredFeatureCodes: registered, timeZone: "Asia/Dhaka" });
+const build = (minutes: readonly EngagedMinute[]) =>
+  buildActivityContributions({ doctorId: DOCTOR, periodDay: DAY, minutes, timeZone: "Asia/Dhaka" });
 
 const row = (rows: ReturnType<typeof build>, code: string, feature?: string) =>
   rows.find((r) => r.metricCode === code && (feature === undefined || r.featureCode === feature));
 
 describe("the four O1-F metrics, and only those", () => {
-  it("emits exactly the whole-day three when no feature code is registered", () => {
-    const rows = build([at(0), at(1)], new Set());
+  /**
+   * The whole-day three are unconditional, and a feature touch accompanies
+   * them for every mapped surface with a minute. There is no configuration
+   * under which the feature row disappears.
+   */
+  it("emits the whole-day three plus a touch for the surface used", () => {
+    const rows = build([at(0), at(1)]);
     expect(rows.map((r) => r.metricCode).sort()).toEqual([
-      "DOCTOR_ACTIVE_DAY", "DOCTOR_ENGAGED_MINUTES_DAILY", "DOCTOR_SESSION_COUNT_DAILY",
+      "DOCTOR_ACTIVE_DAY",
+      "DOCTOR_ENGAGED_MINUTES_DAILY",
+      "DOCTOR_FEATURE_TOUCH_DAILY",
+      "DOCTOR_SESSION_COUNT_DAILY",
     ]);
+    expect(row(rows, "DOCTOR_FEATURE_TOUCH_DAILY")!.featureCode).toBe("consultation");
   });
 
   it("uses only metric codes O1-F's CHECK constraint allows", () => {
@@ -62,10 +71,38 @@ describe("the feature sentinel rules are O1-F's CHECK constraint", () => {
     for (const t of touches) expect(t.featureCode).not.toBe(NON_FEATURE_SENTINEL);
   });
 
-  /** The registry is a foreign key: an unregistered code could not be written. */
-  it("skips a feature whose code is not registered", () => {
-    const rows = build([at(0, "QUEUE")], new Set(["consultation"]));
-    expect(row(rows, "DOCTOR_FEATURE_TOUCH_DAILY", "queue")).toBeUndefined();
+  /**
+   * THE FROZEN SEVEN, each proven to produce a row.
+   *
+   * Previously the producer took a "registered codes" set that defaulted to
+   * empty, and the real request path never supplied one — so these rows existed
+   * only in tests. The vocabulary is now a spec constant, so this list IS the
+   * behaviour.
+   */
+  it.each([
+    ["DASHBOARD", "dashboard"],
+    ["PATIENTS", "patients"],
+    ["CONSULTATION", "consultation"],
+    ["PRESCRIPTION", "prescription"],
+    ["APPOINTMENTS", "appointments"],
+    ["QUEUE", "queue"],
+    ["SETTINGS", "settings"],
+  ] as const)("%s deterministically produces a %s feature touch", (surface, code) => {
+    const rows = build([at(0, surface), at(1, surface)]);
+    expect(row(rows, "DOCTOR_FEATURE_TOUCH_DAILY", code)).toMatchObject({ featureCode: code, value: 2 });
+  });
+
+  /** OWNER is platform administration, not a Doctor feature. */
+  it("produces no feature touch for OWNER", () => {
+    const rows = build([at(0, "OWNER")]);
+    expect(rows.some((r) => r.metricCode === "DOCTOR_FEATURE_TOUCH_DAILY")).toBe(false);
+  });
+
+  it("covers exactly the frozen seven and nothing else", () => {
+    expect([...A_FEATURE_CODES].sort()).toEqual([
+      "appointments", "consultation", "dashboard", "patients", "prescription", "queue", "settings",
+    ]);
+    expect(A_FEATURE_CODES.has("owner")).toBe(false);
   });
 
   it("emits registry-shaped codes only", () => {

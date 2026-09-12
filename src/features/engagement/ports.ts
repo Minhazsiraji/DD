@@ -10,20 +10,20 @@ import type { ManualBaseline, MeasuredDdWorkflow } from "./time-saved";
  * minute; this function only accepts and idempotently stores whatever
  * day-grain totals a conformant, trusted server-side producer supplies."
  *
- * So O1-A owns the definition and the producer; O1-F owns the sink, the fold
- * and — importantly — the consent decision. Each port below ships UNWIRED and
- * answers honestly rather than dropping data or inventing a zero.
+ * Each port below ships UNWIRED and answers honestly rather than dropping data
+ * or inventing a zero.
  *
- * WHAT O1-A DELIBERATELY DOES NOT DECIDE.
+ * THE DIVISION OF AUTHORITY:
  *
- * Named appearance is NOT an application concern. O1-F's fold
- * (`rebuild_doctor_daily_activity_agg`) materialises a named row only when a
- * participation exists AND `pilot_consent_covers_day(...)` is true, and it
- * DELETES the row when consent does not cover the day. It does not gate on
- * participation status at all. An app-side copy of that decision would be a
- * second authority built on semantics O1-F does not have, so there is none
- * here. The raw tier legitimately covers every doctor; consent is applied at
- * fold time, by the database.
+ *   O1-A produces raw, privacy-safe day totals, and nothing else.
+ *
+ *   O1-F exclusively owns participation, consent, suppression and named
+ *   visibility.
+ *
+ * So there is no participation gate, no consent gate and no named-appearance
+ * decision anywhere in this application. Those are not A's to make, and A does
+ * not describe how F makes them either — restating F's rules here would create
+ * a second copy to drift out of step with the authority that enforces them.
  */
 
 // ---------------------------------------------------------------------------

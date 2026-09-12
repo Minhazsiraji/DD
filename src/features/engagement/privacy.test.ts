@@ -13,7 +13,7 @@ import {
   type ActivitySink,
   type EngagementMinuteStore,
 } from "./ports";
-import { buildEngagementPayload } from "./surfaces";
+import { A_FEATURE_CODES, buildEngagementPayload } from "./surfaces";
 
 /**
  * TELEMETRY PRIVACY PROOF.
@@ -180,10 +180,19 @@ describe("every row sent to O1-F is metadata only", () => {
     }
   });
 
-  it("sends no feature touches while O1-F's registry holds only the sentinel", async () => {
+  /**
+   * A feature code is a coarse surface label from the frozen seven — it is
+   * metadata, not content, and it must actually arrive. The inverse of this
+   * assertion used to hold, which was the defect: the producer's "registered
+   * codes" set defaulted to empty and the route never supplied one.
+   */
+  it("sends a feature touch, carrying only a frozen vocabulary code", async () => {
     const p = fakePipeline();
     await ingestEngagement({ surface: "CONSULTATION" }, deps({ ...p }));
-    expect(p.ingested[0]!.some((r) => r.metricCode === "DOCTOR_FEATURE_TOUCH_DAILY")).toBe(false);
+    const touches = p.ingested[0]!.filter((r) => r.metricCode === "DOCTOR_FEATURE_TOUCH_DAILY");
+    expect(touches).toHaveLength(1);
+    expect(touches[0]!.featureCode).toBe("consultation");
+    expect(A_FEATURE_CODES.has(touches[0]!.featureCode)).toBe(true);
   });
 });
 
@@ -244,8 +253,8 @@ describe("an unwired pipeline is honest", () => {
    *
    * A store or sink outcome that is not exactly RECORDED must never be read as
    * success. This is the fail-closed invariant that mutation testing showed was
-   * unpinned; it now sits on O1-A's own state decisions rather than on a
-   * duplicate of O1-F's consent authority.
+   * unpinned, and it sits on O1-A's own state decisions — the only states A
+   * owns.
    */
   it.each(["FAILED", "UNWIRED", "SOMETHING_NEW", "", null, undefined])(
     "never reports RECORDED when the store answers %j",
@@ -310,10 +319,9 @@ describe("an unwired pipeline is honest", () => {
 
 describe("O1-A holds no copy of O1-F's consent authority", () => {
   /**
-   * O1-F's fold materialises a named row only when a participation exists AND
-   * `pilot_consent_covers_day(...)` is true, and deletes it otherwise. It does
-   * not gate on participation status. An app-side re-implementation would be a
-   * second authority on semantics O1-F does not have — so there is none.
+   * A produces raw, privacy-safe day totals. F exclusively owns participation,
+   * consent, suppression and named visibility, so the application holds no
+   * copy of any of those decisions — and does not restate F's rules either.
    */
   it("defines no participation, consent or named-appearance decision", () => {
     const dir = "src/features/engagement";

@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
-  LOW_CONFIDENCE_ELIGIBLE_ENCOUNTERS,
   MIN_BASELINE_SAMPLE,
   aggregateTimeSaved,
+  baselineConfidence,
   estimateDailyTimeSaved,
   type ManualBaseline,
 } from "./time-saved";
@@ -58,7 +58,12 @@ describe("NULL, never a guess, when evidence is insufficient", () => {
     ["fractional count", baseline(), { medianSecondsPerRx: 180, eligibleEncounters: 2.5 }, "INVALID_INPUT"],
   ] as const)("%s", (_name, b, measured, reason) => {
     const r = estimateDailyTimeSaved(b, measured);
-    expect(r).toEqual({ status: "INSUFFICIENT_EVIDENCE", reason, minutesSaved: null });
+    expect(r).toEqual({
+      status: "INSUFFICIENT_EVIDENCE",
+      reason,
+      minutesSaved: null,
+      confidence: "NOT_MEASURED",
+    });
   });
 
   it("is exactly at the minimum sample, it estimates", () => {
@@ -68,27 +73,129 @@ describe("NULL, never a guess, when evidence is insufficient", () => {
   });
 });
 
-describe("confidence", () => {
-  it("is LOW below the eligible-encounter floor and STANDARD at it", () => {
-    const low = estimateDailyTimeSaved(baseline(), {
+/**
+ * The frozen O1-A-R1 confidence ladder, asserted ON THE BOUNDARIES.
+ *
+ *   observed n >= 20   HIGH
+ *   observed n 10..19  MEDIUM
+ *   observed n 5..9    LOW
+ *   observed n < 5     NOT_MEASURED
+ *   SELF_REPORTED      LOW at every valid n
+ *
+ * Every tier edge is tested from both sides, because an off-by-one here
+ * silently relabels a doctor's evidence.
+ */
+describe("baseline confidence — frozen boundaries", () => {
+  it.each([
+    [4, "NOT_MEASURED"],
+    [5, "LOW"],
+    [9, "LOW"],
+    [10, "MEDIUM"],
+    [19, "MEDIUM"],
+    [20, "HIGH"],
+  ] as const)("observed n=%i is %s", (sampleN, expected) => {
+    expect(baselineConfidence(baseline({ sampleN }))).toBe(expected);
+  });
+
+  it("no baseline at all is NOT_MEASURED", () => {
+    expect(baselineConfidence(null)).toBe("NOT_MEASURED");
+  });
+
+  /** The tier edges again, this time through a full estimate. */
+  it.each([
+    [4, "INSUFFICIENT_EVIDENCE", "NOT_MEASURED"],
+    [5, "ESTIMATED", "LOW"],
+    [9, "ESTIMATED", "LOW"],
+    [10, "ESTIMATED", "MEDIUM"],
+    [19, "ESTIMATED", "MEDIUM"],
+    [20, "ESTIMATED", "HIGH"],
+  ] as const)("an estimate at observed n=%i is %s/%s", (sampleN, status, confidence) => {
+    const r = estimateDailyTimeSaved(baseline({ sampleN }), {
       medianSecondsPerRx: 200,
-      eligibleEncounters: LOW_CONFIDENCE_ELIGIBLE_ENCOUNTERS - 1,
+      eligibleEncounters: 12,
     });
-    const std = estimateDailyTimeSaved(baseline(), {
+    expect(r.status).toBe(status);
+    expect(r.confidence).toBe(confidence);
+  });
+
+  /** n=5..19 is valid evidence. The old MIN of 20 rejected it outright. */
+  it("does not reject a valid observed baseline of 5 to 19", () => {
+    for (const sampleN of [5, 6, 9, 10, 15, 19]) {
+      const r = estimateDailyTimeSaved(baseline({ sampleN }), {
+        medianSecondsPerRx: 100,
+        eligibleEncounters: 3,
+      });
+      expect(r.status, `n=${sampleN} must estimate`).toBe("ESTIMATED");
+      expect(r.minutesSaved).not.toBeNull();
+    }
+  });
+});
+
+describe("a self-reported baseline is always LOW", () => {
+  const selfReported = (sampleN: number) => baseline({ method: "SELF_REPORTED", sampleN });
+
+  it.each([5, 9, 10, 19, 20, 100, 5000])("n=%i stays LOW", (sampleN) => {
+    expect(baselineConfidence(selfReported(sampleN))).toBe("LOW");
+  });
+
+  it.each([5, 20, 400])("an estimate from a self-reported n=%i is LOW", (sampleN) => {
+    const r = estimateDailyTimeSaved(selfReported(sampleN), {
       medianSecondsPerRx: 200,
-      eligibleEncounters: LOW_CONFIDENCE_ELIGIBLE_ENCOUNTERS,
+      eligibleEncounters: 9,
     });
-    expect(low.status === "ESTIMATED" && low.confidence).toBe("LOW");
-    expect(std.status === "ESTIMATED" && std.confidence).toBe("STANDARD");
+    expect(r.status === "ESTIMATED" && r.confidence).toBe("LOW");
+  });
+
+  /**
+   * A huge DD sample is more evidence about DD, not about the recollection it
+   * is compared against. It must not upgrade the tier.
+   */
+  it("is not upgraded by a large eligible-encounter count", () => {
+    for (const eligibleEncounters of [1, 50, 5000]) {
+      const r = estimateDailyTimeSaved(selfReported(900), { medianSecondsPerRx: 120, eligibleEncounters });
+      expect(r.status === "ESTIMATED" && r.confidence).toBe("LOW");
+    }
+  });
+
+  /** The same large DD sample does not upgrade a thin OBSERVED baseline either. */
+  it("and a large DD sample does not upgrade a thin observed baseline", () => {
+    const r = estimateDailyTimeSaved(baseline({ sampleN: 6 }), {
+      medianSecondsPerRx: 120,
+      eligibleEncounters: 5000,
+    });
+    expect(r.status === "ESTIMATED" && r.confidence).toBe("LOW");
+  });
+
+  /** Below the validity floor, the method cannot rescue it. */
+  it("is NOT_MEASURED below the validity floor", () => {
+    expect(baselineConfidence(selfReported(MIN_BASELINE_SAMPLE - 1))).toBe("NOT_MEASURED");
+  });
+});
+
+describe("STANDARD is gone from the vocabulary", () => {
+  it("never appears in any result", () => {
+    const results = [
+      estimateDailyTimeSaved(null, { medianSecondsPerRx: 1, eligibleEncounters: 1 }),
+      estimateDailyTimeSaved(baseline({ sampleN: 4 }), { medianSecondsPerRx: 1, eligibleEncounters: 1 }),
+      ...[5, 10, 20].map((sampleN) =>
+        estimateDailyTimeSaved(baseline({ sampleN }), { medianSecondsPerRx: 1, eligibleEncounters: 1 }),
+      ),
+    ];
+    for (const r of results) {
+      expect(r.confidence).not.toBe("STANDARD");
+      expect(["HIGH", "MEDIUM", "LOW", "NOT_MEASURED"]).toContain(r.confidence);
+    }
   });
 });
 
 describe("period aggregation", () => {
   it("counts days without evidence instead of filling them in", () => {
     const days = [
+      // HIGH: observed n=24.
       estimateDailyTimeSaved(baseline(), { medianSecondsPerRx: 180, eligibleEncounters: 6 }),
       estimateDailyTimeSaved(null, { medianSecondsPerRx: 180, eligibleEncounters: 6 }),
-      estimateDailyTimeSaved(baseline(), { medianSecondsPerRx: 180, eligibleEncounters: 2 }),
+      // LOW: observed n=6, regardless of how many encounters were measured.
+      estimateDailyTimeSaved(baseline({ sampleN: 6 }), { medianSecondsPerRx: 180, eligibleEncounters: 2 }),
     ];
     const p = aggregateTimeSaved(days, true);
     expect(p.daysEstimated).toBe(2);

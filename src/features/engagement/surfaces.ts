@@ -102,15 +102,16 @@ export function classifySurface(pathname: string | null | undefined): Engagement
 }
 
 /**
- * Surface → O1-F `feature_registry.code`.
+ * Surface → O1-F `feature_registry.code`. FROZEN O1-A VOCABULARY.
  *
- * O1-F constrains a code to `^[a-z][a-z0-9_]{1,63}$` and its registry is a
- * foreign key, so a code that is not registered cannot be written at all.
- * `0047` seeds only the `'*'` sentinel today, which is why the producer takes
- * the registered set as an argument and emits a feature touch for nothing
- * else — an unregistered code would fail the constraint at wiring time.
+ * These seven codes are the whole of it, and they are a spec constant, not a
+ * runtime discovery: O1-F seeds exactly these in `0047` and owns the registry
+ * foreign key, so A can emit them deterministically without reading the
+ * database to rediscover a list it already defines. The database stays the
+ * final conformance authority — an unseeded code is refused by the FK, which
+ * is the correct place for that to be caught.
  *
- * OWNER has no feature code: platform administration is not doctor practice,
+ * OWNER has no feature code: platform administration is not a doctor feature,
  * and the beacon never mounts outside the clinical shell anyway.
  */
 const SURFACE_FEATURE_CODES: Readonly<Partial<Record<EngagementSurface, string>>> = {
@@ -126,6 +127,17 @@ const SURFACE_FEATURE_CODES: Readonly<Partial<Record<EngagementSurface, string>>
 export function featureCodeForSurface(surface: EngagementSurface): string | null {
   return SURFACE_FEATURE_CODES[surface] ?? null;
 }
+
+/**
+ * Every feature code O1-A can ever emit — the frozen seven above.
+ *
+ * The producer emits touches for these unconditionally. There is deliberately
+ * no "registered set" parameter: one used to exist, defaulted to an empty set,
+ * and the real request path never supplied it — so every feature-touch row
+ * silently vanished in production while the unit tests, which did supply it,
+ * passed. A frozen vocabulary cannot fail that way.
+ */
+export const A_FEATURE_CODES: ReadonlySet<string> = new Set(Object.values(SURFACE_FEATURE_CODES));
 
 /**
  * The complete request body a browser may send. One key, one enum value.

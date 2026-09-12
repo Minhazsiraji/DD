@@ -20,15 +20,41 @@
  *   NULL, NEVER A GUESS. No baseline, too small a sample, or no eligible
  *   encounters gives `null` with a reason. Not zero, and not an estimate
  *   dressed up as one.
+ *
+ * CONFIDENCE COMES FROM THE BASELINE, NOT FROM DD's SAMPLE. Frozen:
+ *
+ *   observed n >= 20                  HIGH
+ *   observed n 10..19                 MEDIUM
+ *   observed n 5..9                   LOW
+ *   observed n < 5, or no baseline    NOT_MEASURED
+ *   SELF_REPORTED (any valid n)       LOW, always
+ *
+ * A self-reported baseline is a recollection. Measuring a great many DD
+ * encounters against it makes the COMPARISON no better, so `eligibleEncounters`
+ * is carried as evidence metadata and is deliberately given no vote in
+ * confidence — it cannot lift SELF_REPORTED above LOW, and it cannot lift a
+ * thin observed baseline either.
  */
 
-/** Minimum baseline observations before any saving is computed at all. */
-export const MIN_BASELINE_SAMPLE = 20;
+/**
+ * Fewest baseline observations that can be compared at all. Below this the
+ * answer is NOT_MEASURED — an n of 4 is an anecdote, not a baseline.
+ */
+export const MIN_BASELINE_SAMPLE = 5;
 
-/** Below this many eligible encounters in a day, confidence is LOW. */
-export const LOW_CONFIDENCE_ELIGIBLE_ENCOUNTERS = 5;
+/** At or above this many observations, an observed baseline is MEDIUM. */
+export const MEDIUM_BASELINE_SAMPLE = 10;
+
+/** At or above this many observations, an observed baseline is HIGH. */
+export const HIGH_BASELINE_SAMPLE = 20;
 
 export type BaselineMethod = "OBSERVED_TIME_MOTION" | "SELF_REPORTED";
+
+/**
+ * The only confidence vocabulary. There is no STANDARD tier — a result is
+ * either measured at one of three strengths, or it is NOT_MEASURED.
+ */
+export type TimeSavedConfidence = "HIGH" | "MEDIUM" | "LOW" | "NOT_MEASURED";
 
 export interface ManualBaseline {
   secondsPerRx: number;
@@ -51,16 +77,22 @@ export type InsufficientReason =
   | "INVALID_INPUT";
 
 export type TimeSavedResult =
-  | { status: "INSUFFICIENT_EVIDENCE"; reason: InsufficientReason; minutesSaved: null }
+  | {
+      status: "INSUFFICIENT_EVIDENCE";
+      reason: InsufficientReason;
+      minutesSaved: null;
+      confidence: "NOT_MEASURED";
+    }
   | {
       status: "ESTIMATED";
       /** Positive: DD was faster. Negative: DD was slower. Never clamped. */
       signedDeltaSecondsPerRx: number;
       /** May be negative. */
       minutesSaved: number;
-      confidence: "LOW" | "STANDARD";
+      confidence: "HIGH" | "MEDIUM" | "LOW";
       baselineMethod: BaselineMethod;
       baselineSampleN: number;
+      /** Evidence metadata only. It never influences `confidence`. */
       eligibleEncounters: number;
     };
 
@@ -68,10 +100,32 @@ const insufficient = (reason: InsufficientReason): TimeSavedResult => ({
   status: "INSUFFICIENT_EVIDENCE",
   reason,
   minutesSaved: null,
+  confidence: "NOT_MEASURED",
 });
 
 const isFiniteNonNegative = (n: unknown): n is number =>
   typeof n === "number" && Number.isFinite(n) && n >= 0;
+
+/**
+ * Confidence in the BASELINE — the whole comparison is only as good as this.
+ *
+ * Exported so the boundaries are testable directly rather than only through a
+ * full estimate, and so a presenter can label a baseline before any day of DD
+ * data exists.
+ *
+ * The method is checked BEFORE the observed-n tiers, which is what pins a
+ * self-reported baseline to LOW no matter how large its n is.
+ */
+export function baselineConfidence(baseline: ManualBaseline | null): TimeSavedConfidence {
+  if (!baseline) return "NOT_MEASURED";
+  if (!Number.isInteger(baseline.sampleN) || baseline.sampleN < MIN_BASELINE_SAMPLE) {
+    return "NOT_MEASURED";
+  }
+  if (baseline.method === "SELF_REPORTED") return "LOW";
+  if (baseline.sampleN >= HIGH_BASELINE_SAMPLE) return "HIGH";
+  if (baseline.sampleN >= MEDIUM_BASELINE_SAMPLE) return "MEDIUM";
+  return "LOW";
+}
 
 /** One day, one doctor. */
 export function estimateDailyTimeSaved(
@@ -97,12 +151,19 @@ export function estimateDailyTimeSaved(
   const signedDeltaSecondsPerRx = baseline.secondsPerRx - measured.medianSecondsPerRx;
   const minutesSaved = (signedDeltaSecondsPerRx * measured.eligibleEncounters) / 60;
 
+  /**
+   * The validity gate above already rejected everything NOT_MEASURED, so the
+   * baseline here can only be HIGH, MEDIUM or LOW. The assertion keeps that
+   * invariant visible instead of widening the estimate's union.
+   */
+  const confidence = baselineConfidence(baseline);
+  if (confidence === "NOT_MEASURED") return insufficient("BASELINE_SAMPLE_TOO_SMALL");
+
   return {
     status: "ESTIMATED",
     signedDeltaSecondsPerRx,
     minutesSaved,
-    confidence:
-      measured.eligibleEncounters < LOW_CONFIDENCE_ELIGIBLE_ENCOUNTERS ? "LOW" : "STANDARD",
+    confidence,
     baselineMethod: baseline.method,
     baselineSampleN: baseline.sampleN,
     eligibleEncounters: measured.eligibleEncounters,
