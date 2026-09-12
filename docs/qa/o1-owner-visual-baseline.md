@@ -4,11 +4,11 @@ Authority base: `7dd53576022fa50706eb5e57a2f34fd59425ad96`
 
 Visual reference: `097955c1b1ce43bcda9b2bc98c141d0487279b4b`
 
-This document is a QA contract only. It does not authorize or implement O1 routes, queries, telemetry, RPCs, database work, Owner business logic, or clinical behavior.
+This is a QA contract only. It does not authorize or implement O1 routes, queries, telemetry, RPCs, database work, Owner business logic, or clinical behavior.
 
-## 1. Accepted DD visual stack
+## Accepted DD visual stack
 
-Root order is authoritative and must remain:
+Authoritative root order:
 
 1. `globals.css`
 2. `branding-logo.css`
@@ -17,114 +17,60 @@ Root order is authoritative and must remain:
 5. `app-unified-liquid.css`
 6. `dd-material-system.css`
 
-Typography at the root uses Geist Sans, Geist Mono, and Manrope. Workspace headings use the existing `PageHeader` hierarchy; metric values use tabular numerals where the product already marks value content.
+The root typography at this authority base is **Geist Sans + Geist Mono**. `PageHeader` supplies the established workspace heading hierarchy, and measured values use tabular numerals where appropriate.
 
-The accepted global canvas is the lavender/organ treatment from `global-background-test.css` plus `/dd-global-bg.webp`: `#e8e3ee`, fixed organ artwork, 28% pale wash, cover/center placement, 8px blur/1.02 scale on desktop, and center-top 7px blur/1.035 scale on mobile.
+The accepted canvas is the lavender/organ treatment from `global-background-test.css` plus `/dd-global-bg.webp`: `#e8e3ee`, fixed organ artwork, pale wash, cover/center placement, 8px blur/1.02 scale on desktop and center-top 7px blur/1.035 scale on mobile.
 
-## 2. Material hierarchy
+## Material hierarchy
 
 The accepted rule remains: **glass for shell/chrome/summary; high-readability solid treatment for critical clinical data.**
 
 - Chrome: `dd-material-chrome`, `dd-topbar`, `dd-sidebar`; major chrome owns blur.
-- Summary/major panels: `dd-app-panel`, `dd-material-panel`, `dd-panel-pearl`.
-- Child/list records: `dd-material-record`, `dd-record-pearl`; child records must not stack an additional backdrop blur.
-- Interactive records: `dd-record-interactive` retains hover lift only for hover-capable fine pointers and removes motion under reduced-motion preferences.
-- Quick controls: `dd-quick-row dd-quick-control`; preserve existing hover/focus behavior.
-- Clinical/high-readability surfaces: `dd-material-clinical` or the existing solid clinical editor patterns where values/actions require stronger contrast.
-- Primary/secondary actions: keep the accepted `dd-primary` / `dd-secondary` families and semantic danger/warning/success colors. Do not recolor semantic states merely to make Owner pages visually uniform.
+- Summary panels: `dd-app-panel`, `dd-material-panel`, `dd-panel-pearl`.
+- Child records: `dd-material-record`, `dd-record-pearl`; do not stack another backdrop blur.
+- Interactive records: `dd-record-interactive`; hover lift applies only where hover/pointer capability permits and reduced-motion removes motion.
+- Quick controls: `dd-quick-row dd-quick-control`; preserve hover/focus behavior.
+- Clinical/readability surfaces: `dd-material-clinical` or the existing solid clinical editor patterns.
+- Actions: preserve `dd-primary`, `dd-secondary`, and semantic danger/warning/success treatments. Semantic meaning must not be recolored merely for visual uniformity.
 
-## 3. Existing shell baseline
+## Existing shell baseline
 
-### Authenticated clinical app shell
+The authenticated `(app)` shell provides `BackgroundCanvas`, a desktop sidebar from `lg` upward (76px at `lg`, 248px at `xl`), sticky 64px Top Bar, mobile bottom navigation, max content width 1400px, and responsive page padding `px-4 py-5` → `sm:px-6 sm:py-6` with mobile safe bottom spacing.
 
-The `(app)` shell currently provides:
+This spacing/material language is a reference only. `/owner` intentionally sits outside the clinical `(app)` shell. Its accepted layout performs `requirePlatformOwner()` and returns children without Doctor/location patient-search chrome. Future O1 Owner chrome may use DD materials and spacing, but visual QA must fail accidental clinical-shell leakage.
 
-- `BackgroundCanvas`
-- desktop sidebar from `lg` upward: 76px rail at `lg`, 248px at `xl`
-- sticky 64px Top Bar
-- mobile bottom navigation
-- page content max-width 1400px
-- page padding `px-4 py-5`, expanding to `sm:px-6 sm:py-6`, with mobile bottom-nav safe spacing.
+At this authority base, `/owner/dashboard` and the requested child routes are not implemented. MD2 does not create them in this lane.
 
-This is the visual spacing reference, not permission to reuse clinical navigation in Owner.
+## Accepted component primitives
 
-### Owner boundary
+- **PageHeader:** no own blur layer; narrow-screen column, `sm` row alignment; brand eyebrow, 2xl/28px title, secondary subtitle; actions stack on mobile.
+- **GlassCard / GlassPanel:** tone contract `default | strong`; blur explicit. `GlassCard` defaults to flat glass and supports optional interactive hover/focus; `GlassPanel` defaults to blurred strong glass.
+- **SectionCard / SectionHeader:** semantic `<section>` with `dd-app-panel dd-material-panel min-w-0 rounded-glass-lg shadow-soft`; SectionHeader uses `dd-section-header`, responsive wrapping, and optional tabular count.
+- **StatCard:** summary `GlassCard` with `dd-dashboard-card`; value is top-right, 28px/32px, bold, `text-ink`, `tabular-nums`; existing IconOrb accents are brand/violet/success/warning/danger/info. Color never replaces explicit data truth.
+- **StatusBadge:** palette includes neutral/brand/success/warning/danger/critical/info; existing badges always include icon + visible label.
+- **EmptyState:** centered; inline state uses `py-10`, page variant uses `min-h-[46vh] py-16`; title, optional description/action. Genuine empty data only—not transport/query failure.
+- **Skeletons:** Shimmer is `aria-hidden`; DashboardSkeleton owns `role=status`, `aria-live=polite`, `aria-busy=true`, and responsive geometry to reduce layout shift.
 
-`/owner` is intentionally outside the `(app)` clinical shell. The accepted Owner layout currently performs only `requirePlatformOwner()` and returns its children. The existing `/owner` page explicitly documents that Owner administration must not inherit location context, patient search, or clinical navigation.
+## Dense-list / table QA pattern
 
-Therefore future O1 Owner chrome may use the accepted DD material language, spacing rhythm, typography and responsive behavior, but QA must fail any accidental import of Doctor/location clinical shell concepts solely for visual convenience.
+No shared generic Table primitive was found in the accepted component inventory audited for this baseline. Current dense lists favor material panels/records; current Owner verification uses responsive cards/definition lists.
 
-At the authority base, `/owner/dashboard` and its requested child routes are not implemented. MD2 must not create them in this lane.
+If O1 introduces semantic tables: keep semantic rows/columns, contain horizontal overflow inside the table region rather than the page, preserve readable minimum widths, use tabular numerals for metric values, keep row focus/hover visible without adding per-row backdrop blur, and use the O1-approved mobile adaptation without changing data meaning. Failure/unavailability must never become an empty table or numeric zero.
 
-## 4. Existing component primitives
+## Metric truth contract
 
-### `PageHeader`
-
-- no extra blur/surface of its own
-- column on narrow screens, row/action alignment from `sm`
-- 2xl/28px title scale, brand eyebrow, secondary subtitle
-- actions stack full-width on mobile and collapse to intrinsic width on `sm+`
-
-### `GlassCard` / `GlassPanel`
-
-- tone contract is `default | strong`
-- blur is explicit; `GlassCard` defaults to flat glass (`glass-flat` / `glass-flat-strong`) and `GlassPanel` defaults to blurred strong glass
-- optional `interactive` state on `GlassCard` preserves hover lift, focus shadow and reduced-motion behavior
-- both retain the accepted rounded-glass geometry and existing material shadow tokens.
-
-### `SectionCard` / `SectionHeader`
-
-`SectionCard` is a semantic `<section>` using `dd-app-panel dd-material-panel min-w-0 rounded-glass-lg shadow-soft`; it does not wrap `GlassCard`. `SectionHeader` is a separate primitive using `dd-section-header`, responsive wrapping, `px-4 py-3` with `sm:px-5`, and an optional tabular numeric count.
-
-### `StatCard`
-
-A summary `GlassCard` using `dd-dashboard-card`. The value is top-right, `text-[28px]` / `sm:text-[32px]`, bold, `text-ink`, and `tabular-nums`. The icon uses the existing `IconOrb` accent vocabulary (`brand`, `violet`, `success`, `warning`, `danger`, `info`); the label uses the matching readable accent and the optional hint is muted. O1 must not use those colors alone to encode data truth.
-
-### `StatusBadge`
-
-Accepted palette includes `neutral`, `brand`, `success`, `warning`, `danger`, `critical`, and `info`. Existing badge shells always include both an icon and visible text. O1 state meaning must likewise never depend on color alone.
-
-### `EmptyState`
-
-Centered, deliberately spacious (`py-10`) with title, optional description and action. Empty-state text must describe genuine empty data, not transport/query failure.
-
-### Skeletons
-
-`Shimmer` is `aria-hidden`; the containing dashboard skeleton owns `role=status`, `aria-live=polite`, and `aria-busy=true`. Skeletons mirror final box geometry to minimize layout shift.
-
-## 5. Dense-list / table QA pattern
-
-There is no shared generic Table primitive in the accepted component inventory audited for this baseline. Current dense application lists favor material panels/records (for example patient cards) and Owner verification currently uses responsive cards/definition lists.
-
-If O1 implementation introduces semantic tables, MD2 QA will judge them against these rules rather than inventing business structure:
-
-- use semantic table markup where the O1 implementation genuinely represents columns/rows;
-- never allow the entire page to overflow horizontally;
-- contain horizontal overflow inside the table region when a true table must remain tabular;
-- preserve readable minimum column widths rather than compressing numbers/labels into ambiguity;
-- use tabular numerals for metric values;
-- keep row hover/focus visible without adding a second blur layer per row;
-- at 390px, use the O1-approved responsive adaptation (contained scroll or record/card representation) without changing data meaning or column truth;
-- failures/unavailability must not be rendered as an empty table or numeric zero.
-
-## 6. Metric truth contract
-
-These four states are visually and semantically different and must never collapse into one fallback:
-
-| State | Required rendering | Visual rule | Forbidden substitutions |
+| State | Required rendering | Visual rule | Never substitute |
 | --- | --- | --- | --- |
-| `0` | literal numeric `0` | normal measured metric/value styling; tabular numeric; high-confidence foreground | `—`, blank, muted placeholder, status badge implying missing data |
-| `Not measured` | exact nonnumeric label | neutral absence-of-measurement treatment; subdued but readable | `0`, dash-only, blank, `Unavailable` |
-| `Unavailable` | exact label | warning/source-unavailable treatment; stronger attention than Not measured; explicit text | `0`, blank, ordinary empty state |
-| `Insufficient cohort` | exact label | informational/privacy/statistical-insufficiency treatment; explicit text; distinct from warning and neutral absence | `0`, `Not measured`, `Unavailable`, hidden value |
+| `0` | literal numeric `0` | normal measured value styling, tabular numeric, high-confidence foreground | dash, blank, placeholder state |
+| `Not measured` | exact visible label | neutral nonnumeric absence-of-measurement treatment | `0`, blank, `Unavailable` |
+| `Unavailable` | exact visible label | explicit source-unavailable/warning treatment, stronger than Not measured | `0`, blank, ordinary empty state |
+| `Insufficient cohort` | exact visible label | informational/privacy/statistical-insufficiency treatment, not error styling | `0`, `Not measured`, `Unavailable`, hidden value |
 
-Color must not carry the distinction by itself. The exact visible text is mandatory. `Insufficient cohort` is not an error and must not look like a failed query. `Unavailable` is not proof of zero. `Not measured` is not proof of unavailability.
+Color cannot carry these distinctions alone. `Insufficient cohort` is not a failed query; `Unavailable` is not zero; `Not measured` is not unavailability.
 
-## 7. Responsive QA matrix
+## Responsive QA matrix
 
-Every future route below is to be checked at all three canonical viewports. Until a route exists, its status is **future / not implemented**, not pass/fail.
-
-Routes:
+Future routes:
 
 - `/owner/dashboard`
 - `/owner/dashboard/doctors`
@@ -134,61 +80,34 @@ Routes:
 - `/owner/dashboard/pilot-health`
 - `/owner/dashboard/security`
 
-### 1440 × 900 — desktop
+Until each route exists, its visual status is **future / not implemented**, not pass or fail.
 
-For every route verify: organ canvas remains perceptible through chrome/summary materials; Owner chrome is visually DD-consistent without clinical location/patient shell leakage; headings/actions align to the established page rhythm; metric truth states are unmistakable; cards/tables do not over-stack blur; hover/focus states are visible; dense content fits without clipping; no fixed element obscures content.
+### 1440×900
 
-### 1024 × 768 — tablet
+Verify canvas visibility; Owner chrome consistency without clinical-shell leakage; heading/action rhythm; unmistakable metric states; no excessive blur stacking; visible hover/focus; readable dense content; no clipping or fixed-element obstruction.
 
-For every route verify: any Owner navigation adaptation does not collide with content; panels reflow without truncating state labels; long headings/actions wrap safely; tables/list regions contain their own overflow; no page-level horizontal scroll; background remains supportive rather than competing with text; touch targets remain usable.
+### 1024×768
 
-### 390 × 844 — mobile
+Verify Owner navigation/content do not collide; panels reflow; state labels and long headings remain readable; table/list overflow is contained; no page-level horizontal scroll; touch targets remain usable.
 
-For every route verify: one-column reading order follows DOM meaning; no desktop-only hover is required for comprehension; state labels remain fully visible; tables use the approved contained-scroll/card adaptation; controls meet the current mobile height/spacing rhythm; safe-area/bottom spacing prevents obstruction; organ canvas and glass remain readable with the accepted mobile blur; no critical value is placed on ambiguous low-contrast glass.
+### 390×844
 
-## 8. CSS-collision checks for future O1 integration
+Verify single-column DOM reading order; no hover-only meaning; all truth-state labels remain visible; table adaptation preserves meaning; controls follow accepted mobile spacing; safe-area/bottom spacing prevents obstruction; canvas/glass stays readable; critical values never sit on ambiguous low-contrast glass.
 
-When O1 product files land, MD2 visual QA must compare computed styles and source selectors for:
+## CSS-collision checks for future O1 integration
 
-- Owner shell versus `.dd-topbar`, `.dd-sidebar`, `.dd-material-chrome`;
-- major Owner panels versus `.dd-app-panel`, `.dd-material-panel`, `.dd-panel-pearl`;
-- record/table rows versus `.dd-material-record`, `.dd-record-pearl`;
-- status visuals versus existing semantic danger/warning/info/success rules;
-- generic selectors such as `input`, `select`, `textarea`, `.glass*`, and `.clinical-surface` that may unintentionally affect Owner UI;
-- responsive overrides at 1279px and 767px;
-- reduced-motion and reduced-transparency fallbacks.
+When O1 product files land, compare computed/source behavior for Owner chrome versus `.dd-topbar`, `.dd-sidebar`, `.dd-material-chrome`; panels versus `.dd-app-panel`, `.dd-material-panel`, `.dd-panel-pearl`; row materials versus `.dd-material-record`, `.dd-record-pearl`; semantic status colors; broad `input`, `select`, `textarea`, `.glass*`, `.clinical-surface` selectors; 1279px/767px responsive overrides; reduced-motion and reduced-transparency fallbacks.
 
-A collision requiring product CSS or class changes is a new correction packet; this baseline lane does not fix product UI.
+Any product CSS/class correction requires a separate Central authorization.
 
-## 9. Appearance regression guard
+## Appearance regression guard
 
-Settings → Appearance remains an authenticated canvas override only:
+Settings → Appearance stays an authenticated canvas override only. Default/Restore Default returns to the exact accepted reference canvas. Custom Color/Image apply only after explicit selection. Uploaded image bytes remain local in IndexedDB; no URL upload/server fetch is introduced. Owner pages must not introduce a competing Owner-only body canvas.
 
-- Default / Restore Default returns to the exact accepted DD reference canvas;
-- Custom Color and Custom Image apply only after explicit selection;
-- image bytes remain local in IndexedDB;
-- no URL upload/server fetch is introduced;
-- Appearance must not override clinical print output.
+## Prescription print isolation
 
-Owner pages must observe the same canvas preference because it is rooted at the app body/background layer; O1 must not introduce an Owner-only competing body canvas.
+The accepted background owner contains its own `@media print` reset: white `html/body`, no background image, removed `body::before`, no blur/transform. The frozen Prescription `print-sheet.tsx` remains byte-locked by QA. Future O1 visual CSS must not leak backgrounds, fixed chrome, overlays, or material effects into clinical print.
 
-## 10. Prescription print isolation
+## Screenshot evidence contract
 
-The accepted background stylesheet contains its own `@media print` override at the layer that owns the organ canvas:
-
-- `html, body` become white;
-- background images are disabled;
-- `body::before` is removed;
-- blur/transform are disabled.
-
-The frozen `print-sheet.tsx` remains byte-locked by QA. O1 visual CSS must not add print-visible backgrounds, fixed chrome, overlays or material effects that survive those rules.
-
-## 11. Screenshot naming / evidence contract
-
-When O1 routes exist and an authenticated browser is available, capture one route × viewport artifact using:
-
-`o1-owner__<route-token>__<width>x<height>.png`
-
-Example: `o1-owner__doctors__390x844.png`.
-
-Each capture must be accompanied by the route, exact application SHA, viewport, data-state fixtures shown, reduced-motion/transparency mode if non-default, and pass/fail notes. Do not claim visual pass from a Vercel login screen or from a route that does not yet exist.
+When O1 routes exist and an authenticated browser is available, capture each route at 1440×900, 1024×768 and 390×844. Naming: `o1-owner__<route-token>__<width>x<height>.png`. Record exact app SHA, route, viewport, visible data-state fixtures, any reduced-motion/transparency mode, and pass/fail notes. Never claim a visual pass from a Vercel login screen or an unimplemented route.
