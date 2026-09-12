@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { MfaPanel } from "@/features/security/components/security-panels";
 import { listFactorsAction } from "@/features/security/actions";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { resolvePostMfaDestination } from "@/features/security/post-mfa-destination";
 
 export const metadata: Metadata = { title: "Set up two-step verification" };
 
@@ -20,7 +21,7 @@ export default async function MfaEnrollPage() {
   const current = aal?.currentLevel ?? null;
   const next = aal?.nextLevel ?? null;
 
-  if (current === "aal2") redirect("/dashboard");
+  if (current === "aal2") redirect(await resolvePostMfaDestination());
   if (next === "aal2") redirect("/mfa");
 
   const factors = await listFactorsAction();
