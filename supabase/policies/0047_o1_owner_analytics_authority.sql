@@ -2934,3 +2934,787 @@ grant execute on function public.rebuild_doctor_daily_activity_agg(date)
   to dd_metrics_rollup;
 grant execute on function public.rebuild_pilot_status_daily_agg(date, text)
   to dd_metrics_rollup;
+
+-- ============================================================================
+-- O1-F-I2 — Runtime closure: trusted minute clock + race-safe reconciliation
+-- CENTRAL-authorized amendment to the still-unapplied 0047 only.
+-- No clinical analytics and no change to frozen Owner aggregate semantics.
+-- ============================================================================
+
+-- Doctor/day reconciliation state is deliberately nonclinical. Timezone is
+-- retained once per Doctor/day so frozen A can replay clinic-day bucketing
+-- without a practice-location identifier or a default-timezone guess.
+create table public.activity_reconciliation_state (
+  doctor_id uuid not null references public.doctor_profiles(id),
+  period_day date not null,
+  clinic_timezone text,
+  evidence_generation bigint not null default 0 check (evidence_generation >= 0),
+  reconciled_generation bigint not null default 0 check (reconciled_generation >= 0),
+  updated_at timestamptz not null default clock_timestamp(),
+  primary key (doctor_id, period_day),
+  check (reconciled_generation <= evidence_generation),
+  check (clinic_timezone is null or char_length(clinic_timezone) between 1 and 80),
+  check (evidence_generation = 0 or clinic_timezone is not null)
+);
+
+create table public.activity_reconciliation_day (
+  period_day date primary key,
+  evidence_generation bigint not null default 0 check (evidence_generation >= 0),
+  reconciled_generation bigint not null default 0 check (reconciled_generation >= 0),
+  reconciled_doctor_count bigint check (reconciled_doctor_count is null or reconciled_doctor_count >= 0),
+  updated_at timestamptz not null default clock_timestamp(),
+  check (reconciled_generation <= evidence_generation)
+);
+
+alter table public.activity_reconciliation_state enable row level security;
+alter table public.activity_reconciliation_state force row level security;
+create policy activity_reconciliation_state_deny_default
+  on public.activity_reconciliation_state for all
+  using (false) with check (false);
+create policy activity_reconciliation_state_rollup_all
+  on public.activity_reconciliation_state for all to dd_metrics_rollup
+  using (true) with check (true);
+
+alter table public.activity_reconciliation_day enable row level security;
+alter table public.activity_reconciliation_day force row level security;
+create policy activity_reconciliation_day_deny_default
+  on public.activity_reconciliation_day for all
+  using (false) with check (false);
+create policy activity_reconciliation_day_rollup_all
+  on public.activity_reconciliation_day for all to dd_metrics_rollup
+  using (true) with check (true);
+
+revoke all on public.activity_reconciliation_state, public.activity_reconciliation_day
+  from public, anon, authenticated, service_role,
+       dd_metrics_reader, dd_metrics_rollup, dd_pilot_writer, dd_retention;
+grant select, insert, update on
+  public.activity_reconciliation_state,
+  public.activity_reconciliation_day
+  to dd_metrics_rollup;
+
+-- The canonical actor -> Doctor relationship is doctor_profiles.user_id.
+-- The protected schema's unique index makes this scalar lookup deterministic.
+grant select(id, user_id) on public.doctor_profiles to dd_metrics_rollup;
+create policy doctor_profiles_o1f_i2_rollup_identity
+  on public.doctor_profiles for select to dd_metrics_rollup
+  using (true);
+
+create or replace function public.resolve_doctor_profile_id_for_actor(
+  target_actor_user_id uuid
+) returns uuid
+language sql
+stable
+security definer
+set search_path = public, pg_temp
+as $$
+  select d.id
+  from public.doctor_profiles d
+  where d.user_id = target_actor_user_id;
+$$;
+alter function public.resolve_doctor_profile_id_for_actor(uuid)
+  owner to dd_metrics_rollup;
+
+-- I1's DB-generated minute is superseded. The trusted server now supplies
+-- the already-truncated minute stamp and clinic timezone. PostgreSQL checks
+-- freshness, future skew, timezone validity and the clinic-day assignment.
+revoke execute on function public.record_engagement_minute(uuid, date, text)
+  from public, anon, authenticated, service_role,
+       dd_metrics_reader, dd_metrics_rollup, dd_pilot_writer, dd_retention;
+drop function public.record_engagement_minute(uuid, date, text);
+
+create or replace function public.record_engagement_minute(
+  target_doctor_id uuid,
+  target_period_day date,
+  target_minute_bucket timestamptz,
+  target_surface text,
+  target_clinic_timezone text
+) returns boolean
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_now timestamptz := clock_timestamp();
+  v_now_bucket timestamptz;
+  v_inserted bigint;
+  v_existing_timezone text;
+begin
+  if target_doctor_id is null
+     or target_period_day is null
+     or target_minute_bucket is null
+     or target_clinic_timezone is null
+  then
+    raise exception 'O1A_MINUTE_CONTEXT_REQUIRED' using errcode = '22023';
+  end if;
+
+  if target_surface not in (
+    'DASHBOARD','PATIENTS','CONSULTATION','PRESCRIPTION',
+    'APPOINTMENTS','QUEUE','SETTINGS','OWNER'
+  ) then
+    raise exception 'O1A_MINUTE_SURFACE_INVALID' using errcode = '22023';
+  end if;
+
+  if not exists (
+    select 1 from pg_catalog.pg_timezone_names z
+    where z.name = target_clinic_timezone
+  ) then
+    raise exception 'O1A_MINUTE_TIMEZONE_INVALID' using errcode = '22023';
+  end if;
+
+  if target_minute_bucket <> date_trunc('minute', target_minute_bucket) then
+    raise exception 'O1A_MINUTE_NOT_TRUNCATED' using errcode = '22023';
+  end if;
+
+  v_now_bucket := date_trunc('minute', v_now);
+  if target_minute_bucket < v_now_bucket - interval '5 minutes' then
+    raise exception 'O1A_MINUTE_STALE' using errcode = '22023';
+  end if;
+  if target_minute_bucket > v_now_bucket + interval '1 minute' then
+    raise exception 'O1A_MINUTE_FUTURE_SKEW' using errcode = '22023';
+  end if;
+
+  if (target_minute_bucket at time zone target_clinic_timezone)::date <> target_period_day then
+    raise exception 'O1A_MINUTE_PERIOD_DAY_MISMATCH' using errcode = '22023';
+  end if;
+
+  -- Same day-scoped transactional lock is used by reconciliation closeout.
+  perform pg_catalog.pg_advisory_xact_lock(
+    pg_catalog.hashtextextended('O1F_ACTIVITY_DAY:' || target_period_day::text, 0)
+  );
+
+  select s.clinic_timezone
+  into v_existing_timezone
+  from public.activity_reconciliation_state s
+  where s.doctor_id = target_doctor_id
+    and s.period_day = target_period_day
+  for update;
+
+  if found
+     and v_existing_timezone is not null
+     and v_existing_timezone <> target_clinic_timezone
+  then
+    raise exception 'O1F_ACTIVITY_TIMEZONE_CONFLICT' using errcode = '22023';
+  end if;
+
+  delete from public.engagement_minute_store
+  where minute_bucket < v_now - interval '48 hours';
+
+  insert into public.engagement_minute_store(
+    doctor_id, period_day, minute_bucket, surface
+  ) values (
+    target_doctor_id, target_period_day, target_minute_bucket, target_surface
+  )
+  on conflict (doctor_id, period_day, minute_bucket, surface) do nothing;
+
+  get diagnostics v_inserted = row_count;
+  if v_inserted = 0 then
+    return false;
+  end if;
+
+  insert into public.activity_reconciliation_state(
+    doctor_id, period_day, clinic_timezone,
+    evidence_generation, reconciled_generation, updated_at
+  ) values (
+    target_doctor_id, target_period_day, target_clinic_timezone,
+    1, 0, clock_timestamp()
+  )
+  on conflict (doctor_id, period_day) do update
+    set clinic_timezone = coalesce(
+          public.activity_reconciliation_state.clinic_timezone,
+          excluded.clinic_timezone
+        ),
+        evidence_generation = public.activity_reconciliation_state.evidence_generation + 1,
+        updated_at = clock_timestamp();
+
+  insert into public.activity_reconciliation_day(
+    period_day, evidence_generation, reconciled_generation,
+    reconciled_doctor_count, updated_at
+  ) values (
+    target_period_day, 1, 0, null, clock_timestamp()
+  )
+  on conflict (period_day) do update
+    set evidence_generation = public.activity_reconciliation_day.evidence_generation + 1,
+        reconciled_doctor_count = null,
+        updated_at = clock_timestamp();
+
+  -- Any newly accepted unique minute invalidates stale ACTIVITY completeness.
+  update public.telemetry_day_coverage
+  set is_complete = false
+  where period_day = target_period_day
+    and principal_doctor_id = target_doctor_id
+    and measurement_domain = 'ACTIVITY'
+    and is_complete;
+
+  return true;
+end;
+$$;
+alter function public.record_engagement_minute(uuid, date, timestamptz, text, text)
+  owner to dd_metrics_rollup;
+
+create or replace function public.get_activity_reconciliation_day_watermark(
+  target_period_day date
+) returns table (
+  evidence_generation bigint,
+  eligible_doctor_count bigint
+)
+language plpgsql
+stable
+security definer
+set search_path = public, pg_temp
+as $$
+begin
+  if target_period_day is null then
+    raise exception 'O1F_ACTIVITY_DAY_REQUIRED' using errcode = '22023';
+  end if;
+
+  return query
+  select
+    coalesce((
+      select d.evidence_generation
+      from public.activity_reconciliation_day d
+      where d.period_day = target_period_day
+    ), 0::bigint),
+    (
+      select count(distinct p.doctor_id)::bigint
+      from public.pilot_participations p
+      where p.status in ('ENROLLED','COMPLETED')
+        and p.enrolled_on <= target_period_day
+        and public.pilot_consent_covers_day(
+          p.cohort_code, p.participation_id,
+          'PRODUCT_USAGE_ANALYTICS', target_period_day
+        )
+    );
+end;
+$$;
+alter function public.get_activity_reconciliation_day_watermark(date)
+  owner to dd_metrics_rollup;
+
+create or replace function public.list_activity_reconciliation_doctors(
+  target_period_day date,
+  target_after_doctor_id uuid default null,
+  target_limit integer default 100
+) returns table (
+  doctor_id uuid,
+  evidence_generation bigint,
+  reconciled_generation bigint,
+  clinic_timezone text,
+  has_evidence boolean
+)
+language plpgsql
+stable
+security definer
+set search_path = public, pg_temp
+as $$
+begin
+  if target_period_day is null then
+    raise exception 'O1F_ACTIVITY_DAY_REQUIRED' using errcode = '22023';
+  end if;
+  if target_limit is null or target_limit < 1 or target_limit > 500 then
+    raise exception 'O1F_ACTIVITY_DOCTOR_PAGE_LIMIT_INVALID' using errcode = '22023';
+  end if;
+
+  return query
+  with eligible as (
+    select distinct p.doctor_id
+    from public.pilot_participations p
+    where p.status in ('ENROLLED','COMPLETED')
+      and p.enrolled_on <= target_period_day
+      and public.pilot_consent_covers_day(
+        p.cohort_code, p.participation_id,
+        'PRODUCT_USAGE_ANALYTICS', target_period_day
+      )
+  )
+  select
+    e.doctor_id,
+    coalesce(s.evidence_generation, 0::bigint),
+    coalesce(s.reconciled_generation, 0::bigint),
+    s.clinic_timezone,
+    coalesce(s.evidence_generation, 0::bigint) > 0
+  from eligible e
+  left join public.activity_reconciliation_state s
+    on s.doctor_id = e.doctor_id
+   and s.period_day = target_period_day
+  where target_after_doctor_id is null or e.doctor_id > target_after_doctor_id
+  order by e.doctor_id
+  limit target_limit;
+end;
+$$;
+alter function public.list_activity_reconciliation_doctors(date, uuid, integer)
+  owner to dd_metrics_rollup;
+
+create or replace function public.get_activity_reconciliation_context(
+  target_doctor_id uuid,
+  target_period_day date
+) returns table (
+  evidence_generation bigint,
+  reconciled_generation bigint,
+  clinic_timezone text,
+  retained_minute_count bigint
+)
+language plpgsql
+stable
+security definer
+set search_path = public, pg_temp
+as $$
+begin
+  if target_doctor_id is null or target_period_day is null then
+    raise exception 'O1F_ACTIVITY_RECONCILIATION_CONTEXT_REQUIRED' using errcode = '22023';
+  end if;
+
+  if not exists (
+    select 1
+    from public.pilot_participations p
+    where p.doctor_id = target_doctor_id
+      and p.status in ('ENROLLED','COMPLETED')
+      and p.enrolled_on <= target_period_day
+      and public.pilot_consent_covers_day(
+        p.cohort_code, p.participation_id,
+        'PRODUCT_USAGE_ANALYTICS', target_period_day
+      )
+  ) then
+    raise exception 'O1F_ACTIVITY_RECONCILIATION_DOCTOR_NOT_ELIGIBLE' using errcode = '42501';
+  end if;
+
+  return query
+  select
+    coalesce(s.evidence_generation, 0::bigint),
+    coalesce(s.reconciled_generation, 0::bigint),
+    s.clinic_timezone,
+    (
+      select count(*)::bigint
+      from public.engagement_minute_store m
+      where m.doctor_id = target_doctor_id
+        and m.period_day = target_period_day
+    )
+  from (select 1) x
+  left join public.activity_reconciliation_state s
+    on s.doctor_id = target_doctor_id
+   and s.period_day = target_period_day;
+end;
+$$;
+alter function public.get_activity_reconciliation_context(uuid, date)
+  owner to dd_metrics_rollup;
+
+create or replace function public.read_activity_reconciliation_minutes(
+  target_doctor_id uuid,
+  target_period_day date,
+  target_generation bigint,
+  target_after_minute_bucket timestamptz default null,
+  target_after_surface text default null,
+  target_limit integer default 1000
+) returns table (
+  minute_bucket timestamptz,
+  surface text
+)
+language plpgsql
+stable
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_generation bigint;
+  v_timezone text;
+begin
+  if target_doctor_id is null or target_period_day is null
+     or target_generation is null or target_generation < 0
+  then
+    raise exception 'O1F_ACTIVITY_RECONCILIATION_CONTEXT_REQUIRED' using errcode = '22023';
+  end if;
+  if target_limit is null or target_limit < 1 or target_limit > 5000 then
+    raise exception 'O1F_ACTIVITY_MINUTE_PAGE_LIMIT_INVALID' using errcode = '22023';
+  end if;
+  if (target_after_minute_bucket is null) <> (target_after_surface is null) then
+    raise exception 'O1F_ACTIVITY_MINUTE_CURSOR_INVALID' using errcode = '22023';
+  end if;
+
+  select s.evidence_generation, s.clinic_timezone
+  into v_generation, v_timezone
+  from public.activity_reconciliation_state s
+  where s.doctor_id = target_doctor_id
+    and s.period_day = target_period_day;
+
+  v_generation := coalesce(v_generation, 0);
+  if v_generation <> target_generation then
+    raise exception 'O1F_ACTIVITY_RECONCILIATION_GENERATION_STALE' using errcode = '40001';
+  end if;
+  if v_generation > 0 and v_timezone is null then
+    raise exception 'O1F_ACTIVITY_RECONCILIATION_TIMEZONE_MISSING' using errcode = 'P0001';
+  end if;
+
+  return query
+  select m.minute_bucket, m.surface
+  from public.engagement_minute_store m
+  where m.doctor_id = target_doctor_id
+    and m.period_day = target_period_day
+    and (
+      target_after_minute_bucket is null
+      or (m.minute_bucket, m.surface) >
+         (target_after_minute_bucket, target_after_surface)
+    )
+  order by m.minute_bucket, m.surface
+  limit target_limit;
+end;
+$$;
+alter function public.read_activity_reconciliation_minutes(
+  uuid, date, bigint, timestamptz, text, integer
+) owner to dd_metrics_rollup;
+
+create or replace function public.acknowledge_activity_reconciliation(
+  target_doctor_id uuid,
+  target_period_day date,
+  target_generation bigint
+) returns void
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_generation bigint;
+  v_timezone text;
+  v_retained bigint;
+begin
+  if target_doctor_id is null or target_period_day is null
+     or target_generation is null or target_generation < 0
+  then
+    raise exception 'O1F_ACTIVITY_RECONCILIATION_CONTEXT_REQUIRED' using errcode = '22023';
+  end if;
+
+  perform pg_catalog.pg_advisory_xact_lock(
+    pg_catalog.hashtextextended('O1F_ACTIVITY_DAY:' || target_period_day::text, 0)
+  );
+
+  if not exists (
+    select 1
+    from public.pilot_participations p
+    where p.doctor_id = target_doctor_id
+      and p.status in ('ENROLLED','COMPLETED')
+      and p.enrolled_on <= target_period_day
+      and public.pilot_consent_covers_day(
+        p.cohort_code, p.participation_id,
+        'PRODUCT_USAGE_ANALYTICS', target_period_day
+      )
+  ) then
+    raise exception 'O1F_ACTIVITY_RECONCILIATION_DOCTOR_NOT_ELIGIBLE' using errcode = '42501';
+  end if;
+
+  select s.evidence_generation, s.clinic_timezone
+  into v_generation, v_timezone
+  from public.activity_reconciliation_state s
+  where s.doctor_id = target_doctor_id
+    and s.period_day = target_period_day
+  for update;
+
+  if not found then
+    if target_generation <> 0 then
+      raise exception 'O1F_ACTIVITY_RECONCILIATION_GENERATION_STALE' using errcode = '40001';
+    end if;
+    insert into public.activity_reconciliation_state(
+      doctor_id, period_day, clinic_timezone,
+      evidence_generation, reconciled_generation, updated_at
+    ) values (
+      target_doctor_id, target_period_day, null,
+      0, 0, clock_timestamp()
+    );
+    return;
+  end if;
+
+  if v_generation <> target_generation then
+    raise exception 'O1F_ACTIVITY_RECONCILIATION_GENERATION_STALE' using errcode = '40001';
+  end if;
+  if v_generation > 0 and v_timezone is null then
+    raise exception 'O1F_ACTIVITY_RECONCILIATION_TIMEZONE_MISSING' using errcode = 'P0001';
+  end if;
+
+  select count(*)::bigint
+  into v_retained
+  from public.engagement_minute_store m
+  where m.doctor_id = target_doctor_id
+    and m.period_day = target_period_day;
+
+  if v_retained <> v_generation then
+    raise exception 'O1F_ACTIVITY_EVIDENCE_EXPIRED' using errcode = 'P0001';
+  end if;
+
+  update public.activity_reconciliation_state
+  set reconciled_generation = target_generation,
+      updated_at = clock_timestamp()
+  where doctor_id = target_doctor_id
+    and period_day = target_period_day;
+end;
+$$;
+alter function public.acknowledge_activity_reconciliation(uuid, date, bigint)
+  owner to dd_metrics_rollup;
+
+create or replace function public.acknowledge_activity_reconciliation_day(
+  target_period_day date,
+  target_observed_generation bigint,
+  target_observed_doctor_count bigint
+) returns void
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_generation bigint;
+  v_eligible_count bigint;
+begin
+  if target_period_day is null
+     or target_observed_generation is null or target_observed_generation < 0
+     or target_observed_doctor_count is null or target_observed_doctor_count < 0
+  then
+    raise exception 'O1F_ACTIVITY_DAY_ACK_ARGUMENT_INVALID' using errcode = '22023';
+  end if;
+
+  perform pg_catalog.pg_advisory_xact_lock(
+    pg_catalog.hashtextextended('O1F_ACTIVITY_DAY:' || target_period_day::text, 0)
+  );
+
+  select d.evidence_generation
+  into v_generation
+  from public.activity_reconciliation_day d
+  where d.period_day = target_period_day
+  for update;
+  v_generation := coalesce(v_generation, 0);
+
+  if v_generation <> target_observed_generation then
+    raise exception 'O1F_ACTIVITY_DAY_GENERATION_STALE' using errcode = '40001';
+  end if;
+
+  select count(distinct p.doctor_id)::bigint
+  into v_eligible_count
+  from public.pilot_participations p
+  where p.status in ('ENROLLED','COMPLETED')
+    and p.enrolled_on <= target_period_day
+    and public.pilot_consent_covers_day(
+      p.cohort_code, p.participation_id,
+      'PRODUCT_USAGE_ANALYTICS', target_period_day
+    );
+
+  if v_eligible_count <> target_observed_doctor_count then
+    raise exception 'O1F_ACTIVITY_DAY_DOCTOR_SET_STALE' using errcode = '40001';
+  end if;
+
+  if exists (
+    select 1
+    from (
+      select distinct p.doctor_id
+      from public.pilot_participations p
+      where p.status in ('ENROLLED','COMPLETED')
+        and p.enrolled_on <= target_period_day
+        and public.pilot_consent_covers_day(
+          p.cohort_code, p.participation_id,
+          'PRODUCT_USAGE_ANALYTICS', target_period_day
+        )
+    ) e
+    left join public.activity_reconciliation_state s
+      on s.doctor_id = e.doctor_id
+     and s.period_day = target_period_day
+    where s.doctor_id is null
+       or s.reconciled_generation <> s.evidence_generation
+       or (s.evidence_generation > 0 and s.clinic_timezone is null)
+       or (
+         select count(*)::bigint
+         from public.engagement_minute_store m
+         where m.doctor_id = e.doctor_id
+           and m.period_day = target_period_day
+       ) <> coalesce(s.evidence_generation, 0)
+  ) then
+    raise exception 'O1F_ACTIVITY_DAY_UNRECONCILED' using errcode = '40001';
+  end if;
+
+  insert into public.activity_reconciliation_day(
+    period_day, evidence_generation, reconciled_generation,
+    reconciled_doctor_count, updated_at
+  ) values (
+    target_period_day, v_generation, v_generation,
+    v_eligible_count, clock_timestamp()
+  )
+  on conflict (period_day) do update
+    set reconciled_generation = excluded.reconciled_generation,
+        reconciled_doctor_count = excluded.reconciled_doctor_count,
+        updated_at = clock_timestamp();
+end;
+$$;
+alter function public.acknowledge_activity_reconciliation_day(date, bigint, bigint)
+  owner to dd_metrics_rollup;
+
+-- Replaces I1 attestation-only close with generation-backed proof. The
+-- boolean is retained for compatibility but can never substitute for the
+-- Doctor/day + day-level reconciliation receipts above.
+create or replace function public.finalize_activity_measurement_day(
+  target_period_day date,
+  target_source_version bigint,
+  target_ingestion_complete boolean
+) returns void
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  d record;
+  c record;
+  v_day_generation bigint;
+  v_day_reconciled bigint;
+  v_reconciled_doctor_count bigint;
+  v_eligible_count bigint;
+begin
+  if target_period_day is null or target_source_version is null or target_source_version < 0 then
+    raise exception 'O1F_ACTIVITY_CLOSE_ARGUMENT_INVALID' using errcode = '22023';
+  end if;
+  if target_ingestion_complete is distinct from true then
+    raise exception 'O1F_ACTIVITY_CLOSE_ATTESTATION_REQUIRED' using errcode = '22023';
+  end if;
+
+  perform pg_catalog.pg_advisory_xact_lock(
+    pg_catalog.hashtextextended('O1F_ACTIVITY_DAY:' || target_period_day::text, 0)
+  );
+
+  select d.evidence_generation, d.reconciled_generation, d.reconciled_doctor_count
+  into v_day_generation, v_day_reconciled, v_reconciled_doctor_count
+  from public.activity_reconciliation_day d
+  where d.period_day = target_period_day
+  for update;
+
+  select count(distinct p.doctor_id)::bigint
+  into v_eligible_count
+  from public.pilot_participations p
+  where p.status in ('ENROLLED','COMPLETED')
+    and p.enrolled_on <= target_period_day
+    and public.pilot_consent_covers_day(
+      p.cohort_code, p.participation_id,
+      'PRODUCT_USAGE_ANALYTICS', target_period_day
+    );
+
+  if v_day_generation is null
+     or v_day_reconciled <> v_day_generation
+     or v_reconciled_doctor_count is null
+     or v_reconciled_doctor_count <> v_eligible_count
+  then
+    raise exception 'O1F_ACTIVITY_DAY_UNRECONCILED' using errcode = '40001';
+  end if;
+
+  if exists (
+    select 1
+    from (
+      select distinct p.doctor_id
+      from public.pilot_participations p
+      where p.status in ('ENROLLED','COMPLETED')
+        and p.enrolled_on <= target_period_day
+        and public.pilot_consent_covers_day(
+          p.cohort_code, p.participation_id,
+          'PRODUCT_USAGE_ANALYTICS', target_period_day
+        )
+    ) e
+    left join public.activity_reconciliation_state s
+      on s.doctor_id = e.doctor_id
+     and s.period_day = target_period_day
+    where s.doctor_id is null
+       or s.reconciled_generation <> s.evidence_generation
+       or (s.evidence_generation > 0 and s.clinic_timezone is null)
+       or (
+         select count(*)::bigint
+         from public.engagement_minute_store m
+         where m.doctor_id = e.doctor_id
+           and m.period_day = target_period_day
+       ) <> coalesce(s.evidence_generation, 0)
+  ) then
+    raise exception 'O1F_ACTIVITY_DAY_UNRECONCILED' using errcode = '40001';
+  end if;
+
+  for d in
+    select distinct p.doctor_id
+    from public.pilot_participations p
+    where p.status in ('ENROLLED','COMPLETED')
+      and p.enrolled_on <= target_period_day
+      and public.pilot_consent_covers_day(
+        p.cohort_code, p.participation_id,
+        'PRODUCT_USAGE_ANALYTICS', target_period_day
+      )
+  loop
+    perform public.mark_telemetry_day_coverage(
+      target_period_day, d.doctor_id, 'ACTIVITY', true, target_source_version
+    );
+  end loop;
+
+  if exists (
+    select 1
+    from public.pilot_participations p
+    where p.status in ('ENROLLED','COMPLETED')
+      and p.enrolled_on <= target_period_day
+      and public.pilot_consent_covers_day(
+        p.cohort_code, p.participation_id,
+        'PRODUCT_USAGE_ANALYTICS', target_period_day
+      )
+      and not exists (
+        select 1
+        from public.telemetry_day_coverage t
+        where t.period_day = target_period_day
+          and t.principal_doctor_id = p.doctor_id
+          and t.measurement_domain = 'ACTIVITY'
+          and t.is_complete
+      )
+  ) then
+    raise exception 'O1F_ACTIVITY_CLOSE_SOURCE_VERSION_STALE' using errcode = '40001';
+  end if;
+
+  perform public.rebuild_doctor_daily_activity_agg(target_period_day);
+  for c in select distinct p.cohort_code from public.pilot_participations p
+  loop
+    perform public.rebuild_pilot_status_daily_agg(target_period_day, c.cohort_code);
+  end loop;
+  perform public.purge_expired_engagement_minutes();
+end;
+$$;
+alter function public.finalize_activity_measurement_day(date, bigint, boolean)
+  owner to dd_metrics_rollup;
+
+-- I2 worker capabilities are RPC-only. I1's unbounded snapshot is no
+-- longer executable by service_role; the table remains non-addressable.
+revoke execute on function public.snapshot_engagement_minutes(uuid, date)
+  from service_role;
+
+revoke execute on function public.resolve_doctor_profile_id_for_actor(uuid)
+  from public, anon, authenticated, service_role,
+       dd_metrics_reader, dd_pilot_writer, dd_retention;
+revoke execute on function public.record_engagement_minute(uuid, date, timestamptz, text, text)
+  from public, anon, authenticated, service_role,
+       dd_metrics_reader, dd_pilot_writer, dd_retention;
+revoke execute on function public.get_activity_reconciliation_day_watermark(date)
+  from public, anon, authenticated, service_role,
+       dd_metrics_reader, dd_pilot_writer, dd_retention;
+revoke execute on function public.list_activity_reconciliation_doctors(date, uuid, integer)
+  from public, anon, authenticated, service_role,
+       dd_metrics_reader, dd_pilot_writer, dd_retention;
+revoke execute on function public.get_activity_reconciliation_context(uuid, date)
+  from public, anon, authenticated, service_role,
+       dd_metrics_reader, dd_pilot_writer, dd_retention;
+revoke execute on function public.read_activity_reconciliation_minutes(
+  uuid, date, bigint, timestamptz, text, integer
+) from public, anon, authenticated, service_role,
+       dd_metrics_reader, dd_pilot_writer, dd_retention;
+revoke execute on function public.acknowledge_activity_reconciliation(uuid, date, bigint)
+  from public, anon, authenticated, service_role,
+       dd_metrics_reader, dd_pilot_writer, dd_retention;
+revoke execute on function public.acknowledge_activity_reconciliation_day(date, bigint, bigint)
+  from public, anon, authenticated, service_role,
+       dd_metrics_reader, dd_pilot_writer, dd_retention;
+
+grant execute on function public.resolve_doctor_profile_id_for_actor(uuid)
+  to service_role;
+grant execute on function public.record_engagement_minute(uuid, date, timestamptz, text, text)
+  to service_role;
+grant execute on function public.get_activity_reconciliation_day_watermark(date)
+  to service_role;
+grant execute on function public.list_activity_reconciliation_doctors(date, uuid, integer)
+  to service_role;
+grant execute on function public.get_activity_reconciliation_context(uuid, date)
+  to service_role;
+grant execute on function public.read_activity_reconciliation_minutes(
+  uuid, date, bigint, timestamptz, text, integer
+) to service_role;
+grant execute on function public.acknowledge_activity_reconciliation(uuid, date, bigint)
+  to service_role;
+grant execute on function public.acknowledge_activity_reconciliation_day(date, bigint, bigint)
+  to service_role;
+grant execute on function public.finalize_activity_measurement_day(date, bigint, boolean)
+  to service_role;
