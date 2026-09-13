@@ -1,0 +1,144 @@
+name: O1-F-I2 isolated final gate
+on:
+  push:
+    branches: [o1/f-i2-final-gate-helper]
+permissions:
+  contents: write
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: o1/f-integration-closure-i2
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Repair only malformed verifier service-call closures
+        shell: python
+        run: |
+          from pathlib import Path
+          import re
+          total = 0
+          for name in ['scripts/verify-o1f-i1-contract.mjs','scripts/verify-o1f-i2-contract.mjs']:
+              p = Path(name)
+              s = p.read_text()
+              pattern = re.compile(r'(await service\([^;]*?=>\s*\w+`.*?\n\s*)`;', re.S)
+              s2, n = pattern.subn(r'\1`);', s)
+              print(name, 'repairs', n)
+              total += n
+              p.write_text(s2)
+          if total == 0:
+              print('no malformed closures required')
+      - name: Syntax gate before candidate commit
+        shell: bash
+        run: |
+          node --check scripts/verify-o1f-i1-contract.mjs
+          node --check scripts/verify-o1f-i2-contract.mjs
+      - name: Commit verifier repair if needed
+        shell: bash
+        run: |
+          if ! git diff --quiet; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add scripts/verify-o1f-i1-contract.mjs scripts/verify-o1f-i2-contract.mjs
+            git commit -m "test(o1-f-i2): repair verifier call closures"
+            git push origin HEAD:o1/f-integration-closure-i2
+          fi
+          echo "CANDIDATE_HEAD=$(git rev-parse HEAD)"
+      - name: Install verifier dependency outside repository
+        shell: bash
+        run: |
+          mkdir -p /tmp/pgdep && cd /tmp/pgdep
+          npm init -y >/dev/null
+          npm install postgres@3.4.9 --ignore-scripts --no-audit --no-fund >/dev/null
+          cd "$GITHUB_WORKSPACE"
+          ln -s /tmp/pgdep/node_modules node_modules
+      - name: Exact-SHA preflight
+        shell: bash
+        run: |
+          rm node_modules
+          echo "PRE_HEAD=$(git rev-parse HEAD)"
+          echo "PRE_STATUS=$(git status --porcelain | wc -l)"
+          echo "PRE_BLOB=$(git hash-object supabase/policies/0047_o1_owner_analytics_authority.sql)"
+          echo "PRE_SHA256=$(sha256sum supabase/policies/0047_o1_owner_analytics_authority.sql | awk '{print $1}')"
+          test -z "$(git status --porcelain)"
+          echo CHANGED_FILES
+          git diff --name-only 9f75403c948ccf26b9bc644f3f476683d74bb522..HEAD
+          ln -s /tmp/pgdep/node_modules node_modules
+      - name: Bootstrap cluster roles
+        env:
+          PGPASSWORD: postgres
+        shell: bash
+        run: |
+          psql -h localhost -U postgres -d postgres -v ON_ERROR_STOP=1 <<'SQL'
+          do $bootstrap$
+          begin
+            if not exists (select 1 from pg_roles where rolname='anon') then create role anon noinherit; end if;
+            if not exists (select 1 from pg_roles where rolname='authenticated') then create role authenticated noinherit; end if;
+            if not exists (select 1 from pg_roles where rolname='service_role') then create role service_role noinherit bypassrls; end if;
+          end
+          $bootstrap$;
+          SQL
+      - name: Run all eight exact-SHA verifiers on fresh DBs
+        env:
+          PGPASSWORD: postgres
+        shell: bash
+        run: |
+          set -euo pipefail
+          tests=(
+            verify-o1f-activity-day-grain.mjs
+            verify-o1f-owner-aal2-and-consent.mjs
+            verify-o1f-owner-surface.mjs
+            verify-o1f-pilot-plane-isolation.mjs
+            verify-o1f-r2-contract.mjs
+            verify-o1f-r3-contract.mjs
+            verify-o1f-i1-contract.mjs
+            verify-o1f-i2-contract.mjs
+          )
+          i=0
+          for t in "${tests[@]}"; do
+            i=$((i+1)); db="o1fi2_final_${i}"
+            psql -h localhost -U postgres -d postgres -v ON_ERROR_STOP=1 -c "create database ${db};" >/dev/null
+            psql -h localhost -U postgres -d "$db" -v ON_ERROR_STOP=1 >/dev/null <<'SQL'
+            create extension if not exists pgcrypto;
+            create schema if not exists auth;
+            create table if not exists auth.users(id uuid primary key default gen_random_uuid());
+            create or replace function auth.uid() returns uuid language sql stable as $uid$
+              select nullif(coalesce(nullif(current_setting('request.jwt.claims', true), ''), '{}')::jsonb ->> 'sub','')::uuid;
+            $uid$;
+            create or replace function auth.jwt() returns jsonb language sql stable as $jwt$
+              select coalesce(nullif(current_setting('request.jwt.claims', true), ''), '{}')::jsonb;
+            $jwt$;
+            grant usage on schema auth to public;
+            grant execute on function auth.uid() to public;
+            grant execute on function auth.jwt() to public;
+            SQL
+            echo "===== ${t} @ $(git rev-parse HEAD) ====="
+            DATABASE_URL="postgresql://postgres:postgres@localhost:5432/${db}" DIRECT_URL="postgresql://postgres:postgres@localhost:5432/${db}" node "scripts/${t}"
+          done
+      - name: Exact-SHA postflight
+        if: always()
+        shell: bash
+        run: |
+          rm -f node_modules
+          echo "POST_HEAD=$(git rev-parse HEAD)"
+          echo "POST_STATUS=$(git status --porcelain | wc -l)"
+          echo "POST_BLOB=$(git hash-object supabase/policies/0047_o1_owner_analytics_authority.sql)"
+          echo "POST_SHA256=$(sha256sum supabase/policies/0047_o1_owner_analytics_authority.sql | awk '{print $1}')"
+          test -z "$(git status --porcelain)"
