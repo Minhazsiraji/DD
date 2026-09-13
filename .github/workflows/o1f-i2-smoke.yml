@@ -1,7 +1,34 @@
-name: O1-F-I2 smoke
+name: O1-F-I2 executor
 on: [push]
+permissions:
+  contents: write
 jobs:
-  smoke:
+  execute:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U postgres"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
+    env:
+      PGPASSWORD: postgres
     steps:
-      - run: echo ok
+      - uses: actions/checkout@v4
+        with:
+          ref: o1/f-integration-closure-i2
+          fetch-depth: 0
+          persist-credentials: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+      - run: bash scripts/o1f-i2-bootstrap.sh
