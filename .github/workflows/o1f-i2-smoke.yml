@@ -28,6 +28,11 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - run: npm install --package-lock=false --no-audit --no-fund
+      - run: |
+          rm -rf node_modules/postgres
+          mkdir -p node_modules/postgres
+          tgz=$(npm pack postgres@3.4.9 --silent)
+          tar -xzf "$tgz" -C node_modules/postgres --strip-components=1
+          rm -f "$tgz"
       - run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
       - run: bash scripts/o1f-i2-bootstrap.sh
