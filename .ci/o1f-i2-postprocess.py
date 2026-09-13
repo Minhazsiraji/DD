@@ -25,4 +25,16 @@ js, count = pattern.subn(r"\1`);", js)
 if count != 6:
     raise SystemExit(f'fixture service-call close count mismatch: {count}')
 
+old_finalize = '''    await service(tx, (sp) => sp`\n      select public.finalize_activity_measurement_day(${boundary.race_day}::date, 3, true)\n    `;'''
+new_finalize = '''    await service(tx, (sp) => sp`\n      select public.finalize_activity_measurement_day(${boundary.race_day}::date, 3, true)\n    `);'''
+if js.count(old_finalize) != 1:
+    raise SystemExit(f'late finalizer close anchor mismatch: {js.count(old_finalize)}')
+js = js.replace(old_finalize, new_finalize, 1)
+
+old_late = '''    const [late] = await service(tx, (sp) => sp`\n      select public.record_engagement_minute(\n        ${raceDoctors[0].doctorId}, ${boundary.race_day}::date,\n        ${boundary.before_stamp}::timestamptz, 'PATIENTS', ${boundary.name}\n      ) as inserted\n    `;'''
+new_late = '''    const [late] = await service(tx, (sp) => sp`\n      select public.record_engagement_minute(\n        ${raceDoctors[0].doctorId}, ${boundary.race_day}::date,\n        ${boundary.before_stamp}::timestamptz, 'PATIENTS', ${boundary.name}\n      ) as inserted\n    `);'''
+if js.count(old_late) != 1:
+    raise SystemExit(f'late writer close anchor mismatch: {js.count(old_late)}')
+js = js.replace(old_late, new_late, 1)
+
 v_path.write_text(js)
