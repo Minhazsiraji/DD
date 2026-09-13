@@ -27,7 +27,6 @@ for idx, name in enumerate([
     subprocess.run(['bash', '-euo', 'pipefail', str(script)], check=True)
 PY
 
-# Remove every temporary orchestration artifact before the real candidate commit.
 rm -f \
   .github/workflows/o1f-i2-builder.yml \
   .github/workflows/o1f-i2-runner.yml \
@@ -51,12 +50,11 @@ git diff --name-only "$START_SHA"..HEAD
 
 git push origin "HEAD:$BRANCH"
 
-# Verify the exact committed/pushed candidate from a clean detached worktree.
 git worktree add --detach ../o1f-i2-exact "$FINAL_SHA"
 cd ../o1f-i2-exact
 [[ $(git rev-parse HEAD) == "$FINAL_SHA" ]]
 [[ $(git rev-parse HEAD:supabase/policies/0047_o1_owner_analytics_authority.sql) == "$FINAL_BLOB" ]]
-npm ci
+npm install --package-lock=false --no-audit --no-fund
 
 tests=(
   verify-o1f-activity-day-grain.mjs
