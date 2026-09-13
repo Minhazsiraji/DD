@@ -4,6 +4,15 @@ set -euo pipefail
 START_SHA=9f75403c948ccf26b9bc644f3f476683d74bb522
 BRANCH=o1/f-integration-closure-i2
 
+install_postgres_driver() {
+  rm -rf node_modules/postgres
+  mkdir -p node_modules/postgres
+  local tgz
+  tgz=$(npm pack postgres@3.4.9 --silent)
+  tar -xzf "$tgz" -C node_modules/postgres --strip-components=1
+  rm -f "$tgz"
+}
+
 python3 - <<'PY'
 from pathlib import Path
 import subprocess
@@ -54,7 +63,7 @@ git worktree add --detach ../o1f-i2-exact "$FINAL_SHA"
 cd ../o1f-i2-exact
 [[ $(git rev-parse HEAD) == "$FINAL_SHA" ]]
 [[ $(git rev-parse HEAD:supabase/policies/0047_o1_owner_analytics_authority.sql) == "$FINAL_BLOB" ]]
-npm install --package-lock=false --no-audit --no-fund
+install_postgres_driver
 
 tests=(
   verify-o1f-activity-day-grain.mjs
