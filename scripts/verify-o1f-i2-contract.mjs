@@ -70,13 +70,14 @@ try {
     const [shape] = await tx`
       select
         to_regprocedure('public.record_engagement_minute(uuid,date,text)') is null as old_gone,
-        to_regprocedure('public.record_engagement_minute(uuid,date,timestamptz,text,text)') is not null as new_present,
-        has_function_privilege('service_role','public.record_engagement_minute(uuid,date,timestamptz,text,text)','EXECUTE') as svc_new,
-        has_function_privilege('authenticated','public.record_engagement_minute(uuid,date,timestamptz,text,text)','EXECUTE') as auth_new,
+        to_regprocedure('public.record_engagement_minute(uuid,timestamptz,text,text)') is not null as new_present,
+        to_regprocedure('public.record_engagement_minute(uuid,date,timestamptz,text,text)') is null as transient_gone,
+        has_function_privilege('service_role','public.record_engagement_minute(uuid,timestamptz,text,text)','EXECUTE') as svc_new,
+        has_function_privilege('authenticated','public.record_engagement_minute(uuid,timestamptz,text,text)','EXECUTE') as auth_new,
         has_table_privilege('service_role','public.engagement_minute_store','SELECT') as svc_table,
         has_table_privilege('service_role','public.activity_reconciliation_state','SELECT') as svc_state
     `;
-    check(shape.old_gone && shape.new_present && shape.svc_new, "new minute signature replaces old executable signature");
+    check(shape.old_gone && shape.transient_gone && shape.new_present && shape.svc_new, "new minute signature replaces old executable signature");
     check(!shape.auth_new && !shape.svc_table && !shape.svc_state, "browser/service direct-table paths remain denied");
 
     const cols = await tx`
@@ -130,16 +131,14 @@ try {
   const inserted = await sql.begin(tx=>service(tx, async sp => {
     const [r] = await sp`
       select public.record_engagement_minute(
-        ${boundaryDoctor.doctorId}, ${boundary.local_day}::date,
-        ${bucket}::timestamptz, 'CONSULTATION', ${boundary.name}
+        ${boundaryDoctor.doctorId}, ${bucket}::timestamptz, 'CONSULTATION', ${boundary.name}
       ) as inserted
     `; return r.inserted;
   }));
   const replay = await sql.begin(tx=>service(tx, async sp => {
     const [r] = await sp`
       select public.record_engagement_minute(
-        ${boundaryDoctor.doctorId}, ${boundary.local_day}::date,
-        ${bucket}::timestamptz, 'CONSULTATION', ${boundary.name}
+        ${boundaryDoctor.doctorId}, ${bucket}::timestamptz, 'CONSULTATION', ${boundary.name}
       ) as inserted
     `; return r.inserted;
   }));
@@ -155,9 +154,9 @@ try {
     `);
     check(page.length === 1 && page[0].surface === 'CONSULTATION', "worker replays exact trusted minute through bounded reader");
 
-    await expectRefused(tx,"wrong UTC day cannot replace clinic day","O1A_MINUTE_PERIOD_DAY_MISMATCH",sp=>service(sp,r=>r`
-      select public.record_engagement_minute(${doctors[1].doctorId},${utcDay}::date,${bucket}::timestamptz,'DASHBOARD',${boundary.name})
-    `));
+    await service(tx, r=>r`select public.record_engagement_minute(${doctors[1].doctorId},${bucket}::timestamptz,'DASHBOARD',${boundary.name})`);
+    const [derivedCtx] = await service(tx, r=>r`select * from public.get_activity_reconciliation_context(${doctors[1].doctorId},${boundary.local_day}::date)`);
+    check(Number(derivedCtx.evidence_generation) === 1 && derivedCtx.clinic_timezone === boundary.name, "clinic day is derived from bucket + authoritative timezone");
     const [sameDayZone] = await tx`
       select name from pg_catalog.pg_timezone_names
       where name <> ${boundary.name}
@@ -165,15 +164,13 @@ try {
       order by name limit 1
     `;
     await expectRefused(tx,"Doctor/day timezone conflict fails closed","O1F_ACTIVITY_TIMEZONE_CONFLICT",sp=>service(sp,r=>r`
-      select public.record_engagement_minute(${boundaryDoctor.doctorId},${boundary.local_day}::date,${bucket}::timestamptz,'DASHBOARD',${sameDayZone.name})
+      select public.record_engagement_minute(${boundaryDoctor.doctorId},${bucket}::timestamptz,'DASHBOARD',${sameDayZone.name})
     `));
     await expectRefused(tx,"stale server minute rejected","O1A_MINUTE_STALE",sp=>service(sp,r=>r`
-      select public.record_engagement_minute(${doctors[2].doctorId},((${bucket}::timestamptz - interval '10 min') at time zone 'UTC')::date,
-        ${bucket}::timestamptz - interval '10 min','DASHBOARD','UTC')
+      select public.record_engagement_minute(${doctors[2].doctorId},${bucket}::timestamptz - interval '10 min','DASHBOARD','UTC')
     `));
     await expectRefused(tx,"future-skewed server minute rejected","O1A_MINUTE_FUTURE_SKEW",sp=>service(sp,r=>r`
-      select public.record_engagement_minute(${doctors[2].doctorId},((${bucket}::timestamptz + interval '2 min') at time zone 'UTC')::date,
-        ${bucket}::timestamptz + interval '2 min','DASHBOARD','UTC')
+      select public.record_engagement_minute(${doctors[2].doctorId},${bucket}::timestamptz + interval '2 min','DASHBOARD','UTC')
     `));
   });
 
@@ -191,6 +188,9 @@ try {
   check(seen.length === 5 && new Set(seen.map(r=>r.doctor_id)).size === 5, "bounded keyset pages exhaust complete eligible Doctor set");
   check(seen.every(r=>r.clinic_timezone === null && r.has_evidence === false), "zero-evidence Doctors carry no guessed timezone");
   for (const d of doctors) {
+    for (const [metric,value] of [['DOCTOR_ENGAGED_MINUTES_DAILY',0],['DOCTOR_ACTIVE_DAY',0],['DOCTOR_SESSION_COUNT_DAILY',0]]) {
+      await sql.begin(tx=>service(tx,sp=>sp`select public.ingest_activity_contribution(${metric},${d.doctorId},${zeroDay}::date,'*',${value},'O1A_INTERACTION_METER',0)`));
+    }
     await sql.begin(tx=>service(tx,sp=>sp`select public.acknowledge_activity_reconciliation(${d.doctorId},${zeroDay}::date,0)`));
   }
   const [zeroWm] = await sql.begin(tx=>service(tx,sp=>sp`select * from public.get_activity_reconciliation_day_watermark(${zeroDay}::date)`));
@@ -214,7 +214,7 @@ try {
   `;
   check(todayDay === today, "test clock is internally consistent");
   await sql.begin(tx=>service(tx,sp=>sp`
-    select public.record_engagement_minute(${doctors[0].doctorId},${todayDay}::date,${todayBucket}::timestamptz,'CONSULTATION',${todayZone})
+    select public.record_engagement_minute(${doctors[0].doctorId},${todayBucket}::timestamptz,'CONSULTATION',${todayZone})
   `));
   let [ctx] = await sql.begin(tx=>service(tx,sp=>sp`select * from public.get_activity_reconciliation_context(${doctors[0].doctorId},${todayDay}::date)`));
   check(Number(ctx.evidence_generation) === 1 && ctx.clinic_timezone === 'UTC', "first unique minute advances Doctor generation");
@@ -228,7 +228,12 @@ try {
     select public.ingest_activity_contribution('DOCTOR_SESSION_COUNT_DAILY',${doctors[0].doctorId},${todayDay}::date,'*',1,'O1A_INTERACTION_METER',1)
   `));
   await sql.begin(tx=>service(tx,sp=>sp`select public.acknowledge_activity_reconciliation(${doctors[0].doctorId},${todayDay}::date,1)`));
-  for (const d of doctors.slice(1)) await sql.begin(tx=>service(tx,sp=>sp`select public.acknowledge_activity_reconciliation(${d.doctorId},${todayDay}::date,0)`));
+  for (const d of doctors.slice(1)) {
+    for (const [metric,value] of [['DOCTOR_ENGAGED_MINUTES_DAILY',0],['DOCTOR_ACTIVE_DAY',0],['DOCTOR_SESSION_COUNT_DAILY',0]]) {
+      await sql.begin(tx=>service(tx,sp=>sp`select public.ingest_activity_contribution(${metric},${d.doctorId},${todayDay}::date,'*',${value},'O1A_INTERACTION_METER',0)`));
+    }
+    await sql.begin(tx=>service(tx,sp=>sp`select public.acknowledge_activity_reconciliation(${d.doctorId},${todayDay}::date,0)`));
+  }
   let [todayWm] = await sql.begin(tx=>service(tx,sp=>sp`select * from public.get_activity_reconciliation_day_watermark(${todayDay}::date)`));
   await sql.begin(tx=>service(tx,sp=>sp`
     select public.acknowledge_activity_reconciliation_day(${todayDay}::date,${todayWm.evidence_generation},${todayWm.eligible_doctor_count})
@@ -238,7 +243,7 @@ try {
   check(coverage.is_complete === true, "reconciled generation can close ACTIVITY day");
 
   await sql.begin(tx=>service(tx,sp=>sp`
-    select public.record_engagement_minute(${doctors[0].doctorId},${todayDay}::date,${todayBucket}::timestamptz,'DASHBOARD','UTC')
+    select public.record_engagement_minute(${doctors[0].doctorId},${todayBucket}::timestamptz,'DASHBOARD','UTC')
   `));
   [ctx] = await sql.begin(tx=>service(tx,sp=>sp`select * from public.get_activity_reconciliation_context(${doctors[0].doctorId},${todayDay}::date)`));
   [coverage] = await sql`select is_complete from telemetry_day_coverage where period_day=${todayDay}::date and principal_doctor_id=${doctors[0].doctorId} and measurement_domain='ACTIVITY'`;
@@ -280,7 +285,7 @@ try {
   let writerDone = false;
   let closerDone = false;
   const writerP = raceWriter.begin(tx=>service(tx,sp=>sp`
-    select public.record_engagement_minute(${doctors[0].doctorId},${todayDay}::date,${todayBucket}::timestamptz,'PATIENTS','UTC')
+    select public.record_engagement_minute(${doctors[0].doctorId},${todayBucket}::timestamptz,'PATIENTS','UTC')
   `)).then(v=>{writerDone=true; return {ok:true,v};},e=>{writerDone=true; return {ok:false,e};});
   const closerP = raceCloser.begin(tx=>service(tx,sp=>sp`
     select public.finalize_activity_measurement_day(${todayDay}::date,3,true)

@@ -230,7 +230,7 @@ try {
       select
         has_table_privilege('service_role', 'public.engagement_minute_store', 'SELECT') as svc_minute_select,
         has_table_privilege('service_role', 'public.ai_voice_telemetry_l0', 'SELECT') as svc_e_select,
-        has_function_privilege('service_role', 'public.record_engagement_minute(uuid,date,timestamptz,text,text)', 'EXECUTE') as svc_record,
+        has_function_privilege('service_role', 'public.record_engagement_minute(uuid,timestamptz,text,text)', 'EXECUTE') as svc_record,
         to_regprocedure('public.record_engagement_minute(uuid,date,text)') is null as old_record_absent,
         has_function_privilege('service_role', 'public.snapshot_engagement_minutes(uuid,date)', 'EXECUTE') as svc_snapshot,
         has_function_privilege('service_role', 'public.ingest_ai_voice_telemetry_event(jsonb)', 'EXECUTE') as svc_ingest_e,
@@ -250,7 +250,7 @@ try {
 
     const authAcl = await tx`
       select
-        has_function_privilege('authenticated', 'public.record_engagement_minute(uuid,date,timestamptz,text,text)', 'EXECUTE') as record,
+        has_function_privilege('authenticated', 'public.record_engagement_minute(uuid,timestamptz,text,text)', 'EXECUTE') as record,
         has_function_privilege('authenticated', 'public.ingest_ai_voice_telemetry_event(jsonb)', 'EXECUTE') as ingest_e,
         has_function_privilege('authenticated', 'public.finalize_activity_measurement_day(date,bigint,boolean)', 'EXECUTE') as close_a,
         has_function_privilege('authenticated', 'public.finalize_ai_voice_measurement_day(date,bigint,boolean)', 'EXECUTE') as close_e
@@ -277,7 +277,7 @@ try {
   const first = await sql.begin((tx) => service(tx, async (sp) => {
     const [row] = await sp`
       select public.record_engagement_minute(
-        ${minuteDoctorId}, ${minuteDay}::date, ${minuteBucket}::timestamptz,
+        ${minuteDoctorId}, ${minuteBucket}::timestamptz,
         'CONSULTATION', 'UTC'
       ) as inserted
     `;
@@ -286,7 +286,7 @@ try {
   const replay = await sql.begin((tx) => service(tx, async (sp) => {
     const [row] = await sp`
       select public.record_engagement_minute(
-        ${minuteDoctorId}, ${minuteDay}::date, ${minuteBucket}::timestamptz,
+        ${minuteDoctorId}, ${minuteBucket}::timestamptz,
         'CONSULTATION', 'UTC'
       ) as inserted
     `;
@@ -311,7 +311,7 @@ try {
     await expectRefused(tx, "closed A surface vocabulary rejects unknown", "O1A_MINUTE_SURFACE_INVALID", async (sp) => {
       await service(sp, (r) => r`
         select public.record_engagement_minute(
-          ${minuteDoctorId}, ${minuteDay}::date, ${minuteBucket}::timestamptz,
+          ${minuteDoctorId}, ${minuteBucket}::timestamptz,
           'UNKNOWN', 'UTC'
         )
       `;
