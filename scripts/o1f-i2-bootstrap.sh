@@ -13,13 +13,14 @@ install_postgres_driver() {
   rm -f "$tgz"
 }
 
+# Reuse the already-reviewed large SQL + I2-verifier bodies from the temporary
+# builder source, but patch I1 directly with robust exact snippets below.
 python3 - <<'PY'
 from pathlib import Path
 import subprocess
 src = Path('.github/workflows/o1f-i2-builder.yml').read_text().splitlines()
 for idx, name in enumerate([
     'Amend still-unapplied 0047 for F-I2',
-    'Narrowly update I1 expectations superseded by I2',
     'Add F-I2 contract verifier',
 ], 1):
     marker = f'      - name: {name}'
@@ -34,6 +35,140 @@ for idx, name in enumerate([
     script = Path(f'/tmp/o1f_i2_step_{idx}.sh')
     script.write_text('\n'.join(body) + '\n')
     subprocess.run(['bash', '-euo', 'pipefail', str(script)], check=True)
+PY
+
+python3 - <<'PY'
+from pathlib import Path
+p = Path('scripts/verify-o1f-i1-contract.mjs')
+s = p.read_text()
+
+def repl(old, new, label):
+    global s
+    if old not in s:
+        raise SystemExit(f'I1 patch anchor missing: {label}')
+    s = s.replace(old, new, 1)
+
+repl(
+"""        has_function_privilege('service_role', 'public.record_engagement_minute(uuid,date,text)', 'EXECUTE') as svc_record,
+        has_function_privilege('service_role', 'public.snapshot_engagement_minutes(uuid,date)', 'EXECUTE') as svc_snapshot,""",
+"""        has_function_privilege('service_role', 'public.record_engagement_minute(uuid,date,timestamptz,text,text)', 'EXECUTE') as svc_record,
+        to_regprocedure('public.record_engagement_minute(uuid,date,text)') is null as old_record_absent,
+        has_function_privilege('service_role', 'public.snapshot_engagement_minutes(uuid,date)', 'EXECUTE') as svc_snapshot,""",
+'acl signatures')
+
+repl(
+"""      a.svc_record && a.svc_snapshot && a.svc_ingest_e && a.svc_read_e && a.svc_close_a && a.svc_close_e,""",
+"""      a.svc_record && a.old_record_absent && !a.svc_snapshot && a.svc_ingest_e && a.svc_read_e && a.svc_close_a && a.svc_close_e,""",
+'acl expectation')
+
+repl(
+"""        has_function_privilege('authenticated', 'public.record_engagement_minute(uuid,date,text)', 'EXECUTE') as record,""",
+"""        has_function_privilege('authenticated', 'public.record_engagement_minute(uuid,date,timestamptz,text,text)', 'EXECUTE') as record,""",
+'authenticated signature')
+
+start = s.index('  console.log("\\n4. A minute idempotency + cross-request snapshot");')
+end = s.index('  console.log("\\n5. E event-key idempotency + privacy allowlist");')
+new_minute = r'''  console.log("\n4. A minute idempotency + cross-request snapshot");
+  const [{ minuteBucket, minuteDay }] = await sql`
+    select
+      date_trunc('minute', clock_timestamp())::text as "minuteBucket",
+      ((date_trunc('minute', clock_timestamp()) at time zone 'UTC')::date)::text as "minuteDay"
+  `;
+  const first = await sql.begin((tx) => service(tx, async (sp) => {
+    const [row] = await sp`
+      select public.record_engagement_minute(
+        ${minuteDoctorId}, ${minuteDay}::date, ${minuteBucket}::timestamptz,
+        'CONSULTATION', 'UTC'
+      ) as inserted
+    `;
+    return row.inserted;
+  }));
+  const replay = await sql.begin((tx) => service(tx, async (sp) => {
+    const [row] = await sp`
+      select public.record_engagement_minute(
+        ${minuteDoctorId}, ${minuteDay}::date, ${minuteBucket}::timestamptz,
+        'CONSULTATION', 'UTC'
+      ) as inserted
+    `;
+    return row.inserted;
+  }));
+  check(first === true && replay === false, "same doctor/minute/surface is idempotent");
+
+  const [ctx] = await sql.begin((tx) => service(tx, (sp) => sp`
+    select * from public.get_activity_reconciliation_context(
+      ${minuteDoctorId}, ${minuteDay}::date
+    )
+  `));
+  const snapshot = await sql.begin((tx) => service(tx, (sp) => sp`
+    select minute_bucket, surface
+    from public.read_activity_reconciliation_minutes(
+      ${minuteDoctorId}, ${minuteDay}::date, ${ctx.evidence_generation}, null, null, 10
+    )
+  `));
+  check(snapshot.length === 1 && snapshot[0].surface === "CONSULTATION", "cross-request authoritative snapshot persists");
+
+  await sql.begin(async (tx) => {
+    await expectRefused(tx, "closed A surface vocabulary rejects unknown", "O1A_MINUTE_SURFACE_INVALID", async (sp) => {
+      await service(sp, (r) => r`
+        select public.record_engagement_minute(
+          ${minuteDoctorId}, ${minuteDay}::date, ${minuteBucket}::timestamptz,
+          'UNKNOWN', 'UTC'
+        )
+      `);
+    });
+
+    await tx`
+      insert into public.engagement_minute_store(
+        doctor_id, period_day, minute_bucket, surface
+      ) values (
+        ${minuteDoctorId}, current_date - 3,
+        date_trunc('minute', clock_timestamp() - interval '49 hours'),
+        'DASHBOARD'
+      )
+    `;
+    const [purged] = await service(tx, (sp) => sp`
+      select public.purge_expired_engagement_minutes() as n
+    `);
+    const [{ stale }] = await tx`
+      select count(*)::int as stale
+      from public.engagement_minute_store
+      where doctor_id = ${minuteDoctorId}
+        and minute_bucket < clock_timestamp() - interval '48 hours'
+    `;
+    check(Number(purged.n) >= 1 && stale === 0, "stale minute rows older than 48h are physically purged");
+  });
+
+'''
+s = s[:start] + new_minute + s[end:]
+
+needle = """    check(stillA.state === \"NOT_MEASURED\", \"failed Activity closeout leaves Not measured\");
+
+    await service(tx, (sp) => sp`
+      select public.finalize_activity_measurement_day(${targetDay}::date, 1, true)
+    `;"""
+replacement = """    check(stillA.state === \"NOT_MEASURED\", \"failed Activity closeout leaves Not measured\");
+
+    for (const doctor of doctors) {
+      await service(tx, (sp) => sp`
+        select public.acknowledge_activity_reconciliation(
+          ${doctor.doctorId}, ${targetDay}::date, 0
+        )
+      `;
+    }
+    const [wm] = await service(tx, (sp) => sp`
+      select * from public.get_activity_reconciliation_day_watermark(${targetDay}::date)
+    `);
+    await service(tx, (sp) => sp`
+      select public.acknowledge_activity_reconciliation_day(
+        ${targetDay}::date, ${wm.evidence_generation}, ${wm.eligible_doctor_count}
+      )
+    `;
+
+    await service(tx, (sp) => sp`
+      select public.finalize_activity_measurement_day(${targetDay}::date, 1, true)
+    `;"""
+repl(needle, replacement, 'zero-day reconciliation')
+p.write_text(s)
 PY
 
 rm -f \
