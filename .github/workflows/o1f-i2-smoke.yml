@@ -1,0 +1,7 @@
+name: O1-F-I2 smoke
+on: [push]
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo ok
