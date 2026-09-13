@@ -1,0 +1,16 @@
+name: O1-F-I2 runner smoke
+on:
+  push:
+    branches:
+      - o1/f-i2-automation
+permissions:
+  contents: read
+jobs:
+  smoke:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          set -euo pipefail
+          echo O1_F_I2_RUNNER_OK
+          git rev-parse HEAD
