@@ -1,0 +1,92 @@
+name: O1-F-I2 final gate 2
+on:
+  push:
+    branches: [o1/f-i2-final-gate-helper2]
+permissions:
+  contents: write
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env: {POSTGRES_USER: postgres, POSTGRES_PASSWORD: postgres, POSTGRES_DB: postgres}
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 5s --health-retries 20
+    steps:
+      - uses: actions/checkout@v4
+        with: {ref: o1/f-integration-closure-i2, fetch-depth: 0, token: "${{ secrets.GITHUB_TOKEN }}"}
+      - uses: actions/setup-node@v4
+        with: {node-version: 22}
+      - name: Fix exactly two demonstrated I1 closures
+        shell: python
+        run: |
+          from pathlib import Path
+          p=Path('scripts/verify-o1f-i1-contract.mjs'); s=p.read_text()
+          a="""      await service(sp, (r) => r`\n        select public.record_engagement_minute(\n          ${minuteDoctorId}, ${minuteBucket}::timestamptz,\n          'UNKNOWN', 'UTC'\n        )\n      `;\n    });"""
+          b="""      await service(sp, (r) => r`\n        select public.record_engagement_minute(\n          ${minuteDoctorId}, ${minuteBucket}::timestamptz,\n          'UNKNOWN', 'UTC'\n        )\n      `);\n    });"""
+          c="""    const [purged] = await service(tx, (sp) => sp`\n      select public.purge_expired_engagement_minutes() as n\n    `;"""
+          d="""    const [purged] = await service(tx, (sp) => sp`\n      select public.purge_expired_engagement_minutes() as n\n    `);"""
+          if s.count(a)!=1 or s.count(c)!=1: raise SystemExit(f'anchors unknown={s.count(a)} purge={s.count(c)}')
+          p.write_text(s.replace(a,b,1).replace(c,d,1))
+      - name: Syntax check
+        run: |
+          node --check scripts/verify-o1f-i1-contract.mjs
+          node --check scripts/verify-o1f-i2-contract.mjs
+      - name: Commit target candidate
+        run: |
+          git config user.name "github-actions[bot]"; git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add scripts/verify-o1f-i1-contract.mjs
+          git commit -m "test(o1-f-i2): repair narrow I1 verifier closures"
+          git push origin HEAD:o1/f-integration-closure-i2
+          echo CANDIDATE=$(git rev-parse HEAD)
+      - name: Install postgres module outside repository
+        run: |
+          mkdir -p /tmp/pgdep; cd /tmp/pgdep; npm init -y >/dev/null; npm install postgres@3.4.9 --ignore-scripts --no-audit --no-fund >/dev/null
+          cd "$GITHUB_WORKSPACE"; ln -s /tmp/pgdep/node_modules node_modules
+      - name: Exact preflight
+        run: |
+          rm node_modules
+          echo PRE_HEAD=$(git rev-parse HEAD); echo PRE_STATUS=$(git status --porcelain | wc -l)
+          echo PRE_BLOB=$(git hash-object supabase/policies/0047_o1_owner_analytics_authority.sql)
+          echo PRE_SHA256=$(sha256sum supabase/policies/0047_o1_owner_analytics_authority.sql | awk '{print $1}')
+          test -z "$(git status --porcelain)"; git diff --name-only 9f75403c948ccf26b9bc644f3f476683d74bb522..HEAD
+          ln -s /tmp/pgdep/node_modules node_modules
+      - name: Bootstrap roles
+        env: {PGPASSWORD: postgres}
+        run: |
+          psql -h localhost -U postgres -d postgres -v ON_ERROR_STOP=1 <<'SQL'
+          do $b$ begin
+            if not exists(select 1 from pg_roles where rolname='anon') then create role anon noinherit; end if;
+            if not exists(select 1 from pg_roles where rolname='authenticated') then create role authenticated noinherit; end if;
+            if not exists(select 1 from pg_roles where rolname='service_role') then create role service_role noinherit bypassrls; end if;
+          end $b$;
+          SQL
+      - name: Run all eight exact-SHA verifiers
+        env: {PGPASSWORD: postgres}
+        run: |
+          set -euo pipefail
+          tests=(verify-o1f-activity-day-grain.mjs verify-o1f-owner-aal2-and-consent.mjs verify-o1f-owner-surface.mjs verify-o1f-pilot-plane-isolation.mjs verify-o1f-r2-contract.mjs verify-o1f-r3-contract.mjs verify-o1f-i1-contract.mjs verify-o1f-i2-contract.mjs)
+          i=0
+          for t in "${tests[@]}"; do
+            i=$((i+1)); db="o1fi2g2_${i}"
+            psql -h localhost -U postgres -d postgres -v ON_ERROR_STOP=1 -c "create database ${db};" >/dev/null
+            psql -h localhost -U postgres -d "$db" -v ON_ERROR_STOP=1 >/dev/null <<'SQL'
+            create extension if not exists pgcrypto; create schema if not exists auth;
+            create table if not exists auth.users(id uuid primary key default gen_random_uuid());
+            create or replace function auth.uid() returns uuid language sql stable as $u$ select nullif(coalesce(nullif(current_setting('request.jwt.claims',true),''),'{}')::jsonb->>'sub','')::uuid $u$;
+            create or replace function auth.jwt() returns jsonb language sql stable as $j$ select coalesce(nullif(current_setting('request.jwt.claims',true),''),'{}')::jsonb $j$;
+            grant usage on schema auth to public; grant execute on function auth.uid() to public; grant execute on function auth.jwt() to public;
+            SQL
+            echo "===== ${t} @ $(git rev-parse HEAD) ====="
+            DATABASE_URL="postgresql://postgres:postgres@localhost:5432/${db}" DIRECT_URL="postgresql://postgres:postgres@localhost:5432/${db}" node scripts/${t}
+          done
+      - name: Exact postflight
+        if: always()
+        run: |
+          rm -f node_modules
+          echo POST_HEAD=$(git rev-parse HEAD); echo POST_STATUS=$(git status --porcelain | wc -l)
+          echo POST_BLOB=$(git hash-object supabase/policies/0047_o1_owner_analytics_authority.sql)
+          echo POST_SHA256=$(sha256sum supabase/policies/0047_o1_owner_analytics_authority.sql | awk '{print $1}')
+          test -z "$(git status --porcelain)"
