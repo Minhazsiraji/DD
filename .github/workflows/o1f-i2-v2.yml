@@ -1,0 +1,21 @@
+name: O1-F-I2 exact SHA harness v2
+on:
+  push:
+    branches:
+      - o1/f-i2-automation
+permissions:
+  contents: write
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Implement and exact-SHA verify F-I2
+        shell: bash
+        run: bash .ci/o1f-i2-bootstrap.sh
