@@ -18,4 +18,4 @@ jobs:
           node-version: 24
       - name: Implement and exact-SHA verify F-I2
         shell: bash
-        run: bash .ci/o1f-i2-bootstrap.sh
+        run: bash .ci/o1f-i2-bootstrap-v3.sh
