@@ -4230,3 +4230,259 @@ revoke execute on function public.record_engagement_minute(uuid, timestamptz, te
        dd_metrics_reader, dd_pilot_writer, dd_retention;
 grant execute on function public.record_engagement_minute(uuid, timestamptz, text, text)
   to service_role;
+
+-- ============================================================================
+-- O1-F-I2 CENTRAL correction — canonical 4-arg minute + projection receipt
+-- ============================================================================
+-- Caller never supplies period_day. The accepted trusted minute and IANA
+-- timezone are the sole authority for clinic-day assignment.
+revoke execute on function public.record_engagement_minute(uuid, date, timestamptz, text, text)
+  from public, anon, authenticated, service_role,
+       dd_metrics_reader, dd_metrics_rollup, dd_pilot_writer, dd_retention;
+drop function public.record_engagement_minute(uuid, date, timestamptz, text, text);
+
+create unique index engagement_minute_store_canonical_unique
+  on public.engagement_minute_store(doctor_id, minute_bucket, surface);
+
+create or replace function public.record_engagement_minute(
+  target_doctor_id uuid,
+  target_minute_bucket timestamptz,
+  target_surface text,
+  target_clinic_timezone text
+) returns boolean
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_now timestamptz := clock_timestamp();
+  v_now_bucket timestamptz;
+  v_period_day date;
+  v_inserted bigint;
+  v_existing_timezone text;
+begin
+  if target_doctor_id is null
+     or target_minute_bucket is null
+     or target_clinic_timezone is null
+  then
+    raise exception 'O1A_MINUTE_CONTEXT_REQUIRED' using errcode = '22023';
+  end if;
+
+  if target_surface not in (
+    'DASHBOARD','PATIENTS','CONSULTATION','PRESCRIPTION',
+    'APPOINTMENTS','QUEUE','SETTINGS','OWNER'
+  ) then
+    raise exception 'O1A_MINUTE_SURFACE_INVALID' using errcode = '22023';
+  end if;
+
+  if not exists (
+    select 1 from pg_catalog.pg_timezone_names z
+    where z.name = target_clinic_timezone
+  ) then
+    raise exception 'O1A_MINUTE_TIMEZONE_INVALID' using errcode = '22023';
+  end if;
+
+  if target_minute_bucket <> date_trunc('minute', target_minute_bucket) then
+    raise exception 'O1A_MINUTE_NOT_TRUNCATED' using errcode = '22023';
+  end if;
+
+  v_now_bucket := date_trunc('minute', v_now);
+  if target_minute_bucket < v_now_bucket - interval '5 minutes' then
+    raise exception 'O1A_MINUTE_STALE' using errcode = '22023';
+  end if;
+  if target_minute_bucket > v_now_bucket + interval '1 minute' then
+    raise exception 'O1A_MINUTE_FUTURE_SKEW' using errcode = '22023';
+  end if;
+
+  v_period_day := (target_minute_bucket at time zone target_clinic_timezone)::date;
+
+  perform pg_catalog.pg_advisory_xact_lock(
+    pg_catalog.hashtextextended('O1F_ACTIVITY_DAY:' || v_period_day::text, 0)
+  );
+
+  select s.clinic_timezone
+  into v_existing_timezone
+  from public.activity_reconciliation_state s
+  where s.doctor_id = target_doctor_id
+    and s.period_day = v_period_day
+  for update;
+
+  if found
+     and v_existing_timezone is not null
+     and v_existing_timezone <> target_clinic_timezone
+  then
+    raise exception 'O1F_ACTIVITY_TIMEZONE_CONFLICT' using errcode = '22023';
+  end if;
+
+  delete from public.engagement_minute_store
+  where minute_bucket < v_now - interval '48 hours';
+
+  insert into public.engagement_minute_store(
+    doctor_id, period_day, minute_bucket, surface
+  ) values (
+    target_doctor_id, v_period_day, target_minute_bucket, target_surface
+  )
+  on conflict do nothing;
+
+  get diagnostics v_inserted = row_count;
+  if v_inserted = 0 then
+    return false;
+  end if;
+
+  insert into public.activity_reconciliation_state(
+    doctor_id, period_day, clinic_timezone,
+    evidence_generation, reconciled_generation, updated_at
+  ) values (
+    target_doctor_id, v_period_day, target_clinic_timezone,
+    1, 0, clock_timestamp()
+  )
+  on conflict (doctor_id, period_day) do update
+    set clinic_timezone = coalesce(
+          public.activity_reconciliation_state.clinic_timezone,
+          excluded.clinic_timezone
+        ),
+        evidence_generation = public.activity_reconciliation_state.evidence_generation + 1,
+        updated_at = clock_timestamp();
+
+  insert into public.activity_reconciliation_day(
+    period_day, evidence_generation, reconciled_generation,
+    reconciled_doctor_count, updated_at
+  ) values (
+    v_period_day, 1, 0, null, clock_timestamp()
+  )
+  on conflict (period_day) do update
+    set evidence_generation = public.activity_reconciliation_day.evidence_generation + 1,
+        reconciled_doctor_count = null,
+        updated_at = clock_timestamp();
+
+  update public.telemetry_day_coverage
+  set is_complete = false
+  where period_day = v_period_day
+    and principal_doctor_id = target_doctor_id
+    and measurement_domain = 'ACTIVITY'
+    and is_complete;
+
+  return true;
+end;
+$$;
+alter function public.record_engagement_minute(uuid, timestamptz, text, text)
+  owner to dd_metrics_rollup;
+
+-- Frozen A always persists these three whole-day rows, even for a true
+-- zero snapshot, with source_version equal to the snapshot generation.
+-- Reconciliation may acknowledge only that persisted projection receipt.
+create or replace function public.acknowledge_activity_reconciliation(
+  target_doctor_id uuid,
+  target_period_day date,
+  target_generation bigint
+) returns void
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_generation bigint;
+  v_timezone text;
+  v_retained bigint;
+  v_core_projected bigint;
+  v_stale_projected bigint;
+begin
+  if target_doctor_id is null or target_period_day is null
+     or target_generation is null or target_generation < 0
+  then
+    raise exception 'O1F_ACTIVITY_RECONCILIATION_CONTEXT_REQUIRED' using errcode = '22023';
+  end if;
+
+  perform pg_catalog.pg_advisory_xact_lock(
+    pg_catalog.hashtextextended('O1F_ACTIVITY_DAY:' || target_period_day::text, 0)
+  );
+
+  if not exists (
+    select 1 from public.pilot_participations p
+    where p.doctor_id = target_doctor_id
+      and p.status in ('ENROLLED','COMPLETED')
+      and p.enrolled_on <= target_period_day
+      and public.pilot_consent_covers_day(
+        p.cohort_code, p.participation_id,
+        'PRODUCT_USAGE_ANALYTICS', target_period_day
+      )
+  ) then
+    raise exception 'O1F_ACTIVITY_RECONCILIATION_DOCTOR_NOT_ELIGIBLE' using errcode = '42501';
+  end if;
+
+  select s.evidence_generation, s.clinic_timezone
+  into v_generation, v_timezone
+  from public.activity_reconciliation_state s
+  where s.doctor_id = target_doctor_id
+    and s.period_day = target_period_day
+  for update;
+
+  if not found then
+    if target_generation <> 0 then
+      raise exception 'O1F_ACTIVITY_RECONCILIATION_GENERATION_STALE' using errcode = '40001';
+    end if;
+    v_generation := 0;
+    v_timezone := null;
+  end if;
+
+  if v_generation <> target_generation then
+    raise exception 'O1F_ACTIVITY_RECONCILIATION_GENERATION_STALE' using errcode = '40001';
+  end if;
+  if v_generation > 0 and v_timezone is null then
+    raise exception 'O1F_ACTIVITY_RECONCILIATION_TIMEZONE_MISSING' using errcode = 'P0001';
+  end if;
+
+  select count(*)::bigint into v_retained
+  from public.engagement_minute_store m
+  where m.doctor_id = target_doctor_id
+    and m.period_day = target_period_day;
+  if v_retained <> v_generation then
+    raise exception 'O1F_ACTIVITY_EVIDENCE_EXPIRED' using errcode = 'P0001';
+  end if;
+
+  select count(*)::bigint into v_core_projected
+  from public.activity_contributions a
+  where a.doctor_id = target_doctor_id
+    and a.period_day = target_period_day
+    and a.source_stream = 'O1A_INTERACTION_METER'
+    and a.source_version = target_generation
+    and a.feature_code = '*'
+    and a.metric_code in (
+      'DOCTOR_ENGAGED_MINUTES_DAILY',
+      'DOCTOR_SESSION_COUNT_DAILY',
+      'DOCTOR_ACTIVE_DAY'
+    );
+  if v_core_projected <> 3 then
+    raise exception 'O1F_ACTIVITY_PROJECTION_RECEIPT_MISSING' using errcode = '40001';
+  end if;
+
+  select count(*)::bigint into v_stale_projected
+  from public.activity_contributions a
+  where a.doctor_id = target_doctor_id
+    and a.period_day = target_period_day
+    and a.source_stream = 'O1A_INTERACTION_METER'
+    and a.source_version <> target_generation;
+  if v_stale_projected <> 0 then
+    raise exception 'O1F_ACTIVITY_PROJECTION_RECEIPT_STALE' using errcode = '40001';
+  end if;
+
+  insert into public.activity_reconciliation_state(
+    doctor_id, period_day, clinic_timezone,
+    evidence_generation, reconciled_generation, updated_at
+  ) values (
+    target_doctor_id, target_period_day, v_timezone,
+    target_generation, target_generation, clock_timestamp()
+  )
+  on conflict (doctor_id, period_day) do update
+    set reconciled_generation = excluded.reconciled_generation,
+        updated_at = clock_timestamp();
+end;
+$$;
+alter function public.acknowledge_activity_reconciliation(uuid, date, bigint)
+  owner to dd_metrics_rollup;
+
+revoke execute on function public.record_engagement_minute(uuid, timestamptz, text, text)
+  from public, anon, authenticated,
+       dd_metrics_reader, dd_pilot_writer, dd_retention;
+grant execute on function public.record_engagement_minute(uuid, timestamptz, text, text)
+  to service_role;
