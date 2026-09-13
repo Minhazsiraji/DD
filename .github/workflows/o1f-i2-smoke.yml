@@ -10,7 +10,7 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
-      - run: |
-          set -euo pipefail
-          echo O1_F_I2_RUNNER_OK
-          git rev-parse HEAD
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: python3 .ci/o1f-i2-debug-source.py
