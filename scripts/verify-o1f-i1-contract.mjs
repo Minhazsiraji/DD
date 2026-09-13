@@ -179,6 +179,8 @@ try {
     for (let i = 1; i <= 5; i += 1) {
       doctors.push(await createEnrolledParticipant(tx, ownerId, "I1_ZERO", targetDay, i));
     }
+    // I2 reconciliation is eligible/consented Doctor-only.
+    minuteDoctorId = doctors[0].doctorId;
 
     console.log("\n2. New table schemas are privacy-minimal and RLS-forced");
     const minuteCols = await tx`
