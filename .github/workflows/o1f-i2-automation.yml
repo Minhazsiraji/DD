@@ -1,0 +1,1539 @@
+name: O1-F-I2 disposable implementation + exact SHA verification
+
+on:
+  push:
+    branches:
+      - o1/f-i2-automation
+
+permissions:
+  contents: write
+
+jobs:
+  implement-and-verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Checkout authorized F-I2 lane
+        uses: actions/checkout@v4
+        with:
+          ref: o1/f-integration-closure-i2
+          fetch-depth: 0
+
+      - name: Assert frozen starting authority
+        shell: bash
+        run: |
+          set -euo pipefail
+          START=9f75403c948ccf26b9bc644f3f476683d74bb522
+          test "$(git rev-parse HEAD)" = "$START"
+          test "$(git hash-object supabase/policies/0047_o1_owner_analytics_authority.sql)" = "9c74aea5dcab2b83b1ca384eaad9eaf1ac1194ea"
+          test -z "$(git status --porcelain)"
+          echo "F_I2_START_SHA=$START"
+
+      - name: Append centrally authorized F-I2 SQL closure
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat >> supabase/policies/0047_o1_owner_analytics_authority.sql <<'SQL'
+
+-- ============================================================================
+-- O1-F-I2 — Final runtime closure contract
+-- CENTRAL-authorized amendment to the still-unapplied 0047 only.
+-- No A metric arithmetic is implemented here. This block supplies only
+-- trusted minute persistence, reconciliation evidence, timezone continuity,
+-- generation/dirty-state authority, serialization, and actor->Doctor lookup.
+-- ============================================================================
+
+-- Minimal Doctor/day replay state. time_zone is the exact IANA zone supplied by
+-- the trusted server context that assigned this Doctor/day. No practice/location
+-- identifier, route, device, patient, encounter, payload or clinical field is
+-- persisted. A conflicting zone for one Doctor/day fails closed.
+create table public.activity_reconciliation_state (
+  doctor_id uuid not null references public.doctor_profiles(id),
+  period_day date not null,
+  time_zone text not null check (char_length(time_zone) between 1 and 80),
+  evidence_generation bigint not null default 0 check (evidence_generation >= 0),
+  reconciled_generation bigint check (
+    reconciled_generation is null
+    or (reconciled_generation >= 0 and reconciled_generation <= evidence_generation)
+  ),
+  reconciled_at timestamptz,
+  primary key (doctor_id, period_day),
+  check (
+    (reconciled_generation is null and reconciled_at is null)
+    or
+    (reconciled_generation is not null and reconciled_at is not null)
+  )
+);
+
+alter table public.activity_reconciliation_state enable row level security;
+alter table public.activity_reconciliation_state force row level security;
+create policy activity_reconciliation_state_deny_default
+  on public.activity_reconciliation_state for all
+  using (false) with check (false);
+create policy activity_reconciliation_state_rollup_all
+  on public.activity_reconciliation_state for all to dd_metrics_rollup
+  using (true) with check (true);
+
+revoke all on public.activity_reconciliation_state
+  from public, anon, authenticated, service_role,
+       dd_metrics_reader, dd_metrics_rollup, dd_pilot_writer, dd_retention;
+grant select, insert, update on public.activity_reconciliation_state
+  to dd_metrics_rollup;
+
+-- The canonical actor ownership relation is doctor_profiles.user_id. 0000 has
+-- a structural unique index on that column; this internal role receives only
+-- the two columns required to resolve that ownership edge. API roles receive no
+-- direct Doctor-profile table privilege.
+grant select (id, user_id) on public.doctor_profiles to dd_metrics_rollup;
+create policy doctor_profiles_o1f_actor_resolver_read
+  on public.doctor_profiles for select to dd_metrics_rollup
+  using (true);
+
+create or replace function public.resolve_doctor_profile_id(
+  target_actor_user_id uuid
+) returns uuid
+language plpgsql
+stable
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_doctor_id uuid;
+begin
+  if target_actor_user_id is null then
+    return null;
+  end if;
+
+  begin
+    select d.id
+    into strict v_doctor_id
+    from public.doctor_profiles d
+    where d.user_id = target_actor_user_id;
+  exception
+    when no_data_found then
+      return null;
+    when too_many_rows then
+      raise exception 'O1F_ACTOR_DOCTOR_RESOLUTION_AMBIGUOUS' using errcode = '21000';
+  end;
+
+  return v_doctor_id;
+end;
+$$;
+alter function public.resolve_doctor_profile_id(uuid)
+  owner to dd_metrics_rollup;
+
+create or replace function public.register_activity_reconciliation_day(
+  target_doctor_id uuid,
+  target_period_day date,
+  target_time_zone text
+) returns bigint
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_existing_zone text;
+  v_generation bigint;
+  v_local_today date;
+begin
+  if target_doctor_id is null or target_period_day is null or target_time_zone is null then
+    raise exception 'O1F_ACTIVITY_RECONCILIATION_CONTEXT_REQUIRED' using errcode = '22023';
+  end if;
+
+  if not exists (
+    select 1
+    from pg_catalog.pg_timezone_names z
+    where z.name = target_time_zone
+  ) then
+    raise exception 'O1F_ACTIVITY_RECONCILIATION_TIMEZONE_INVALID' using errcode = '22023';
+  end if;
+
+  v_local_today := (clock_timestamp() at time zone target_time_zone)::date;
+  if target_period_day < v_local_today - 1 or target_period_day > v_local_today then
+    raise exception 'O1F_ACTIVITY_RECONCILIATION_DAY_OUT_OF_RANGE' using errcode = '22023';
+  end if;
+
+  perform pg_catalog.pg_advisory_xact_lock(
+    pg_catalog.hashtextextended('dd:o1f:activity-day:' || target_period_day::text, 0)
+  );
+
+  insert into public.activity_reconciliation_state(
+    doctor_id, period_day, time_zone, evidence_generation
+  ) values (
+    target_doctor_id, target_period_day, target_time_zone, 0
+  )
+  on conflict (doctor_id, period_day) do nothing;
+
+  select s.time_zone, s.evidence_generation
+  into v_existing_zone, v_generation
+  from public.activity_reconciliation_state s
+  where s.doctor_id = target_doctor_id
+    and s.period_day = target_period_day
+  for update;
+
+  if v_existing_zone is distinct from target_time_zone then
+    raise exception 'O1F_ACTIVITY_RECONCILIATION_TIMEZONE_CONFLICT' using errcode = '22023';
+  end if;
+
+  return v_generation;
+end;
+$$;
+alter function public.register_activity_reconciliation_day(uuid, date, text)
+  owner to dd_metrics_rollup;
+
+-- I2 supersedes I1's DB-clock writer. The trusted server supplies its minute
+-- stamp and exact clinic timezone. PostgreSQL truncates that trusted stamp to
+-- the minute, validates bounded freshness/future skew, and verifies that the
+-- supplied period_day is exactly the clinic-local date for that stamp.
+revoke execute on function public.record_engagement_minute(uuid, date, text)
+  from public, anon, authenticated, service_role,
+       dd_metrics_reader, dd_metrics_rollup, dd_pilot_writer, dd_retention;
+drop function public.record_engagement_minute(uuid, date, text);
+
+create or replace function public.record_engagement_minute(
+  target_doctor_id uuid,
+  target_period_day date,
+  target_minute_stamp timestamptz,
+  target_surface text,
+  target_time_zone text
+) returns boolean
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_now timestamptz := clock_timestamp();
+  v_bucket timestamptz;
+  v_existing_zone text;
+  v_inserted bigint;
+begin
+  if target_doctor_id is null
+     or target_period_day is null
+     or target_minute_stamp is null
+     or target_time_zone is null
+  then
+    raise exception 'O1A_MINUTE_CONTEXT_REQUIRED' using errcode = '22023';
+  end if;
+
+  if target_surface not in (
+    'DASHBOARD',
+    'PATIENTS',
+    'CONSULTATION',
+    'PRESCRIPTION',
+    'APPOINTMENTS',
+    'QUEUE',
+    'SETTINGS',
+    'OWNER'
+  ) then
+    raise exception 'O1A_MINUTE_SURFACE_INVALID' using errcode = '22023';
+  end if;
+
+  if not exists (
+    select 1
+    from pg_catalog.pg_timezone_names z
+    where z.name = target_time_zone
+  ) then
+    raise exception 'O1A_MINUTE_TIMEZONE_INVALID' using errcode = '22023';
+  end if;
+
+  if target_minute_stamp < v_now - interval '40 minutes'
+     or target_minute_stamp > v_now + interval '2 minutes'
+  then
+    raise exception 'O1A_MINUTE_TIMESTAMP_OUT_OF_RANGE' using errcode = '22023';
+  end if;
+
+  v_bucket := date_trunc('minute', target_minute_stamp);
+  if (v_bucket at time zone target_time_zone)::date <> target_period_day then
+    raise exception 'O1A_MINUTE_PERIOD_DAY_MISMATCH' using errcode = '22023';
+  end if;
+
+  perform pg_catalog.pg_advisory_xact_lock(
+    pg_catalog.hashtextextended('dd:o1f:activity-day:' || target_period_day::text, 0)
+  );
+
+  insert into public.activity_reconciliation_state(
+    doctor_id, period_day, time_zone, evidence_generation
+  ) values (
+    target_doctor_id, target_period_day, target_time_zone, 0
+  )
+  on conflict (doctor_id, period_day) do nothing;
+
+  select s.time_zone
+  into v_existing_zone
+  from public.activity_reconciliation_state s
+  where s.doctor_id = target_doctor_id
+    and s.period_day = target_period_day
+  for update;
+
+  if v_existing_zone is distinct from target_time_zone then
+    raise exception 'O1F_ACTIVITY_RECONCILIATION_TIMEZONE_CONFLICT' using errcode = '22023';
+  end if;
+
+  delete from public.engagement_minute_store
+  where minute_bucket < v_now - interval '48 hours';
+
+  insert into public.engagement_minute_store(
+    doctor_id, period_day, minute_bucket, surface
+  ) values (
+    target_doctor_id, target_period_day, v_bucket, target_surface
+  )
+  on conflict (doctor_id, period_day, minute_bucket, surface) do nothing;
+
+  get diagnostics v_inserted = row_count;
+
+  if v_inserted = 1 then
+    update public.activity_reconciliation_state
+    set evidence_generation = evidence_generation + 1,
+        reconciled_generation = null,
+        reconciled_at = null
+    where doctor_id = target_doctor_id
+      and period_day = target_period_day;
+
+    -- A unique late minute makes any previous ACTIVITY completeness stale
+    -- immediately. The calculation itself remains frozen-A worker authority.
+    delete from public.telemetry_day_coverage
+    where period_day = target_period_day
+      and principal_doctor_id = target_doctor_id
+      and measurement_domain = 'ACTIVITY';
+
+    delete from public.doctor_daily_activity_agg
+    where period_day = target_period_day
+      and doctor_id = target_doctor_id;
+  end if;
+
+  return v_inserted = 1;
+end;
+$$;
+alter function public.record_engagement_minute(uuid, date, timestamptz, text, text)
+  owner to dd_metrics_rollup;
+
+-- I1's unbounded two-argument snapshot is superseded by generation-bound,
+-- bounded keyset paging. No direct table access is exposed to service_role.
+revoke execute on function public.snapshot_engagement_minutes(uuid, date)
+  from public, anon, authenticated, service_role,
+       dd_metrics_reader, dd_metrics_rollup, dd_pilot_writer, dd_retention;
+drop function public.snapshot_engagement_minutes(uuid, date);
+
+create or replace function public.discover_activity_reconciliation_doctors(
+  target_period_day date,
+  target_after_doctor_id uuid default null,
+  target_limit integer default 100
+) returns table (
+  doctor_id uuid,
+  time_zone text,
+  evidence_generation bigint,
+  reconciled_generation bigint
+)
+language plpgsql
+stable
+security definer
+set search_path = public, pg_temp
+as $$
+begin
+  if target_period_day is null then
+    raise exception 'O1F_ACTIVITY_DISCOVERY_DAY_REQUIRED' using errcode = '22023';
+  end if;
+  if target_limit is null or target_limit < 1 or target_limit > 500 then
+    raise exception 'O1F_ACTIVITY_DISCOVERY_LIMIT_INVALID' using errcode = '22023';
+  end if;
+
+  return query
+  with eligible as (
+    select distinct p.doctor_id
+    from public.pilot_participations p
+    where p.status in ('ENROLLED','COMPLETED')
+      and p.enrolled_on <= target_period_day
+      and public.pilot_consent_covers_day(
+        p.cohort_code,
+        p.participation_id,
+        'PRODUCT_USAGE_ANALYTICS',
+        target_period_day
+      )
+  )
+  select
+    e.doctor_id,
+    s.time_zone,
+    s.evidence_generation,
+    s.reconciled_generation
+  from eligible e
+  left join public.activity_reconciliation_state s
+    on s.doctor_id = e.doctor_id
+   and s.period_day = target_period_day
+  where target_after_doctor_id is null
+     or e.doctor_id > target_after_doctor_id
+  order by e.doctor_id
+  limit target_limit;
+end;
+$$;
+alter function public.discover_activity_reconciliation_doctors(date, uuid, integer)
+  owner to dd_metrics_rollup;
+
+create or replace function public.open_activity_reconciliation(
+  target_doctor_id uuid,
+  target_period_day date
+) returns table (
+  time_zone text,
+  evidence_generation bigint,
+  evidence_count bigint
+)
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_zone text;
+  v_generation bigint;
+  v_day_start timestamptz;
+  v_day_end timestamptz;
+begin
+  if target_doctor_id is null or target_period_day is null then
+    raise exception 'O1F_ACTIVITY_RECONCILIATION_CONTEXT_REQUIRED' using errcode = '22023';
+  end if;
+
+  perform pg_catalog.pg_advisory_xact_lock(
+    pg_catalog.hashtextextended('dd:o1f:activity-day:' || target_period_day::text, 0)
+  );
+
+  select s.time_zone, s.evidence_generation
+  into v_zone, v_generation
+  from public.activity_reconciliation_state s
+  where s.doctor_id = target_doctor_id
+    and s.period_day = target_period_day
+  for update;
+
+  if not found then
+    raise exception 'O1F_ACTIVITY_RECONCILIATION_CONTEXT_MISSING' using errcode = '55000';
+  end if;
+
+  v_day_start := target_period_day::timestamp at time zone v_zone;
+  v_day_end := (target_period_day + 1)::timestamp at time zone v_zone;
+
+  if clock_timestamp() < v_day_end then
+    raise exception 'O1F_ACTIVITY_RECONCILIATION_DAY_OPEN' using errcode = '55000';
+  end if;
+  if clock_timestamp() - interval '48 hours' >= v_day_start then
+    raise exception 'O1F_ACTIVITY_RECONCILIATION_EVIDENCE_EXPIRED' using errcode = '55000';
+  end if;
+
+  perform public.purge_expired_engagement_minutes();
+
+  return query
+  select
+    v_zone,
+    v_generation,
+    count(*)::bigint
+  from public.engagement_minute_store m
+  where m.doctor_id = target_doctor_id
+    and m.period_day = target_period_day;
+end;
+$$;
+alter function public.open_activity_reconciliation(uuid, date)
+  owner to dd_metrics_rollup;
+
+create or replace function public.read_engagement_minute_page(
+  target_doctor_id uuid,
+  target_period_day date,
+  target_expected_generation bigint,
+  target_after_minute_bucket timestamptz default null,
+  target_after_surface text default null,
+  target_limit integer default 500
+) returns table (
+  minute_bucket timestamptz,
+  surface text
+)
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_generation bigint;
+begin
+  if target_doctor_id is null
+     or target_period_day is null
+     or target_expected_generation is null
+     or target_expected_generation < 0
+  then
+    raise exception 'O1F_ACTIVITY_PAGE_CONTEXT_INVALID' using errcode = '22023';
+  end if;
+  if target_limit is null or target_limit < 1 or target_limit > 1000 then
+    raise exception 'O1F_ACTIVITY_PAGE_LIMIT_INVALID' using errcode = '22023';
+  end if;
+  if (target_after_minute_bucket is null) <> (target_after_surface is null) then
+    raise exception 'O1F_ACTIVITY_PAGE_CURSOR_INVALID' using errcode = '22023';
+  end if;
+
+  perform pg_catalog.pg_advisory_xact_lock(
+    pg_catalog.hashtextextended('dd:o1f:activity-day:' || target_period_day::text, 0)
+  );
+
+  select s.evidence_generation
+  into v_generation
+  from public.activity_reconciliation_state s
+  where s.doctor_id = target_doctor_id
+    and s.period_day = target_period_day
+  for update;
+
+  if not found then
+    raise exception 'O1F_ACTIVITY_RECONCILIATION_CONTEXT_MISSING' using errcode = '55000';
+  end if;
+  if v_generation <> target_expected_generation then
+    raise exception 'O1F_ACTIVITY_RECONCILIATION_GENERATION_STALE' using errcode = '40001';
+  end if;
+
+  perform public.purge_expired_engagement_minutes();
+
+  return query
+  select m.minute_bucket, m.surface
+  from public.engagement_minute_store m
+  where m.doctor_id = target_doctor_id
+    and m.period_day = target_period_day
+    and (
+      target_after_minute_bucket is null
+      or (m.minute_bucket, m.surface) >
+         (target_after_minute_bucket, target_after_surface)
+    )
+  order by m.minute_bucket, m.surface
+  limit target_limit;
+end;
+$$;
+alter function public.read_engagement_minute_page(
+  uuid, date, bigint, timestamptz, text, integer
+) owner to dd_metrics_rollup;
+
+create or replace function public.ack_activity_reconciliation(
+  target_doctor_id uuid,
+  target_period_day date,
+  target_expected_generation bigint,
+  target_observed_evidence_count bigint
+) returns void
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_zone text;
+  v_generation bigint;
+  v_count bigint;
+  v_day_start timestamptz;
+  v_day_end timestamptz;
+begin
+  if target_doctor_id is null
+     or target_period_day is null
+     or target_expected_generation is null
+     or target_expected_generation < 0
+     or target_observed_evidence_count is null
+     or target_observed_evidence_count < 0
+  then
+    raise exception 'O1F_ACTIVITY_RECONCILIATION_ACK_INVALID' using errcode = '22023';
+  end if;
+
+  perform pg_catalog.pg_advisory_xact_lock(
+    pg_catalog.hashtextextended('dd:o1f:activity-day:' || target_period_day::text, 0)
+  );
+
+  select s.time_zone, s.evidence_generation
+  into v_zone, v_generation
+  from public.activity_reconciliation_state s
+  where s.doctor_id = target_doctor_id
+    and s.period_day = target_period_day
+  for update;
+
+  if not found then
+    raise exception 'O1F_ACTIVITY_RECONCILIATION_CONTEXT_MISSING' using errcode = '55000';
+  end if;
+  if v_generation <> target_expected_generation then
+    raise exception 'O1F_ACTIVITY_RECONCILIATION_GENERATION_STALE' using errcode = '40001';
+  end if;
+
+  v_day_start := target_period_day::timestamp at time zone v_zone;
+  v_day_end := (target_period_day + 1)::timestamp at time zone v_zone;
+  if clock_timestamp() < v_day_end then
+    raise exception 'O1F_ACTIVITY_RECONCILIATION_DAY_OPEN' using errcode = '55000';
+  end if;
+  if clock_timestamp() - interval '48 hours' >= v_day_start then
+    raise exception 'O1F_ACTIVITY_RECONCILIATION_EVIDENCE_EXPIRED' using errcode = '55000';
+  end if;
+
+  perform public.purge_expired_engagement_minutes();
+  select count(*)::bigint
+  into v_count
+  from public.engagement_minute_store m
+  where m.doctor_id = target_doctor_id
+    and m.period_day = target_period_day;
+
+  if v_count <> target_observed_evidence_count then
+    raise exception 'O1F_ACTIVITY_RECONCILIATION_EVIDENCE_COUNT_MISMATCH' using errcode = '40001';
+  end if;
+
+  update public.activity_reconciliation_state
+  set reconciled_generation = target_expected_generation,
+      reconciled_at = clock_timestamp()
+  where doctor_id = target_doctor_id
+    and period_day = target_period_day;
+end;
+$$;
+alter function public.ack_activity_reconciliation(uuid, date, bigint, bigint)
+  owner to dd_metrics_rollup;
+
+-- Replace the I1 Activity close with generation-backed proof. The same
+-- day-scoped advisory transaction lock is taken by minute writes, registration,
+-- replay, acknowledgement, and close. A write racing with close therefore waits
+-- and, once admitted, increments the generation and deletes stale completeness.
+create or replace function public.finalize_activity_measurement_day(
+  target_period_day date,
+  target_source_version bigint,
+  target_ingestion_complete boolean
+) returns void
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  d record;
+  c record;
+  v_generation bigint;
+  v_reconciled bigint;
+begin
+  if target_period_day is null or target_source_version is null or target_source_version < 0 then
+    raise exception 'O1F_ACTIVITY_CLOSE_ARGUMENT_INVALID' using errcode = '22023';
+  end if;
+  if target_ingestion_complete is distinct from true then
+    raise exception 'O1F_ACTIVITY_CLOSE_ATTESTATION_REQUIRED' using errcode = '22023';
+  end if;
+
+  perform pg_catalog.pg_advisory_xact_lock(
+    pg_catalog.hashtextextended('dd:o1f:activity-day:' || target_period_day::text, 0)
+  );
+
+  -- First prove the complete eligible Doctor set. No coverage is mutated until
+  -- every Doctor/day is present and reconciled to its current generation.
+  for d in
+    select distinct p.doctor_id
+    from public.pilot_participations p
+    where p.status in ('ENROLLED','COMPLETED')
+      and p.enrolled_on <= target_period_day
+      and public.pilot_consent_covers_day(
+        p.cohort_code,
+        p.participation_id,
+        'PRODUCT_USAGE_ANALYTICS',
+        target_period_day
+      )
+    order by p.doctor_id
+  loop
+    select s.evidence_generation, s.reconciled_generation
+    into v_generation, v_reconciled
+    from public.activity_reconciliation_state s
+    where s.doctor_id = d.doctor_id
+      and s.period_day = target_period_day
+    for update;
+
+    if not found or v_reconciled is distinct from v_generation then
+      raise exception 'O1F_ACTIVITY_CLOSE_RECONCILIATION_REQUIRED' using errcode = '55000';
+    end if;
+  end loop;
+
+  for d in
+    select distinct p.doctor_id
+    from public.pilot_participations p
+    where p.status in ('ENROLLED','COMPLETED')
+      and p.enrolled_on <= target_period_day
+      and public.pilot_consent_covers_day(
+        p.cohort_code,
+        p.participation_id,
+        'PRODUCT_USAGE_ANALYTICS',
+        target_period_day
+      )
+  loop
+    perform public.mark_telemetry_day_coverage(
+      target_period_day,
+      d.doctor_id,
+      'ACTIVITY',
+      true,
+      target_source_version
+    );
+  end loop;
+
+  if exists (
+    select 1
+    from public.pilot_participations p
+    where p.status in ('ENROLLED','COMPLETED')
+      and p.enrolled_on <= target_period_day
+      and public.pilot_consent_covers_day(
+        p.cohort_code,
+        p.participation_id,
+        'PRODUCT_USAGE_ANALYTICS',
+        target_period_day
+      )
+      and not exists (
+        select 1
+        from public.telemetry_day_coverage t
+        where t.period_day = target_period_day
+          and t.principal_doctor_id = p.doctor_id
+          and t.measurement_domain = 'ACTIVITY'
+          and t.is_complete
+      )
+  ) then
+    raise exception 'O1F_ACTIVITY_CLOSE_SOURCE_VERSION_STALE' using errcode = '40001';
+  end if;
+
+  perform public.rebuild_doctor_daily_activity_agg(target_period_day);
+
+  for c in select distinct p.cohort_code from public.pilot_participations p
+  loop
+    perform public.rebuild_pilot_status_daily_agg(target_period_day, c.cohort_code);
+  end loop;
+
+  perform public.purge_expired_engagement_minutes();
+end;
+$$;
+alter function public.finalize_activity_measurement_day(date, bigint, boolean)
+  owner to dd_metrics_rollup;
+
+-- I2 internal mutation needs DELETE only to invalidate stale accepted coverage;
+-- no API role receives direct table access.
+grant delete on public.telemetry_day_coverage to dd_metrics_rollup;
+
+-- Remove default/public execution from every new I2 function, then grant only
+-- the trusted server capabilities required by integration/runtime workers.
+revoke execute on function public.resolve_doctor_profile_id(uuid)
+  from public, anon, authenticated, service_role,
+       dd_metrics_reader, dd_pilot_writer, dd_retention;
+revoke execute on function public.register_activity_reconciliation_day(uuid, date, text)
+  from public, anon, authenticated, service_role,
+       dd_metrics_reader, dd_pilot_writer, dd_retention;
+revoke execute on function public.record_engagement_minute(uuid, date, timestamptz, text, text)
+  from public, anon, authenticated, service_role,
+       dd_metrics_reader, dd_pilot_writer, dd_retention;
+revoke execute on function public.discover_activity_reconciliation_doctors(date, uuid, integer)
+  from public, anon, authenticated, service_role,
+       dd_metrics_reader, dd_pilot_writer, dd_retention;
+revoke execute on function public.open_activity_reconciliation(uuid, date)
+  from public, anon, authenticated, service_role,
+       dd_metrics_reader, dd_pilot_writer, dd_retention;
+revoke execute on function public.read_engagement_minute_page(
+  uuid, date, bigint, timestamptz, text, integer
+) from public, anon, authenticated, service_role,
+       dd_metrics_reader, dd_pilot_writer, dd_retention;
+revoke execute on function public.ack_activity_reconciliation(uuid, date, bigint, bigint)
+  from public, anon, authenticated, service_role,
+       dd_metrics_reader, dd_pilot_writer, dd_retention;
+
+grant execute on function public.resolve_doctor_profile_id(uuid)
+  to service_role;
+grant execute on function public.register_activity_reconciliation_day(uuid, date, text)
+  to service_role;
+grant execute on function public.record_engagement_minute(uuid, date, timestamptz, text, text)
+  to service_role;
+grant execute on function public.discover_activity_reconciliation_doctors(date, uuid, integer)
+  to service_role;
+grant execute on function public.open_activity_reconciliation(uuid, date)
+  to service_role;
+grant execute on function public.read_engagement_minute_page(
+  uuid, date, bigint, timestamptz, text, integer
+) to service_role;
+grant execute on function public.ack_activity_reconciliation(uuid, date, bigint, bigint)
+  to service_role;
+SQL
+
+      - name: Narrowly supersede I1 verifier expectations
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          p = Path('scripts/verify-o1f-i1-contract.mjs')
+          s = p.read_text()
+
+          def replace_exact(old, new, count=None):
+              global s
+              actual = s.count(old)
+              expected = actual if count is None else count
+              if count is not None and actual != count:
+                  raise SystemExit(f'I1 transform count mismatch: expected {count}, got {actual}: {old[:80]!r}')
+              if actual == 0:
+                  raise SystemExit(f'I1 transform missing: {old[:80]!r}')
+              s = s.replace(old, new)
+
+          replace_exact(
+              "public.record_engagement_minute(uuid,date,text)",
+              "public.record_engagement_minute(uuid,date,timestamptz,text,text)",
+              2,
+          )
+          replace_exact(
+              "public.snapshot_engagement_minutes(uuid,date)",
+              "public.read_engagement_minute_page(uuid,date,bigint,timestamptz,text,integer)",
+              1,
+          )
+
+          needle = '  const first = await sql.begin((tx) => service(tx, async (sp) => {'
+          if s.count(needle) != 1:
+              raise SystemExit('I1 minute clock insertion anchor mismatch')
+          s = s.replace(
+              needle,
+              '''  const [{ minuteStamp, minuteDay }] = await sql`\n    select\n      date_trunc('minute', clock_timestamp()) as "minuteStamp",\n      (clock_timestamp() at time zone 'UTC')::date::text as "minuteDay"\n  `;\n\n  const first = await sql.begin((tx) => service(tx, async (sp) => {''',
+              1,
+          )
+
+          old_call = '''      select public.record_engagement_minute(\n        ${minuteDoctorId}, current_date, 'CONSULTATION'\n      ) as inserted'''
+          new_call = '''      select public.record_engagement_minute(\n        ${minuteDoctorId}, ${minuteDay}::date, ${minuteStamp}::timestamptz,\n        'CONSULTATION', 'UTC'\n      ) as inserted'''
+          if s.count(old_call) != 2:
+              raise SystemExit(f'I1 minute call count mismatch: {s.count(old_call)}')
+          s = s.replace(old_call, new_call)
+
+          old_snapshot = '''    select minute_bucket, surface\n    from public.snapshot_engagement_minutes(${minuteDoctorId}, current_date)'''
+          new_snapshot = '''    select minute_bucket, surface\n    from public.read_engagement_minute_page(\n      ${minuteDoctorId}, ${minuteDay}::date, 1, null, null, 100\n    )'''
+          if s.count(old_snapshot) != 1:
+              raise SystemExit('I1 snapshot anchor mismatch')
+          s = s.replace(old_snapshot, new_snapshot, 1)
+
+          old_unknown = '''        select public.record_engagement_minute(${minuteDoctorId}, current_date, 'UNKNOWN')'''
+          new_unknown = '''        select public.record_engagement_minute(\n          ${minuteDoctorId}, ${minuteDay}::date, ${minuteStamp}::timestamptz,\n          'UNKNOWN', 'UTC'\n        )'''
+          if s.count(old_unknown) != 1:
+              raise SystemExit('I1 unknown-surface anchor mismatch')
+          s = s.replace(old_unknown, new_unknown, 1)
+
+          finalizer = '''    await service(tx, (sp) => sp`\n      select public.finalize_activity_measurement_day(${targetDay}::date, 1, true)\n    `);'''
+          if s.count(finalizer) != 2:
+              raise SystemExit(f'I1 successful finalizer count mismatch: {s.count(finalizer)}')
+          reconcile = '''    for (const d of doctors) {\n      await service(tx, (sp) => sp`\n        select public.register_activity_reconciliation_day(\n          ${d.doctorId}, ${targetDay}::date, 'UTC'\n        )\n      `);\n      const [opened] = await service(tx, (sp) => sp`\n        select * from public.open_activity_reconciliation(\n          ${d.doctorId}, ${targetDay}::date\n        )\n      `);\n      check(\n        Number(opened.evidence_generation) === 0 && Number(opened.evidence_count) === 0,\n        "I2 zero-day replay opens at generation zero with no evidence"\n      );\n      await service(tx, (sp) => sp`\n        select public.ack_activity_reconciliation(\n          ${d.doctorId}, ${targetDay}::date, 0, 0\n        )\n      `);\n    }\n\n'''
+          s = s.replace(finalizer, reconcile + finalizer, 1)
+
+          p.write_text(s)
+          PY
+
+      - name: Add F-I2 contract verifier
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > scripts/verify-o1f-i2-contract.mjs <<'JS'
+/**
+ * O1-F-I2 final runtime closure verifier.
+ * Disposable PostgreSQL only. No protected Supabase access.
+ */
+import postgres from "postgres";
+import { execFileSync } from "node:child_process";
+import { readdirSync } from "node:fs";
+import {
+  applyFileIdempotent,
+  createProfile,
+  readMigrationFile,
+} from "./o1f-test-support.mjs";
+
+const START_SHA = "9f75403c948ccf26b9bc644f3f476683d74bb522";
+const url = process.env.DIRECT_URL ?? process.env.DATABASE_URL;
+if (!url) {
+  console.error("DIRECT_URL or DATABASE_URL must be set.");
+  process.exit(1);
+}
+
+const FILES = [
+  "drizzle/migrations/0000_parallel_mentor.sql",
+  "drizzle/migrations/0019_open_whizzer.sql",
+  "supabase/policies/0033_platform_owner_authority.sql",
+  "supabase/policies/0045_prelaunch_sec01b_security_closure.sql",
+  "supabase/policies/0047_o1_owner_analytics_authority.sql",
+];
+
+let failures = 0;
+function check(ok, label, detail = "") {
+  console.log(`  ${ok ? "✓" : "✗"} ${label}${detail ? ` — ${detail}` : ""}`);
+  if (!ok) failures += 1;
+}
+function sleep(ms) { return new Promise((resolve) => setTimeout(resolve, ms)); }
+
+async function asRole(tx, role, fn) {
+  await tx`select set_config('role', ${role}, true)`;
+  try { return await fn(tx); }
+  finally { await tx`select set_config('role', null, true)`; }
+}
+async function service(tx, fn) { return asRole(tx, "service_role", fn); }
+async function asAuthenticated(tx, userId, aal, fn) {
+  await tx`select set_config(
+    'request.jwt.claims',
+    ${JSON.stringify({ sub: userId, role: "authenticated", aal })},
+    true
+  )`;
+  await tx`select set_config('role', 'authenticated', true)`;
+  try { return await fn(tx); }
+  finally {
+    await tx`select set_config('role', null, true)`;
+    await tx`select set_config('request.jwt.claims', null, true)`;
+  }
+}
+async function expectRefused(tx, label, expected, fn) {
+  try {
+    await tx.savepoint(async (sp) => {
+      await fn(sp);
+      throw new Error("__ALLOWED__");
+    });
+    check(false, label, "ALLOWED");
+  } catch (error) {
+    if (error.message === "__ALLOWED__") {
+      check(false, label, "ALLOWED");
+      return;
+    }
+    check(String(error.message).includes(expected), label, String(error.message).split("\n")[0]);
+  }
+}
+
+async function createEnrolledParticipant(tx, ownerId, cohortCode, targetDay, n) {
+  const profileId = await createProfile(tx, `QA I2 Doctor ${cohortCode} ${n} @qa.invalid`);
+  const [doctor] = await tx`
+    insert into doctor_profiles(user_id) values (${profileId}) returning id
+  `;
+  const [p] = await tx`
+    insert into pilot_participations(cohort_code, doctor_id, status, enrolled_on)
+    values (${cohortCode}, ${doctor.id}, 'INVITED', ${targetDay}::date)
+    returning participation_id
+  `;
+  await tx`
+    insert into pilot_status_events(
+      participation_id, cohort_code, event_code, event_day, recorded_by
+    ) values (
+      ${p.participation_id}, ${cohortCode}, 'INVITED', ${targetDay}::date, ${ownerId}
+    )
+  `;
+  await tx`update pilot_participations set status = 'ENROLLED' where participation_id = ${p.participation_id}`;
+  await tx`
+    insert into pilot_status_events(
+      participation_id, cohort_code, event_code, event_day, recorded_by
+    ) values (
+      ${p.participation_id}, ${cohortCode}, 'ENROLLED', ${targetDay}::date, ${ownerId}
+    )
+  `;
+  await tx`
+    insert into pilot_consent_events(
+      participation_id, cohort_code, consent_scope, consent_version,
+      event, effective_at, recorded_by
+    ) values (
+      ${p.participation_id}, ${cohortCode}, 'PRODUCT_USAGE_ANALYTICS', 'v1',
+      'CONSENT_GRANTED', ${targetDay}::date::timestamptz, ${ownerId}
+    )
+  `;
+  return { profileId, doctorId: doctor.id, participationId: p.participation_id };
+}
+
+async function readAllMinutes(tx, doctorId, day, generation, pageSize = 1) {
+  const rows = [];
+  let afterMinute = null;
+  let afterSurface = null;
+  while (true) {
+    const page = await service(tx, (sp) => sp`
+      select * from public.read_engagement_minute_page(
+        ${doctorId}, ${day}::date, ${generation},
+        ${afterMinute}::timestamptz, ${afterSurface}::text, ${pageSize}
+      )
+    `);
+    rows.push(...page);
+    if (page.length < pageSize) break;
+    const last = page[page.length - 1];
+    afterMinute = last.minute_bucket;
+    afterSurface = last.surface;
+  }
+  return rows;
+}
+
+async function reconcile(tx, doctorId, day, expectedCount = null) {
+  const [opened] = await service(tx, (sp) => sp`
+    select * from public.open_activity_reconciliation(${doctorId}, ${day}::date)
+  `);
+  const generation = Number(opened.evidence_generation);
+  const rows = await readAllMinutes(tx, doctorId, day, generation, 1);
+  check(rows.length === Number(opened.evidence_count), "paged replay exhausts authoritative evidence");
+  if (expectedCount !== null) check(rows.length === expectedCount, `expected evidence count ${expectedCount}`);
+  await service(tx, (sp) => sp`
+    select public.ack_activity_reconciliation(
+      ${doctorId}, ${day}::date, ${generation}, ${rows.length}
+    )
+  `);
+  return { opened, generation, rows };
+}
+
+const sql = postgres(url, { max: 12, prepare: false, onnotice: () => {} });
+
+try {
+  console.log("1. Static migration boundary and fresh disposable setup");
+  let frozenUnchanged = true;
+  try {
+    execFileSync("git", [
+      "diff", "--exit-code", START_SHA, "--",
+      "supabase/policies/0041_prescription_correction_window.sql",
+      "supabase/policies/0042_m3_prescription_reuse.sql",
+      "supabase/policies/0043_m3_signed_medicine_history.sql",
+      "supabase/policies/0044_m3_prescription_print_audit.sql",
+      "supabase/policies/0045_prelaunch_sec01b_security_closure.sql",
+      "supabase/policies/0046_prelaunch_sec01b_postapply.sql",
+    ], { stdio: "pipe" });
+  } catch { frozenUnchanged = false; }
+  check(frozenUnchanged, "0041-0046 are byte-unchanged from F-I1 start");
+  check(
+    !readdirSync("supabase/policies").some((name) => /^0048(?:_|\.)/.test(name)),
+    "no 0048 migration exists"
+  );
+
+  let ownerId;
+  let targetDay;
+  let zeroDoctors;
+  await sql.begin(async (tx) => {
+    for (const file of FILES) await applyFileIdempotent(tx, await readMigrationFile(file));
+    check(true, "0047 F-I2 candidate applies on disposable PostgreSQL");
+
+    ownerId = await createProfile(tx, "QA I2 Owner @qa.invalid");
+    await tx`insert into platform_owners(user_id, is_active) values (${ownerId}, true)`;
+    const [{ day }] = await tx`select (current_date - 1)::text as day`;
+    targetDay = day;
+    await tx`
+      insert into pilot_cohorts(cohort_code, display_name, started_on, created_by)
+      values ('I2_ZERO', 'I2 Zero', ${targetDay}::date, ${ownerId})
+    `;
+    zeroDoctors = [];
+    for (let i = 1; i <= 5; i += 1) {
+      zeroDoctors.push(await createEnrolledParticipant(tx, ownerId, "I2_ZERO", targetDay, i));
+    }
+
+    console.log("\n2. Schema privacy + exact frozen E aggregate");
+    const stateCols = await tx`
+      select column_name from information_schema.columns
+      where table_schema='public' and table_name='activity_reconciliation_state'
+      order by ordinal_position
+    `;
+    check(
+      stateCols.map((r) => r.column_name).join(",") ===
+        "doctor_id,period_day,time_zone,evidence_generation,reconciled_generation,reconciled_at",
+      "reconciliation state contains only minimal Doctor/day metadata"
+    );
+    check(
+      stateCols.every((r) => ![
+        'practice_location_id','patient_id','encounter_id','route','path','device_id','ip','payload'
+      ].includes(r.column_name)),
+      "no location/clinical/device identifiers persisted in reconciliation state"
+    );
+    const minuteCols = await tx`
+      select column_name from information_schema.columns
+      where table_schema='public' and table_name='engagement_minute_store'
+      order by ordinal_position
+    `;
+    check(
+      minuteCols.map((r) => r.column_name).join(",") === "doctor_id,period_day,minute_bucket,surface",
+      "minute store remains exact four-field frozen-A evidence"
+    );
+    const eCols = await tx`
+      select column_name from information_schema.columns
+      where table_schema='public' and table_name='service_usage_daily_agg'
+      order by ordinal_position
+    `;
+    check(
+      eCols.map((r) => r.column_name).join(",") === [
+        'period_day','principal_doctor_id','provider_id','service_kind','model_id',
+        'unit','quantity_total','event_count','estimated_cost_minor','currency_code'
+      ].join(','),
+      "exact E ten-column Owner aggregate preserved"
+    );
+    const [rls] = await tx`
+      select relrowsecurity, relforcerowsecurity from pg_class
+      where oid='public.activity_reconciliation_state'::regclass
+    `;
+    check(rls.relrowsecurity && rls.relforcerowsecurity, "reconciliation state ENABLE + FORCE RLS");
+
+    console.log("\n3. I2 ACL isolation and superseded signatures");
+    const [oldSigs] = await tx`
+      select
+        to_regprocedure('public.record_engagement_minute(uuid,date,text)') is null as old_writer_gone,
+        to_regprocedure('public.snapshot_engagement_minutes(uuid,date)') is null as old_snapshot_gone
+    `;
+    check(oldSigs.old_writer_gone, "old three-argument minute writer signature is absent");
+    check(oldSigs.old_snapshot_gone, "old unbounded snapshot signature is absent");
+
+    const required = [
+      'resolve_doctor_profile_id(uuid)',
+      'register_activity_reconciliation_day(uuid,date,text)',
+      'record_engagement_minute(uuid,date,timestamptz,text,text)',
+      'discover_activity_reconciliation_doctors(date,uuid,integer)',
+      'open_activity_reconciliation(uuid,date)',
+      'read_engagement_minute_page(uuid,date,bigint,timestamptz,text,integer)',
+      'ack_activity_reconciliation(uuid,date,bigint,bigint)',
+      'finalize_activity_measurement_day(date,bigint,boolean)',
+    ];
+    for (const sig of required) {
+      const [r] = await tx`
+        select
+          to_regprocedure(${`public.${sig}`})::oid as oid,
+          has_function_privilege('service_role', ${`public.${sig}`}, 'EXECUTE') as svc,
+          has_function_privilege('authenticated', ${`public.${sig}`}, 'EXECUTE') as auth,
+          has_function_privilege('anon', ${`public.${sig}`}, 'EXECUTE') as anon
+      `;
+      check(!!r.oid && r.svc && !r.auth && !r.anon, `${sig}: service-only execution`);
+    }
+    const [tableAcl] = await tx`
+      select
+        has_table_privilege('service_role','public.engagement_minute_store','SELECT') as minute_select,
+        has_table_privilege('service_role','public.activity_reconciliation_state','SELECT') as state_select,
+        has_table_privilege('service_role','public.doctor_profiles','SELECT') as doctor_select
+    `;
+    check(!tableAcl.minute_select && !tableAcl.state_select && !tableAcl.doctor_select,
+      "service_role has no direct minute/state/Doctor table SELECT");
+
+    console.log("\n4. Canonical actor -> Doctor resolution");
+    const [idx] = await tx`
+      select i.indisunique
+      from pg_index i
+      join pg_class c on c.oid=i.indexrelid
+      where c.relname='doctor_profiles_user_id_key'
+    `;
+    check(idx?.indisunique === true, "doctor_profiles.user_id structural uniqueness exists");
+    const [resolved] = await service(tx, (sp) => sp`
+      select public.resolve_doctor_profile_id(${zeroDoctors[0].profileId}) as id
+    `);
+    check(resolved.id === zeroDoctors[0].doctorId, "actor resolves to canonical Doctor UUID only");
+    const [missing] = await service(tx, (sp) => sp`
+      select public.resolve_doctor_profile_id('00000000-0000-0000-0000-000000000001') as id
+    `);
+    check(missing.id === null, "actor resolver no-match fails closed to NULL");
+  });
+
+  console.log("\n5. Zero activity requires explicit timezone context + exhaustive reconciliation");
+  await sql.begin(async (tx) => {
+    await expectRefused(tx, "missing reconciliation cannot finalize as zero", "O1F_ACTIVITY_CLOSE_RECONCILIATION_REQUIRED", async (sp) => {
+      await service(sp, (r) => r`
+        select public.finalize_activity_measurement_day(${targetDay}::date, 1, true)
+      `);
+    });
+    await expectRefused(tx, "no default timezone guess", "O1F_ACTIVITY_RECONCILIATION_CONTEXT_REQUIRED", async (sp) => {
+      await service(sp, (r) => r`
+        select public.register_activity_reconciliation_day(${zeroDoctors[0].doctorId}, ${targetDay}::date, null)
+      `);
+    });
+
+    for (const d of zeroDoctors) {
+      await service(tx, (sp) => sp`
+        select public.register_activity_reconciliation_day(${d.doctorId}, ${targetDay}::date, 'UTC')
+      `);
+    }
+    await expectRefused(tx, "Doctor/day timezone conflict fails closed", "O1F_ACTIVITY_RECONCILIATION_TIMEZONE_CONFLICT", async (sp) => {
+      await service(sp, (r) => r`
+        select public.register_activity_reconciliation_day(
+          ${zeroDoctors[0].doctorId}, ${targetDay}::date, 'Europe/London'
+        )
+      `);
+    });
+
+    const discovered = [];
+    let cursor = null;
+    while (true) {
+      const page = await service(tx, (sp) => sp`
+        select * from public.discover_activity_reconciliation_doctors(
+          ${targetDay}::date, ${cursor}::uuid, 2
+        )
+      `);
+      discovered.push(...page);
+      if (page.length < 2) break;
+      cursor = page[page.length - 1].doctor_id;
+    }
+    check(discovered.length === 5, "bounded keyset discovery exhausts all five eligible Doctors");
+    check(discovered.every((r) => r.time_zone === 'UTC'),
+      "worker obtains authoritative Doctor/day timezone with no location identifier");
+
+    for (const d of zeroDoctors) await reconcile(tx, d.doctorId, targetDay, 0);
+    await service(tx, (sp) => sp`
+      select public.finalize_activity_measurement_day(${targetDay}::date, 1, true)
+    `);
+
+    const agg = await tx`
+      select engaged_minutes, active_day, session_count, feature_touch_count
+      from doctor_daily_activity_agg
+      where period_day=${targetDay}::date and cohort_code='I2_ZERO'
+    `;
+    check(
+      agg.length === 5 && agg.every((r) =>
+        Number(r.engaged_minutes) === 0 && r.active_day === false &&
+        Number(r.session_count) === 0 && Number(r.feature_touch_count) === 0
+      ),
+      "complete reconciled zero-evidence day materializes authoritative zeros"
+    );
+    const summary = await asAuthenticated(tx, ownerId, 'aal2', (sp) => sp`
+      select * from public.owner_activity_summary(${targetDay}::date, ${targetDay}::date)
+    `);
+    check(summary[0].active_doctor_count === '0' && summary[0].total_sessions === '0' && summary[0].total_engaged_minutes === '0',
+      "Owner zero activity is truthful only after complete reconciliation");
+  });
+
+  console.log("\n6. Server-stamped minute, timezone replay, midnight boundary, generation idempotency");
+  let boundary;
+  await sql.begin(async (tx) => {
+    const rows = await tx`
+      with zones as (
+        select name, (clock_timestamp() at time zone name)::date as local_day
+        from pg_catalog.pg_timezone_names
+        where name like '%/%'
+      ), bounds as (
+        select
+          name,
+          local_day,
+          (local_day::timestamp at time zone name) - interval '1 minute' as before_stamp,
+          (local_day::timestamp at time zone name) + interval '1 minute' as after_stamp
+        from zones
+      )
+      select
+        name,
+        local_day::text as local_day,
+        (local_day - 1)::text as race_day,
+        before_stamp,
+        after_stamp
+      from bounds
+      where before_stamp >= clock_timestamp() - interval '40 minutes'
+        and after_stamp <= clock_timestamp() + interval '2 minutes'
+      order by name
+      limit 1
+    `;
+    boundary = rows[0];
+    check(!!boundary, "found an IANA zone close enough to local midnight for live boundary proof");
+  });
+  if (!boundary) throw new Error("No midnight boundary timezone available inside freshness window");
+
+  let raceDoctors;
+  await sql.begin(async (tx) => {
+    await tx`
+      insert into pilot_cohorts(cohort_code, display_name, started_on, created_by)
+      values ('I2_RACE', 'I2 Race', ${boundary.race_day}::date, ${ownerId})
+    `;
+    raceDoctors = [];
+    for (let i = 1; i <= 5; i += 1) {
+      raceDoctors.push(await createEnrolledParticipant(tx, ownerId, 'I2_RACE', boundary.race_day, i));
+    }
+    for (const d of raceDoctors) {
+      await service(tx, (sp) => sp`
+        select public.register_activity_reconciliation_day(
+          ${d.doctorId}, ${boundary.race_day}::date, ${boundary.name}
+        )
+      `);
+    }
+
+    const [beforeWrite] = await service(tx, (sp) => sp`
+      select public.record_engagement_minute(
+        ${raceDoctors[0].doctorId}, ${boundary.race_day}::date,
+        ${boundary.before_stamp}::timestamptz, 'CONSULTATION', ${boundary.name}
+      ) as inserted
+    `);
+    const [replay] = await service(tx, (sp) => sp`
+      select public.record_engagement_minute(
+        ${raceDoctors[0].doctorId}, ${boundary.race_day}::date,
+        ${boundary.before_stamp}::timestamptz, 'CONSULTATION', ${boundary.name}
+      ) as inserted
+    `);
+    check(beforeWrite.inserted === true && replay.inserted === false,
+      "trusted server minute is idempotent and duplicate does not advance generation");
+
+    const [afterWrite] = await service(tx, (sp) => sp`
+      select public.record_engagement_minute(
+        ${raceDoctors[0].doctorId}, ${boundary.local_day}::date,
+        ${boundary.after_stamp}::timestamptz, 'CONSULTATION', ${boundary.name}
+      ) as inserted
+    `);
+    check(afterWrite.inserted === true, "00:01 server minute is accepted into the new clinic day");
+
+    const beforePage = await readAllMinutes(tx, raceDoctors[0].doctorId, boundary.race_day, 1, 10);
+    const afterPage = await readAllMinutes(tx, raceDoctors[0].doctorId, boundary.local_day, 1, 10);
+    check(beforePage.length === 1 && afterPage.length === 1,
+      "23:59 and 00:01 replay remain separated by authoritative clinic day");
+
+    await expectRefused(tx, "writer timezone conflict fails closed", "O1F_ACTIVITY_RECONCILIATION_TIMEZONE_CONFLICT", async (sp) => {
+      await service(sp, (r) => r`
+        select public.record_engagement_minute(
+          ${raceDoctors[0].doctorId}, ${boundary.race_day}::date,
+          ${boundary.before_stamp}::timestamptz, 'DASHBOARD', 'UTC'
+        )
+      `);
+    });
+    await expectRefused(tx, "wrong clinic day cannot reclassify a minute", "O1A_MINUTE_PERIOD_DAY_MISMATCH", async (sp) => {
+      await service(sp, (r) => r`
+        select public.record_engagement_minute(
+          ${raceDoctors[1].doctorId}, ${boundary.local_day}::date,
+          ${boundary.before_stamp}::timestamptz, 'DASHBOARD', ${boundary.name}
+        )
+      `);
+    });
+    await expectRefused(tx, "future-skew bound enforced", "O1A_MINUTE_TIMESTAMP_OUT_OF_RANGE", async (sp) => {
+      await service(sp, (r) => r`
+        select public.record_engagement_minute(
+          ${raceDoctors[1].doctorId}, ${boundary.local_day}::date,
+          clock_timestamp() + interval '5 minutes', 'DASHBOARD', ${boundary.name}
+        )
+      `);
+    });
+  });
+
+  console.log("\n7. Reconciliation acknowledgement + initial close");
+  await sql.begin(async (tx) => {
+    const target = await reconcile(tx, raceDoctors[0].doctorId, boundary.race_day, 1);
+    await service(tx, (sp) => sp`
+      select public.ingest_activity_contribution(
+        'DOCTOR_ENGAGED_MINUTES_DAILY', ${raceDoctors[0].doctorId}, ${boundary.race_day}::date,
+        '*', 1, 'O1A_INTERACTION_METER', ${target.generation}
+      )
+    `;
+    await service(tx, (sp) => sp`
+      select public.ingest_activity_contribution(
+        'DOCTOR_ACTIVE_DAY', ${raceDoctors[0].doctorId}, ${boundary.race_day}::date,
+        '*', 1, 'O1A_INTERACTION_METER', ${target.generation}
+      )
+    `;
+    await service(tx, (sp) => sp`
+      select public.ingest_activity_contribution(
+        'DOCTOR_SESSION_COUNT_DAILY', ${raceDoctors[0].doctorId}, ${boundary.race_day}::date,
+        '*', 1, 'O1A_INTERACTION_METER', ${target.generation}
+      )
+    `;
+    for (let i = 1; i < raceDoctors.length; i += 1) {
+      await reconcile(tx, raceDoctors[i].doctorId, boundary.race_day, 0);
+    }
+    await service(tx, (sp) => sp`
+      select public.finalize_activity_measurement_day(${boundary.race_day}::date, 1, true)
+    `);
+    const [{ n }] = await tx`
+      select count(*)::int as n from telemetry_day_coverage
+      where period_day=${boundary.race_day}::date and measurement_domain='ACTIVITY' and is_complete
+    `;
+    check(n === 5, "initial reconciled race day closes completely");
+  });
+
+  console.log("\n8. Concurrent close/write serialization and late-write invalidation");
+  let releaseBlock;
+  let blockerReady;
+  const blockerReadyPromise = new Promise((resolve) => { blockerReady = resolve; });
+  const blocker = sql.begin(async (tx) => {
+    await tx`
+      select 1 from activity_reconciliation_state
+      where doctor_id=${raceDoctors[0].doctorId} and period_day=${boundary.race_day}::date
+      for update
+    `;
+    blockerReady();
+    await new Promise((resolve) => { releaseBlock = resolve; });
+  });
+  await blockerReadyPromise;
+
+  const closeRace = sql.begin((tx) => service(tx, (sp) => sp`
+    select public.finalize_activity_measurement_day(${boundary.race_day}::date, 2, true)
+  `));
+  await sleep(200);
+  const writeRace = sql.begin((tx) => service(tx, (sp) => sp`
+    select public.record_engagement_minute(
+      ${raceDoctors[0].doctorId}, ${boundary.race_day}::date,
+      ${boundary.before_stamp}::timestamptz, 'DASHBOARD', ${boundary.name}
+    ) as inserted
+  `));
+  await sleep(200);
+  releaseBlock();
+  const [, , raceWriteRows] = await Promise.all([blocker, closeRace, writeRace]);
+  check(raceWriteRows[0].inserted === true, "racing unique minute is eventually admitted");
+
+  await sql.begin(async (tx) => {
+    const [state] = await tx`
+      select evidence_generation, reconciled_generation
+      from activity_reconciliation_state
+      where doctor_id=${raceDoctors[0].doctorId} and period_day=${boundary.race_day}::date
+    `;
+    check(Number(state.evidence_generation) === 2 && state.reconciled_generation === null,
+      "racing write advances generation and makes Doctor/day dirty");
+    const [{ n }] = await tx`
+      select count(*)::int as n from telemetry_day_coverage
+      where doctor_id is null
+    `.catch(() => [{ n: -1 }]);
+    void n;
+    const [{ coverage }] = await tx`
+      select count(*)::int as coverage from telemetry_day_coverage
+      where period_day=${boundary.race_day}::date
+        and principal_doctor_id=${raceDoctors[0].doctorId}
+        and measurement_domain='ACTIVITY'
+        and is_complete
+    `;
+    check(coverage === 0, "racing write invalidates stale ACTIVITY completeness after close");
+    await expectRefused(tx, "dirty generation blocks subsequent finalize", "O1F_ACTIVITY_CLOSE_RECONCILIATION_REQUIRED", async (sp) => {
+      await service(sp, (r) => r`
+        select public.finalize_activity_measurement_day(${boundary.race_day}::date, 3, true)
+      `);
+    });
+  });
+
+  console.log("\n9. Reconcile new generation, then prove legitimate late write invalidates again");
+  await sql.begin(async (tx) => {
+    const rerun = await reconcile(tx, raceDoctors[0].doctorId, boundary.race_day, 2);
+    check(rerun.generation === 2, "worker acknowledges exactly generation 2");
+    await service(tx, (sp) => sp`
+      select public.ingest_activity_contribution(
+        'DOCTOR_ENGAGED_MINUTES_DAILY', ${raceDoctors[0].doctorId}, ${boundary.race_day}::date,
+        '*', 1, 'O1A_INTERACTION_METER', 2
+      )
+    `;
+    await service(tx, (sp) => sp`
+      select public.ingest_activity_contribution(
+        'DOCTOR_ACTIVE_DAY', ${raceDoctors[0].doctorId}, ${boundary.race_day}::date,
+        '*', 1, 'O1A_INTERACTION_METER', 2
+      )
+    `;
+    await service(tx, (sp) => sp`
+      select public.ingest_activity_contribution(
+        'DOCTOR_SESSION_COUNT_DAILY', ${raceDoctors[0].doctorId}, ${boundary.race_day}::date,
+        '*', 1, 'O1A_INTERACTION_METER', 2
+      )
+    `;
+    await service(tx, (sp) => sp`
+      select public.finalize_activity_measurement_day(${boundary.race_day}::date, 3, true)
+    `);
+    const [late] = await service(tx, (sp) => sp`
+      select public.record_engagement_minute(
+        ${raceDoctors[0].doctorId}, ${boundary.race_day}::date,
+        ${boundary.before_stamp}::timestamptz, 'PATIENTS', ${boundary.name}
+      ) as inserted
+    `;
+    check(late.inserted === true, "legitimate later unique minute is accepted");
+    const [dirty] = await tx`
+      select evidence_generation, reconciled_generation
+      from activity_reconciliation_state
+      where doctor_id=${raceDoctors[0].doctorId} and period_day=${boundary.race_day}::date
+    `;
+    check(Number(dirty.evidence_generation) === 3 && dirty.reconciled_generation === null,
+      "late minute re-dirties previously complete Doctor/day");
+    const [{ coverage }] = await tx`
+      select count(*)::int as coverage from telemetry_day_coverage
+      where period_day=${boundary.race_day}::date
+        and principal_doctor_id=${raceDoctors[0].doctorId}
+        and measurement_domain='ACTIVITY' and is_complete
+    `;
+    check(coverage === 0, "late minute removes stale complete coverage");
+  });
+
+  if (failures > 0) {
+    console.error(`\nO1-F-I2 CONTRACT: FAIL (${failures} checks)`);
+    process.exitCode = 1;
+  } else {
+    console.log("\nO1-F-I2 CONTRACT: PASS");
+  }
+} catch (error) {
+  console.error("\nO1-F-I2 VERIFIER ABORTED");
+  console.error(error);
+  process.exitCode = 1;
+} finally {
+  await sql.end({ timeout: 2 });
+}
+JS
+
+      - name: Commit candidate locally and prove narrow inventory
+        shell: bash
+        run: |
+          set -euo pipefail
+          START=9f75403c948ccf26b9bc644f3f476683d74bb522
+          git diff --check
+          git config user.name "Doctor's Diary O1-F-I2 CI"
+          git config user.email "o1-f-i2@users.noreply.github.com"
+          git add \
+            supabase/policies/0047_o1_owner_analytics_authority.sql \
+            scripts/verify-o1f-i1-contract.mjs \
+            scripts/verify-o1f-i2-contract.mjs
+          git commit -m "feat(o1-f-i2): close activity reconciliation contract"
+          test "$(git rev-parse HEAD^)" = "$START"
+          printf '%s\n' \
+            scripts/verify-o1f-i1-contract.mjs \
+            scripts/verify-o1f-i2-contract.mjs \
+            supabase/policies/0047_o1_owner_analytics_authority.sql \
+            | sort > /tmp/expected-files
+          git diff --name-only "$START" HEAD | sort > /tmp/actual-files
+          diff -u /tmp/expected-files /tmp/actual-files
+          echo "CANDIDATE_SHA=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+          echo "CANDIDATE_0047_BLOB=$(git hash-object supabase/policies/0047_o1_owner_analytics_authority.sql)" >> "$GITHUB_ENV"
+          echo "CANDIDATE_0047_SHA256=$(sha256sum supabase/policies/0047_o1_owner_analytics_authority.sql | awk '{print $1}')" >> "$GITHUB_ENV"
+          echo "F_I2_CHANGED_FILES=PASS"
+
+      - name: Set up Node 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Exact-SHA detached clean worktree
+        shell: bash
+        run: |
+          set -euo pipefail
+          git worktree add --detach /tmp/o1f-i2-exact "$CANDIDATE_SHA"
+          cd /tmp/o1f-i2-exact
+          test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
+          test "$(git hash-object supabase/policies/0047_o1_owner_analytics_authority.sql)" = "$CANDIDATE_0047_BLOB"
+          test -z "$(git status --porcelain)"
+          npm ci --ignore-scripts
+          test -z "$(git status --porcelain)"
+          echo "F_I2_PREVERIFY_HEAD=$CANDIDATE_SHA"
+          echo "F_I2_PREVERIFY_0047_BLOB=$CANDIDATE_0047_BLOB"
+          echo "F_I2_PREVERIFY_0047_SHA256=$CANDIDATE_0047_SHA256"
+
+      - name: Run all eight F verifiers on separate fresh PostgreSQL 17 containers
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd /tmp/o1f-i2-exact
+          scripts=(
+            scripts/verify-o1f-activity-day-grain.mjs
+            scripts/verify-o1f-owner-aal2-and-consent.mjs
+            scripts/verify-o1f-owner-surface.mjs
+            scripts/verify-o1f-pilot-plane-isolation.mjs
+            scripts/verify-o1f-r2-contract.mjs
+            scripts/verify-o1f-r3-contract.mjs
+            scripts/verify-o1f-i1-contract.mjs
+            scripts/verify-o1f-i2-contract.mjs
+          )
+          i=0
+          for verifier in "${scripts[@]}"; do
+            i=$((i+1))
+            name="o1fi2pg${i}"
+            port=$((55430+i))
+            echo "===== RUN $i/8: $verifier ====="
+            docker run -d --name "$name" \
+              -e POSTGRES_PASSWORD=postgres \
+              -e POSTGRES_USER=postgres \
+              -e POSTGRES_DB=o1f \
+              -p "127.0.0.1:${port}:5432" \
+              postgres:17 >/dev/null
+            cleanup() { docker rm -f "$name" >/dev/null 2>&1 || true; }
+            trap cleanup EXIT
+            for n in $(seq 1 40); do
+              if docker exec "$name" pg_isready -U postgres -d o1f >/dev/null 2>&1; then break; fi
+              sleep 1
+            done
+            docker exec "$name" pg_isready -U postgres -d o1f >/dev/null
+            DATABASE_URL="postgresql://postgres:postgres@127.0.0.1:${port}/o1f" node "$verifier"
+            cleanup
+            trap - EXIT
+            echo "===== PASS: $verifier ====="
+          done
+          echo "F_I2_EIGHT_VERIFIERS=PASS"
+
+      - name: Post-verification exact-SHA and cleanliness proof
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd /tmp/o1f-i2-exact
+          test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
+          test "$(git hash-object supabase/policies/0047_o1_owner_analytics_authority.sql)" = "$CANDIDATE_0047_BLOB"
+          test "$(sha256sum supabase/policies/0047_o1_owner_analytics_authority.sql | awk '{print $1}')" = "$CANDIDATE_0047_SHA256"
+          test -z "$(git status --porcelain)"
+          test -z "$(find supabase/policies -maxdepth 1 -type f -name '0048*' -print -quit)"
+          git diff --exit-code 9f75403c948ccf26b9bc644f3f476683d74bb522 -- \
+            supabase/policies/0041_prescription_correction_window.sql \
+            supabase/policies/0042_m3_prescription_reuse.sql \
+            supabase/policies/0043_m3_signed_medicine_history.sql \
+            supabase/policies/0044_m3_prescription_print_audit.sql \
+            supabase/policies/0045_prelaunch_sec01b_security_closure.sql \
+            supabase/policies/0046_prelaunch_sec01b_postapply.sql
+          echo "F_I2_POSTVERIFY_HEAD=$CANDIDATE_SHA"
+          echo "F_I2_POSTVERIFY_0047_BLOB=$CANDIDATE_0047_BLOB"
+          echo "F_I2_POSTVERIFY_CLEAN=PASS"
+          echo "F_I2_0041_0046_PRESERVED=PASS"
+          echo "F_I2_NO_0048=PASS"
+
+      - name: Push verified candidate only after all gates pass
+        shell: bash
+        run: |
+          set -euo pipefail
+          git push origin "$CANDIDATE_SHA":refs/heads/o1/f-integration-closure-i2
+          echo "F_I2_PUSHED_SHA=$CANDIDATE_SHA"
+          echo "F_I2_0047_BLOB=$CANDIDATE_0047_BLOB"
+          echo "F_I2_0047_SHA256=$CANDIDATE_0047_SHA256"
