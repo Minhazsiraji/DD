@@ -1,0 +1,84 @@
+name: O1-F-I2 exact verify v2
+on:
+  push:
+    branches: [o1/f-i2-verify-helper-2]
+permissions:
+  contents: write
+jobs:
+  exact-verify-v2:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: o1/f-i2-verify-helper-2
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Extract authorized patch step
+        shell: python
+        run: |
+          from pathlib import Path
+          src=Path('.github/workflows/o1f-i2-exact-verify.yml').read_text().splitlines()
+          start=next(i for i,l in enumerate(src) if l.strip()=='- name: Apply I2 contract correction')
+          run=next(i for i in range(start+1,len(src)) if src[i].strip()=='run: |')
+          end=next(i for i in range(run+1,len(src)) if src[i].strip()=='- name: Exact-SHA preflight')
+          out=[]
+          for l in src[run+1:end]:
+            out.append(l[10:] if l.startswith('          ') else l)
+          Path('/tmp/o1f-i2-patch.sh').write_text('\n'.join(out)+'\n')
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Checkout exact target branch and install verifier dependency
+        shell: bash
+        run: |
+          git fetch origin o1/f-integration-closure-i2
+          git checkout -B o1/f-integration-closure-i2 origin/o1/f-integration-closure-i2
+          npm install postgres@3.4.9 --no-save --package-lock=false --ignore-scripts
+      - name: Apply correction and push candidate
+        shell: bash
+        run: bash /tmp/o1f-i2-patch.sh
+      - name: Exact-SHA preflight
+        shell: bash
+        run: |
+          echo "HEAD=$(git rev-parse HEAD)"
+          test -z "$(git status --porcelain)"
+          echo "BLOB=$(git hash-object supabase/policies/0047_o1_owner_analytics_authority.sql)"
+          echo "SHA256=$(sha256sum supabase/policies/0047_o1_owner_analytics_authority.sql | awk '{print $1}')"
+          echo "CHANGED_FILES"
+          git diff --name-only 9f75403c948ccf26b9bc644f3f476683d74bb522..HEAD
+      - name: Run all eight on fresh PostgreSQL databases
+        env:
+          PGPASSWORD: postgres
+        shell: bash
+        run: |
+          set -euo pipefail
+          tests=(verify-o1f-activity-day-grain.mjs verify-o1f-owner-aal2-and-consent.mjs verify-o1f-owner-surface.mjs verify-o1f-pilot-plane-isolation.mjs verify-o1f-r2-contract.mjs verify-o1f-r3-contract.mjs verify-o1f-i1-contract.mjs verify-o1f-i2-contract.mjs)
+          i=0
+          for t in "${tests[@]}"; do
+            i=$((i+1)); db="o1fi2v2_${i}"
+            psql -h localhost -U postgres -d postgres -v ON_ERROR_STOP=1 -c "create database ${db};"
+            echo "===== ${t} @ $(git rev-parse HEAD) ====="
+            DATABASE_URL="postgresql://postgres:postgres@localhost:5432/${db}" DIRECT_URL="postgresql://postgres:postgres@localhost:5432/${db}" node "scripts/${t}"
+          done
+      - name: Exact-SHA postflight
+        if: always()
+        shell: bash
+        run: |
+          echo "POST_HEAD=$(git rev-parse HEAD)"
+          echo "POST_STATUS=$(git status --porcelain | wc -l)"
+          echo "POST_BLOB=$(git hash-object supabase/policies/0047_o1_owner_analytics_authority.sql)"
+          echo "POST_SHA256=$(sha256sum supabase/policies/0047_o1_owner_analytics_authority.sql | awk '{print $1}')"
+          test -z "$(git status --porcelain)"
