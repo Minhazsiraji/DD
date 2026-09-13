@@ -19,3 +19,4 @@ jobs:
       - name: Implement and exact-SHA verify F-I2
         shell: bash
         run: bash .ci/o1f-i2-bootstrap-v4.sh
+# trigger: corrected verifier service closures
