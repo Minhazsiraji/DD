@@ -230,7 +230,8 @@ try {
       select
         has_table_privilege('service_role', 'public.engagement_minute_store', 'SELECT') as svc_minute_select,
         has_table_privilege('service_role', 'public.ai_voice_telemetry_l0', 'SELECT') as svc_e_select,
-        has_function_privilege('service_role', 'public.record_engagement_minute(uuid,date,text)', 'EXECUTE') as svc_record,
+        has_function_privilege('service_role', 'public.record_engagement_minute(uuid,timestamptz,text,text)', 'EXECUTE') as svc_record,
+        to_regprocedure('public.record_engagement_minute(uuid,date,text)') is null as old_record_absent,
         has_function_privilege('service_role', 'public.snapshot_engagement_minutes(uuid,date)', 'EXECUTE') as svc_snapshot,
         has_function_privilege('service_role', 'public.ingest_ai_voice_telemetry_event(jsonb)', 'EXECUTE') as svc_ingest_e,
         has_function_privilege('service_role', 'public.read_ai_voice_telemetry_events(timestamptz,timestamptz,timestamptz,text,integer)', 'EXECUTE') as svc_read_e,
@@ -242,14 +243,14 @@ try {
     const a = acl[0];
     check(!a.svc_minute_select && !a.svc_e_select, "service_role has no direct I1 table SELECT");
     check(
-      a.svc_record && a.svc_snapshot && a.svc_ingest_e && a.svc_read_e && a.svc_close_a && a.svc_close_e,
+      a.svc_record && a.old_record_absent && !a.svc_snapshot && a.svc_ingest_e && a.svc_read_e && a.svc_close_a && a.svc_close_e,
       "service_role has only required I1 RPC capabilities"
     );
     check(!a.svc_rebuild_a && !a.svc_rebuild_p, "service_role cannot invoke internal rollup rebuilds");
 
     const authAcl = await tx`
       select
-        has_function_privilege('authenticated', 'public.record_engagement_minute(uuid,date,text)', 'EXECUTE') as record,
+        has_function_privilege('authenticated', 'public.record_engagement_minute(uuid,timestamptz,text,text)', 'EXECUTE') as record,
         has_function_privilege('authenticated', 'public.ingest_ai_voice_telemetry_event(jsonb)', 'EXECUTE') as ingest_e,
         has_function_privilege('authenticated', 'public.finalize_activity_measurement_day(date,bigint,boolean)', 'EXECUTE') as close_a,
         has_function_privilege('authenticated', 'public.finalize_ai_voice_measurement_day(date,bigint,boolean)', 'EXECUTE') as close_e
@@ -268,10 +269,16 @@ try {
   });
 
   console.log("\n4. A minute idempotency + cross-request snapshot");
+  const [{ minuteBucket, minuteDay }] = await sql`
+    select
+      date_trunc('minute', clock_timestamp())::text as "minuteBucket",
+      ((date_trunc('minute', clock_timestamp()) at time zone 'UTC')::date)::text as "minuteDay"
+  `;
   const first = await sql.begin((tx) => service(tx, async (sp) => {
     const [row] = await sp`
       select public.record_engagement_minute(
-        ${minuteDoctorId}, current_date, 'CONSULTATION'
+        ${minuteDoctorId}, ${minuteBucket}::timestamptz,
+        'CONSULTATION', 'UTC'
       ) as inserted
     `;
     return row.inserted;
@@ -279,23 +286,34 @@ try {
   const replay = await sql.begin((tx) => service(tx, async (sp) => {
     const [row] = await sp`
       select public.record_engagement_minute(
-        ${minuteDoctorId}, current_date, 'CONSULTATION'
+        ${minuteDoctorId}, ${minuteBucket}::timestamptz,
+        'CONSULTATION', 'UTC'
       ) as inserted
     `;
     return row.inserted;
   }));
   check(first === true && replay === false, "same doctor/minute/surface is idempotent");
 
+  const [ctx] = await sql.begin((tx) => service(tx, (sp) => sp`
+    select * from public.get_activity_reconciliation_context(
+      ${minuteDoctorId}, ${minuteDay}::date
+    )
+  `));
   const snapshot = await sql.begin((tx) => service(tx, (sp) => sp`
     select minute_bucket, surface
-    from public.snapshot_engagement_minutes(${minuteDoctorId}, current_date)
+    from public.read_activity_reconciliation_minutes(
+      ${minuteDoctorId}, ${minuteDay}::date, ${ctx.evidence_generation}, null, null, 10
+    )
   `));
   check(snapshot.length === 1 && snapshot[0].surface === "CONSULTATION", "cross-request authoritative snapshot persists");
 
   await sql.begin(async (tx) => {
     await expectRefused(tx, "closed A surface vocabulary rejects unknown", "O1A_MINUTE_SURFACE_INVALID", async (sp) => {
       await service(sp, (r) => r`
-        select public.record_engagement_minute(${minuteDoctorId}, current_date, 'UNKNOWN')
+        select public.record_engagement_minute(
+          ${minuteDoctorId}, ${minuteBucket}::timestamptz,
+          'UNKNOWN', 'UTC'
+        )
       `);
     });
 
@@ -585,6 +603,34 @@ try {
       ) as state
     `;
     check(stillA.state === "NOT_MEASURED", "failed Activity closeout leaves Not measured");
+
+    for (const doctor of doctors) {
+      for (const [metric, value] of [
+        ['DOCTOR_ENGAGED_MINUTES_DAILY', 0],
+        ['DOCTOR_ACTIVE_DAY', 0],
+        ['DOCTOR_SESSION_COUNT_DAILY', 0],
+      ]) {
+        await service(tx, (sp) => sp`
+          select public.ingest_activity_contribution(
+            ${metric}, ${doctor.doctorId}, ${targetDay}::date,
+            '*', ${value}, 'O1A_INTERACTION_METER', 0
+          )
+        `);
+      }
+      await service(tx, (sp) => sp`
+        select public.acknowledge_activity_reconciliation(
+          ${doctor.doctorId}, ${targetDay}::date, 0
+        )
+      `);
+    }
+    const [wm] = await service(tx, (sp) => sp`
+      select * from public.get_activity_reconciliation_day_watermark(${targetDay}::date)
+    `);
+    await service(tx, (sp) => sp`
+      select public.acknowledge_activity_reconciliation_day(
+        ${targetDay}::date, ${wm.evidence_generation}, ${wm.eligible_doctor_count}
+      )
+    `);
 
     await service(tx, (sp) => sp`
       select public.finalize_activity_measurement_day(${targetDay}::date, 1, true)
