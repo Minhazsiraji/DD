@@ -1,4 +1,4 @@
-name: O1-F-I2 observable exact-SHA rerun
+name: O1-F-I2 cluster-isolated exact-SHA final verify
 
 on:
   push:
@@ -11,8 +11,55 @@ permissions:
   contents: read
 
 jobs:
-  observable-exact-sha:
+  verify:
+    name: ${{ matrix.id }}-${{ matrix.label }}
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: true
+      max-parallel: 1
+      matrix:
+        include:
+          - id: '01'
+            label: activity
+            script: verify-o1f-activity-day-grain.mjs
+            db: o1fi2c_01_activity
+            preseed: none
+          - id: '02'
+            label: aal2-consent
+            script: verify-o1f-owner-aal2-and-consent.mjs
+            db: o1fi2c_02_aal2_consent
+            preseed: 0000_0019
+          - id: '03'
+            label: owner-surface
+            script: verify-o1f-owner-surface.mjs
+            db: o1fi2c_03_owner_surface
+            preseed: 0000
+          - id: '04'
+            label: pilot-isolation
+            script: verify-o1f-pilot-plane-isolation.mjs
+            db: o1fi2c_04_pilot_isolation
+            preseed: 0000
+          - id: '05'
+            label: r2
+            script: verify-o1f-r2-contract.mjs
+            db: o1fi2c_05_r2
+            preseed: none
+          - id: '06'
+            label: r3
+            script: verify-o1f-r3-contract.mjs
+            db: o1fi2c_06_r3
+            preseed: none
+          - id: '07'
+            label: i1
+            script: verify-o1f-i1-contract.mjs
+            db: o1fi2c_07_i1
+            preseed: none
+          - id: '08'
+            label: i2
+            script: verify-o1f-i2-contract.mjs
+            db: o1fi2c_08_i2
+            preseed: none
+
     services:
       postgres:
         image: postgres:16
@@ -27,13 +74,20 @@ jobs:
           --health-interval 5s
           --health-timeout 5s
           --health-retries 20
+
     env:
       CANDIDATE_SHA: 019ef861adf188a047da148ddaae873ad0867f00
       EXPECTED_0047_BLOB: b8645248fc22a98a2c2aa10f1b21ad0b5c9679d6
+      EXPECTED_0047_SHA256: 3a316805d32391241ed506ec9627d9e77b21b20a0a4c1f36405b03e0695a2190
       START_SHA: 9f75403c948ccf26b9bc644f3f476683d74bb522
       INTEGRATION_SHA: 8db0c36ff033ab6a0cfa37e4402a4b4a5afc3158
       PGPASSWORD: postgres
       AUTHENTICATOR_PASSWORD: qa_test_only
+      VERIFIER_ID: ${{ matrix.id }}
+      VERIFIER_LABEL: ${{ matrix.label }}
+      VERIFIER_SCRIPT: ${{ matrix.script }}
+      VERIFIER_DB: ${{ matrix.db }}
+      PRESEED: ${{ matrix.preseed }}
 
     steps:
       - name: Checkout QA execution shell only
@@ -47,32 +101,31 @@ jobs:
         with:
           node-version: 22
 
-      - name: Create detached candidate worktree and exact preflight
+      - name: Create detached exact candidate and preflight
         shell: bash
         run: |
           set -euo pipefail
-          CANDIDATE_DIR="$RUNNER_TEMP/o1f-i2-candidate"
-          OUT_DIR="$GITHUB_WORKSPACE/artifacts/o1f-i2"
+          CANDIDATE_DIR="$RUNNER_TEMP/o1f-i2-candidate-${VERIFIER_ID}"
+          OUT_DIR="$GITHUB_WORKSPACE/artifacts/o1f-i2/${VERIFIER_ID}-${VERIFIER_LABEL}"
           mkdir -p "$OUT_DIR"
           echo "CANDIDATE_DIR=$CANDIDATE_DIR" >> "$GITHUB_ENV"
           echo "OUT_DIR=$OUT_DIR" >> "$GITHUB_ENV"
 
           git fetch origin --no-tags --prune
           git worktree add --detach "$CANDIDATE_DIR" "$CANDIDATE_SHA"
-
           cd "$CANDIDATE_DIR"
+
           HEAD_SHA="$(git rev-parse HEAD)"
           STATUS="$(git status --short)"
           BLOB="$(git rev-parse HEAD:supabase/policies/0047_o1_owner_analytics_authority.sql)"
-          if [ -e supabase/policies/0048_o1_owner_analytics_authority.sql ]; then
-            HAS_0048="PRESENT"
-          else
-            HAS_0048="ABSENT"
-          fi
+          SHA256="$(sha256sum supabase/policies/0047_o1_owner_analytics_authority.sql | awk '{print $1}')"
+          if [ -e supabase/policies/0048_o1_owner_analytics_authority.sql ]; then HAS_0048=PRESENT; else HAS_0048=ABSENT; fi
           PG_CLIENT="$(psql --version)"
           PG_SERVER="$(psql -h localhost -U postgres -d postgres -Atqc 'show server_version;')"
+          CLUSTER_ID="run-${GITHUB_RUN_ID}-job-${GITHUB_JOB}-${VERIFIER_ID}-${VERIFIER_LABEL}"
 
           {
+            echo "cluster_id=$CLUSTER_ID"
             echo "candidate_sha=$HEAD_SHA"
             echo "expected_candidate_sha=$CANDIDATE_SHA"
             echo "status_short_begin"
@@ -80,6 +133,8 @@ jobs:
             echo "status_short_end"
             echo "0047_blob=$BLOB"
             echo "expected_0047_blob=$EXPECTED_0047_BLOB"
+            echo "0047_sha256=$SHA256"
+            echo "expected_0047_sha256=$EXPECTED_0047_SHA256"
             echo "0048=$HAS_0048"
             echo "postgres_client=$PG_CLIENT"
             echo "postgres_server=$PG_SERVER"
@@ -88,20 +143,37 @@ jobs:
           test "$HEAD_SHA" = "$CANDIDATE_SHA"
           test -z "$STATUS"
           test "$BLOB" = "$EXPECTED_0047_BLOB"
-          test "$HAS_0048" = "ABSENT"
+          test "$SHA256" = "$EXPECTED_0047_SHA256"
+          test "$HAS_0048" = ABSENT
 
       - name: Install isolated postgres JS module
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p /tmp/pgdep
-          cd /tmp/pgdep
+          mkdir -p "$RUNNER_TEMP/pgdep-${VERIFIER_ID}"
+          cd "$RUNNER_TEMP/pgdep-${VERIFIER_ID}"
           npm init -y >/dev/null
           npm install postgres@3.4.9 --ignore-scripts --no-audit --no-fund >/dev/null
           cd "$CANDIDATE_DIR"
-          ln -s /tmp/pgdep/node_modules node_modules
+          ln -s "$RUNNER_TEMP/pgdep-${VERIFIER_ID}/node_modules" node_modules
 
-      - name: Bootstrap PostgreSQL roles and template
+      - name: Verifier 08 fresh-cluster role absence proof
+        if: matrix.id == '08'
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$CANDIDATE_DIR"
+          {
+            echo 'required_absent_roles=dd_metrics_reader,dd_metrics_rollup,dd_pilot_writer,dd_retention'
+            echo 'matching_roles_begin'
+            psql -h localhost -U postgres -d postgres -Atqc "select rolname from pg_roles where rolname in ('dd_metrics_reader','dd_metrics_rollup','dd_pilot_writer','dd_retention') order by 1;"
+            echo 'matching_roles_end'
+            COUNT="$(psql -h localhost -U postgres -d postgres -Atqc "select count(*) from pg_roles where rolname in ('dd_metrics_reader','dd_metrics_rollup','dd_pilot_writer','dd_retention');")"
+            echo "matching_role_count=$COUNT"
+          } | tee "$OUT_DIR/08-pre-role-absence.txt"
+          test "$COUNT" = 0
+
+      - name: Bootstrap verifier cluster and database fixture
         shell: bash
         run: |
           set -euo pipefail
@@ -117,8 +189,8 @@ jobs:
           grant anon, authenticated, service_role to authenticator;
           SQL
 
-          createdb -h localhost -U postgres o1fi2obs_template
-          psql -h localhost -U postgres -d o1fi2obs_template -v ON_ERROR_STOP=1 <<'SQL'
+          createdb -h localhost -U postgres "$VERIFIER_DB"
+          psql -h localhost -U postgres -d "$VERIFIER_DB" -v ON_ERROR_STOP=1 <<'SQL'
           create extension if not exists pgcrypto;
           create schema if not exists auth;
           create table if not exists auth.users (id uuid primary key default gen_random_uuid());
@@ -133,125 +205,98 @@ jobs:
           grant execute on function auth.jwt() to public;
           SQL
 
-      - name: Run verifiers individually with persisted evidence
-        id: verifiers
+          if [ "$PRESEED" = 0000_0019 ]; then
+            psql -h localhost -U postgres -d "$VERIFIER_DB" -v ON_ERROR_STOP=1 -f "$CANDIDATE_DIR/drizzle/migrations/0000_parallel_mentor.sql" >/dev/null
+            psql -h localhost -U postgres -d "$VERIFIER_DB" -v ON_ERROR_STOP=1 -f "$CANDIDATE_DIR/drizzle/migrations/0019_open_whizzer.sql" >/dev/null
+          elif [ "$PRESEED" = 0000 ]; then
+            psql -h localhost -U postgres -d "$VERIFIER_DB" -v ON_ERROR_STOP=1 -f "$CANDIDATE_DIR/drizzle/migrations/0000_parallel_mentor.sql" >/dev/null
+          fi
+
+      - name: Run exactly one verifier and persist stdout stderr exit code
+        id: run_verifier
         shell: bash
         run: |
           set -u
+          LOG="$OUT_DIR/${VERIFIER_ID}-${VERIFIER_LABEL}.log"
+          STDOUT_FILE="$RUNNER_TEMP/${VERIFIER_ID}.stdout"
+          STDERR_FILE="$RUNNER_TEMP/${VERIFIER_ID}.stderr"
+          CMD="DATABASE_URL=postgresql://postgres:postgres@localhost:5432/${VERIFIER_DB} DIRECT_URL=postgresql://postgres:postgres@localhost:5432/${VERIFIER_DB} AUTHENTICATOR_URL=postgresql://authenticator:qa_test_only@localhost:5432/${VERIFIER_DB} node scripts/${VERIFIER_SCRIPT}"
           printf 'verifier\tdatabase\texit_code\tresult\n' > "$OUT_DIR/results.tsv"
+          {
+            echo "verifier=$VERIFIER_SCRIPT"
+            echo "database=$VERIFIER_DB"
+            echo "candidate_sha=$CANDIDATE_SHA"
+            echo "exact_command=$CMD"
+          } > "$LOG"
 
-          scripts=(
-            "verify-o1f-activity-day-grain.mjs"
-            "verify-o1f-owner-aal2-and-consent.mjs"
-            "verify-o1f-owner-surface.mjs"
-            "verify-o1f-pilot-plane-isolation.mjs"
-            "verify-o1f-r2-contract.mjs"
-            "verify-o1f-r3-contract.mjs"
-            "verify-o1f-i1-contract.mjs"
-            "verify-o1f-i2-contract.mjs"
-          )
-          labels=(
-            "01-activity.log"
-            "02-aal2-consent.log"
-            "03-owner-surface.log"
-            "04-pilot-isolation.log"
-            "05-r2.log"
-            "06-r3.log"
-            "07-i1.log"
-            "08-i2.log"
-          )
-          dbs=(
-            "o1fi2obs_01_activity"
-            "o1fi2obs_02_aal2_consent"
-            "o1fi2obs_03_owner_surface"
-            "o1fi2obs_04_pilot_isolation"
-            "o1fi2obs_05_r2"
-            "o1fi2obs_06_r3"
-            "o1fi2obs_07_i1"
-            "o1fi2obs_08_i2"
-          )
-
-          first_failure=0
-
-          for i in "${!scripts[@]}"; do
-            script="${scripts[$i]}"
-            db="${dbs[$i]}"
-            log="$OUT_DIR/${labels[$i]}"
-            stdout_file="$RUNNER_TEMP/o1fi2-${i}.stdout"
-            stderr_file="$RUNNER_TEMP/o1fi2-${i}.stderr"
-            cmd="DATABASE_URL=postgresql://postgres:postgres@localhost:5432/${db} DIRECT_URL=postgresql://postgres:postgres@localhost:5432/${db} AUTHENTICATOR_URL=postgresql://authenticator:qa_test_only@localhost:5432/${db} node scripts/${script}"
-
-            {
-              echo "verifier=${script}"
-              echo "database=${db}"
-              echo "candidate_sha=${CANDIDATE_SHA}"
-              echo "exact_command=${cmd}"
-              echo "----- DATABASE SETUP -----"
-            } > "$log"
-
+          if [ "$VERIFIER_ID" = 08 ]; then
+            cd "$CANDIDATE_DIR"
             set +e
-            createdb -h localhost -U postgres -T o1fi2obs_template "$db" >> "$log" 2>&1
-            setup_rc=$?
-            if [ "$setup_rc" -eq 0 ] && [ "$i" -eq 1 ]; then
-              psql -h localhost -U postgres -d "$db" -v ON_ERROR_STOP=1 -f "$CANDIDATE_DIR/drizzle/migrations/0000_parallel_mentor.sql" >> "$log" 2>&1
-              setup_rc=$?
-              if [ "$setup_rc" -eq 0 ]; then
-                psql -h localhost -U postgres -d "$db" -v ON_ERROR_STOP=1 -f "$CANDIDATE_DIR/drizzle/migrations/0019_open_whizzer.sql" >> "$log" 2>&1
-                setup_rc=$?
+            DATABASE_URL="postgresql://postgres:postgres@localhost:5432/${VERIFIER_DB}" \
+            DIRECT_URL="postgresql://postgres:postgres@localhost:5432/${VERIFIER_DB}" \
+            AUTHENTICATOR_URL="postgresql://authenticator:qa_test_only@localhost:5432/${VERIFIER_DB}" \
+            node "scripts/${VERIFIER_SCRIPT}" >"$STDOUT_FILE" 2>"$STDERR_FILE" &
+            PID=$!
+            set -e
+
+            SEEN_SETUP=0
+            for n in $(seq 1 2000); do
+              if grep -q '^2\. Static scope' "$STDOUT_FILE" 2>/dev/null; then
+                SEEN_SETUP=1
+                kill -STOP "$PID" 2>/dev/null || true
+                break
               fi
-            elif [ "$setup_rc" -eq 0 ] && { [ "$i" -eq 2 ] || [ "$i" -eq 3 ]; }; then
-              psql -h localhost -U postgres -d "$db" -v ON_ERROR_STOP=1 -f "$CANDIDATE_DIR/drizzle/migrations/0000_parallel_mentor.sql" >> "$log" 2>&1
-              setup_rc=$?
-            fi
-            set -e
-
-            if [ "$setup_rc" -ne 0 ]; then
-              {
-                echo "----- STDOUT -----"
-                echo "VERIFIER NOT EXECUTED: database fixture setup failed"
-                echo "----- STDERR -----"
-                echo "See DATABASE SETUP section above"
-                echo "----- EXIT CODE -----"
-                echo "$setup_rc"
-              } >> "$log"
-              printf '%s\t%s\t%s\tFAIL\n' "$script" "$db" "$setup_rc" >> "$OUT_DIR/results.tsv"
-              first_failure="$setup_rc"
-              break
-            fi
-
-            set +e
-            (
-              cd "$CANDIDATE_DIR"
-              DATABASE_URL="postgresql://postgres:postgres@localhost:5432/${db}" \
-              DIRECT_URL="postgresql://postgres:postgres@localhost:5432/${db}" \
-              AUTHENTICATOR_URL="postgresql://authenticator:qa_test_only@localhost:5432/${db}" \
-              node "scripts/${script}"
-            ) >"$stdout_file" 2>"$stderr_file"
-            rc=$?
-            set -e
+              if ! kill -0 "$PID" 2>/dev/null; then
+                break
+              fi
+              sleep 0.01
+            done
 
             {
-              echo "----- STDOUT -----"
-              cat "$stdout_file"
-              echo "----- STDERR -----"
-              cat "$stderr_file"
-              echo "----- EXIT CODE -----"
-              echo "$rc"
-            } >> "$log"
-            rm -f "$stdout_file" "$stderr_file"
+              echo "setup_marker_seen=$SEEN_SETUP"
+              echo 'signature_query_begin'
+              psql -h localhost -U postgres -d "$VERIFIER_DB" -P pager=off -c "select to_regprocedure('public.record_engagement_minute(uuid,timestamptz,text,text)')::text as canonical_writer, to_regprocedure('public.record_engagement_minute(uuid,date,timestamptz,text,text)')::text as transient_writer;"
+              echo 'signature_query_end'
+              CANONICAL_PRESENT="$(psql -h localhost -U postgres -d "$VERIFIER_DB" -Atqc "select to_regprocedure('public.record_engagement_minute(uuid,timestamptz,text,text)') is not null;")"
+              TRANSIENT_ABSENT="$(psql -h localhost -U postgres -d "$VERIFIER_DB" -Atqc "select to_regprocedure('public.record_engagement_minute(uuid,date,timestamptz,text,text)') is null;")"
+              echo "canonical_present=$CANONICAL_PRESENT"
+              echo "transient_five_arg_absent=$TRANSIENT_ABSENT"
+            } | tee "$OUT_DIR/08-signature-proof.txt"
 
-            if [ "$rc" -eq 0 ]; then
-              printf '%s\t%s\t0\tPASS\n' "$script" "$db" >> "$OUT_DIR/results.tsv"
-            else
-              printf '%s\t%s\t%s\tFAIL\n' "$script" "$db" "$rc" >> "$OUT_DIR/results.tsv"
-              first_failure="$rc"
-              break
-            fi
-          done
-
-          if [ "$first_failure" -ne 0 ]; then
-            exit "$first_failure"
+            SIG_PROOF_RC=0
+            test "$SEEN_SETUP" = 1 || SIG_PROOF_RC=91
+            test "$CANONICAL_PRESENT" = t || SIG_PROOF_RC=92
+            test "$TRANSIENT_ABSENT" = t || SIG_PROOF_RC=93
+            kill -CONT "$PID" 2>/dev/null || true
+            set +e
+            wait "$PID"
+            RC=$?
+            set -e
+            if [ "$SIG_PROOF_RC" -ne 0 ] && [ "$RC" -eq 0 ]; then RC="$SIG_PROOF_RC"; fi
+          else
+            cd "$CANDIDATE_DIR"
+            set +e
+            DATABASE_URL="postgresql://postgres:postgres@localhost:5432/${VERIFIER_DB}" \
+            DIRECT_URL="postgresql://postgres:postgres@localhost:5432/${VERIFIER_DB}" \
+            AUTHENTICATOR_URL="postgresql://authenticator:qa_test_only@localhost:5432/${VERIFIER_DB}" \
+            node "scripts/${VERIFIER_SCRIPT}" >"$STDOUT_FILE" 2>"$STDERR_FILE"
+            RC=$?
+            set -e
           fi
+
+          {
+            echo '----- STDOUT -----'
+            cat "$STDOUT_FILE"
+            echo '----- STDERR -----'
+            cat "$STDERR_FILE"
+            echo '----- EXIT CODE -----'
+            echo "$RC"
+          } >> "$LOG"
+
+          if [ "$RC" -eq 0 ]; then RESULT=PASS; else RESULT=FAIL; fi
+          printf '%s\t%s\t%s\t%s\n' "$VERIFIER_SCRIPT" "$VERIFIER_DB" "$RC" "$RESULT" >> "$OUT_DIR/results.tsv"
+          cat "$OUT_DIR/results.tsv"
+          exit "$RC"
 
       - name: Exact postflight and preservation evidence
         if: always()
@@ -260,15 +305,13 @@ jobs:
           set +e
           rm -f "$CANDIDATE_DIR/node_modules"
           cd "$CANDIDATE_DIR"
-
           HEAD_SHA="$(git rev-parse HEAD)"
           STATUS="$(git status --short)"
           BLOB="$(git rev-parse HEAD:supabase/policies/0047_o1_owner_analytics_authority.sql)"
           SHA256="$(sha256sum supabase/policies/0047_o1_owner_analytics_authority.sql | awk '{print $1}')"
           INTEG="$(git ls-remote origin refs/heads/integration/o1-owner-pilot | awk '{print $1}')"
           F_I2_REF="$(git ls-remote origin refs/heads/o1/f-integration-closure-i2 | awk '{print $1}')"
-          if [ -e supabase/policies/0048_o1_owner_analytics_authority.sql ]; then HAS_0048="PRESENT"; else HAS_0048="ABSENT"; fi
-
+          if [ -e supabase/policies/0048_o1_owner_analytics_authority.sql ]; then HAS_0048=PRESENT; else HAS_0048=ABSENT; fi
           {
             echo "candidate_sha=$HEAD_SHA"
             echo "expected_candidate_sha=$CANDIDATE_SHA"
@@ -278,6 +321,7 @@ jobs:
             echo "0047_blob=$BLOB"
             echo "expected_0047_blob=$EXPECTED_0047_BLOB"
             echo "0047_sha256=$SHA256"
+            echo "expected_0047_sha256=$EXPECTED_0047_SHA256"
             echo "0048=$HAS_0048"
             echo "integration_branch_sha=$INTEG"
             echo "expected_integration_branch_sha=$INTEGRATION_SHA"
@@ -292,30 +336,15 @@ jobs:
               echo "preserve_00${n}_file=$f"
               echo "preserve_00${n}_base_blob=$base_blob"
               echo "preserve_00${n}_current_blob=$current_blob"
-              if [ "$base_blob" = "$current_blob" ]; then
-                echo "preserve_00${n}=UNCHANGED"
-              else
-                echo "preserve_00${n}=CHANGED"
-              fi
+              if [ "$base_blob" = "$current_blob" ]; then echo "preserve_00${n}=UNCHANGED"; else echo "preserve_00${n}=CHANGED"; fi
             done
-          } > "$OUT_DIR/postflight.txt"
+          } | tee "$OUT_DIR/postflight.txt"
 
-          cat "$OUT_DIR/postflight.txt"
-
-      - name: Print evidence index
-        if: always()
-        shell: bash
-        run: |
-          echo '===== results.tsv ====='
-          cat "$OUT_DIR/results.tsv" 2>/dev/null || true
-          echo '===== artifact files ====='
-          find "$OUT_DIR" -maxdepth 1 -type f -printf '%f\n' | sort || true
-
-      - name: Upload observability artifacts
+      - name: Upload cluster-isolated verifier evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: o1f-i2-observability-019ef-${{ github.run_id }}
-          path: artifacts/o1f-i2/
+          name: o1f-i2-cluster-${{ matrix.id }}-${{ matrix.label }}-${{ github.run_id }}
+          path: artifacts/o1f-i2/${{ matrix.id }}-${{ matrix.label }}/
           if-no-files-found: error
           retention-days: 7
