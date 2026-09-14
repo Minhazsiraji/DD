@@ -38,15 +38,15 @@ const eslintConfig = defineConfig([
             },
             {
               /**
-               * The service-role Storage client. It exists so that trusted code
-               * can write `prescription-assets`, which has no INSERT policy on
-               * purpose — and for nothing else. Widening its reach is how a
-               * privileged handle ends up one import away from a tenancy bug.
+               * The service-role client is intentionally private. Its generic
+               * Supabase handle must never reach request-path code. Only the
+               * signature-freeze modules and the reviewed O1 runtime authority
+               * boundary below may import it directly.
                */
               group: ["**/supabase/service", "@/lib/supabase/service"],
               message:
-                "The service-role client bypasses RLS. Only the signature-freeze " +
-                "modules may use it — see docs/decisions/0012-signature-freeze.md.",
+                "The service-role client bypasses RLS. Use a reviewed domain authority " +
+                "boundary; direct imports are restricted by this allowlist.",
             },
           ],
         },
@@ -60,12 +60,15 @@ const eslintConfig = defineConfig([
   },
   {
     /**
-     * The only modules permitted to hold the privileged Storage handle: the
-     * client itself, the adapter that binds it to the freeze port, and the
-     * action that decides a freeze should happen.
+     * The only modules permitted to import the privileged service module:
+     * the service module itself, the existing signature-freeze holders, and
+     * O1's single reviewed RPC-only runtime authority boundary. The O1 boundary
+     * exposes named domain operations only; it never exports a Supabase client,
+     * `.from()`, or arbitrary `.rpc()` primitive.
      */
     files: [
       "src/lib/supabase/service.ts",
+      "src/lib/o1/runtime-authority.ts",
       "src/features/prescriptions/freeze-store.ts",
       "src/features/prescriptions/actions.ts",
     ],
