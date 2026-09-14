@@ -18,6 +18,13 @@ import {
   type ActivityReconciliationMinute,
 } from "@/lib/supabase/service";
 
+export type {
+  ActivityDayWatermark,
+  ActivityReconciliationContext,
+  ActivityReconciliationDoctor,
+  ActivityReconciliationMinute,
+};
+
 /**
  * The only application boundary allowed to invoke O1's privileged runtime RPCs.
  * It deliberately exposes domain operations rather than a Supabase client or
