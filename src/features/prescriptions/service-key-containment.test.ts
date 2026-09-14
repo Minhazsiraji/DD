@@ -34,11 +34,12 @@ async function walk(dir: string, match = /\.tsx?$/): Promise<string[]> {
 const SRC = path.resolve("src");
 const SERVICE_MODULE = /["']@\/lib\/supabase\/service["']|["'][./]+lib\/supabase\/service["']/;
 
-describe("the privileged Storage client", () => {
+describe("the privileged service client", () => {
   it("is imported only by the modules allowed to hold it", async () => {
     const allowed = new Set([
       path.join("features", "prescriptions", "freeze-store.ts"),
       path.join("features", "prescriptions", "actions.ts"),
+      path.join("lib", "o1", "runtime-authority.ts"),
     ]);
 
     const offenders: string[] = [];
@@ -57,11 +58,6 @@ describe("the privileged Storage client", () => {
   });
 
   it("is never imported by a client component", async () => {
-    /**
-     * `import "server-only"` already makes this a build error. Asserted anyway
-     * because that guard lives in a dependency, and this is the one mistake
-     * whose consequence is a leaked super-user credential.
-     */
     const offenders: string[] = [];
     for (const file of await walk(SRC)) {
       const source = await readFile(file, "utf8");
@@ -72,8 +68,6 @@ describe("the privileged Storage client", () => {
   });
 
   it("is never read through a NEXT_PUBLIC_ name", async () => {
-    // Next inlines NEXT_PUBLIC_* into the client bundle. A service key behind
-    // such a name is published, not configured.
     const offenders: string[] = [];
     for (const file of await walk(SRC)) {
       const source = await readFile(file, "utf8");
@@ -91,11 +85,6 @@ describe("the privileged Storage client", () => {
   });
 
   it("is never printed, logged or returned to a caller", async () => {
-    /**
-     * A key in a log line is a leaked key. `serviceRoleKey()` is the only way
-     * to obtain it, so nothing may pass its result to a logger, a thrown
-     * message, or a return value.
-     */
     const offenders: string[] = [];
     for (const file of await walk(SRC)) {
       if (file.endsWith("service-key-containment.test.ts")) continue;
@@ -104,7 +93,6 @@ describe("the privileged Storage client", () => {
       for (const line of source.split("\n")) {
         const mentionsKey = /serviceRoleKey\(\)|SUPABASE_SERVICE_ROLE_KEY/.test(line);
         if (!mentionsKey) continue;
-        // Reading the NAME to test for presence is fine; emitting the VALUE is not.
         if (/console\.|throw new Error|JSON\.stringify|return\s/.test(line)) {
           if (/serviceRoleKey\(\)/.test(line)) offenders.push(`${path.relative(SRC, file)}: ${line.trim()}`);
         }
@@ -113,12 +101,14 @@ describe("the privileged Storage client", () => {
     expect(offenders).toEqual([]);
   });
 
-  it("exposes storage only — never a privileged database handle", async () => {
+  it("never exposes a privileged database handle or arbitrary RPC primitive", async () => {
     const source = await readFile(path.join(SRC, "lib/supabase/service.ts"), "utf8");
-    // A privileged `.from()` would bypass owner_doctor_id and every location
-    // rule at once, and it is only ever one careless export away.
     expect(source).not.toMatch(/export function serviceClient|export const serviceClient/);
+    expect(source).not.toMatch(/export\s+(?:async\s+)?function\s+privilegedRpc/);
     expect(source).toMatch(/export function serviceStorage/);
+    expect(source).toMatch(/export async function serviceResolveDoctorProfileIdForActor/);
+    expect(source).toMatch(/export async function serviceRecordEngagementMinute/);
+    expect(source).toMatch(/export async function serviceIngestAiVoiceTelemetryEvent/);
   });
 });
 
@@ -128,7 +118,6 @@ describe("the shipped client bundle", () => {
     try {
       await stat(staticDir);
     } catch {
-      // No build in this working copy; `npm run build` covers it in CI.
       return;
     }
 
@@ -151,15 +140,6 @@ describe("the shipped client bundle", () => {
 
 describe("production storage writes", () => {
   it("no application code writes storage.objects rows directly", async () => {
-    /**
-     * Supabase treats the `storage` schema as read-only metadata; file
-     * operations go through the Storage API. A direct INSERT creates a
-     * metadata row with no object behind it — which reads as success and
-     * prints as a broken image on a prescription.
-     *
-     * Verification scripts DO read `storage.objects`, and may write it to set
-     * a fixture up; they are not application code and are not scanned here.
-     */
     const offenders: string[] = [];
     for (const file of await walk(SRC)) {
       const source = await readFile(file, "utf8");
