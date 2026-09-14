@@ -17,6 +17,13 @@ import { publicEnv, serviceRoleKey } from "@/lib/env";
 
 let cached: ReturnType<typeof createClient> | null = null;
 
+type ReviewedRpcClient = {
+  rpc: (
+    name: string,
+    args: Record<string, unknown>,
+  ) => Promise<{ data: unknown; error: unknown }>;
+};
+
 function privilegedClient() {
   if (typeof window !== "undefined") {
     throw new Error("The service-role client was requested from client code");
@@ -28,7 +35,12 @@ function privilegedClient() {
 }
 
 async function privilegedRpc<T>(name: string, args: Record<string, unknown>): Promise<T> {
-  const { data, error } = await privilegedClient().rpc(name, args);
+  // The generated Database type intentionally does not know about the still-
+  // unapplied O1-F-I2 functions. Keep the escape hatch private and narrower than
+  // SupabaseClient: callers still cannot obtain a client, `.from()`, or generic
+  // RPC primitive; only the individually reviewed wrappers below choose names.
+  const client = privilegedClient() as unknown as ReviewedRpcClient;
+  const { data, error } = await client.rpc(name, args);
   if (error) throw new Error("PRIVILEGED_RPC_FAILED");
   return data as T;
 }
