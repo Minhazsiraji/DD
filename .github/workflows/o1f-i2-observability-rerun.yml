@@ -1,0 +1,321 @@
+name: O1-F-I2 observable exact-SHA rerun
+
+on:
+  push:
+    branches:
+      - qa/o1-f-i2-observability-019ef
+    paths:
+      - .github/workflows/o1f-i2-observability-rerun.yml
+
+permissions:
+  contents: read
+
+jobs:
+  observable-exact-sha:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      CANDIDATE_SHA: 019ef861adf188a047da148ddaae873ad0867f00
+      EXPECTED_0047_BLOB: b8645248fc22a98a2c2aa10f1b21ad0b5c9679d6
+      START_SHA: 9f75403c948ccf26b9bc644f3f476683d74bb522
+      INTEGRATION_SHA: 8db0c36ff033ab6a0cfa37e4402a4b4a5afc3158
+      PGPASSWORD: postgres
+      AUTHENTICATOR_PASSWORD: qa_test_only
+
+    steps:
+      - name: Checkout QA execution shell only
+        uses: actions/checkout@v4
+        with:
+          ref: qa/o1-f-i2-observability-019ef
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Create detached candidate worktree and exact preflight
+        shell: bash
+        run: |
+          set -euo pipefail
+          CANDIDATE_DIR="$RUNNER_TEMP/o1f-i2-candidate"
+          OUT_DIR="$GITHUB_WORKSPACE/artifacts/o1f-i2"
+          mkdir -p "$OUT_DIR"
+          echo "CANDIDATE_DIR=$CANDIDATE_DIR" >> "$GITHUB_ENV"
+          echo "OUT_DIR=$OUT_DIR" >> "$GITHUB_ENV"
+
+          git fetch origin --no-tags --prune
+          git worktree add --detach "$CANDIDATE_DIR" "$CANDIDATE_SHA"
+
+          cd "$CANDIDATE_DIR"
+          HEAD_SHA="$(git rev-parse HEAD)"
+          STATUS="$(git status --short)"
+          BLOB="$(git rev-parse HEAD:supabase/policies/0047_o1_owner_analytics_authority.sql)"
+          if [ -e supabase/policies/0048_o1_owner_analytics_authority.sql ]; then
+            HAS_0048="PRESENT"
+          else
+            HAS_0048="ABSENT"
+          fi
+          PG_CLIENT="$(psql --version)"
+          PG_SERVER="$(psql -h localhost -U postgres -d postgres -Atqc 'show server_version;')"
+
+          {
+            echo "candidate_sha=$HEAD_SHA"
+            echo "expected_candidate_sha=$CANDIDATE_SHA"
+            echo "status_short_begin"
+            printf '%s\n' "$STATUS"
+            echo "status_short_end"
+            echo "0047_blob=$BLOB"
+            echo "expected_0047_blob=$EXPECTED_0047_BLOB"
+            echo "0048=$HAS_0048"
+            echo "postgres_client=$PG_CLIENT"
+            echo "postgres_server=$PG_SERVER"
+          } | tee "$OUT_DIR/preflight.txt"
+
+          test "$HEAD_SHA" = "$CANDIDATE_SHA"
+          test -z "$STATUS"
+          test "$BLOB" = "$EXPECTED_0047_BLOB"
+          test "$HAS_0048" = "ABSENT"
+
+      - name: Install isolated postgres JS module
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/pgdep
+          cd /tmp/pgdep
+          npm init -y >/dev/null
+          npm install postgres@3.4.9 --ignore-scripts --no-audit --no-fund >/dev/null
+          cd "$CANDIDATE_DIR"
+          ln -s /tmp/pgdep/node_modules node_modules
+
+      - name: Bootstrap PostgreSQL roles and template
+        shell: bash
+        run: |
+          set -euo pipefail
+          psql -h localhost -U postgres -d postgres -v ON_ERROR_STOP=1 <<'SQL'
+          do $bootstrap$
+          begin
+            if not exists (select 1 from pg_roles where rolname='anon') then create role anon noinherit; end if;
+            if not exists (select 1 from pg_roles where rolname='authenticated') then create role authenticated noinherit; end if;
+            if not exists (select 1 from pg_roles where rolname='service_role') then create role service_role noinherit bypassrls; end if;
+            if not exists (select 1 from pg_roles where rolname='authenticator') then create role authenticator login password 'qa_test_only' noinherit; end if;
+          end
+          $bootstrap$;
+          grant anon, authenticated, service_role to authenticator;
+          SQL
+
+          createdb -h localhost -U postgres o1fi2obs_template
+          psql -h localhost -U postgres -d o1fi2obs_template -v ON_ERROR_STOP=1 <<'SQL'
+          create extension if not exists pgcrypto;
+          create schema if not exists auth;
+          create table if not exists auth.users (id uuid primary key default gen_random_uuid());
+          create or replace function auth.uid() returns uuid language sql stable as $uid$
+            select nullif(coalesce(nullif(current_setting('request.jwt.claims', true), ''), '{}')::jsonb ->> 'sub','')::uuid;
+          $uid$;
+          create or replace function auth.jwt() returns jsonb language sql stable as $jwt$
+            select coalesce(nullif(current_setting('request.jwt.claims', true), ''), '{}')::jsonb;
+          $jwt$;
+          grant usage on schema auth to public;
+          grant execute on function auth.uid() to public;
+          grant execute on function auth.jwt() to public;
+          SQL
+
+      - name: Run verifiers individually with persisted evidence
+        id: verifiers
+        shell: bash
+        run: |
+          set -u
+          printf 'verifier\tdatabase\texit_code\tresult\n' > "$OUT_DIR/results.tsv"
+
+          scripts=(
+            "verify-o1f-activity-day-grain.mjs"
+            "verify-o1f-owner-aal2-and-consent.mjs"
+            "verify-o1f-owner-surface.mjs"
+            "verify-o1f-pilot-plane-isolation.mjs"
+            "verify-o1f-r2-contract.mjs"
+            "verify-o1f-r3-contract.mjs"
+            "verify-o1f-i1-contract.mjs"
+            "verify-o1f-i2-contract.mjs"
+          )
+          labels=(
+            "01-activity.log"
+            "02-aal2-consent.log"
+            "03-owner-surface.log"
+            "04-pilot-isolation.log"
+            "05-r2.log"
+            "06-r3.log"
+            "07-i1.log"
+            "08-i2.log"
+          )
+          dbs=(
+            "o1fi2obs_01_activity"
+            "o1fi2obs_02_aal2_consent"
+            "o1fi2obs_03_owner_surface"
+            "o1fi2obs_04_pilot_isolation"
+            "o1fi2obs_05_r2"
+            "o1fi2obs_06_r3"
+            "o1fi2obs_07_i1"
+            "o1fi2obs_08_i2"
+          )
+
+          first_failure=0
+
+          for i in "${!scripts[@]}"; do
+            script="${scripts[$i]}"
+            db="${dbs[$i]}"
+            log="$OUT_DIR/${labels[$i]}"
+            stdout_file="$RUNNER_TEMP/o1fi2-${i}.stdout"
+            stderr_file="$RUNNER_TEMP/o1fi2-${i}.stderr"
+            cmd="DATABASE_URL=postgresql://postgres:postgres@localhost:5432/${db} DIRECT_URL=postgresql://postgres:postgres@localhost:5432/${db} AUTHENTICATOR_URL=postgresql://authenticator:qa_test_only@localhost:5432/${db} node scripts/${script}"
+
+            {
+              echo "verifier=${script}"
+              echo "database=${db}"
+              echo "candidate_sha=${CANDIDATE_SHA}"
+              echo "exact_command=${cmd}"
+              echo "----- DATABASE SETUP -----"
+            } > "$log"
+
+            set +e
+            createdb -h localhost -U postgres -T o1fi2obs_template "$db" >> "$log" 2>&1
+            setup_rc=$?
+            if [ "$setup_rc" -eq 0 ] && [ "$i" -eq 1 ]; then
+              psql -h localhost -U postgres -d "$db" -v ON_ERROR_STOP=1 -f "$CANDIDATE_DIR/drizzle/migrations/0000_parallel_mentor.sql" >> "$log" 2>&1
+              setup_rc=$?
+              if [ "$setup_rc" -eq 0 ]; then
+                psql -h localhost -U postgres -d "$db" -v ON_ERROR_STOP=1 -f "$CANDIDATE_DIR/drizzle/migrations/0019_open_whizzer.sql" >> "$log" 2>&1
+                setup_rc=$?
+              fi
+            elif [ "$setup_rc" -eq 0 ] && { [ "$i" -eq 2 ] || [ "$i" -eq 3 ]; }; then
+              psql -h localhost -U postgres -d "$db" -v ON_ERROR_STOP=1 -f "$CANDIDATE_DIR/drizzle/migrations/0000_parallel_mentor.sql" >> "$log" 2>&1
+              setup_rc=$?
+            fi
+            set -e
+
+            if [ "$setup_rc" -ne 0 ]; then
+              {
+                echo "----- STDOUT -----"
+                echo "VERIFIER NOT EXECUTED: database fixture setup failed"
+                echo "----- STDERR -----"
+                echo "See DATABASE SETUP section above"
+                echo "----- EXIT CODE -----"
+                echo "$setup_rc"
+              } >> "$log"
+              printf '%s\t%s\t%s\tFAIL\n' "$script" "$db" "$setup_rc" >> "$OUT_DIR/results.tsv"
+              first_failure="$setup_rc"
+              break
+            fi
+
+            set +e
+            (
+              cd "$CANDIDATE_DIR"
+              DATABASE_URL="postgresql://postgres:postgres@localhost:5432/${db}" \
+              DIRECT_URL="postgresql://postgres:postgres@localhost:5432/${db}" \
+              AUTHENTICATOR_URL="postgresql://authenticator:qa_test_only@localhost:5432/${db}" \
+              node "scripts/${script}"
+            ) >"$stdout_file" 2>"$stderr_file"
+            rc=$?
+            set -e
+
+            {
+              echo "----- STDOUT -----"
+              cat "$stdout_file"
+              echo "----- STDERR -----"
+              cat "$stderr_file"
+              echo "----- EXIT CODE -----"
+              echo "$rc"
+            } >> "$log"
+            rm -f "$stdout_file" "$stderr_file"
+
+            if [ "$rc" -eq 0 ]; then
+              printf '%s\t%s\t0\tPASS\n' "$script" "$db" >> "$OUT_DIR/results.tsv"
+            else
+              printf '%s\t%s\t%s\tFAIL\n' "$script" "$db" "$rc" >> "$OUT_DIR/results.tsv"
+              first_failure="$rc"
+              break
+            fi
+          done
+
+          if [ "$first_failure" -ne 0 ]; then
+            exit "$first_failure"
+          fi
+
+      - name: Exact postflight and preservation evidence
+        if: always()
+        shell: bash
+        run: |
+          set +e
+          rm -f "$CANDIDATE_DIR/node_modules"
+          cd "$CANDIDATE_DIR"
+
+          HEAD_SHA="$(git rev-parse HEAD)"
+          STATUS="$(git status --short)"
+          BLOB="$(git rev-parse HEAD:supabase/policies/0047_o1_owner_analytics_authority.sql)"
+          SHA256="$(sha256sum supabase/policies/0047_o1_owner_analytics_authority.sql | awk '{print $1}')"
+          INTEG="$(git ls-remote origin refs/heads/integration/o1-owner-pilot | awk '{print $1}')"
+          F_I2_REF="$(git ls-remote origin refs/heads/o1/f-integration-closure-i2 | awk '{print $1}')"
+          if [ -e supabase/policies/0048_o1_owner_analytics_authority.sql ]; then HAS_0048="PRESENT"; else HAS_0048="ABSENT"; fi
+
+          {
+            echo "candidate_sha=$HEAD_SHA"
+            echo "expected_candidate_sha=$CANDIDATE_SHA"
+            echo "status_short_begin"
+            printf '%s\n' "$STATUS"
+            echo "status_short_end"
+            echo "0047_blob=$BLOB"
+            echo "expected_0047_blob=$EXPECTED_0047_BLOB"
+            echo "0047_sha256=$SHA256"
+            echo "0048=$HAS_0048"
+            echo "integration_branch_sha=$INTEG"
+            echo "expected_integration_branch_sha=$INTEGRATION_SHA"
+            echo "f_i2_branch_current_sha=$F_I2_REF"
+            echo "changed_files_from_authorized_base_begin"
+            git diff --name-only "$START_SHA"..HEAD | sort
+            echo "changed_files_from_authorized_base_end"
+            for n in 41 42 43 44 45 46; do
+              f=$(find supabase/policies -maxdepth 1 -type f -name "00${n}_*.sql" -print -quit)
+              base_blob=$(git rev-parse "$START_SHA:$f" 2>/dev/null)
+              current_blob=$(git rev-parse "HEAD:$f" 2>/dev/null)
+              echo "preserve_00${n}_file=$f"
+              echo "preserve_00${n}_base_blob=$base_blob"
+              echo "preserve_00${n}_current_blob=$current_blob"
+              if [ "$base_blob" = "$current_blob" ]; then
+                echo "preserve_00${n}=UNCHANGED"
+              else
+                echo "preserve_00${n}=CHANGED"
+              fi
+            done
+          } > "$OUT_DIR/postflight.txt"
+
+          cat "$OUT_DIR/postflight.txt"
+
+      - name: Print evidence index
+        if: always()
+        shell: bash
+        run: |
+          echo '===== results.tsv ====='
+          cat "$OUT_DIR/results.tsv" 2>/dev/null || true
+          echo '===== artifact files ====='
+          find "$OUT_DIR" -maxdepth 1 -type f -printf '%f\n' | sort || true
+
+      - name: Upload observability artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: o1f-i2-observability-019ef-${{ github.run_id }}
+          path: artifacts/o1f-i2/
+          if-no-files-found: error
+          retention-days: 7
