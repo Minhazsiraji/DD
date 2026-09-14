@@ -13,7 +13,7 @@ function event(actorUserId: string | null, doctorProfileId: string | null) {
     operationId: "ddop_44444444-4444-4444-8444-444444444444",
     providerId: "openai",
     modelId: "gpt-5.6",
-    taskType: "PRESCRIPTION_DRAFT",
+    taskType: "PRESCRIPTION_MEDICINE",
     source: "TEXT",
   });
 }
