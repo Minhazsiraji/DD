@@ -104,7 +104,7 @@ describe("a real engagement request reaches the durable F-I2 writer", () => {
 
   it("treats a duplicate canonical minute as idempotent success", async () => {
     insertResult = false;
-    expect((await beaconFrom("/prescriptions")).status).toBe(204);
+    expect((await beaconFrom("/queue")).status).toBe(204);
     expect(recorded).toHaveLength(1);
   });
 
