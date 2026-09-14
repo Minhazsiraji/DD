@@ -9,13 +9,11 @@ import {
   listRuntimeActivityReconciliationDoctors,
   persistRuntimeActivityContribution,
   readRuntimeActivityReconciliationMinutes,
+  type ActivityDayWatermark,
+  type ActivityReconciliationContext,
+  type ActivityReconciliationDoctor,
+  type ActivityReconciliationMinute,
 } from "@/lib/o1/runtime-authority";
-import type {
-  ActivityDayWatermark,
-  ActivityReconciliationContext,
-  ActivityReconciliationDoctor,
-  ActivityReconciliationMinute,
-} from "@/lib/supabase/service";
 import { assertConformant, buildActivityContributions } from "./producer";
 import {
   NON_FEATURE_SENTINEL,
