@@ -1,0 +1,119 @@
+name: O1-F-I2 fa28 full exact-SHA gate
+
+on:
+  push:
+    branches: [qa/o1-f-i2-observability-019ef]
+    paths: [.github/workflows/o1f-i2-fa28-full-gate.yml]
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: ${{ matrix.id }}-${{ matrix.label }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        include:
+          - { id: '01', label: activity, script: verify-o1f-activity-day-grain.mjs, db: o1fi2g_01_activity, preseed: none }
+          - { id: '02', label: aal2-consent, script: verify-o1f-owner-aal2-and-consent.mjs, db: o1fi2g_02_aal2_consent, preseed: both }
+          - { id: '03', label: owner-surface, script: verify-o1f-owner-surface.mjs, db: o1fi2g_03_owner_surface, preseed: base }
+          - { id: '04', label: pilot-isolation, script: verify-o1f-pilot-plane-isolation.mjs, db: o1fi2g_04_pilot_isolation, preseed: base }
+          - { id: '05', label: r2, script: verify-o1f-r2-contract.mjs, db: o1fi2g_05_r2, preseed: none }
+          - { id: '06', label: r3, script: verify-o1f-r3-contract.mjs, db: o1fi2g_06_r3, preseed: none }
+          - { id: '07', label: i1, script: verify-o1f-i1-contract.mjs, db: o1fi2g_07_i1, preseed: none }
+          - { id: '08', label: i2, script: verify-o1f-i2-contract.mjs, db: o1fi2g_08_i2, preseed: none }
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_DB: postgres
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: qa/o1-f-i2-observability-019ef
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Exact detached candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin --no-tags --prune
+          DIR="$RUNNER_TEMP/candidate-${{ matrix.id }}"
+          git worktree add --detach "$DIR" fa28eda1b48b033bff591dac79e2cf4152ea03a8
+          echo "DIR=$DIR" >> "$GITHUB_ENV"
+          cd "$DIR"
+          test "$(git rev-parse HEAD)" = fa28eda1b48b033bff591dac79e2cf4152ea03a8
+          test -z "$(git status --short)"
+          test "$(git rev-parse HEAD:supabase/policies/0047_o1_owner_analytics_authority.sql)" = b8645248fc22a98a2c2aa10f1b21ad0b5c9679d6
+          test "$(sha256sum supabase/policies/0047_o1_owner_analytics_authority.sql | awk '{print $1}')" = 3a316805d32391241ed506ec9627d9e77b21b20a0a4c1f36405b03e0695a2190
+          test ! -e supabase/policies/0048_o1_owner_analytics_authority.sql
+      - name: Isolated dependency
+        shell: bash
+        run: |
+          set -euo pipefail
+          DEP="$RUNNER_TEMP/dep-${{ matrix.id }}"
+          mkdir -p "$DEP" && cd "$DEP"
+          npm init -y >/dev/null
+          npm install postgres@3.4.9 --ignore-scripts --no-audit --no-fund >/dev/null
+          ln -s "$DEP/node_modules" "$DIR/node_modules"
+      - name: Bootstrap fresh database
+        shell: bash
+        env:
+          DB: ${{ matrix.db }}
+          PRESEED: ${{ matrix.preseed }}
+        run: |
+          set -euo pipefail
+          psql -h localhost -U postgres -d postgres -v ON_ERROR_STOP=1 <<'SQL'
+          create role anon noinherit;
+          create role authenticated noinherit;
+          create role service_role noinherit bypassrls;
+          create role authenticator login noinherit;
+          grant anon, authenticated, service_role to authenticator;
+          SQL
+          createdb -h localhost -U postgres "$DB"
+          psql -h localhost -U postgres -d "$DB" -v ON_ERROR_STOP=1 <<'SQL'
+          create extension if not exists pgcrypto;
+          create schema auth;
+          create table auth.users (id uuid primary key default gen_random_uuid());
+          create function auth.uid() returns uuid language sql stable as $uid$
+            select nullif(coalesce(nullif(current_setting('request.jwt.claims', true), ''), '{}')::jsonb ->> 'sub','')::uuid;
+          $uid$;
+          create function auth.jwt() returns jsonb language sql stable as $jwt$
+            select coalesce(nullif(current_setting('request.jwt.claims', true), ''), '{}')::jsonb;
+          $jwt$;
+          grant usage on schema auth to public;
+          grant execute on function auth.uid() to public;
+          grant execute on function auth.jwt() to public;
+          SQL
+          if [ "$PRESEED" = both ]; then
+            psql -h localhost -U postgres -d "$DB" -v ON_ERROR_STOP=1 -f "$DIR/drizzle/migrations/0000_parallel_mentor.sql" >/dev/null
+            psql -h localhost -U postgres -d "$DB" -v ON_ERROR_STOP=1 -f "$DIR/drizzle/migrations/0019_open_whizzer.sql" >/dev/null
+          elif [ "$PRESEED" = base ]; then
+            psql -h localhost -U postgres -d "$DB" -v ON_ERROR_STOP=1 -f "$DIR/drizzle/migrations/0000_parallel_mentor.sql" >/dev/null
+          fi
+      - name: Run verifier
+        shell: bash
+        env:
+          DB: ${{ matrix.db }}
+          SCRIPT: ${{ matrix.script }}
+        run: |
+          set -euo pipefail
+          cd "$DIR"
+          URL="postgresql://postgres@localhost:5432/$DB"
+          AUTH="postgresql://authenticator@localhost:5432/$DB"
+          DATABASE_URL="$URL" DIRECT_URL="$URL" AUTHENTICATOR_URL="$AUTH" node "scripts/$SCRIPT"
