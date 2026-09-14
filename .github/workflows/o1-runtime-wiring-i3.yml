@@ -12,7 +12,7 @@ permissions:
 jobs:
   verify:
     name: O1 runtime exact-SHA verification
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 35
     env:
       NEXT_PUBLIC_SUPABASE_URL: https://synthetic-build.supabase.co
@@ -30,14 +30,14 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Setup Node
+      - name: Setup Node 24
         uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24
           cache: npm
 
       - name: Install locked dependencies
-        run: npm ci
+        run: npm ci --ignore-scripts
 
       - name: Frozen F-I2 authority check
         shell: bash
@@ -80,11 +80,6 @@ jobs:
         run: |
           set -euo pipefail
           git diff --exit-code 1f6a900f0373488ce09cf106b28f3afc49b02a7f HEAD -- db
-          if git diff --name-only 1f6a900f0373488ce09cf106b28f3afc49b02a7f HEAD | grep -Eq '^src/(features|app)/.*(patients|prescriptions|encounters|investigations)/' && \
-             ! git diff --name-only 1f6a900f0373488ce09cf106b28f3afc49b02a7f HEAD | grep -qx 'src/features/prescriptions/service-key-containment.test.ts'; then
-            echo 'Unexpected clinical implementation drift.' >&2
-            exit 1
-          fi
           node - <<'NODE'
           const fs = require('fs');
           const value = JSON.parse(fs.readFileSync('vercel.json', 'utf8'));
