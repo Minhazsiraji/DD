@@ -11,6 +11,7 @@ describe("O1 activity close scheduling", () => {
   it("uses the configured clinic calendar rather than a UTC date guess", () => {
     expect(previousCompletedClinicDay(now, "Pacific/Kiritimati")).toBe("2026-09-14");
     expect(previousCompletedClinicDay(now, "Etc/GMT+12")).toBe("2026-09-13");
+    expect(previousCompletedClinicDay(now, "America/New_York")).toBe("2026-09-13");
   });
 
   it("fails closed for a missing or invalid timezone", () => {
