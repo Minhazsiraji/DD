@@ -56,28 +56,35 @@ export type EventOfType<T extends AiTelemetryEvent["event_type"]> = AiTelemetryE
   : never;
 
 /**
- * Production O1-E sink. Actor identity is authoritative; Doctor identity is
- * derived from it and never trusted from a browser-returned binding.
+ * Bind a validated event to the canonical actor -> Doctor authority.
+ * Exported so the security property can be tested without a service-role key.
  */
+export async function canonicalizeAiTelemetryPrincipal(
+  event: AiTelemetryEvent,
+  resolveDoctorId: (actorUserId: string) => Promise<string | null> = resolveRuntimeDoctorId,
+): Promise<AiTelemetryEvent> {
+  let doctorProfileId: string | null = null;
+
+  if (event.actor_user_id !== null) {
+    doctorProfileId = await resolveDoctorId(event.actor_user_id);
+    if (!doctorProfileId) throw new Error("O1E_ACTOR_DOCTOR_REQUIRED");
+    if (event.doctor_profile_id !== null && event.doctor_profile_id !== doctorProfileId) {
+      throw new Error("O1E_ACTOR_DOCTOR_MISMATCH");
+    }
+  } else if (event.doctor_profile_id !== null) {
+    throw new Error("O1E_DOCTOR_WITHOUT_ACTOR_REJECTED");
+  }
+
+  return validateAiTelemetryEvent({
+    ...event,
+    doctor_profile_id: doctorProfileId,
+  });
+}
+
+/** Production O1-E sink. */
 export const O1_DURABLE_AI_TELEMETRY_SINK: AiTelemetrySink = Object.freeze({
   async record(event: AiTelemetryEvent): Promise<void> {
-    let doctorProfileId: string | null = null;
-
-    if (event.actor_user_id !== null) {
-      doctorProfileId = await resolveRuntimeDoctorId(event.actor_user_id);
-      if (!doctorProfileId) throw new Error("O1E_ACTOR_DOCTOR_REQUIRED");
-      if (event.doctor_profile_id !== null && event.doctor_profile_id !== doctorProfileId) {
-        throw new Error("O1E_ACTOR_DOCTOR_MISMATCH");
-      }
-    } else if (event.doctor_profile_id !== null) {
-      throw new Error("O1E_DOCTOR_WITHOUT_ACTOR_REJECTED");
-    }
-
-    const canonical = validateAiTelemetryEvent({
-      ...event,
-      doctor_profile_id: doctorProfileId,
-    });
-
+    const canonical = await canonicalizeAiTelemetryPrincipal(event);
     await persistRuntimeAiVoiceTelemetry(
       canonical as unknown as Record<string, unknown>,
     );
