@@ -174,9 +174,15 @@ describe("Doctor's Diary shared visual system reconciliation", () => {
     expect(read("src/components/layout/mobile-bottom-nav.tsx")).toContain("dd-material-chrome");
   });
 
-  it("preserves only the authorized Vercel Seoul region configuration", () => {
+  it("preserves the authorized Seoul region plus the O1 pilot close cron", () => {
     const config = JSON.parse(read("vercel.json"));
     expect(config.regions).toEqual(["icn1"]);
-    expect(Object.keys(config).sort()).toEqual(["$schema", "regions"].sort());
+    expect(config.crons).toEqual([
+      {
+        path: "/api/internal/o1/activity-close",
+        schedule: "30 20 * * *",
+      },
+    ]);
+    expect(Object.keys(config).sort()).toEqual(["$schema", "crons", "regions"].sort());
   });
 });
