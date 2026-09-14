@@ -3569,10 +3569,10 @@ begin
     pg_catalog.hashtextextended('O1F_ACTIVITY_DAY:' || target_period_day::text, 0)
   );
 
-  select d.evidence_generation, d.reconciled_generation, d.reconciled_doctor_count
+  select day_state.evidence_generation, day_state.reconciled_generation, day_state.reconciled_doctor_count
   into v_day_generation, v_day_reconciled, v_reconciled_doctor_count
-  from public.activity_reconciliation_day d
-  where d.period_day = target_period_day
+  from public.activity_reconciliation_day day_state
+  where day_state.period_day = target_period_day
   for update;
 
   select count(distinct p.doctor_id)::bigint
