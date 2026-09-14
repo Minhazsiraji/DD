@@ -1,6 +1,10 @@
 import "server-only";
 
 import {
+  persistRuntimeAiVoiceTelemetry,
+  resolveRuntimeDoctorId,
+} from "@/lib/o1/runtime-authority";
+import {
   AiTelemetryValidationError,
   validateAiTelemetryEvent,
   type AiTelemetryEvent,
@@ -9,15 +13,13 @@ import {
 /**
  * Where AI / Voice telemetry goes.
  *
- * PERSISTENCE IS NOT BUILT HERE. The durable table is owned by O1-F (0047).
- * Until a durable sink is configured, events go to the no-op sink: validated,
- * then dropped. That is deliberate — telemetry written somewhere unreviewed is
- * worse than telemetry not yet written.
+ * The default runtime sink is frozen O1-F's durable RPC. It first resolves the
+ * actor to the canonical Doctor profile on the trusted server path and refuses
+ * a conflicting Doctor id. The database then re-validates the exact allowlist
+ * and enforces event-key idempotency.
  *
- * EVERY SINK MUST BE IDEMPOTENT ON `event_key`: a second event with a key
- * already recorded is ignored, never appended. That is the contract a durable
- * sink implements with INSERT … ON CONFLICT (event_key) DO NOTHING, and it is
- * what keeps retried emissions from inflating any counter.
+ * Telemetry remains non-clinical and non-blocking: `emitAiTelemetry` never lets
+ * a persistence failure break the Doctor's action.
  */
 export interface AiTelemetrySink {
   record(event: AiTelemetryEvent): Promise<void>;
@@ -32,7 +34,7 @@ export class InMemoryAiTelemetrySink implements AiTelemetrySink {
   private readonly byKey = new Map<string, AiTelemetryEvent>();
 
   async record(event: AiTelemetryEvent): Promise<void> {
-    if (this.byKey.has(event.event_key)) return; // ON CONFLICT DO NOTHING
+    if (this.byKey.has(event.event_key)) return;
     this.byKey.set(event.event_key, Object.freeze({ ...event }) as AiTelemetryEvent);
   }
 
@@ -45,12 +47,6 @@ export class InMemoryAiTelemetrySink implements AiTelemetrySink {
   }
 }
 
-/**
- * The event shape(s) that can carry `event_type` T. Not `Extract<>`: several
- * shapes share one interface across a union of types (the three provider
- * outcomes, say), and `Extract` cannot match a single literal against that
- * union — it resolves to `never`.
- */
 export type EventOfType<T extends AiTelemetryEvent["event_type"]> = AiTelemetryEvent extends infer E
   ? E extends { event_type: infer U }
     ? T extends U
@@ -59,9 +55,45 @@ export type EventOfType<T extends AiTelemetryEvent["event_type"]> = AiTelemetryE
     : never
   : never;
 
-let configuredSink: AiTelemetrySink = NOOP_AI_TELEMETRY_SINK;
+/**
+ * Bind a validated event to the canonical actor -> Doctor authority.
+ * Exported so the security property can be tested without a service-role key.
+ */
+export async function canonicalizeAiTelemetryPrincipal(
+  event: AiTelemetryEvent,
+  resolveDoctorId: (actorUserId: string) => Promise<string | null> = resolveRuntimeDoctorId,
+): Promise<AiTelemetryEvent> {
+  let doctorProfileId: string | null = null;
 
-/** Server configuration hook, for binding the durable O1-F sink when it exists. */
+  if (event.actor_user_id !== null) {
+    doctorProfileId = await resolveDoctorId(event.actor_user_id);
+    if (!doctorProfileId) throw new Error("O1E_ACTOR_DOCTOR_REQUIRED");
+    if (event.doctor_profile_id !== null && event.doctor_profile_id !== doctorProfileId) {
+      throw new Error("O1E_ACTOR_DOCTOR_MISMATCH");
+    }
+  } else if (event.doctor_profile_id !== null) {
+    throw new Error("O1E_DOCTOR_WITHOUT_ACTOR_REJECTED");
+  }
+
+  return validateAiTelemetryEvent({
+    ...event,
+    doctor_profile_id: doctorProfileId,
+  });
+}
+
+/** Production O1-E sink. */
+export const O1_DURABLE_AI_TELEMETRY_SINK: AiTelemetrySink = Object.freeze({
+  async record(event: AiTelemetryEvent): Promise<void> {
+    const canonical = await canonicalizeAiTelemetryPrincipal(event);
+    await persistRuntimeAiVoiceTelemetry(
+      canonical as unknown as Record<string, unknown>,
+    );
+  },
+});
+
+let configuredSink: AiTelemetrySink = O1_DURABLE_AI_TELEMETRY_SINK;
+
+/** Test/controlled-runtime hook. Production needs no boot-time configuration. */
 export function configureAiTelemetrySink(sink: AiTelemetrySink): void {
   configuredSink = sink;
 }
@@ -76,10 +108,8 @@ export type EmitResult = { ok: true } | { ok: false; code: string };
  * Validate against the allowlist, then record.
  *
  * NEVER THROWS. Telemetry is a monitoring concern and must never break the
- * Doctor's action — the same rule `src/lib/audit/emit.ts` states for audit.
- * A rejected or failed event is reported by code only: the event itself is
- * never logged, because a rejected event is by definition one that may carry
- * something it should not.
+ * Doctor's action. A rejected or failed event is reported by code only: the
+ * event itself is never logged.
  */
 export async function emitAiTelemetry(
   sink: AiTelemetrySink,

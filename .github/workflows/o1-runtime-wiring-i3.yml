@@ -1,0 +1,92 @@
+name: O1 Runtime Wiring I3 Gate
+
+on:
+  push:
+    branches:
+      - o1/runtime-wiring-i3
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: O1 runtime exact-SHA verification
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: https://synthetic-build.supabase.co
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: o1_i3_synthetic_build_anon_key_00000000000000000000
+      NEXT_PUBLIC_SITE_URL: http://localhost:3000
+      AI_MODE: mock
+      NOTIFICATION_MODE: mock
+      PAYMENT_MODE: mock
+      PA1_PROPOSAL_SIGNING_SECRET: o1-i3-ci-signing-secret-at-least-32-bytes-long
+      CRON_SECRET: o1-i3-ci-cron-secret-at-least-32-bytes-long
+      O1_PILOT_CLOSE_TIME_ZONE: Asia/Dhaka
+    steps:
+      - name: Checkout exact branch SHA
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install locked dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Frozen F-I2 authority check
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD:supabase/policies/0047_o1_owner_analytics_authority.sql)" = "b8645248fc22a98a2c2aa10f1b21ad0b5c9679d6"
+          test "$(sha256sum supabase/policies/0047_o1_owner_analytics_authority.sql | awk '{print $1}')" = "3a316805d32391241ed506ec9627d9e77b21b20a0a4c1f36405b03e0695a2190"
+          test ! -e supabase/policies/0048_o1_owner_analytics_authority.sql
+          git diff --exit-code 1f6a900f0373488ce09cf106b28f3afc49b02a7f HEAD -- supabase/policies
+
+      - name: O1 runtime focused tests
+        run: >-
+          npx vitest run
+          src/features/engagement/durable-ingest.test.ts
+          src/features/engagement/reconciliation.test.ts
+          src/features/engagement/close-schedule.test.ts
+          src/features/ai/telemetry-durable-sink.test.ts
+          src/features/prescriptions/service-key-containment.test.ts
+
+      - name: Full repository tests
+        run: npm test
+
+      - name: Next route and page type generation
+        run: npx next typegen
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Production build
+        run: npm run build
+
+      - name: Patch integrity
+        run: git diff --check 1f6a900f0373488ce09cf106b28f3afc49b02a7f HEAD
+
+      - name: O1 runtime scope check
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --exit-code 1f6a900f0373488ce09cf106b28f3afc49b02a7f HEAD -- db
+          node - <<'NODE'
+          const fs = require('fs');
+          const value = JSON.parse(fs.readFileSync('vercel.json', 'utf8'));
+          if (JSON.stringify(value.regions) !== JSON.stringify(['icn1'])) throw new Error('Region drift');
+          const cron = value.crons?.find((item) => item.path === '/api/internal/o1/activity-close');
+          if (!cron || cron.schedule !== '30 20 * * *') throw new Error('O1 close cron drift');
+          NODE
+
+      - name: Record verified SHA
+        run: echo "O1_I3_VERIFIED_SHA=${GITHUB_SHA}"
