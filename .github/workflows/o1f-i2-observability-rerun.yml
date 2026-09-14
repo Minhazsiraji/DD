@@ -23,42 +23,42 @@ jobs:
             label: activity
             script: verify-o1f-activity-day-grain.mjs
             db: o1fi2c_01_activity
-            preseed: none
+            preseed: 'none'
           - id: '02'
             label: aal2-consent
             script: verify-o1f-owner-aal2-and-consent.mjs
             db: o1fi2c_02_aal2_consent
-            preseed: 0000_0019
+            preseed: '0000_0019'
           - id: '03'
             label: owner-surface
             script: verify-o1f-owner-surface.mjs
             db: o1fi2c_03_owner_surface
-            preseed: 0000
+            preseed: '0000'
           - id: '04'
             label: pilot-isolation
             script: verify-o1f-pilot-plane-isolation.mjs
             db: o1fi2c_04_pilot_isolation
-            preseed: 0000
+            preseed: '0000'
           - id: '05'
             label: r2
             script: verify-o1f-r2-contract.mjs
             db: o1fi2c_05_r2
-            preseed: none
+            preseed: 'none'
           - id: '06'
             label: r3
             script: verify-o1f-r3-contract.mjs
             db: o1fi2c_06_r3
-            preseed: none
+            preseed: 'none'
           - id: '07'
             label: i1
             script: verify-o1f-i1-contract.mjs
             db: o1fi2c_07_i1
-            preseed: none
+            preseed: 'none'
           - id: '08'
             label: i2
             script: verify-o1f-i2-contract.mjs
             db: o1fi2c_08_i2
-            preseed: none
+            preseed: 'none'
 
     services:
       postgres:
@@ -205,11 +205,26 @@ jobs:
           grant execute on function auth.jwt() to public;
           SQL
 
-          if [ "$PRESEED" = 0000_0019 ]; then
+          if [ "$PRESEED" = '0000_0019' ]; then
             psql -h localhost -U postgres -d "$VERIFIER_DB" -v ON_ERROR_STOP=1 -f "$CANDIDATE_DIR/drizzle/migrations/0000_parallel_mentor.sql" >/dev/null
             psql -h localhost -U postgres -d "$VERIFIER_DB" -v ON_ERROR_STOP=1 -f "$CANDIDATE_DIR/drizzle/migrations/0019_open_whizzer.sql" >/dev/null
-          elif [ "$PRESEED" = 0000 ]; then
+          elif [ "$PRESEED" = '0000' ]; then
             psql -h localhost -U postgres -d "$VERIFIER_DB" -v ON_ERROR_STOP=1 -f "$CANDIDATE_DIR/drizzle/migrations/0000_parallel_mentor.sql" >/dev/null
+          fi
+
+          if [ "$VERIFIER_ID" = '03' ] || [ "$VERIFIER_ID" = '04' ]; then
+            PROFILES_PRESENT="$(psql -h localhost -U postgres -d "$VERIFIER_DB" -Atqc "select to_regclass('public.profiles') is not null;")"
+            {
+              echo "preseed=$PRESEED"
+              echo "profiles_present=$PROFILES_PRESENT"
+            } | tee "$OUT_DIR/${VERIFIER_ID}-fixture-proof.txt"
+            test "$PROFILES_PRESENT" = t
+          fi
+
+          if [ "$VERIFIER_ID" = '03' ]; then
+            PLATFORM_OWNERS_ABSENT="$(psql -h localhost -U postgres -d "$VERIFIER_DB" -Atqc "select to_regclass('public.platform_owners') is null;")"
+            echo "platform_owners_absent=$PLATFORM_OWNERS_ABSENT" | tee -a "$OUT_DIR/03-fixture-proof.txt"
+            test "$PLATFORM_OWNERS_ABSENT" = t
           fi
 
       - name: Run exactly one verifier and persist stdout stderr exit code
