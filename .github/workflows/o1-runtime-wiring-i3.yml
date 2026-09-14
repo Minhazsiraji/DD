@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - o1/runtime-wiring-i3
+      - integration/o1-owner-pilot
   workflow_dispatch:
 
 permissions:
