@@ -215,7 +215,7 @@ try {
   `;
   check(todayDay === today, "test clock is internally consistent");
   await sql.begin(tx=>service(tx,sp=>sp`
-    select public.record_engagement_minute(${doctors[0].doctorId},${todayBucket}::timestamptz,'CONSULTATION',${todayZone})
+    select public.record_engagement_minute(${doctors[0].doctorId},${todayBucket}::timestamptz,'PRESCRIPTION',${todayZone})
   `));
   let [ctx] = await sql.begin(tx=>service(tx,sp=>sp`select * from public.get_activity_reconciliation_context(${doctors[0].doctorId},${todayDay}::date)`));
   check(Number(ctx.evidence_generation) === 1 && ctx.clinic_timezone === 'UTC', "first unique minute advances Doctor generation");
