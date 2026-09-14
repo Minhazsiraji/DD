@@ -1,0 +1,87 @@
+name: O1-F-I2 fa28 verifier08
+
+on:
+  push:
+    branches: [qa/o1-f-i2-observability-019ef]
+    paths: [.github/workflows/o1f-i2-fa28-i2-only.yml]
+
+permissions:
+  contents: read
+
+jobs:
+  i2:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_DB: postgres
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: qa/o1-f-i2-observability-019ef
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Exact candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin --no-tags --prune
+          git worktree add --detach "$RUNNER_TEMP/candidate" fa28eda1b48b033bff591dac79e2cf4152ea03a8
+          cd "$RUNNER_TEMP/candidate"
+          test "$(git rev-parse HEAD)" = fa28eda1b48b033bff591dac79e2cf4152ea03a8
+          test "$(git rev-parse HEAD:supabase/policies/0047_o1_owner_analytics_authority.sql)" = b8645248fc22a98a2c2aa10f1b21ad0b5c9679d6
+          test ! -e supabase/policies/0048_o1_owner_analytics_authority.sql
+      - name: Dependency
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/dep"
+          cd "$RUNNER_TEMP/dep"
+          npm init -y >/dev/null
+          npm install postgres@3.4.9 --ignore-scripts --no-audit --no-fund >/dev/null
+          ln -s "$RUNNER_TEMP/dep/node_modules" "$RUNNER_TEMP/candidate/node_modules"
+      - name: Fresh database
+        shell: bash
+        run: |
+          set -euo pipefail
+          psql -h localhost -U postgres -d postgres -v ON_ERROR_STOP=1 <<'SQL'
+          create role anon noinherit;
+          create role authenticated noinherit;
+          create role service_role noinherit bypassrls;
+          create role authenticator login noinherit;
+          grant anon, authenticated, service_role to authenticator;
+          SQL
+          createdb -h localhost -U postgres o1fi2fa28
+          psql -h localhost -U postgres -d o1fi2fa28 -v ON_ERROR_STOP=1 <<'SQL'
+          create extension if not exists pgcrypto;
+          create schema auth;
+          create table auth.users (id uuid primary key default gen_random_uuid());
+          create function auth.uid() returns uuid language sql stable as $uid$
+            select nullif(coalesce(nullif(current_setting('request.jwt.claims', true), ''), '{}')::jsonb ->> 'sub','')::uuid;
+          $uid$;
+          create function auth.jwt() returns jsonb language sql stable as $jwt$
+            select coalesce(nullif(current_setting('request.jwt.claims', true), ''), '{}')::jsonb;
+          $jwt$;
+          grant usage on schema auth to public;
+          grant execute on function auth.uid() to public;
+          grant execute on function auth.jwt() to public;
+          SQL
+      - name: Verifier 08
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/candidate"
+          URL=postgresql://postgres@localhost:5432/o1fi2fa28
+          AUTH=postgresql://authenticator@localhost:5432/o1fi2fa28
+          DATABASE_URL="$URL" DIRECT_URL="$URL" AUTHENTICATOR_URL="$AUTH" node scripts/verify-o1f-i2-contract.mjs
