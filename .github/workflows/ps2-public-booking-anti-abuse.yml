@@ -1,0 +1,129 @@
+name: P-S2 Public Booking Anti-Abuse
+
+on:
+  push:
+    branches: [security/p-s2-public-booking-rate-limit]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  NEXT_PUBLIC_SUPABASE_URL: https://synthetic-ps2.supabase.co
+  NEXT_PUBLIC_SUPABASE_ANON_KEY: sb_publishable_ps2_synthetic_key_000000000000000000000
+  NEXT_PUBLIC_SITE_URL: http://localhost:3000
+  SUPABASE_SERVICE_ROLE_KEY: synthetic-ps2-service-role-key-not-for-production
+  AI_MODE: mock
+  NOTIFICATION_MODE: mock
+  PAYMENT_MODE: mock
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: ps2
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres -d ps2"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+    steps:
+      - uses: actions/checkout@v4
+        with: {fetch-depth: 0}
+      - uses: actions/setup-node@v4
+        with: {node-version: 24, cache: npm}
+      - name: Install exact lockfile
+        run: npm ci --ignore-scripts
+
+      - name: Durable limiter abuse proof
+        shell: bash
+        env: {PGPASSWORD: postgres}
+        run: |
+          set -euo pipefail
+          psql -h localhost -U postgres -d ps2 -v ON_ERROR_STOP=1 <<'SQL'
+          do $bootstrap$
+          begin
+            if not exists (select 1 from pg_roles where rolname='anon') then create role anon noinherit; end if;
+            if not exists (select 1 from pg_roles where rolname='authenticated') then create role authenticated noinherit; end if;
+            if not exists (select 1 from pg_roles where rolname='service_role') then create role service_role noinherit bypassrls; end if;
+          end $bootstrap$;
+
+          create or replace function public.create_public_booking(
+            text, uuid, date, text, text, text, text, text
+          ) returns jsonb language sql as $$ select jsonb_build_object('bookingRef', gen_random_uuid()) $$;
+          grant execute on function public.create_public_booking(text, uuid, date, text, text, text, text, text) to anon, authenticated;
+          SQL
+
+          psql -h localhost -U postgres -d ps2 -v ON_ERROR_STOP=1 -f supabase/policies/0052_public_booking_anti_abuse.sql
+
+          psql -h localhost -U postgres -d ps2 -v ON_ERROR_STOP=1 <<'SQL'
+          do $proof$
+          declare
+            i integer;
+            allowed boolean;
+            key_a text := repeat('a', 64);
+            key_b text := repeat('b', 64);
+          begin
+            for i in 1..5 loop
+              select public.consume_public_booking_rate_limit(key_a) into allowed;
+              if allowed is distinct from true then
+                raise exception 'legitimate attempt % unexpectedly throttled', i;
+              end if;
+            end loop;
+
+            select public.consume_public_booking_rate_limit(key_a) into allowed;
+            if allowed is distinct from false then
+              raise exception 'sixth same-source attempt was not throttled';
+            end if;
+
+            select public.consume_public_booking_rate_limit(key_b) into allowed;
+            if allowed is distinct from true then
+              raise exception 'different source was globally blocked';
+            end if;
+
+            if has_function_privilege('anon', 'public.consume_public_booking_rate_limit(text)', 'EXECUTE') then
+              raise exception 'anon can execute limiter directly';
+            end if;
+            if has_function_privilege('authenticated', 'public.consume_public_booking_rate_limit(text)', 'EXECUTE') then
+              raise exception 'authenticated can execute limiter directly';
+            end if;
+            if has_function_privilege('anon', 'public.create_public_booking(text,uuid,date,text,text,text,text,text)', 'EXECUTE') then
+              raise exception 'anon can bypass limiter through raw booking RPC';
+            end if;
+            if has_function_privilege('authenticated', 'public.create_public_booking(text,uuid,date,text,text,text,text,text)', 'EXECUTE') then
+              raise exception 'authenticated can bypass limiter through raw booking RPC';
+            end if;
+            if not has_function_privilege('service_role', 'public.create_public_booking(text,uuid,date,text,text,text,text,text)', 'EXECUTE') then
+              raise exception 'service role cannot execute contained booking RPC';
+            end if;
+          end $proof$;
+          SQL
+
+          echo PS2_RATE_LIMIT_DB_PROOF=PASS
+
+      - name: Public booking focused tests
+        run: npx vitest run src/features/public-booking
+      - name: Security regression
+        run: npx vitest run src/features/security
+      - name: Full repository tests
+        run: npm test
+      - name: Next typegen
+        run: npx next typegen
+      - name: TypeScript
+        run: npm run typecheck
+      - name: Lint
+        run: npm run lint
+      - name: Production build
+        run: npm run build
+      - name: Diff check
+        run: git diff --check b4f0e9bada8e11a77c5c1c8aab50c424973cd16b...HEAD
+      - name: Exact verified SHA
+        run: echo PS2_VERIFIED_SHA=$GITHUB_SHA
