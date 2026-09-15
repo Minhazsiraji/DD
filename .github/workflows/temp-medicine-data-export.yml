@@ -1,0 +1,110 @@
+name: TEMP Medicine Data Export
+
+on:
+  push:
+    branches:
+      - temp/medicine-data-import-20260915
+
+permissions:
+  contents: read
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download public Bangladesh medicine dataset
+        run: |
+          set -euo pipefail
+          curl -fL --retry 3 --retry-delay 2 \
+            'https://www.kaggle.com/api/v1/datasets/download/ahmedshahriarsakib/assorted-medicine-dataset-of-bangladesh' \
+            -o /tmp/bd-medicine.zip
+          mkdir -p /tmp/bd-medicine
+          unzip -q /tmp/bd-medicine.zip -d /tmp/bd-medicine
+          find /tmp/bd-medicine -maxdepth 2 -type f -print
+
+      - name: Build 3200-row normalized import SQL
+        run: |
+          python - <<'PY'
+          import csv, os, pathlib, re
+
+          root = pathlib.Path('/tmp/bd-medicine')
+          candidates = [p for p in root.rglob('*.csv') if p.name.lower() in {'medicine.csv','medicines.csv'}]
+          if not candidates:
+              candidates = [p for p in root.rglob('*.csv') if 'medicine' in p.name.lower()]
+          if not candidates:
+              raise SystemExit('medicine CSV not found')
+          src = candidates[0]
+          print('SOURCE', src)
+
+          def clean(s):
+              return re.sub(r'\s+', ' ', (s or '').strip())
+          def sql(v):
+              if v is None or v == '': return 'NULL'
+              return "'" + v.replace("'", "''") + "'"
+
+          with src.open('r', encoding='utf-8-sig', errors='replace', newline='') as f:
+              r = csv.DictReader(f)
+              fields = {x.strip().lower(): x for x in (r.fieldnames or [])}
+              print('FIELDS', list(fields))
+              aliases = {
+                  'brand': ['brand name','brand_name','brand'],
+                  'generic': ['generic','generic name','generic_name'],
+                  'strength': ['strength','strength_text'],
+                  'form': ['dosage form','dosage_form','form'],
+                  'manufacturer': ['manufacturer','manufacturer name','manufacturer_name'],
+                  'id': ['brand id','brand_id','id'],
+              }
+              def key(kind):
+                  for a in aliases[kind]:
+                      if a in fields: return fields[a]
+                  return None
+              ks={k:key(k) for k in aliases}
+              print('MAPPED', ks)
+              if not ks['brand'] or not ks['generic']:
+                  raise SystemExit('required columns missing')
+              rows=[]; seen=set()
+              for rec in r:
+                  generic=clean(rec.get(ks['generic'],'')); brand=clean(rec.get(ks['brand'],''))
+                  strength=clean(rec.get(ks['strength'],'')) if ks['strength'] else ''
+                  form=clean(rec.get(ks['form'],'')) if ks['form'] else ''
+                  manufacturer=clean(rec.get(ks['manufacturer'],'')) if ks['manufacturer'] else ''
+                  sid=clean(rec.get(ks['id'],'')) if ks['id'] else ''
+                  if not generic or not brand: continue
+                  ident=('BD',generic.casefold(),brand.casefold(),strength,form)
+                  if ident in seen: continue
+                  seen.add(ident)
+                  rows.append((generic,brand,strength,form,manufacturer,sid))
+                  if len(rows)>=3200: break
+
+          if len(rows)<3000:
+              raise SystemExit(f'only {len(rows)} unique usable rows; need >=3000')
+
+          out=pathlib.Path('bd_medicine_import_3200.sql')
+          with out.open('w', encoding='utf-8') as w:
+              w.write('-- Generated from public Assorted Medicine Dataset of Bangladesh.\n')
+              w.write('-- Source repository documents this as scraped from medex.com.bd; not independently regulator-verified by Doctor\'s Diary.\n')
+              w.write('BEGIN;\n')
+              for i in range(0,len(rows),200):
+                  batch=rows[i:i+200]
+                  w.write('INSERT INTO public.medicine_references (generic_name,brand_name,strength_text,dosage_form,manufacturer,country_code,regulator_name,source_kind,source_note,last_verified_at,is_active) VALUES\n')
+                  vals=[]
+                  for generic,brand,strength,form,manufacturer,sid in batch:
+                      note=f'Public Bangladesh medicine dataset (Ahmed Shahriar Sakib / Kaggle), source record {sid or "n/a"}; source repo states scraped from MedEx; not independently regulator-verified by Doctor\'s Diary'
+                      vals.append('(' + ','.join([sql(generic),sql(brand),sql(strength),sql(form),sql(manufacturer),"'BD'","'DGDA'","'LICENSED_IMPORT'",sql(note),'NULL','true']) + ')')
+                  w.write(',\n'.join(vals))
+                  w.write('\nON CONFLICT (country_code,generic_normalized,brand_normalized,strength_text,dosage_form) DO NOTHING;\n')
+              w.write('COMMIT;\n')
+          pathlib.Path('bd_medicine_import_meta.txt').write_text(f'source={src.name}\nprepared={len(rows)}\n', encoding='utf-8')
+          print('PREPARED', len(rows))
+          PY
+
+      - name: Upload import artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: bd-medicine-import-3200
+          path: |
+            bd_medicine_import_3200.sql
+            bd_medicine_import_meta.txt
+          retention-days: 1
