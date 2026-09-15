@@ -3,7 +3,7 @@
 import * as React from "react";
 import { useRouter } from "next/navigation";
 import { Image as ImageIcon, Loader2, Trash2, Upload } from "lucide-react";
-import { removeClinicLogoAction, uploadClinicLogoAction } from "./actions";
+import { removeClinicLogoAction, uploadClinicLogoAction } from "./clinic-logo-actions";
 
 export interface ClinicLogoSetting {
   locationId: string;
@@ -20,8 +20,8 @@ export function ClinicLogoPanel({ locations }: { locations: ClinicLogoSetting[] 
         <h2 className="text-sm font-semibold text-ink">Clinic / chamber logo</h2>
         <p className="mt-1 text-xs text-ink-muted">
           Upload the logo used at each place. Turn on “Clinic / chamber logo” in a prescription
-          template to print it beside the chamber name. Each prescription fixes its own copy before
-          approval, so replacing this image later cannot change an older signed prescription.
+          template to print it beside the chamber name. Each prescription stores the exact logo
+          asset it was approved with, so replacing this image later cannot change an older signed prescription.
         </p>
       </div>
 
