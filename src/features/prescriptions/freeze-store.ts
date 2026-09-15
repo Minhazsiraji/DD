@@ -3,18 +3,11 @@ import { serviceStorage } from "@/lib/supabase/service";
 import type { Described, Fetched, SignatureStore, Written } from "./freeze";
 
 /**
- * The freeze port, bound to the real Supabase Storage API.
- *
- * Every file operation goes through the Storage API. Nothing here inserts,
- * updates or deletes a row in `storage.objects` — that schema is metadata, and
- * writing it directly creates an entry with no object behind it, which reads
- * as success and prints as a broken image on a prescription.
- *
- * Kept as a thin adapter with no decisions in it, so the decisions all live in
- * `freeze.ts` where they can be tested without a network.
+ * The privileged Storage adapter. This stays the one reviewed prescription
+ * module allowed to import the service-role boundary. Callers get named asset
+ * operations, never a Storage client or arbitrary bucket handle.
  */
 
-/** Supabase reports "already there" through the message, not a status code. */
 function isDuplicate(message: string): boolean {
   return /duplicate|already exists|resource already exists/i.test(message);
 }
@@ -36,24 +29,11 @@ export function supabaseSignatureStore(): SignatureStore {
       }
       if (!data) return { kind: "missing" };
 
-      // A Blob, so the bytes are read in full before anything is hashed —
-      // hashing a stream that ends early would produce a confident wrong answer.
       const bytes = new Uint8Array(await data.arrayBuffer());
       return { kind: "bytes", bytes, contentType: data.type || null };
     },
 
     async write(bucket, path, bytes, contentType, marker): Promise<Written> {
-      /**
-       * `upsert: false` is the control, not a preference. The destination is
-       * append-only and must stay that way: a second attempt has to be told
-       * "already there" so it can VERIFY, rather than quietly replacing a
-       * signature a review may already have attested.
-       *
-       * The marker travels as custom metadata and is written ONCE, with the
-       * object. It records what was frozen and for which prescription, so a
-       * later retry can be checked against the freeze itself rather than
-       * against the doctor's profile — which may legitimately have changed.
-       */
       const { error } = await storage.from(bucket).upload(path, bytes, {
         contentType,
         upsert: false,
@@ -74,10 +54,6 @@ export function supabaseSignatureStore(): SignatureStore {
       }
       if (!data) return { kind: "missing" };
 
-      /**
-       * Custom metadata only. `size`, `mimetype` and `eTag` are Supabase's own
-       * derived fields and are NOT the integrity control — the bytes are.
-       */
       const custom = (data.metadata ?? {}) as Record<string, unknown>;
       return {
         kind: "found",
@@ -90,4 +66,35 @@ export function supabaseSignatureStore(): SignatureStore {
       };
     },
   };
+}
+
+const CLINIC_LOGO_BUCKET = "clinic-assets";
+
+/** Store one new immutable current-logo source object. Never overwrites. */
+export async function uploadClinicLogoObject(
+  path: string,
+  file: File,
+  contentType: string,
+): Promise<{ ok: true } | { ok: false; message: string }> {
+  const { error } = await serviceStorage().from(CLINIC_LOGO_BUCKET).upload(path, file, {
+    contentType,
+    upsert: false,
+  });
+  return error ? { ok: false, message: error.message } : { ok: true };
+}
+
+/** Remove only an uncommitted upload when its DB pointer could not be saved. */
+export async function removeUnlinkedClinicLogoObject(path: string): Promise<void> {
+  await serviceStorage().from(CLINIC_LOGO_BUCKET).remove([path]);
+}
+
+/** Sign an already-authorized clinic-logo path for a short-lived render. */
+export async function signedClinicLogoObjectUrl(
+  path: string,
+  expiresInSeconds: number,
+): Promise<string | null> {
+  const { data, error } = await serviceStorage()
+    .from(CLINIC_LOGO_BUCKET)
+    .createSignedUrl(path, expiresInSeconds);
+  return error ? null : data?.signedUrl ?? null;
 }
