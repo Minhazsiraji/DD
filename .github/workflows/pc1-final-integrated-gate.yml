@@ -127,14 +127,41 @@ jobs:
           PGPASSWORD: postgres
         run: |
           set -euo pipefail
+          psql -h 127.0.0.1 -U postgres -d pc1 -v ON_ERROR_STOP=1 <<'SQL'
+          do $bootstrap$
+          begin
+            if not exists (select 1 from pg_roles where rolname='anon') then create role anon noinherit; end if;
+            if not exists (select 1 from pg_roles where rolname='authenticated') then create role authenticated noinherit; end if;
+            if not exists (select 1 from pg_roles where rolname='service_role') then create role service_role noinherit bypassrls; end if;
+            if not exists (select 1 from pg_roles where rolname='authenticator') then create role authenticator login password 'qa_test_only' noinherit; end if;
+          end
+          $bootstrap$;
+          grant anon, authenticated, service_role to authenticator;
+          SQL
           for db in o1i1 o1r3 o1aal2 o1isolation o1daygrain; do
             createdb -h 127.0.0.1 -U postgres "$db"
+            psql -h 127.0.0.1 -U postgres -d "$db" -v ON_ERROR_STOP=1 <<'SQL'
+          create extension if not exists pgcrypto;
+          create schema if not exists auth;
+          create table if not exists auth.users (id uuid primary key default gen_random_uuid());
+          create or replace function auth.uid() returns uuid language sql stable as $uid$
+            select nullif(coalesce(nullif(current_setting('request.jwt.claims', true), ''), '{}')::jsonb ->> 'sub','')::uuid;
+          $uid$;
+          create or replace function auth.jwt() returns jsonb language sql stable as $jwt$
+            select coalesce(nullif(current_setting('request.jwt.claims', true), ''), '{}')::jsonb;
+          $jwt$;
+          grant usage on schema auth to public;
+          grant execute on function auth.uid() to public;
+          grant execute on function auth.jwt() to public;
+          SQL
           done
-          DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:5432/o1i1 node scripts/verify-o1f-i1-contract.mjs
-          DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:5432/o1r3 node scripts/verify-o1f-r3-contract.mjs
-          DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:5432/o1aal2 node scripts/verify-o1f-owner-aal2-and-consent.mjs
-          DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:5432/o1isolation node scripts/verify-o1f-pilot-plane-isolation.mjs
-          DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:5432/o1daygrain node scripts/verify-o1f-activity-day-grain.mjs
+          DB=postgresql://postgres:postgres@127.0.0.1:5432
+          AUTH=postgresql://authenticator:qa_test_only@127.0.0.1:5432
+          DATABASE_URL=$DB/o1i1 DIRECT_URL=$DB/o1i1 AUTHENTICATOR_URL=$AUTH/o1i1 node scripts/verify-o1f-i1-contract.mjs
+          DATABASE_URL=$DB/o1r3 DIRECT_URL=$DB/o1r3 AUTHENTICATOR_URL=$AUTH/o1r3 node scripts/verify-o1f-r3-contract.mjs
+          DATABASE_URL=$DB/o1aal2 DIRECT_URL=$DB/o1aal2 AUTHENTICATOR_URL=$AUTH/o1aal2 node scripts/verify-o1f-owner-aal2-and-consent.mjs
+          DATABASE_URL=$DB/o1isolation DIRECT_URL=$DB/o1isolation AUTHENTICATOR_URL=$AUTH/o1isolation node scripts/verify-o1f-pilot-plane-isolation.mjs
+          DATABASE_URL=$DB/o1daygrain DIRECT_URL=$DB/o1daygrain AUTHENTICATOR_URL=$AUTH/o1daygrain node scripts/verify-o1f-activity-day-grain.mjs
 
       - name: O1 runtime focused regression
         run: >-
