@@ -4,71 +4,32 @@ import {
   MedicineList,
   PatientIdentity,
   PrescriptionFooter,
-  PrescriptionHeader,
   SignatureBlock,
   type Units,
 } from "./prescription-parts";
+import { ClinicLogoHeader } from "./clinic-logo-header";
 import { SectionBlock } from "./section-parts";
 
-/**
- * THE V4 DOCUMENT — Prescription V2, on a Bangladesh chamber pad.
- *
- *     ┌──────────────────────────────────────────────┐
- *     │ doctor · chamber + chamber-logo space        │
- *     ├──────────────────────────────────────────────┤
- *     │ patient · age/sex · id · date                │
- *     ├───────────────┬──────────────────────────────┤
- *     │ the doctor's  │ Rx                           │
- *     │ own modules,  │ the medicines                │
- *     │ in their own  │                              │
- *     │ order, under  │                              │
- *     │ their own     │                              │
- *     │ labels        │                              │
- *     ├───────────────┴──────────────────────────────┤
- *     │                         signature · footer   │
- *     └──────────────────────────────────────────────┘
- *
- * WHAT DECIDES WHAT
- *
- * The FROZEN SNAPSHOT decides which sections exist, their order, their labels
- * and their content. The LAYOUT TOKEN in that same snapshot decides which
- * column each lands in (`placeSections`). Today's module configuration decides
- * nothing at all — it is not read on this path, and a build that read it would
- * reprint signed prescriptions differently every time a doctor changed a
- * setting.
- *
- * WHY A TABLE AND NOT FLEX OR MULTI-COLUMN
- *
- * This band has to survive PAGE FRAGMENTATION. `column-count` reflows the two
- * columns into each other, which would run medicines into the clinical column;
- * a flex row fragments unevenly across engines. A two-cell table row is the one
- * construct browsers have paginated reliably since printing existed: each cell
- * continues on the next page in its own column, and nothing is duplicated.
- * Measured in Chromium through the print harness, not assumed.
- */
 export function ModularDocument({
   view,
   u,
   signatureUrl,
+  clinicLogoUrl,
 }: {
   view: ModularView;
   u: Units;
   signatureUrl?: string | null;
+  clinicLogoUrl?: string | null;
 }) {
-  /**
-   * Every module off, or every module empty: there is no clinical column to
-   * draw. Printing an empty 34 mm strip with a rule down it would ask the
-   * reader what is missing, so the medicines simply take the full width.
-   */
   const hasColumns = view.left.length > 0 || view.right.length > 0;
 
   return (
     <>
-      <PrescriptionHeader view={view} u={u} reserveClinicLogoSlot />
+      <ClinicLogoHeader view={view} u={u} clinicLogoUrl={clinicLogoUrl} />
       <PatientIdentity view={view} u={u} />
 
       <div className="flex flex-1 flex-col">
-        {hasColumns ?
+        {hasColumns ? (
           <div
             data-rx-columns={view.layout}
             style={{ display: "table", width: "100%", tableLayout: "fixed" }}
@@ -106,10 +67,17 @@ export function ModularDocument({
               </div>
             </div>
           </div>
-        : <MedicineList view={view} u={u} />}
+        ) : (
+          <MedicineList view={view} u={u} />
+        )}
       </div>
 
-      <SignatureBlock view={view} u={u} signatureUrl={signatureUrl} />
+      {/* The block stays bottom-right. Only the image inside it is centered over
+          the existing underline; Tailwind's image reset makes img display:block,
+          so text-center alone cannot center the bitmap. */}
+      <div className="[&_img]:mx-auto [&_img]:max-w-full">
+        <SignatureBlock view={view} u={u} signatureUrl={signatureUrl} />
+      </div>
       <PrescriptionFooter view={view} u={u} platformAttribution />
     </>
   );
