@@ -15,15 +15,19 @@ export function ClinicLogoHeader({
   view: DocumentChrome;
   u: Units;
   clinicLogoUrl?: string | null;
+  /** Kept for the accepted V4 document call contract. V4 reserves the slot;
+   * V5 fills that same slot when its immutable logo asset is available. */
+  reserveClinicLogoSlot?: boolean;
 }) {
   const assets = usePrescriptionAssets();
   const logoKey = view.clinicLogo.kind === "frozen" ? view.clinicLogo.path : null;
+  const requireClinicLogo = assets?.requireClinicLogo;
 
   // Layout effect closes the one-frame gap when a doctor switches from a
   // logo-free template to a logo template: the provider blocks before paint.
   React.useLayoutEffect(() => {
-    assets?.requireClinicLogo(logoKey);
-  }, [assets, logoKey]);
+    requireClinicLogo?.(logoKey);
+  }, [requireClinicLogo, logoKey]);
 
   if (!view.header) return null;
   const h = view.header;
