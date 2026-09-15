@@ -76,7 +76,7 @@ export function M2VitalFields({
           {CORE.map((key) =>
             key === "vitalTemperatureC" ? (
               <TemperatureInput
-                key={key}
+                key={`${key}:${values[key]}`}
                 vital={BY_KEY.get(key)!}
                 valueCelsius={values[key]}
                 dirty={dirtyKeys.includes(key)}
@@ -176,7 +176,9 @@ function BloodPressure({
  * contract. We keep the raw Fahrenheit text local while it is being typed and
  * commit a converted Celsius value on blur/Enter. This avoids transient input
  * such as "9" being saved as a clinical temperature while the doctor is still
- * typing "98.6".
+ * typing "98.6". The parent key includes the authoritative Celsius value, so
+ * an external/current-draft change remounts this small field with fresh display
+ * state without a setState-in-effect render cascade.
  */
 function TemperatureInput({
   vital,
@@ -196,10 +198,6 @@ function TemperatureInput({
   const [displayValue, setDisplayValue] = React.useState(
     () => celsiusValueToFahrenheitText(valueCelsius) ?? "",
   );
-
-  React.useEffect(() => {
-    setDisplayValue(celsiusValueToFahrenheitText(valueCelsius) ?? "");
-  }, [valueCelsius]);
 
   const commit = React.useCallback(() => {
     const converted = fahrenheitTextToCelsiusValue(displayValue);
