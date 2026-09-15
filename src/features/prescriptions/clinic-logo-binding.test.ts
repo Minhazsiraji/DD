@@ -114,7 +114,7 @@ describe("M3 clinic logo location binding", () => {
 
     expect(sql0049).toContain("if v_rx.status = 'FINALIZED' then");
     expect(sql0049).toContain("v_rx.review_bundle_snapshot -> 'clinicLogo' ->> 'path'");
-    expect(assetAction).toContain("const frozen = parsed.data.clinicLogo?.path ?? null");
-    expect(assetAction).toContain("if (!frozen || frozen !== requestedPath) return { ok: false, url: null }");
+    expect(assetAction).toContain('"prescription_clinic_logo_asset_path"');
+    expect(assetAction).toContain("signedClinicLogoObjectUrl(path, 120)");
   });
 });
