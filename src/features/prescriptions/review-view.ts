@@ -148,11 +148,12 @@ export function toDocumentChrome(bundle: ReviewBundle): DocumentChrome {
       ? { kind: "frozen", path: bundle.signature.path }
       : { kind: "not-frozen" };
 
-  const clinicLogo: ClinicLogoState = !t.showClinicLogo
-    ? { kind: "hidden" }
-    : bundle.clinicLogo
-      ? { kind: "frozen", path: bundle.clinicLogo.path }
-      : { kind: "not-frozen" };
+  // Clinic/chamber identity belongs to the selected prescription location, not
+  // to the paper-layout fallback. A v5 bundle either attests one exact storage
+  // object or explicitly attests that this prescription has no clinic logo.
+  const clinicLogo: ClinicLogoState = bundle.clinicLogo
+    ? { kind: "frozen", path: bundle.clinicLogo.path }
+    : { kind: "hidden" };
 
   return {
     clinicalDate: bundle.clinicalDate,
