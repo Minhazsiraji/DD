@@ -1,0 +1,44 @@
+name: P-C1 Dependency Reproduction
+
+on:
+  push:
+    branches:
+      - integration/pilot-final-composite-deps-runner
+
+permissions:
+  contents: write
+
+jobs:
+  reproduce:
+    if: ${{ !contains(github.event.head_commit.message, 'pc1-deps-generated') }}
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Apply exact proven dependency payload without unrelated history
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git cherry-pick -n 1b46eeccbaec0ee8621ac4859c0322b921c9354b
+          test "$(git diff --name-only HEAD | sort | tr '\n' ' ')" = "package-lock.json package.json "
+          node <<'NODE'
+          const p=require('./package.json');
+          const l=require('./package-lock.json');
+          const expected={
+            next:'16.3.4', vitest:'4.1.11', sharp:'0.35.4', 'js-yaml':'4.3.2', hono:'4.13.7'
+          };
+          if(p.dependencies.next!==expected.next) throw new Error('next mismatch');
+          if(p.devDependencies.vitest!==expected.vitest) throw new Error('vitest mismatch');
+          for (const [name,v] of Object.entries(expected)) {
+            const a=l.packages?.[`node_modules/${name}`]?.version;
+            if(a!==v) throw new Error(`${name} expected ${v}, got ${a}`);
+          }
+          console.log('PC1_DEPENDENCY_GRAPH=PASS', expected);
+          NODE
+          git diff --check
+          git add package.json package-lock.json
+          git commit -m 'fix(pc1): reproduce proven dependency security delta [pc1-deps-generated]'
+          git push origin HEAD:integration/pilot-final-composite-deps-runner
