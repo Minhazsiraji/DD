@@ -1,0 +1,206 @@
+name: M4 Medicine Pilot Closure
+
+on:
+  push:
+    branches:
+      - m4/medicine-pilot-closure
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  medicine:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: medicine_m4
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d medicine_m4"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+    env:
+      BASE_SHA: 4ba474224a5ca68d5bb3d290e9158b7e08030cbd
+      PGURL: postgresql://postgres:postgres@127.0.0.1:5432/medicine_m4
+      NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: sb_publishable_m4_ci_placeholder_key_000000000000
+      NEXT_PUBLIC_SITE_URL: https://example.com
+      OPENAI_API_KEY: ""
+      DEEPGRAM_API_KEY: ""
+
+    steps:
+      - name: Checkout full history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install exact lockfile
+        run: npm ci --ignore-scripts
+
+      - name: Frozen M3 / Investigation / O1 integrity
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git merge-base "$BASE_SHA" HEAD)" = "$BASE_SHA"
+          git diff --quiet "$BASE_SHA"...HEAD -- src/features/prescriptions src/app/api/medicine-suggestions/route.ts
+          git diff --quiet "$BASE_SHA"...HEAD -- supabase/policies/0043_m3_signed_medicine_history.sql
+          git diff --quiet "$BASE_SHA"...HEAD -- supabase/policies/0044_m3_prescription_print_audit.sql
+          git diff --quiet "$BASE_SHA"...HEAD -- supabase/policies/0045_prelaunch_sec01b_security_closure.sql
+          git diff --quiet "$BASE_SHA"...HEAD -- supabase/policies/0046_investigation_v1_foundation.sql
+          git diff --quiet "$BASE_SHA"...HEAD -- supabase/policies/0047_o1_owner_analytics_authority.sql
+          git diff --quiet "$BASE_SHA"...HEAD -- supabase/policies/0048_pilot_fahrenheit_prescription_bundle.sql
+          git diff --quiet "$BASE_SHA"...HEAD -- supabase/policies/0049_clinic_logo_prescription_identity.sql
+          git diff --quiet "$BASE_SHA"...HEAD -- supabase/policies/0050_clinic_logo_location_authority.sql
+          echo "M4_FROZEN_AUTHORITY_INTEGRITY=PASS"
+
+      - name: Build disposable Medicine authority database
+        shell: bash
+        run: |
+          set -euo pipefail
+          psql "$PGURL" -v ON_ERROR_STOP=1 <<'SQL'
+          create extension if not exists pgcrypto;
+          create role authenticated nologin;
+          create role anon nologin;
+          create schema auth;
+          create table auth.users (id uuid primary key, email text);
+          create or replace function auth.uid() returns uuid
+          language sql stable
+          as $$ select nullif(current_setting('request.jwt.claims', true)::jsonb ->> 'sub', '')::uuid $$;
+          grant usage on schema auth to authenticated, anon;
+          grant execute on function auth.uid() to authenticated, anon;
+
+          create table public.doctor_profiles (
+            id uuid primary key default gen_random_uuid(),
+            user_id uuid not null unique references auth.users(id) on delete cascade
+          );
+          create or replace function public.current_doctor_id() returns uuid
+          language sql stable security definer
+          set search_path = public, auth, pg_temp
+          as $$ select id from public.doctor_profiles where user_id = auth.uid() limit 1 $$;
+          revoke all on function public.current_doctor_id() from public, anon;
+          grant execute on function public.current_doctor_id() to authenticated;
+          SQL
+          psql "$PGURL" -v ON_ERROR_STOP=1 -f supabase/policies/0051_medicines_v1_reconciliation.sql
+          # Idempotency: accepted authority must replay without destructive recreation.
+          psql "$PGURL" -v ON_ERROR_STOP=1 -f supabase/policies/0051_medicines_v1_reconciliation.sql
+
+      - name: Medicine security negative suite
+        shell: bash
+        run: |
+          set -euo pipefail
+          A=11111111-1111-4111-8111-111111111111
+          B=22222222-2222-4222-8222-222222222222
+          R=33333333-3333-4333-8333-333333333333
+          DA=aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa
+          DB=bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb
+          REF=cccccccc-cccc-4ccc-8ccc-cccccccccccc
+          MA=dddddddd-dddd-4ddd-8ddd-dddddddddddd
+          MB=eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee
+
+          psql "$PGURL" -v ON_ERROR_STOP=1 <<SQL
+          insert into auth.users(id,email) values
+            ('$A','a@qa.invalid'),('$B','b@qa.invalid'),('$R','reception@qa.invalid');
+          insert into public.doctor_profiles(id,user_id) values ('$DA','$A'),('$DB','$B');
+          insert into public.medicine_references(id,generic_name,brand_name,strength_text,dosage_form,manufacturer,country_code,source_note)
+            values ('$REF','QA Paracetamol','QA Brand','500 mg','Tablet','QA Manufacturer','BD','M4 synthetic fixture');
+          insert into public.doctor_medicines(id,doctor_profile_id,medicine_reference_id,display_name,generic_name,brand_name,strength_text,dosage_form)
+            values
+            ('$MA','$DA','$REF','QA Brand 500 mg','QA Paracetamol','QA Brand','500 mg','Tablet'),
+            ('$MB','$DB','$REF','QA Other 500 mg','QA Paracetamol','QA Other','500 mg','Tablet');
+          SQL
+
+          auth_sql() {
+            local uid="$1"; shift
+            psql "$PGURL" -v ON_ERROR_STOP=1 -Atqc "begin; set local role authenticated; select set_config('request.jwt.claims','{\"sub\":\"$uid\",\"role\":\"authenticated\"}',true); $*; rollback;" | tail -n1
+          }
+
+          test "$(auth_sql "$A" "select count(*) from public.doctor_medicines")" = "1"
+          test "$(auth_sql "$A" "select count(*) from public.doctor_medicines where id='$MB'")" = "0"
+          test "$(auth_sql "$A" "with x as (update public.doctor_medicines set is_favorite=true where id='$MB' returning 1) select count(*) from x")" = "0"
+          test "$(auth_sql "$A" "with x as (update public.doctor_medicines set is_active=false where id='$MB' returning 1) select count(*) from x")" = "0"
+
+          if auth_sql "$A" "delete from public.doctor_medicines where id='$MB'" >/dev/null 2>&1; then
+            echo "Doctor A unexpectedly obtained DELETE"; exit 1
+          fi
+
+          test "$(auth_sql "$R" "select count(*) from public.doctor_medicines")" = "0"
+          test "$(auth_sql "$R" "with x as (update public.doctor_medicines set is_favorite=true returning 1) select count(*) from x")" = "0"
+          if auth_sql "$R" "select public.touch_doctor_medicine('$MA')" >/dev/null 2>&1; then
+            echo "Reception unexpectedly executed doctor usage mutation"; exit 1
+          fi
+
+          # Doctor A can execute touch but cannot affect Doctor B's row.
+          before=$(psql "$PGURL" -Atqc "select usage_count from public.doctor_medicines where id='$MB'")
+          auth_sql "$A" "select public.touch_doctor_medicine('$MB')" >/dev/null
+          after=$(psql "$PGURL" -Atqc "select usage_count from public.doctor_medicines where id='$MB'")
+          test "$before" = "$after"
+
+          # Reference search works for authenticated users.
+          test "$(auth_sql "$A" "select count(*) from public.search_medicines('qa brand')")" = "1"
+
+          # Reference catalogue is immutable to authenticated callers.
+          if auth_sql "$A" "insert into public.medicine_references(generic_name,country_code) values('Forged','BD')" >/dev/null 2>&1; then exit 1; fi
+          if auth_sql "$A" "update public.medicine_references set generic_name='Tampered' where id='$REF'" >/dev/null 2>&1; then exit 1; fi
+          if auth_sql "$A" "delete from public.medicine_references where id='$REF'" >/dev/null 2>&1; then exit 1; fi
+
+          # Anonymous table and RPC access is denied.
+          if psql "$PGURL" -v ON_ERROR_STOP=1 -qc "begin; set local role anon; select * from public.medicine_references; rollback;" >/dev/null 2>&1; then exit 1; fi
+          if psql "$PGURL" -v ON_ERROR_STOP=1 -qc "begin; set local role anon; select * from public.search_medicines('qa'); rollback;" >/dev/null 2>&1; then exit 1; fi
+          if psql "$PGURL" -v ON_ERROR_STOP=1 -qc "begin; set local role anon; select public.touch_doctor_medicine('$MA'); rollback;" >/dev/null 2>&1; then exit 1; fi
+
+          # Duplicate handling remains DB-backed (same doctor/name/strength).
+          if auth_sql "$A" "insert into public.doctor_medicines(doctor_profile_id,display_name,strength_text) values('$DA','QA Brand 500 mg','500 mg')" >/dev/null 2>&1; then
+            echo "duplicate unexpectedly inserted"; exit 1
+          fi
+          echo "M4_MEDICINE_SECURITY_NEGATIVES=PASS"
+
+      - name: Focused Medicine suite
+        run: npx vitest run src/features/medicines
+
+      - name: Frozen Prescription V2 compatibility regression
+        run: npx vitest run src/features/prescriptions
+
+      - name: Full repository suite
+        run: npm test
+
+      - name: Generate Next route types
+        run: npx next typegen
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Production build
+        run: npm run build
+
+      - name: Diff whitespace and scope gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --check "$BASE_SHA"...HEAD
+          changed=$(git diff --name-only "$BASE_SHA"...HEAD)
+          echo "$changed"
+          if echo "$changed" | grep -Eq '^supabase/policies/00(4[3-9]|50)_'; then
+            echo "M4 modified frozen policy authority"; exit 1
+          fi
+          if echo "$changed" | grep -Eq '^src/features/(prescriptions|investigations|owner)/'; then
+            echo "M4 crossed a frozen/product lane"; exit 1
+          fi
+          echo "M4_SCOPE_GATE=PASS"
