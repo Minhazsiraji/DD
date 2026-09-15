@@ -43,6 +43,8 @@ export default async function PrescriptionPage({
       prescriptionId,
       finalized.finalized.locationId,
     );
+    // This timestamp check only decides whether to show the correction affordance.
+    // MD separately owns authoritative mutation enforcement at the database boundary.
     const correctionUiEligible = isCorrectionUiWindowOpen(finalized.finalized.finalizedAt);
     const initialClinicLogoKey = finalized.finalized.bundle.clinicLogo?.path ?? null;
 
