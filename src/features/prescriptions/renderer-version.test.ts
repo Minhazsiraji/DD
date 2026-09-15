@@ -109,26 +109,28 @@ describe("selectRenderer branches on the schema version alone", () => {
     }
   });
 
-  it("4 prints through the v4 document", () => {
-    const choice = selectRenderer(4);
-    expect(choice.ok).toBe(true);
-    if (choice.ok) expect(choice.renderer).toBe("v4-modular");
+  it("4 and 5 print through the v4 modular document", () => {
+    for (const v of [4, 5]) {
+      const choice = selectRenderer(v);
+      expect(choice.ok).toBe(true);
+      if (choice.ok) expect(choice.renderer).toBe("v4-modular");
+    }
   });
 
   /**
    * THE TEST THIS FILE EXISTS FOR.
    *
-   * `version >= 4 ? v4 : v3` passes every other assertion here and fails this
-   * one. A v5 bundle carries something v4 never had; handing it to the v4
-   * renderer prints a shorter prescription than the one that was approved, with
-   * nothing on screen to say so.
+   * `version >= 4 ? v4 : v3` still fails this control. V5 is explicitly
+   * mapped because its new clinic-logo identity is rendered by shared document
+   * chrome; the NEXT unknown version must still fail closed rather than inherit
+   * that mapping.
    */
-  it("5 is UNSUPPORTED, not 'close enough to 4'", () => {
-    const choice = selectRenderer(5);
+  it("6 is UNSUPPORTED, not 'close enough to 5'", () => {
+    const choice = selectRenderer(6);
     expect(choice.ok).toBe(false);
     if (!choice.ok) {
       expect(choice.reason).toBe("unsupported-schema");
-      expect(choice.found).toBe(5);
+      expect(choice.found).toBe(6);
     }
   });
 
@@ -140,7 +142,7 @@ describe("selectRenderer branches on the schema version alone", () => {
   it("a near-miss is a refusal like any other unknown version", () => {
     // Each of these would index the map to `undefined` and, with a `??`
     // fallback anywhere, become "assume the newest renderer".
-    for (const v of ["4", 4.5, NaN, Infinity, null, undefined, {}, [4]]) {
+    for (const v of ["5", 5.5, NaN, Infinity, null, undefined, {}, [5]]) {
       expect(selectRenderer(v).ok, `${String(v)} must not resolve to a renderer`).toBe(false);
     }
   });
@@ -269,9 +271,9 @@ describe("toPrescriptionView hands each snapshot to its own renderer", () => {
   });
 
   it("a snapshot from a newer build is refused, not rendered by the older document", () => {
-    const render = toPrescriptionView({ ...v3Bundle, schemaVersion: 5 } as never);
+    const render = toPrescriptionView({ ...v3Bundle, schemaVersion: 6 } as never);
     expect(render.ok).toBe(false);
-    if (!render.ok) expect(render.found).toBe(5);
+    if (!render.ok) expect(render.found).toBe(6);
   });
 });
 
