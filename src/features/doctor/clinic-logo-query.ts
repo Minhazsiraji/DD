@@ -2,9 +2,7 @@ import "server-only";
 
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { requireUser, getMemberships } from "@/lib/auth/session";
-import { serviceStorage } from "@/lib/supabase/service";
-
-const CLINIC_LOGO_BUCKET = "clinic-assets";
+import { signedClinicLogoObjectUrl } from "@/features/prescriptions/freeze-store";
 
 export interface ClinicLogoSetting {
   locationId: string;
@@ -29,17 +27,12 @@ export async function getClinicLogoSettings(): Promise<ClinicLogoSetting[]> {
   }
 
   const rows = new Map((data ?? []).map((row) => [row.id as string, row]));
-  const storage = serviceStorage().from(CLINIC_LOGO_BUCKET);
 
   return Promise.all(
     memberships.map(async (membership) => {
       const row = rows.get(membership.locationId);
       const logoPath = (row?.prescription_logo_path as string | null) ?? null;
-      let logoUrl: string | null = null;
-      if (logoPath) {
-        const signed = await storage.createSignedUrl(logoPath, 60 * 10);
-        logoUrl = signed.error ? null : signed.data?.signedUrl ?? null;
-      }
+      const logoUrl = logoPath ? await signedClinicLogoObjectUrl(logoPath, 60 * 10) : null;
       return {
         locationId: membership.locationId,
         locationName: (row?.name as string) ?? membership.locationName,
