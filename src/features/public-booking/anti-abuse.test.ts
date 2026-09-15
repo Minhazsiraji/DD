@@ -24,7 +24,8 @@ describe("P-S2 public booking anti-abuse boundary", () => {
 
   it("keys the limiter from server-observed source identity, not patient fields", () => {
     const keyFn = service.match(/function sourceKey[\s\S]*?\n}/)?.[0] ?? "";
-    expect(keyFn).toContain('createHmac("sha256", serviceRoleKey())');
+    expect(keyFn).toContain("const hmacKey = serviceRoleKey()");
+    expect(keyFn).toContain('createHmac("sha256", hmacKey)');
     expect(keyFn).toContain("dd-public-booking:${sourceIp}");
     expect(keyFn).not.toMatch(/patientName|phone/);
   });
