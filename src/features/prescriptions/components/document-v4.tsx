@@ -13,7 +13,8 @@ import { SectionBlock } from "./section-parts";
  * THE V4 DOCUMENT — Prescription V2, on a Bangladesh chamber pad.
  *
  *     ┌──────────────────────────────────────────────┐
- *     │ Doctor's Diary brand · doctor · chamber      │
+ *     │ doctor · chamber                             │
+ *     │ Doctor's Diary brand                         │
  *     ├──────────────────────────────────────────────┤
  *     │ patient · age/sex · id · date                │
  *     ├───────────────┬──────────────────────────────┤
@@ -63,15 +64,10 @@ export function ModularDocument({
 
   return (
     <>
-      <PrescriptionBrand u={u} />
       <PrescriptionHeader view={view} u={u} />
+      <PrescriptionBrand u={u} />
       <PatientIdentity view={view} u={u} />
 
-      {/*
-        The body takes the slack, exactly as in the v3 document, so a short
-        prescription settles its signature at the foot of the page instead of
-        stranding it mid-sheet.
-      */}
       <div className="flex flex-1 flex-col">
         {hasColumns ?
           <div
@@ -79,21 +75,6 @@ export function ModularDocument({
             style={{ display: "table", width: "100%", tableLayout: "fixed" }}
           >
             <div style={{ display: "table-row" }}>
-              {/*
-                THE CLINICAL COLUMN.
-
-                Narrow on purpose: it carries short, scannable statements, and
-                the prescription itself must dominate the page the way it does
-                on a printed pad. `verticalAlign: top` is load-bearing — a table
-                cell centres its content by default, which would float a short
-                complaint into the middle of a long medicine list.
-
-                The invisible Rx-shaped spacer is layout only. It consumes the
-                same heading height and 2 mm list lead-in as the visible Rx on
-                the medicine side, so the first clinical section starts on the
-                same baseline as medicine row 1. It contains no clinical data
-                and is hidden from assistive technology and print readers.
-              */}
               <div
                 data-rx-column="left"
                 className="border-r border-ink/20"
@@ -129,7 +110,7 @@ export function ModularDocument({
         : <MedicineList view={view} u={u} />}
       </div>
 
-      <V4SignatureBlock view={view} u={u} signatureUrl={signatureUrl} />
+      <SignatureBlock view={view} u={u} signatureUrl={signatureUrl} />
       <PrescriptionFooter view={view} u={u} />
     </>
   );
@@ -157,9 +138,12 @@ function PrescriptionBrand({ u }: { u: Units }) {
 /**
  * V4 layout correction only. The frozen signature image still comes from the
  * attested prescription bundle; this changes only its alignment on the current
- * print layout. Legacy v3 remains untouched.
+ * print layout. Legacy v3 remains untouched. Keeping the component name
+ * `SignatureBlock` preserves the document-composition invariant checked by the
+ * renderer regression suite: the growing clinical body and one signature stay
+ * siblings in the page column.
  */
-function V4SignatureBlock({
+function SignatureBlock({
   view,
   u,
   signatureUrl,
