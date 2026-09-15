@@ -18,6 +18,44 @@ import { isSearchable } from "./medicine";
  * prescriptions.
  */
 
+const REFERENCE_SELECT =
+  "id, generic_name, brand_name, strength_text, dosage_form, manufacturer, " +
+  "country_code, regulator_name, source_kind, last_verified_at";
+
+/**
+ * Browse a small deterministic slice of the shared catalogue when there is no
+ * search term. This is intentionally server-limited; the browser never receives
+ * the complete catalogue merely to render the initial Medicines page.
+ */
+export async function browseMedicines(limit = 20): Promise<MedicineReference[]> {
+  const supabase = await createSupabaseServerClient();
+  const boundedLimit = Math.max(1, Math.min(limit, 100));
+  const { data, error } = await supabase
+    .from("medicine_references")
+    .select(REFERENCE_SELECT)
+    .eq("is_active", true)
+    .order("generic_name", { ascending: true })
+    .order("brand_name", { ascending: true, nullsFirst: false })
+    .order("strength_text", { ascending: true, nullsFirst: false })
+    .order("id", { ascending: true })
+    .limit(boundedLimit);
+
+  if (error || !Array.isArray(data)) return [];
+  return (data as unknown as RawReference[]).map(toReference);
+}
+
+/** Live active-catalogue count for the All Medicines tab. */
+export async function countActiveMedicineReferences(): Promise<number | null> {
+  const supabase = await createSupabaseServerClient();
+  const { count, error } = await supabase
+    .from("medicine_references")
+    .select("id", { count: "exact", head: true })
+    .eq("is_active", true);
+
+  if (error || typeof count !== "number") return null;
+  return count;
+}
+
 /**
  * Search the shared catalogue.
  *
