@@ -31,42 +31,35 @@ export function ReferenceList({
   library: DoctorMedicine[];
   query: string;
 }) {
-  if (!query) {
-    return (
-      <SectionCard>
-        <EmptyState
-          icon={<Pill className="size-6" aria-hidden="true" />}
-          title="Search the medicine catalogue"
-          description="Find a medicine by generic name, brand or strength, then save your own defaults for it."
-        />
-      </SectionCard>
-    );
-  }
-
   if (results.length === 0) {
     return (
       <SectionCard>
         <EmptyState
           icon={<Pill className="size-6" aria-hidden="true" />}
-          title="Not in the catalogue"
-          /*
-            The honest answer, and the safe one. We will not offer a
-            similar-looking molecule to fill the silence — a doctor who wanted
-            Metformin must not be shown Metronidazole because the letters
-            nearly line up.
-          */
-          description="No medicine matches that exactly. You can still add it to My Medicines yourself — the catalogue does not limit what you can prescribe."
+          title={query ? "Not in the catalogue" : "No catalogue medicines available"}
+          description={
+            query
+              ? "No medicine matches that exactly. You can still add it to My Medicines yourself — the catalogue does not limit what you can prescribe."
+              : "The shared reference catalogue is currently empty or unavailable. My Medicines remains separate."
+          }
         />
       </SectionCard>
     );
   }
 
   return (
-    <ul className="grid min-w-0 gap-3" data-medicine-reference-list>
-      {results.map((m) => (
-        <ReferenceRow key={m.id} medicine={m} saved={findSaved(library, m)} />
-      ))}
-    </ul>
+    <div className="min-w-0 space-y-3">
+      {!query ? (
+        <p className="text-sm text-ink-secondary" data-medicine-browse-helper>
+          Browse the medicine catalogue or search by generic, brand or strength.
+        </p>
+      ) : null}
+      <ul className="grid min-w-0 gap-3" data-medicine-reference-list>
+        {results.map((m) => (
+          <ReferenceRow key={m.id} medicine={m} saved={findSaved(library, m)} />
+        ))}
+      </ul>
+    </div>
   );
 }
 
@@ -122,30 +115,12 @@ function ReferenceRow({
               </p>
             ) : null}
 
-            {/*
-              FACTS ONLY, and no regulator here.
-
-              Built by filtering and joining, not by prefixing each part with a
-              separator: a leading "·" is what you get when the first optional
-              field is absent, and it reads as a missing value rather than as a
-              medicine with fewer facts recorded.
-
-              The regulator used to sit at the end of this list — "Tablet · BD ·
-              DGDA" — which put an authority beside the facts and read as
-              attribution. It has its own line below, where it can say what it
-              actually means.
-            */}
             <p className="mt-1 break-words text-xs text-ink-muted">
               {[medicine.dosageForm, medicine.manufacturer, medicine.countryCode]
                 .filter(Boolean)
                 .join(" · ")}
             </p>
 
-            {/*
-              Provenance, always stated. `last_verified_at` being null is a
-              fact about this row, not a gap to paper over: an entry nobody has
-              checked should not look like one somebody has.
-            */}
             <p className="mt-1 break-words text-xs text-ink-muted" data-medicine-provenance>
               {provenance.source}
             </p>
