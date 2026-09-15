@@ -1,0 +1,76 @@
+name: Pilot Pre-Doctor Completion
+
+on:
+  push:
+    branches:
+      - pilot/pre-doctor-completion
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Pilot application gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: https://synthetic-build.supabase.co
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: pilot_synthetic_build_anon_key_00000000000000000000
+      NEXT_PUBLIC_SITE_URL: http://localhost:3000
+      AI_MODE: mock
+      NOTIFICATION_MODE: mock
+      PAYMENT_MODE: mock
+    steps:
+      - name: Checkout exact branch SHA
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install locked dependencies
+        run: npm ci
+
+      - name: Step 1 focused regression
+        run: >-
+          npx vitest run
+          src/features/encounters/temperature.test.ts
+          src/features/encounters/m2-consultation-workspace.test.ts
+          src/features/encounters/m2-uat-corrections.test.ts
+          src/features/prescriptions/pilot-step1-print.test.ts
+          src/features/prescriptions/renderer-print.test.ts
+          src/features/prescriptions/print-media-regression.test.ts
+
+      - name: Full repository tests
+        run: npm test
+
+      - name: Next route and page type generation
+        run: npx next typegen
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Production build
+        run: npm run build
+
+      - name: Patch integrity
+        run: git diff --check 8fc14f5ad7c83c9769e3475b9b1590c4dadab55e HEAD
+
+      - name: Protected action guard
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "No protected Supabase apply, production deploy, or main merge is performed by this workflow."
+          test -f supabase/policies/0047_o1_owner_analytics_authority.sql
+          test -f supabase/policies/0048_pilot_fahrenheit_prescription_bundle.sql
+
+      - name: Record verified SHA
+        run: echo "PILOT_VERIFIED_SHA=${GITHUB_SHA}"
