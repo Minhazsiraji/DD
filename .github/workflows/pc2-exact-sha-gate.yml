@@ -1,0 +1,137 @@
+name: P-C2 Exact SHA Gate
+
+on:
+  push:
+    branches: [p-c2-gate-runner]
+
+permissions:
+  contents: read
+
+env:
+  CANDIDATE: e27b3f60ef413755eb35cee66423073cd7d86f2a
+  BASE: b4f0e9bada8e11a77c5c1c8aab50c424973cd16b
+  M4_BASE: b7590d276cdad428d99901d1f26d9864b52359c0
+  NEXT_PUBLIC_SUPABASE_URL: https://synthetic-pc2.supabase.co
+  NEXT_PUBLIC_SUPABASE_ANON_KEY: sb_publishable_pc2_synthetic_key_000000000000000000000
+  NEXT_PUBLIC_SITE_URL: http://localhost:3000
+  SUPABASE_SERVICE_ROLE_KEY: synthetic-pc2-service-role-key-not-for-production
+  AI_MODE: mock
+  NOTIFICATION_MODE: mock
+  PAYMENT_MODE: mock
+  PA1_PROPOSAL_SIGNING_SECRET: pc2-signing-secret-at-least-32-bytes-long
+  CRON_SECRET: pc2-cron-secret-at-least-32-bytes-long
+  O1_PILOT_CLOSE_TIME_ZONE: Asia/Dhaka
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 50
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: pc2
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres -d pc2"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.CANDIDATE }}
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with: {node-version: 24, cache: npm}
+      - name: Exact SHA and authority manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$CANDIDATE"
+          test "$(git rev-parse HEAD:supabase/policies/0047_o1_owner_analytics_authority.sql)" = b8645248fc22a98a2c2aa10f1b21ad0b5c9679d6
+          test "$(sha256sum supabase/policies/0047_o1_owner_analytics_authority.sql | awk '{print $1}')" = 3a316805d32391241ed506ec9627d9e77b21b20a0a4c1f36405b03e0695a2190
+          test "$(git rev-parse HEAD:package.json)" = "$(git rev-parse $BASE:package.json)"
+          test "$(git rev-parse HEAD:package-lock.json)" = "$(git rev-parse $BASE:package-lock.json)"
+          for f in supabase/policies/004{1,2,3,4,5,6,7}_*.sql supabase/policies/004{8,9}_*.sql supabase/policies/005{0,1}_*.sql; do test "$(git rev-parse HEAD:$f)" = "$(git rev-parse $BASE:$f)"; done
+          test "$(git rev-parse HEAD:supabase/policies/0052_public_booking_anti_abuse.sql)" = 8b04b9b2403bfd75119f4faf3dcd847ca7221d22
+          printf '%s\n' .github/workflows/ps2-public-booking-anti-abuse.yml src/features/public-booking/actions.ts src/features/public-booking/anti-abuse.test.ts src/features/public-booking/service.ts supabase/policies/0052_public_booking_anti_abuse.sql | sort > /tmp/allowed
+          git diff --name-only "$BASE"...HEAD | sort > /tmp/actual
+          diff -u /tmp/allowed /tmp/actual
+          echo PC2_AUTHORITY_MANIFEST=PASS
+      - name: Install exact lockfile
+        run: npm ci --ignore-scripts
+      - name: P-S2 PostgreSQL proof
+        shell: bash
+        env: {PGPASSWORD: postgres}
+        run: |
+          set -euo pipefail
+          psql -h localhost -U postgres -d pc2 -v ON_ERROR_STOP=1 <<'SQL'
+          do $bootstrap$
+          begin
+            if not exists (select 1 from pg_roles where rolname='anon') then create role anon noinherit; end if;
+            if not exists (select 1 from pg_roles where rolname='authenticated') then create role authenticated noinherit; end if;
+            if not exists (select 1 from pg_roles where rolname='service_role') then create role service_role noinherit bypassrls; end if;
+          end $bootstrap$;
+          create or replace function public.create_public_booking(text, uuid, date, text, text, text, text, text) returns jsonb language sql as $$ select jsonb_build_object('bookingRef', gen_random_uuid()) $$;
+          grant execute on function public.create_public_booking(text, uuid, date, text, text, text, text, text) to anon, authenticated;
+          SQL
+          psql -h localhost -U postgres -d pc2 -v ON_ERROR_STOP=1 -f supabase/policies/0052_public_booking_anti_abuse.sql
+          psql -h localhost -U postgres -d pc2 -v ON_ERROR_STOP=1 <<'SQL'
+          do $proof$
+          declare i integer; allowed boolean; key_a text := repeat('a',64); key_b text := repeat('b',64);
+          begin
+            for i in 1..5 loop select public.consume_public_booking_rate_limit(key_a) into allowed; if allowed is distinct from true then raise exception 'attempt % throttled',i; end if; end loop;
+            select public.consume_public_booking_rate_limit(key_a) into allowed; if allowed is distinct from false then raise exception 'attempt 6 not throttled'; end if;
+            select public.consume_public_booking_rate_limit(key_b) into allowed; if allowed is distinct from true then raise exception 'different source blocked'; end if;
+            if has_function_privilege('anon','public.consume_public_booking_rate_limit(text)','EXECUTE') then raise exception 'anon limiter execute'; end if;
+            if has_function_privilege('authenticated','public.consume_public_booking_rate_limit(text)','EXECUTE') then raise exception 'auth limiter execute'; end if;
+            if has_function_privilege('anon','public.create_public_booking(text,uuid,date,text,text,text,text,text)','EXECUTE') then raise exception 'anon booking rpc'; end if;
+            if has_function_privilege('authenticated','public.create_public_booking(text,uuid,date,text,text,text,text,text)','EXECUTE') then raise exception 'auth booking rpc'; end if;
+          end $proof$;
+          SQL
+          echo PS2_RATE_LIMIT_DB_PROOF=PASS
+      - name: P-S2 focused tests
+        run: npx vitest run src/features/public-booking
+      - name: M3 regression
+        run: npx vitest run src/features/prescriptions
+      - name: M4 regression
+        run: npx vitest run src/features/medicines
+      - name: Investigation regression
+        run: npx vitest run src/features/encounters/investigation-v1-ui.test.ts
+      - name: O1 runtime regression
+        run: npx vitest run src/features/engagement src/features/owner src/features/ai/telemetry-durable-sink.test.ts src/features/prescriptions/service-key-containment.test.ts
+      - name: Security regression
+        run: npx vitest run src/features/security
+      - name: Appointment regression
+        run: npx vitest run src/features/appointments
+      - name: Full repository tests
+        run: npm test
+      - name: Next typegen
+        run: npx next typegen
+      - name: TypeScript
+        run: npm run typecheck
+      - name: Lint
+        run: npm run lint
+      - name: Production build
+        run: npm run build
+      - name: Diff check
+        run: git diff --check "$BASE"...HEAD
+      - name: Production dependency audit
+        shell: bash
+        run: |
+          npm audit --omit=dev --json > /tmp/audit.json || true
+          node <<'NODE'
+          const a=require('/tmp/audit.json'),v=a.metadata?.vulnerabilities??{};
+          const total=v.total??['info','low','moderate','high','critical'].reduce((s,k)=>s+(v[k]||0),0);
+          console.log(`PC2_PROD_AUDIT_LOW=${v.low||0}`);
+          console.log(`PC2_PROD_AUDIT_MODERATE=${v.moderate||0}`);
+          console.log(`PC2_PROD_AUDIT_HIGH=${v.high||0}`);
+          console.log(`PC2_PROD_AUDIT_CRITICAL=${v.critical||0}`);
+          console.log(`PC2_PROD_AUDIT_TOTAL=${total}`);
+          if((v.high||0)!==0||(v.critical||0)!==0) process.exit(1);
+          NODE
+      - name: Exact verified SHA
+        run: echo PC2_FINAL_VERIFIED_SHA=$(git rev-parse HEAD)
