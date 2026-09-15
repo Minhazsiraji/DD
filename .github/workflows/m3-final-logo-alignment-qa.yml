@@ -1,0 +1,100 @@
+name: M3 Final Clinic Logo Alignment QA
+
+on:
+  push:
+    branches:
+      - fix/m3-final-clinic-logo-alignment
+
+permissions:
+  contents: read
+
+jobs:
+  qa:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      BASE_SHA: 46c04671bbc9535ad5de0e69a4bf2faf34226767
+      OPENAI_API_KEY: ""
+      DEEPGRAM_API_KEY: ""
+    steps:
+      - name: Checkout full history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Scope and frozen-functional-integrity guard
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git merge-base "$BASE_SHA" HEAD)" = "$BASE_SHA"
+
+          mapfile -t changed < <(git diff --name-only "$BASE_SHA"...HEAD | grep -v '^\.github/workflows/m3-final-logo-alignment-qa\.yml$' | sort)
+          expected=(
+            'src/features/prescriptions/clinic-logo-header-layout.test.ts'
+            'src/features/prescriptions/components/clinic-logo-header.tsx'
+          )
+          printf '%s\n' "${expected[@]}" | sort > /tmp/expected.txt
+          printf '%s\n' "${changed[@]}" > /tmp/changed.txt
+          diff -u /tmp/expected.txt /tmp/changed.txt
+
+          if printf '%s\n' "${changed[@]}" | grep -Eq '(^|/)(supabase|db|migrations?|schema)(/|$)|\.sql$'; then
+            echo 'DB/schema/migration delta is forbidden in this visual micro-fix' >&2
+            exit 1
+          fi
+
+          for path in \
+            src/features/prescriptions/review-view.ts \
+            src/features/prescriptions/clinic-logo-binding.test.ts \
+            src/features/prescriptions/asset-actions.ts \
+            supabase/policies/0050_clinic_logo_location_authority.sql \
+            src/app/globals.css \
+            src/features/prescriptions/components/print-sheet.tsx \
+            src/features/prescriptions/components/document-v4.tsx; do
+            test "$(git rev-parse "$BASE_SHA:$path")" = "$(git rev-parse "HEAD:$path")"
+          done
+
+          node -e 'const v=require("./vercel.json"); if(JSON.stringify(v.regions)!==JSON.stringify(["icn1"])) process.exit(1)'
+
+      - name: Focused visual and renderer tests
+        run: npx vitest run src/features/prescriptions/clinic-logo-header-layout.test.ts src/features/prescriptions/clinic-logo-binding.test.ts src/features/prescriptions/prescription-renderers.test.ts src/features/prescriptions/print-media-regression.test.ts src/features/prescriptions/m3-responsive-widths.test.ts
+
+      - name: Responsive visual contract evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo 'DESKTOP 1440+: logo/name = flex-nowrap + items-center + justify-end; address/phone remain directly below in text-right chamber block.'
+          echo 'NARROW 360px: same flex-nowrap identity row; logo shrink-0; clinic name min-w-0; no reserved no-logo slot.'
+          echo 'A4/PRINT: shared ClinicLogoHeader remains consumed by unchanged document-v4 renderer; 12mm contain box preserves aspect ratio.'
+          grep -F 'flex min-w-0 flex-nowrap items-center justify-end' src/features/prescriptions/components/clinic-logo-header.tsx
+          grep -F 'backgroundSize: "contain"' src/features/prescriptions/components/clinic-logo-header.tsx
+          ! grep -F 'data-rx-clinic-logo-slot="reserved"' src/features/prescriptions/components/clinic-logo-header.tsx
+
+      - name: Complete Prescription regression
+        run: npx vitest run src/features/prescriptions
+
+      - name: Complete repository tests
+        run: npm test
+
+      - name: Next route type generation
+        run: npx next typegen
+
+      - name: TypeScript
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Production build
+        run: npm run build
+
+      - name: Diff whitespace check
+        run: git diff --check "$BASE_SHA"...HEAD
