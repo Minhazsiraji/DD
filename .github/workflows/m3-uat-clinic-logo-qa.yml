@@ -1,0 +1,110 @@
+name: M3 UAT Clinic Logo QA
+
+on:
+  push:
+    branches:
+      - fix/m3-uat-clinic-logo-render
+
+permissions:
+  contents: read
+
+jobs:
+  qa:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      BASE_SHA: 89f7f31e005adab4359ec76b427603bb41384412
+      LOCKED_MAIN_SHA: 5d58f154a8fd18129e28614ccc038f0a6af66b8f
+      OPENAI_API_KEY: ""
+      DEEPGRAM_API_KEY: ""
+    steps:
+      - name: Checkout full history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Scope and frozen-integrity guard
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin main --quiet
+          test "$(git rev-parse origin/main)" = "$LOCKED_MAIN_SHA"
+          test "$(git merge-base "$BASE_SHA" HEAD)" = "$BASE_SHA"
+
+          mapfile -t changed < <(git diff --name-only "$BASE_SHA"...HEAD | grep -v '^\.github/workflows/m3-uat-clinic-logo-qa\.yml$' | sort)
+          expected=(
+            'src/features/prescriptions/clinic-logo-binding.test.ts'
+            'src/features/prescriptions/review-view.ts'
+            'supabase/policies/0050_clinic_logo_location_authority.sql'
+          )
+          printf '%s\n' "${expected[@]}" | sort > /tmp/expected.txt
+          printf '%s\n' "${changed[@]}" > /tmp/changed.txt
+          diff -u /tmp/expected.txt /tmp/changed.txt
+
+          unexpected_db=$(printf '%s\n' "${changed[@]}" | grep -E '(^|/)(supabase|db|migrations?|schema)(/|$)|\.sql$' | grep -v '^supabase/policies/0050_clinic_logo_location_authority.sql$' || true)
+          test -z "$unexpected_db"
+
+          for path in \
+            supabase/policies/0041_prescription_correction_window.sql \
+            supabase/policies/0042_m3_prescription_reuse.sql \
+            supabase/policies/0043_m3_signed_medicine_history.sql \
+            supabase/policies/0044_m3_prescription_print_audit.sql \
+            supabase/policies/0045_prelaunch_sec01b_security_closure.sql \
+            supabase/policies/0046_investigation_v1_foundation.sql \
+            supabase/policies/0047_o1_owner_analytics_authority.sql \
+            supabase/policies/0048_pilot_fahrenheit_prescription_bundle.sql \
+            supabase/policies/0049_clinic_logo_prescription_identity.sql \
+            src/app/globals.css \
+            src/features/prescriptions/components/print-sheet.tsx; do
+            test "$(git rev-parse "$BASE_SHA:$path")" = "$(git rev-parse "HEAD:$path")"
+          done
+
+          node -e 'const v=require("./vercel.json"); if(JSON.stringify(v.regions)!==JSON.stringify(["icn1"])) process.exit(1)'
+
+      - name: Focused clinic logo tests
+        run: npx vitest run src/features/prescriptions/clinic-logo-binding.test.ts src/features/prescriptions/review-bundle.test.ts src/features/prescriptions/prescription-renderers.test.ts src/features/prescriptions/freeze.test.ts
+
+      - name: Complete Prescription regression
+        run: npx vitest run src/features/prescriptions
+
+      - name: Complete repository tests
+        run: npm test
+
+      - name: Next route type generation
+        run: npx next typegen
+
+      - name: TypeScript
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Production build
+        run: npm run build
+
+      - name: Production dependency audit
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm audit --omit=dev --json > /tmp/npm-audit.json || true
+          node - <<'NODE'
+          const fs = require('node:fs');
+          const report = JSON.parse(fs.readFileSync('/tmp/npm-audit.json', 'utf8'));
+          const v = report.metadata?.vulnerabilities ?? {};
+          console.log(JSON.stringify(v));
+          for (const level of ['moderate', 'high', 'critical']) {
+            if ((v[level] ?? 0) !== 0) process.exit(1);
+          }
+          NODE
+
+      - name: Diff whitespace check
+        run: git diff --check "$BASE_SHA"...HEAD
