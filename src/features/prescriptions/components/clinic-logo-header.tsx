@@ -1,8 +1,11 @@
+"use client";
+
 import * as React from "react";
 import type { DocumentChrome } from "../review-view";
 import type { Units } from "./prescription-parts";
+import { usePrescriptionAssets } from "./prescription-asset-provider";
 
-/** V4/V5 chamber-pad header. V5 may replace the reserved mark with the exact
+/** V4/V5 chamber-pad header. V5 replaces the reserved mark with the exact
  * clinic logo object attested by the bundle; v4 keeps the same blank slot. */
 export function ClinicLogoHeader({
   view,
@@ -13,9 +16,19 @@ export function ClinicLogoHeader({
   u: Units;
   clinicLogoUrl?: string | null;
 }) {
+  const assets = usePrescriptionAssets();
+  const logoKey = view.clinicLogo.kind === "frozen" ? view.clinicLogo.path : null;
+
+  // Layout effect closes the one-frame gap when a doctor switches from a
+  // logo-free template to a logo template: the provider blocks before paint.
+  React.useLayoutEffect(() => {
+    assets?.requireClinicLogo(logoKey);
+  }, [assets, logoKey]);
+
   if (!view.header) return null;
   const h = view.header;
-  const showLogo = view.clinicLogo.kind === "frozen" && Boolean(clinicLogoUrl);
+  const resolvedUrl = clinicLogoUrl ?? (assets?.logo.status === "ready" ? assets.logo.url : null);
+  const showLogo = view.clinicLogo.kind === "frozen" && Boolean(resolvedUrl);
 
   return (
     <header
@@ -37,13 +50,19 @@ export function ClinicLogoHeader({
 
         <div className="ml-auto flex min-w-0 items-start justify-end" style={{ gap: u.mm(2.5) }}>
           {showLogo ? (
-            // eslint-disable-next-line @next/next/no-img-element -- private signed asset URL
-            <img
+            <span
               data-rx-clinic-logo-image
-              src={clinicLogoUrl ?? undefined}
-              alt={`${h.clinicName ?? "Clinic"} logo`}
-              className="shrink-0 object-contain"
-              style={{ width: u.mm(12), height: u.mm(12) }}
+              role="img"
+              aria-label={`${h.clinicName ?? "Clinic"} logo`}
+              className="shrink-0"
+              style={{
+                width: u.mm(12),
+                height: u.mm(12),
+                backgroundImage: `url(${JSON.stringify(resolvedUrl).slice(1, -1)})`,
+                backgroundPosition: "center",
+                backgroundRepeat: "no-repeat",
+                backgroundSize: "contain",
+              }}
             />
           ) : (
             <span
