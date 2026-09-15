@@ -61,7 +61,7 @@ jobs:
             [src/features/encounters/investigation-v1-contract.ts]=c760423862f94b408d579284e1c1acd61fc9b60d
             [supabase/policies/0046_investigation_v1_foundation.sql]=5e105f3015f1251279e3ba94b5c3b745998b8e22
             [supabase/policies/0047_o1_owner_analytics_authority.sql]=b8645248fc22a98a2c2aa10f1b21ad0b5c9679d6
-            [scripts/verify-o1f-i2-contract.mjs]=d4ce4efb09b384276e4f0900b79beb831d9295d3
+            [scripts/verify-o1f-i2-contract.mjs]=6a7f39006fc28e5bd40b628011259b528f1ef122
           )
           for f in "${!BLOBS[@]}"; do test "$(git rev-parse HEAD:$f)" = "${BLOBS[$f]}"; done
           test "$(sha256sum supabase/policies/0047_o1_owner_analytics_authority.sql | awk '{print $1}')" = 3a316805d32391241ed506ec9627d9e77b21b20a0a4c1f36405b03e0695a2190
