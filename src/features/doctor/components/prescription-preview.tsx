@@ -2,20 +2,6 @@ import * as React from "react";
 import { cn } from "@/lib/utils";
 import { PAPER_MM, type TemplateSettings } from "../schema";
 
-/**
- * A true-proportion preview of the prescription paper.
- *
- * Everything scales from the paper's own width using container-query units, so
- * a 15 mm margin is 15 mm *of this paper* whether it renders in a phone-width
- * card or a desktop column. Sizing the preview in fixed pixels would show the
- * doctor a layout that is not the one that prints.
- *
- * IMPORTANT: the body is a labelled PLACEHOLDER. It shows where prescription
- * content will sit — it never shows invented medicines, doses or diagnoses. A
- * mock drug name on a page shaped like a real prescription is a page somebody
- * eventually prints.
- */
-
 export interface PreviewDoctor {
   fullName: string;
   qualification: string | null;
@@ -30,9 +16,9 @@ export interface PreviewLocation {
   address: string | null;
   district: string | null;
   phone: string | null;
+  logoUrl: string | null;
 }
 
-/** Points across the paper — 1pt = 1/72in, so this converts pt to a share of width. */
 const MM_PER_INCH = 25.4;
 const PT_PER_INCH = 72;
 
@@ -49,20 +35,12 @@ export function PrescriptionPreview({
 }) {
   const paper = PAPER_MM[template.paperSize];
   const widthPt = (paper.w / MM_PER_INCH) * PT_PER_INCH;
-
-  /** A share of the paper's width, expressed in container-query units. */
   const cq = (mm: number) => `${(mm / paper.w) * 100}cqw`;
   const pt = (points: number) => `${(points / widthPt) * 100}cqw`;
 
   const clinicName = template.clinicNameOverride?.trim() || location?.name || "Your chamber";
   const addressLine = [location?.address, location?.district].filter(Boolean).join(", ");
 
-  /**
-   * The container declaration and the cqw consumers must be on DIFFERENT
-   * elements. `cqw` resolves against the nearest ANCESTOR container, so putting
-   * both on one box makes it fall back to the viewport — which sized 11pt text
-   * as if the paper were as wide as the window.
-   */
   return (
     <div
       className={cn(
@@ -114,13 +92,23 @@ export function PrescriptionPreview({
             <div className="shrink-0 text-right">
               <div className="flex items-center justify-end gap-[1.5cqw]">
                 {template.showClinicLogo ? (
-                  <span
-                    className="grid shrink-0 place-items-center rounded-sm border border-dashed border-ink/30 text-ink-muted"
-                    style={{ width: cq(12), height: cq(12), fontSize: pt(template.baseFontPt * 0.6) }}
-                    aria-hidden="true"
-                  >
-                    Logo
-                  </span>
+                  location?.logoUrl ? (
+                    // eslint-disable-next-line @next/next/no-img-element -- private, expiring preview URL
+                    <img
+                      src={location.logoUrl}
+                      alt={`${clinicName} logo`}
+                      className="shrink-0 object-contain"
+                      style={{ width: cq(12), height: cq(12) }}
+                    />
+                  ) : (
+                    <span
+                      className="grid shrink-0 place-items-center rounded-sm border border-dashed border-ink/30 text-ink-muted"
+                      style={{ width: cq(12), height: cq(12), fontSize: pt(template.baseFontPt * 0.6) }}
+                      aria-hidden="true"
+                    >
+                      Logo
+                    </span>
+                  )
                 ) : null}
                 <p className="font-semibold leading-tight">{clinicName}</p>
               </div>
@@ -150,7 +138,6 @@ export function PrescriptionPreview({
           </p>
         ) : null}
 
-        {/* Patient strip — labels only. No invented patient. */}
         <div
           className="flex flex-wrap items-baseline gap-x-[4cqw] gap-y-[1cqw] border-b border-ink/15 pb-[1.5cqw] text-ink-muted"
           style={{ marginBottom: cq(5), fontSize: pt(template.baseFontPt * 0.9) }}
@@ -185,13 +172,11 @@ export function PrescriptionPreview({
           <div className="mt-[4cqw] flex justify-end">
             <div className="text-center" style={{ width: cq(55) }}>
               {doctor.signatureUrl ? (
-                // eslint-disable-next-line @next/next/no-img-element -- signed, expiring storage URL; next/image would cache it
+                // eslint-disable-next-line @next/next/no-img-element -- signed, expiring storage URL
                 <img
                   src={doctor.signatureUrl}
                   alt=""
                   className="mx-auto object-contain"
-                  // Width is capped so an unusually tall upload cannot push the
-                  // signature out past the block it belongs in.
                   style={{ height: cq(14), maxWidth: "100%" }}
                 />
               ) : (

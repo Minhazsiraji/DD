@@ -5,18 +5,15 @@ import type { PrescriptionView } from "../prescription-view";
 import { PrescriptionDocument } from "./prescription-document";
 import { proportionalUnits } from "./prescription-parts";
 
-/**
- * Responsive on-screen preview. The print renderer remains separate and keeps
- * physical millimetre sizing; this wrapper only makes the preview unable to
- * widen its page/container when viewed on a phone.
- */
 export function ReviewSheet({
   view,
   signatureUrl,
+  clinicLogoUrl,
   className,
 }: {
   view: PrescriptionView;
   signatureUrl?: string | null;
+  clinicLogoUrl?: string | null;
   className?: string;
 }) {
   const paper = PAPER_MM[view.paperSize];
@@ -39,7 +36,12 @@ export function ReviewSheet({
           lineHeight: 1.45,
         }}
       >
-        <PrescriptionDocument view={view} u={u} signatureUrl={signatureUrl} />
+        <PrescriptionDocument
+          view={view}
+          u={u}
+          signatureUrl={signatureUrl}
+          clinicLogoUrl={clinicLogoUrl}
+        />
       </div>
     </div>
   );

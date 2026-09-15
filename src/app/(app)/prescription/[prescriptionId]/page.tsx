@@ -12,6 +12,7 @@ import {
 import { isCorrectionUiWindowOpen } from "@/features/prescriptions/correction-window";
 import { PrescriptionComposer } from "@/features/prescriptions/components/prescription-composer";
 import { FinalizedPrescription } from "@/features/prescriptions/components/finalized-prescription";
+import { PrescriptionAssetProvider } from "@/features/prescriptions/components/prescription-asset-provider";
 
 export const metadata: Metadata = { title: "Prescription" };
 
@@ -42,22 +43,29 @@ export default async function PrescriptionPage({
       prescriptionId,
       finalized.finalized.locationId,
     );
-    // Presentation only. MD separately owns authoritative mutation enforcement.
+    // This timestamp check only decides whether to show the correction affordance.
+    // MD separately owns authoritative mutation enforcement at the database boundary.
     const correctionUiEligible = isCorrectionUiWindowOpen(finalized.finalized.finalizedAt);
+    const initialClinicLogoKey = finalized.finalized.bundle.clinicLogo?.path ?? null;
 
     return (
-      <FinalizedPrescription
+      <PrescriptionAssetProvider
         prescriptionId={prescriptionId}
-        encounterId={finalized.finalized.encounterId}
-        viewerIsOwner={finalized.finalized.viewerIsOwner}
-        finalizedAt={finalized.finalized.finalizedAt}
-        correctionUiEligible={correctionUiEligible}
-        digest={finalized.finalized.digest}
-        bundle={finalized.finalized.bundle}
-        lineage={lineage.ok ? lineage.lineage : null}
-        lineageUnavailable={!lineage.ok}
-        returnTo={returnTo}
-      />
+        initialClinicLogoKey={initialClinicLogoKey}
+      >
+        <FinalizedPrescription
+          prescriptionId={prescriptionId}
+          encounterId={finalized.finalized.encounterId}
+          viewerIsOwner={finalized.finalized.viewerIsOwner}
+          finalizedAt={finalized.finalized.finalizedAt}
+          correctionUiEligible={correctionUiEligible}
+          digest={finalized.finalized.digest}
+          bundle={finalized.finalized.bundle}
+          lineage={lineage.ok ? lineage.lineage : null}
+          lineageUnavailable={!lineage.ok}
+          returnTo={returnTo}
+        />
+      </PrescriptionAssetProvider>
     );
   }
 

@@ -1,6 +1,5 @@
 import Link from "next/link";
-import { Stethoscope } from "lucide-react";
-import { IconOrb } from "@/components/common/icon-orb";
+import { BrandMark, BrandWordmark } from "@/components/brand/brand-mark";
 import { signOutAction } from "@/features/auth/actions";
 
 /**
@@ -16,12 +15,8 @@ export default function SetupLayout({ children }: LayoutProps<"/">) {
             href="/onboarding"
             className="flex items-center gap-2.5 rounded-xl focus-visible:focus-ring"
           >
-            <IconOrb accent="brand" size="md">
-              <Stethoscope className="size-[18px]" />
-            </IconOrb>
-            <span className="text-[15px] leading-tight font-semibold text-ink">
-              Doctor&apos;s Diary
-            </span>
+            <BrandMark className="h-9 w-11" />
+            <BrandWordmark className="text-[15px]" />
           </Link>
 
           <form action={signOutAction}>

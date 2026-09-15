@@ -7,6 +7,7 @@ import { ChevronDown, FileText, History } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { formatDate } from "@/lib/format";
 import { safeConsultationReturn, withConsultationReturn } from "../return-context";
+import { celsiusValueToFahrenheitText } from "../temperature";
 import type { PreviousVisit } from "../previous-visit";
 
 /**
@@ -42,7 +43,7 @@ export const PreviousVisitCard = React.memo(function PreviousVisitCard({
   const vitals = [
     ["Height", visit.vitals.heightCm, "cm"],
     ["Weight", visit.vitals.weightKg, "kg"],
-    ["Temperature", visit.vitals.temperatureC, "°C"],
+    ["Temperature", celsiusValueToFahrenheitText(visit.vitals.temperatureC), "°F"],
     ["Pulse", visit.vitals.pulseBpm, "bpm"],
     [
       "BP",

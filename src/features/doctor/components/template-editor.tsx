@@ -9,20 +9,13 @@ import { DEFAULT_TEMPLATE, type TemplateSettings, type TemplateActionState } fro
 import { PrescriptionPreview, type PreviewDoctor, type PreviewLocation } from "./prescription-preview";
 import { ToggleRow, TextRow, SelectRow, NumberRow } from "./setting-controls";
 
-/**
- * Template editor with a live A4 preview.
- *
- * The preview is the point. A doctor cannot tell from a list of checkboxes what
- * their prescription will look like, and the cost of finding out on paper is a
- * wasted pad.
- */
-
 export interface EditorLocation {
   id: string;
   name: string;
   address: string | null;
   district: string | null;
   phone: string | null;
+  logoUrl: string | null;
 }
 
 const initialState: TemplateActionState = { ok: false };
@@ -177,20 +170,17 @@ export function TemplateEditor({
               onChange={(v) => set("showChamberPhone", v)}
               disabled={!settings.showHeader}
             />
-            {/*
-              Offered but not buildable. There is no logo upload, and no way to
-              FREEZE one into an approved prescription the way a signature is —
-              so `prescription_review_bundle` refuses outright when this is on,
-              and the doctor meets "this layout cannot be reviewed yet" only
-              after writing a whole prescription. Disabled and labelled instead.
-            */}
             <ToggleRow
-              label="Space for a clinic logo"
-              hint="Coming later — a logo has to be fixed to the prescription the way your signature is."
+              label="Clinic / chamber logo"
+              hint={
+                previewLocation?.logoUrl
+                  ? "Print the uploaded clinic logo beside the clinic name."
+                  : "Upload a clinic logo above first. A logo-enabled template cannot be reviewed until the selected clinic has one."
+              }
               name="showClinicLogo"
-              checked={false}
-              onChange={() => {}}
-              disabled
+              checked={settings.showClinicLogo}
+              onChange={(v) => set("showClinicLogo", v)}
+              disabled={!settings.showHeader}
             />
           </div>
 
@@ -251,14 +241,9 @@ export function TemplateEditor({
         <p className="mb-2 text-xs font-medium text-ink-secondary">
           Preview — {settings.paperSize}, actual proportions
         </p>
-        <PrescriptionPreview
-          template={settings}
-          doctor={doctor}
-          location={previewLocation}
-        />
+        <PrescriptionPreview template={settings} doctor={doctor} location={previewLocation} />
         <p className="mt-2 text-xs text-ink-muted">
-          The body is left empty on purpose. Prescription writing arrives in a
-          later step — this sets up the paper it prints on.
+          The body is left empty on purpose. This preview shows the stationery that future prescriptions will use.
         </p>
       </div>
     </div>

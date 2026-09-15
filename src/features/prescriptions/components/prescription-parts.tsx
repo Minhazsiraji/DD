@@ -58,7 +58,21 @@ export function proportionalUnits(paperWidthMm: number): Units {
   };
 }
 
-export function PrescriptionHeader({ view, u }: { view: DocumentChrome; u: Units }) {
+export function PrescriptionHeader({
+  view,
+  u,
+  reserveClinicLogoSlot = false,
+}: {
+  view: DocumentChrome;
+  u: Units;
+  /**
+   * V4 reserves this physical space for the clinic/chamber's own mark. The
+   * current frozen bundle carries only the show/hide preference, not a frozen
+   * logo object, so we deliberately leave the slot empty rather than reading a
+   * live profile image that the doctor did not approve with this prescription.
+   */
+  reserveClinicLogoSlot?: boolean;
+}) {
   if (!view.header) return null;
   const h = view.header;
 
@@ -80,16 +94,26 @@ export function PrescriptionHeader({ view, u }: { view: DocumentChrome; u: Units
           ) : null}
         </div>
 
-        <div className="min-w-0 text-right">
-          {h.clinicName ? (
-            <p className="font-semibold" style={{ fontSize: u.pt(view.baseFontPt * 1.1) }}>
-              {h.clinicName}
-            </p>
+        <div className="ml-auto flex min-w-0 items-start justify-end" style={{ gap: u.mm(2.5) }}>
+          {reserveClinicLogoSlot ? (
+            <span
+              data-rx-clinic-logo-slot="reserved"
+              aria-hidden="true"
+              className="shrink-0"
+              style={{ width: u.mm(12), height: u.mm(12) }}
+            />
           ) : null}
-          {h.addressLine ? (
-            <p style={{ fontSize: u.pt(view.baseFontPt * 0.85) }}>{h.addressLine}</p>
-          ) : null}
-          {h.phone ? <p style={{ fontSize: u.pt(view.baseFontPt * 0.85) }}>{h.phone}</p> : null}
+          <div className="min-w-0 text-right">
+            {h.clinicName ? (
+              <p className="font-semibold" style={{ fontSize: u.pt(view.baseFontPt * 1.1) }}>
+                {h.clinicName}
+              </p>
+            ) : null}
+            {h.addressLine ? (
+              <p style={{ fontSize: u.pt(view.baseFontPt * 0.85) }}>{h.addressLine}</p>
+            ) : null}
+            {h.phone ? <p style={{ fontSize: u.pt(view.baseFontPt * 0.85) }}>{h.phone}</p> : null}
+          </div>
         </div>
       </div>
 
@@ -337,12 +361,22 @@ export function SignatureBlock({
   );
 }
 
-export function PrescriptionFooter({ view, u }: { view: DocumentChrome; u: Units }) {
-  if (!view.showFooter || !view.footerText) return null;
+export function PrescriptionFooter({
+  view,
+  u,
+  platformAttribution = false,
+}: {
+  view: DocumentChrome;
+  u: Units;
+  /** V4-only product attribution. Legacy V3 leaves this false and is unchanged. */
+  platformAttribution?: boolean;
+}) {
+  const showDoctorFooter = view.showFooter && Boolean(view.footerText);
+  if (!showDoctorFooter && !platformAttribution) return null;
 
   return (
     <footer
-      className="border-t border-ink/15 whitespace-pre-wrap"
+      className="border-t border-ink/15"
       style={{
         marginTop: u.mm(6),
         paddingTop: u.mm(2),
@@ -350,7 +384,49 @@ export function PrescriptionFooter({ view, u }: { view: DocumentChrome; u: Units
         breakInside: "avoid",
       }}
     >
-      {view.footerText}
+      {showDoctorFooter ? (
+        <div className="whitespace-pre-wrap" style={{ marginBottom: platformAttribution ? u.mm(3) : 0 }}>
+          {view.footerText}
+        </div>
+      ) : null}
+
+      {platformAttribution ? (
+        <div
+          data-rx-platform-footer="doctors-diary"
+          className="flex items-end justify-between"
+          style={{ gap: u.mm(5) }}
+        >
+          <div className="min-w-0" style={{ lineHeight: 1.45 }}>
+            <p>Developed by: ©AgentSiraji</p>
+            <p>Contact: business@agentsiraji.com</p>
+          </div>
+
+          <div className="flex shrink-0 items-center" style={{ gap: u.mm(1.8) }} aria-label="Doctor's Diary">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src="/brand/dd-logo-mark-canonical.webp"
+              alt=""
+              aria-hidden="true"
+              style={{ width: u.mm(10), height: u.mm(10), objectFit: "contain" }}
+            />
+            <div className="text-left">
+              <p className="font-semibold" style={{ fontSize: u.pt(view.baseFontPt * 0.88) }}>
+                Doctor&apos;s Diary
+              </p>
+              <p
+                className="uppercase"
+                style={{
+                  fontSize: u.pt(view.baseFontPt * 0.55),
+                  letterSpacing: "0.12em",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                Care · Record · Connect
+              </p>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </footer>
   );
 }

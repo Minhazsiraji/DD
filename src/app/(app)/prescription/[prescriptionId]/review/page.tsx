@@ -10,23 +10,10 @@ import {
   getSelectableTemplates,
 } from "@/features/prescriptions/queries";
 import { ReviewScreen } from "@/features/prescriptions/components/review-screen";
+import { PrescriptionAssetProvider } from "@/features/prescriptions/components/prescription-asset-provider";
 
 export const metadata: Metadata = { title: "Review prescription" };
 
-/**
- * The review screen, or the approved record.
- *
- * Which one depends on STATUS, and status is checked first — a finalised
- * prescription must never be rendered from a freshly built bundle. Building one
- * reads live rows, and a live row that has since changed could refuse (a logo
- * switched on, a template deleted) or simply differ. A permanent record cannot
- * become unviewable because a setting moved afterwards.
- *
- * For a draft, the canonical bundle is read server-side and handed to the
- * client whole: the bundle, its digest and the version — never the rows they
- * were built from, because the doctor must approve exactly what the digest
- * describes.
- */
 export default async function ReviewPage({
   params,
 }: PageProps<"/prescription/[prescriptionId]/review">) {
@@ -45,16 +32,6 @@ export default async function ReviewPage({
   }
   if (!detail.ok) notFound();
 
-  /**
-   * Approved: there is nothing left to review, so this is not the page.
-   *
-   * It used to render the finalised record here as well, which meant the
-   * permanent record had two homes and REVIEW — a doctor-only approval surface
-   * — was one of them. Reception can read a finalised prescription, so a stale
-   * link landed the front desk on the approval route showing a record. Sending
-   * everyone to the one canonical page keeps "review" meaning a draft awaiting
-   * a decision, and gives staff a route that was built for them.
-   */
   if (detail.prescription.status !== "DRAFT") {
     redirect(`/prescription/${prescriptionId}`);
   }
@@ -62,11 +39,6 @@ export default async function ReviewPage({
   const outcome = await getReviewBundle(prescriptionId, ctx.locationId, null);
 
   if (!outcome.ok && outcome.reason === "unsupported-schema") {
-    /**
-     * A bundle shape this build does not know. Refusing is the whole point:
-     * rendering it would drop whatever the newer schema added, and the doctor
-     * would be reading a prescription that is missing something.
-     */
     return (
       <Refusal
         icon={<Lock className="mx-auto size-8 text-ink-muted" aria-hidden="true" />}
@@ -76,11 +48,6 @@ export default async function ReviewPage({
     );
   }
 
-  /**
-   * The layout asks for a clinic logo, and no trusted logo identity exists in
-   * the bundle to attest what would be drawn. Refusing is the point: rendering
-   * nothing would silently drop something the template says prints.
-   */
   if (!outcome.ok && outcome.reason === "logo-unsupported") {
     return (
       <Refusal
@@ -109,16 +76,12 @@ export default async function ReviewPage({
   const patient = detail.prescription.patient;
   const allergies = patient.allergies.map((allergy) => allergy.substance);
   const conditions = patient.conditions.map((condition) => condition.condition);
+  const initialClinicLogoKey = outcome.review.bundle.clinicLogo?.path ?? null;
 
   return (
     <div className="space-y-4">
-      {/*
-        Live patient safety context, deliberately OUTSIDE the canonical review
-        bundle. It does not print and does not participate in the reviewed
-        digest; it is a guardrail around the approval decision. Keeping it
-        sticky means the doctor cannot lose the allergy while scrolling through
-        an A4 preview to the irreversible Finalize control.
-      */}
+      {/* This patient-safety strip is OUTSIDE the canonical review and its digest.
+          It is review-only context and must never become printable prescription content. */}
       <section
         data-prescription-review-safety-context
         aria-label="Patient safety context"
@@ -152,13 +115,18 @@ export default async function ReviewPage({
         </div>
       </section>
 
-      <ReviewScreen
+      <PrescriptionAssetProvider
         prescriptionId={prescriptionId}
-        encounterId={detail.prescription.encounterId}
-        initialReview={outcome.review}
-        templates={templates}
-        initialTemplateId={null}
-      />
+        initialClinicLogoKey={initialClinicLogoKey}
+      >
+        <ReviewScreen
+          prescriptionId={prescriptionId}
+          encounterId={detail.prescription.encounterId}
+          initialReview={outcome.review}
+          templates={templates}
+          initialTemplateId={null}
+        />
+      </PrescriptionAssetProvider>
     </div>
   );
 }
@@ -173,7 +141,6 @@ function Refusal({
   icon: React.ReactNode;
   title: string;
   body: string;
-  /** Where the doctor can actually fix it, when there is such a place. */
   href?: string;
   cta?: string;
 }) {

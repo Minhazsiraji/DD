@@ -34,74 +34,74 @@ function envelope(over: Record<string, unknown> = {}): unknown {
 
   const bundle: Record<string, unknown> = {
     schemaVersion: 2,
-      prescriptionId: "11111111-1111-4111-8111-111111111111",
-      encounterId: "22222222-2222-4222-8222-222222222222",
-      // The clinic day the patient was seen. Every printable value that
-      // depends on time is computed from this, and the digest covers it.
-      clinicalDate: "2026-08-18",
-      doctor: {
-        fullName: "Dr Rahima Khatun",
-        qualification: "MBBS, FCPS (Medicine)",
-        specialization: "Internal Medicine",
-        designation: "Consultant",
-        bmdcRegistrationNo: "A-12345",
+    prescriptionId: "11111111-1111-4111-8111-111111111111",
+    encounterId: "22222222-2222-4222-8222-222222222222",
+    // The clinic day the patient was seen. Every printable value that
+    // depends on time is computed from this, and the digest covers it.
+    clinicalDate: "2026-08-18",
+    doctor: {
+      fullName: "Dr Rahima Khatun",
+      qualification: "MBBS, FCPS (Medicine)",
+      specialization: "Internal Medicine",
+      designation: "Consultant",
+      bmdcRegistrationNo: "A-12345",
+    },
+    location: {
+      name: "Greenview Chamber",
+      address: "12 Kemal Ataturk Ave",
+      district: "Dhaka",
+      phone: "+8801700000000",
+    },
+    patient: {
+      fullName: "Salma Begum",
+      patientNumber: "AR-000001",
+      sex: "FEMALE",
+      dob: null,
+      dobPrecision: "AGE_ONLY",
+      approxAgeYears: 38,
+      ageRecordedOn: "2026-01-01",
+    },
+    template: {
+      source: "global",
+      templateId: "33333333-3333-4333-8333-333333333333",
+      name: "Chamber letterhead",
+      paperSize: "A4",
+      marginMm: 15,
+      baseFontPt: 11,
+      showHeader: true,
+      showClinicLogo: false,
+      clinicNameOverride: null,
+      headerNote: null,
+      showQualification: true,
+      showSpecialization: true,
+      showDesignation: true,
+      showBmdc: true,
+      showChamberAddress: true,
+      showChamberPhone: true,
+      showFooter: true,
+      footerText: "Not valid without signature",
+      showSignature: true,
+    },
+    signature: null,
+    items: [
+      {
+        position: 1,
+        display_name: "Tab. Napa 500 mg",
+        brand_name: "Napa",
+        generic_name: "Paracetamol",
+        strength_text: "500 mg",
+        dose_text: "1 tablet",
+        dosage_form: "Tablet",
+        route: "Oral",
+        schedule_text: "1+0+1",
+        duration_text: "7 days",
+        quantity_text: "14 tablets",
+        food_relation: "After food",
+        is_prn: false,
+        instructions: "খাবারের পরে খাবেন",
+        substitution_allowed: true,
       },
-      location: {
-        name: "Greenview Chamber",
-        address: "12 Kemal Ataturk Ave",
-        district: "Dhaka",
-        phone: "+8801700000000",
-      },
-      patient: {
-        fullName: "Salma Begum",
-        patientNumber: "AR-000001",
-        sex: "FEMALE",
-        dob: null,
-        dobPrecision: "AGE_ONLY",
-        approxAgeYears: 38,
-        ageRecordedOn: "2026-01-01",
-      },
-      template: {
-        source: "global",
-        templateId: "33333333-3333-4333-8333-333333333333",
-        name: "Chamber letterhead",
-        paperSize: "A4",
-        marginMm: 15,
-        baseFontPt: 11,
-        showHeader: true,
-        showClinicLogo: false,
-        clinicNameOverride: null,
-        headerNote: null,
-        showQualification: true,
-        showSpecialization: true,
-        showDesignation: true,
-        showBmdc: true,
-        showChamberAddress: true,
-        showChamberPhone: true,
-        showFooter: true,
-        footerText: "Not valid without signature",
-        showSignature: true,
-      },
-      signature: null,
-      items: [
-        {
-          position: 1,
-          display_name: "Tab. Napa 500 mg",
-          brand_name: "Napa",
-          generic_name: "Paracetamol",
-          strength_text: "500 mg",
-          dose_text: "1 tablet",
-          dosage_form: "Tablet",
-          route: "Oral",
-          schedule_text: "1+0+1",
-          duration_text: "7 days",
-          quantity_text: "14 tablets",
-          food_relation: "After food",
-          is_prn: false,
-          instructions: "খাবারের পরে খাবেন",
-          substitution_allowed: true,
-        },
-      ],
+    ],
   };
 
   return {
@@ -125,21 +125,19 @@ describe("parseReview", () => {
   });
 
   /**
-   * 5, because 4 is now a version this build writes — it replaced the two fixed
-   * sections with the doctor's own modules. The guarantee is unchanged and is
-   * about the NEXT unknown version: a bundle from a newer server may carry a
-   * printable field this build knows nothing about, and rendering it would show
-   * the doctor less than the digest they are approving covers.
-   *
-   * 5 in particular is the one that must NOT be waved through as "close enough
-   * to 4" — see `renderer-version.ts`.
+   * 6, because 5 is now a version this build writes — it adds an immutable
+   * clinic-logo identity while keeping the accepted modular renderer. The
+   * guarantee is unchanged and is about the NEXT unknown version: a newer
+   * server may carry a printable field this build knows nothing about, and
+   * rendering it would show the doctor less than the digest they are approving
+   * covers.
    */
   it("fails closed on a schema version from a newer build", () => {
-    const parsed = parseReview(envelope({ bundle: { schemaVersion: 5 } }));
+    const parsed = parseReview(envelope({ bundle: { schemaVersion: 6 } }));
     expect(parsed.ok).toBe(false);
     if (!parsed.ok) {
       expect(parsed.reason).toBe("unsupported-schema");
-      if (parsed.reason === "unsupported-schema") expect(parsed.found).toBe(5);
+      if (parsed.reason === "unsupported-schema") expect(parsed.found).toBe(6);
     }
   });
 

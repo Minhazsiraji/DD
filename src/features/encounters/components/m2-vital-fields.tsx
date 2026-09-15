@@ -4,6 +4,7 @@ import * as React from "react";
 import { Activity, ChevronDown } from "lucide-react";
 import { SectionCard, SectionHeader } from "@/components/common/section-card";
 import { cn } from "@/lib/utils";
+import { celsiusValueToFahrenheitText, fahrenheitTextToCelsiusValue } from "../temperature";
 import { VITALS, type DraftKey, type DraftValues, type VitalField, type VitalKey } from "../schema";
 
 const BY_KEY = new Map(VITALS.map((vital) => [vital.key, vital]));
@@ -72,18 +73,30 @@ export function M2VitalFields({
             disabled={disabled}
             onChange={onChange}
           />
-          {CORE.map((key) => (
-            <VitalInput
-              key={key}
-              vital={BY_KEY.get(key)!}
-              value={values[key]}
-              dirty={dirtyKeys.includes(key)}
-              error={errors[key]}
-              disabled={disabled}
-              previous={key === "vitalWeightKg" ? previous?.weightKg ?? null : null}
-              onChange={onChange}
-            />
-          ))}
+          {CORE.map((key) =>
+            key === "vitalTemperatureC" ? (
+              <TemperatureInput
+                key={`${key}:${values[key]}`}
+                vital={BY_KEY.get(key)!}
+                valueCelsius={values[key]}
+                dirty={dirtyKeys.includes(key)}
+                error={errors[key]}
+                disabled={disabled}
+                onChange={onChange}
+              />
+            ) : (
+              <VitalInput
+                key={key}
+                vital={BY_KEY.get(key)!}
+                value={values[key]}
+                dirty={dirtyKeys.includes(key)}
+                error={errors[key]}
+                disabled={disabled}
+                previous={key === "vitalWeightKg" ? previous?.weightKg ?? null : null}
+                onChange={onChange}
+              />
+            ),
+          )}
         </div>
 
         <details className="dd-material-record dd-record-pearl rounded-2xl" open={moreOpen || undefined}>
@@ -155,6 +168,83 @@ function BloodPressure({
         </p>
       ) : null}
     </fieldset>
+  );
+}
+
+/**
+ * Fahrenheit is the doctor-facing unit; Celsius remains the existing storage
+ * contract. We keep the raw Fahrenheit text local while it is being typed and
+ * commit a converted Celsius value on blur/Enter. This avoids transient input
+ * such as "9" being saved as a clinical temperature while the doctor is still
+ * typing "98.6". The parent key includes the authoritative Celsius value, so
+ * an external/current-draft change remounts this small field with fresh display
+ * state without a setState-in-effect render cascade.
+ */
+function TemperatureInput({
+  vital,
+  valueCelsius,
+  dirty,
+  error,
+  disabled,
+  onChange,
+}: {
+  vital: VitalField;
+  valueCelsius: string;
+  dirty: boolean;
+  error?: string;
+  disabled: boolean;
+  onChange: (key: DraftKey, value: string) => void;
+}) {
+  const [displayValue, setDisplayValue] = React.useState(
+    () => celsiusValueToFahrenheitText(valueCelsius) ?? "",
+  );
+
+  const commit = React.useCallback(() => {
+    const converted = fahrenheitTextToCelsiusValue(displayValue);
+    if (converted === null) {
+      setDisplayValue(celsiusValueToFahrenheitText(valueCelsius) ?? "");
+      return;
+    }
+    if (converted !== valueCelsius) onChange(vital.key, converted);
+  }, [displayValue, onChange, valueCelsius, vital.key]);
+
+  // The authoritative validator still reasons in Celsius because storage does.
+  // Never leak that implementation unit back into the Fahrenheit pilot UI.
+  const displayError = error
+    ? "Temperature should be between 50 and 122 °F. Check the value or unit."
+    : undefined;
+
+  return (
+    <div className="min-w-0">
+      <label htmlFor={`${vital.key}-fahrenheit`} className="flex items-baseline justify-between gap-1 text-[12px] font-semibold text-ink-secondary">
+        <span className="truncate">{vital.label}</span>
+        <span className="shrink-0 font-normal text-ink-muted">°F</span>
+      </label>
+      <input
+        id={`${vital.key}-fahrenheit`}
+        name={`${vital.key}Fahrenheit`}
+        aria-label={`${vital.label} in Fahrenheit`}
+        type="number"
+        inputMode="decimal"
+        step="0.1"
+        disabled={disabled}
+        value={displayValue}
+        onChange={(e) => setDisplayValue(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") {
+            commit();
+            e.currentTarget.blur();
+          }
+        }}
+        aria-invalid={displayError ? true : undefined}
+        className={cn(
+          "mt-1 h-11 w-full rounded-xl border bg-white/90 px-2.5 text-[15px] text-ink tabular-nums focus-visible:focus-ring disabled:bg-surface-muted",
+          displayError ? "border-danger" : dirty ? "border-warning/70" : "border-hairline",
+        )}
+      />
+      {displayError ? <p role="status" className="mt-1 text-[11px] font-medium text-danger">{displayError}</p> : null}
+    </div>
   );
 }
 
