@@ -54,12 +54,12 @@ export async function uploadClinicLogoAction(
   }
 
   await emitAudit({
-    action: "location.prescription_logo_set",
+    action: "location.updated",
     resourceType: "practice_location",
     resourceId: locationId,
     locationId,
     actorId: user.id,
-    meta: { immutableAssetPath: true },
+    meta: { fields: ["prescription_logo"], operation: "set", immutableAssetPath: true },
   });
   revalidatePath("/settings/prescription");
   return { ok: true, message: "Clinic logo saved." };
@@ -84,11 +84,12 @@ export async function removeClinicLogoAction(locationId: string): Promise<Action
   // Deliberately do not delete old logo objects. Finalized prescriptions may
   // still attest those immutable paths and must remain printable forever.
   await emitAudit({
-    action: "location.prescription_logo_removed",
+    action: "location.updated",
     resourceType: "practice_location",
     resourceId: locationId,
     locationId,
     actorId: user.id,
+    meta: { fields: ["prescription_logo"], operation: "remove" },
   });
   revalidatePath("/settings/prescription");
   return { ok: true, message: "Clinic logo removed from future prescriptions." };
