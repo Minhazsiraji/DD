@@ -1,4 +1,4 @@
-name: O1-F-I2 fa28 full exact-SHA gate
+name: O1-F-I2 integrated full exact-SHA gate
 
 on:
   push:
@@ -17,14 +17,14 @@ jobs:
       max-parallel: 1
       matrix:
         include:
-          - { id: '01', label: activity, script: verify-o1f-activity-day-grain.mjs, db: o1fi2g_01_activity, preseed: none }
-          - { id: '02', label: aal2-consent, script: verify-o1f-owner-aal2-and-consent.mjs, db: o1fi2g_02_aal2_consent, preseed: both }
-          - { id: '03', label: owner-surface, script: verify-o1f-owner-surface.mjs, db: o1fi2g_03_owner_surface, preseed: base }
-          - { id: '04', label: pilot-isolation, script: verify-o1f-pilot-plane-isolation.mjs, db: o1fi2g_04_pilot_isolation, preseed: base }
-          - { id: '05', label: r2, script: verify-o1f-r2-contract.mjs, db: o1fi2g_05_r2, preseed: none }
-          - { id: '06', label: r3, script: verify-o1f-r3-contract.mjs, db: o1fi2g_06_r3, preseed: none }
-          - { id: '07', label: i1, script: verify-o1f-i1-contract.mjs, db: o1fi2g_07_i1, preseed: none }
-          - { id: '08', label: i2, script: verify-o1f-i2-contract.mjs, db: o1fi2g_08_i2, preseed: none }
+          - { id: '01', label: activity, script: verify-o1f-activity-day-grain.mjs, db: o1fi2final_01_activity, preseed: none }
+          - { id: '02', label: aal2-consent, script: verify-o1f-owner-aal2-and-consent.mjs, db: o1fi2final_02_aal2_consent, preseed: both }
+          - { id: '03', label: owner-surface, script: verify-o1f-owner-surface.mjs, db: o1fi2final_03_owner_surface, preseed: base }
+          - { id: '04', label: pilot-isolation, script: verify-o1f-pilot-plane-isolation.mjs, db: o1fi2final_04_pilot_isolation, preseed: base }
+          - { id: '05', label: r2, script: verify-o1f-r2-contract.mjs, db: o1fi2final_05_r2, preseed: none }
+          - { id: '06', label: r3, script: verify-o1f-r3-contract.mjs, db: o1fi2final_06_r3, preseed: none }
+          - { id: '07', label: i1, script: verify-o1f-i1-contract.mjs, db: o1fi2final_07_i1, preseed: none }
+          - { id: '08', label: i2, script: verify-o1f-i2-contract.mjs, db: o1fi2final_08_i2, preseed: none }
 
     services:
       postgres:
@@ -48,20 +48,28 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - name: Exact detached candidate
+      - name: Exact detached integrated candidate
         shell: bash
+        env:
+          SCRIPT: ${{ matrix.script }}
         run: |
           set -euo pipefail
           git fetch origin --no-tags --prune
+          CANDIDATE=4dbcc1006105d68c3120be79060e19d3023a72ab
+          VERIFIER_SOURCE=fa28eda1b48b033bff591dac79e2cf4152ea03a8
           DIR="$RUNNER_TEMP/candidate-${{ matrix.id }}"
-          git worktree add --detach "$DIR" fa28eda1b48b033bff591dac79e2cf4152ea03a8
+          git worktree add --detach "$DIR" "$CANDIDATE"
           echo "DIR=$DIR" >> "$GITHUB_ENV"
           cd "$DIR"
-          test "$(git rev-parse HEAD)" = fa28eda1b48b033bff591dac79e2cf4152ea03a8
+          test "$(git rev-parse HEAD)" = "$CANDIDATE"
           test -z "$(git status --short)"
           test "$(git rev-parse HEAD:supabase/policies/0047_o1_owner_analytics_authority.sql)" = b8645248fc22a98a2c2aa10f1b21ad0b5c9679d6
           test "$(sha256sum supabase/policies/0047_o1_owner_analytics_authority.sql | awk '{print $1}')" = 3a316805d32391241ed506ec9627d9e77b21b20a0a4c1f36405b03e0695a2190
           test ! -e supabase/policies/0048_o1_owner_analytics_authority.sql
+          git show "$VERIFIER_SOURCE:scripts/$SCRIPT" > "scripts/$SCRIPT"
+          if [ "$SCRIPT" = verify-o1f-i2-contract.mjs ]; then
+            test "$(git hash-object scripts/$SCRIPT)" = 6a7f39006fc28e5bd40b628011259b528f1ef122
+          fi
       - name: Isolated dependency
         shell: bash
         run: |
@@ -106,7 +114,7 @@ jobs:
           elif [ "$PRESEED" = base ]; then
             psql -h localhost -U postgres -d "$DB" -v ON_ERROR_STOP=1 -f "$DIR/drizzle/migrations/0000_parallel_mentor.sql" >/dev/null
           fi
-      - name: Run verifier
+      - name: Run frozen verifier against exact integrated runtime
         shell: bash
         env:
           DB: ${{ matrix.db }}
@@ -117,3 +125,14 @@ jobs:
           URL="postgresql://postgres@localhost:5432/$DB"
           AUTH="postgresql://authenticator@localhost:5432/$DB"
           DATABASE_URL="$URL" DIRECT_URL="$URL" AUTHENTICATOR_URL="$AUTH" node "scripts/$SCRIPT"
+      - name: Postflight frozen runtime integrity
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$DIR"
+          test "$(git rev-parse HEAD)" = 4dbcc1006105d68c3120be79060e19d3023a72ab
+          test "$(git rev-parse HEAD:supabase/policies/0047_o1_owner_analytics_authority.sql)" = b8645248fc22a98a2c2aa10f1b21ad0b5c9679d6
+          test "$(sha256sum supabase/policies/0047_o1_owner_analytics_authority.sql | awk '{print $1}')" = 3a316805d32391241ed506ec9627d9e77b21b20a0a4c1f36405b03e0695a2190
+          test ! -e supabase/policies/0048_o1_owner_analytics_authority.sql
+          test -z "$(git diff --name-only HEAD -- supabase/policies)"
