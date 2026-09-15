@@ -80,6 +80,8 @@ export default async function ReviewPage({
 
   return (
     <div className="space-y-4">
+      {/* This patient-safety strip is OUTSIDE the canonical review and its digest.
+          It is review-only context and must never become printable prescription content. */}
       <section
         data-prescription-review-safety-context
         aria-label="Patient safety context"
