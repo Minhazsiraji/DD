@@ -7,14 +7,13 @@ import {
   SignatureBlock,
   type Units,
 } from "./prescription-parts";
-import { ClinicLogoHeader } from "./clinic-logo-header";
+import { ClinicLogoHeader as PrescriptionHeader } from "./clinic-logo-header";
 import { SectionBlock } from "./section-parts";
 
 export function ModularDocument({
   view,
   u,
   signatureUrl,
-  clinicLogoUrl,
 }: {
   view: ModularView;
   u: Units;
@@ -25,7 +24,17 @@ export function ModularDocument({
 
   return (
     <>
-      <ClinicLogoHeader view={view} u={u} clinicLogoUrl={clinicLogoUrl} />
+      <PrescriptionHeader view={view} u={u} reserveClinicLogoSlot />
+      {/* Keep the signature BLOCK exactly where the accepted layout put it.
+          Only center the bitmap inside its existing underline. */}
+      <style>{`
+        [data-review-sheet] img[alt="The signature fixed to this prescription"],
+        [data-print-root] img[alt="The signature fixed to this prescription"] {
+          margin-left: auto;
+          margin-right: auto;
+          max-width: 100%;
+        }
+      `}</style>
       <PatientIdentity view={view} u={u} />
 
       <div className="flex flex-1 flex-col">
@@ -72,12 +81,7 @@ export function ModularDocument({
         )}
       </div>
 
-      {/* The block stays bottom-right. Only the image inside it is centered over
-          the existing underline; Tailwind's image reset makes img display:block,
-          so text-center alone cannot center the bitmap. */}
-      <div className="[&_img]:mx-auto [&_img]:max-w-full">
-        <SignatureBlock view={view} u={u} signatureUrl={signatureUrl} />
-      </div>
+      <SignatureBlock view={view} u={u} signatureUrl={signatureUrl} />
       <PrescriptionFooter view={view} u={u} platformAttribution />
     </>
   );
