@@ -17,9 +17,11 @@ function publicBookingServiceClient() {
 }
 
 function sourceKey(sourceIp: string): string {
-  return createHmac("sha256", serviceRoleKey())
+  const hmacKey = serviceRoleKey();
+  const digest = createHmac("sha256", hmacKey)
     .update(`dd-public-booking:${sourceIp}`)
     .digest("hex");
+  return digest;
 }
 
 export async function consumePublicBookingRateLimit(sourceIp: string): Promise<boolean> {
