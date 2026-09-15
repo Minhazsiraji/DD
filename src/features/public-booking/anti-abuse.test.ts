@@ -40,10 +40,10 @@ describe("P-S2 public booking anti-abuse boundary", () => {
     expect(sql).toContain("request_count between 1 and 5");
   });
 
-  it("prevents callers from bypassing the limiter through the raw RPC", () => {
-    expect(sql).toMatch(/revoke execute on function public\.create_public_booking[\s\S]*from anon, authenticated;/);
+  it("prevents callers from bypassing the limiter through inherited PUBLIC grants", () => {
+    expect(sql).toMatch(/revoke execute on function public\.create_public_booking[\s\S]*from public, anon, authenticated, service_role;/);
     expect(sql).toMatch(/grant execute on function public\.create_public_booking[\s\S]*to service_role;/);
-    expect(sql).toMatch(/revoke all on function public\.consume_public_booking_rate_limit\(text\) from public, anon, authenticated;/);
+    expect(sql).toMatch(/revoke all on function public\.consume_public_booking_rate_limit\(text\) from public, anon, authenticated, service_role;/);
   });
 
   it("stores only a keyed digest and counters in the limiter table", () => {
