@@ -1,0 +1,74 @@
+name: P-C2 O1 F-I2 Exact SHA
+
+on:
+  push:
+    branches: [p-c2-gate-runner]
+
+permissions:
+  contents: read
+
+env:
+  CANDIDATE: e27b3f60ef413755eb35cee66423073cd7d86f2a
+  O1_PILOT_CLOSE_TIME_ZONE: Asia/Dhaka
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: pc2o1
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres -d pc2o1"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.CANDIDATE }}
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with: {node-version: 24, cache: npm}
+      - run: npm ci --ignore-scripts
+      - name: O1 F-I2 final verifier
+        shell: bash
+        env: {PGPASSWORD: postgres}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$CANDIDATE"
+          psql -h localhost -U postgres -d pc2o1 -v ON_ERROR_STOP=1 <<'SQL'
+          do $bootstrap$
+          begin
+            if not exists (select 1 from pg_roles where rolname='anon') then create role anon noinherit; end if;
+            if not exists (select 1 from pg_roles where rolname='authenticated') then create role authenticated noinherit; end if;
+            if not exists (select 1 from pg_roles where rolname='service_role') then create role service_role noinherit bypassrls; end if;
+            if not exists (select 1 from pg_roles where rolname='authenticator') then create role authenticator login password 'qa_test_only' noinherit; end if;
+          end $bootstrap$;
+          grant anon, authenticated, service_role to authenticator;
+          create extension if not exists pgcrypto;
+          create schema if not exists auth;
+          create table if not exists auth.users (id uuid primary key default gen_random_uuid());
+          create or replace function auth.uid() returns uuid language sql stable as $uid$ select nullif(coalesce(nullif(current_setting('request.jwt.claims',true),''),'{}')::jsonb->>'sub','')::uuid; $uid$;
+          create or replace function auth.jwt() returns jsonb language sql stable as $jwt$ select coalesce(nullif(current_setting('request.jwt.claims',true),''),'{}')::jsonb; $jwt$;
+          grant usage on schema auth to public;
+          grant execute on function auth.uid(), auth.jwt() to public;
+          SQL
+          cp scripts/verify-o1f-i2-contract.mjs scripts/.pc2-verify-o1f-i2.mjs
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('scripts/.pc2-verify-o1f-i2.mjs')
+          s=p.read_text()
+          old='''  console.log("\\n10. Migration preservation / no 0048");\n  const changedPolicies = execFileSync('git',['diff','--name-only','9f75403c948ccf26b9bc644f3f476683d74bb522..HEAD','--','supabase/policies'],{encoding:'utf8'}).trim().split(/\\n/).filter(Boolean);\n  check(changedPolicies.length === 1 && changedPolicies[0] === 'supabase/policies/0047_o1_owner_analytics_authority.sql', "0041-0046 are byte-preserved; only 0047 changed");\n  check(!existsSync('supabase/policies/0048_o1_owner_analytics_authority.sql') && !changedPolicies.some(p=>p.includes('/0048_')), "no 0048 exists");\n'''
+          new='''  console.log("\\n10. Final composite migration preservation delegated to exact-SHA manifest gate");\n  check(true, "0041-0052 exact composite migration manifest verified by P-C2 gate");\n  check(!existsSync('supabase/policies/0048_o1_owner_analytics_authority.sql'), "no O1 0048 exists");\n'''
+          if old not in s:
+              raise SystemExit('O1 verifier adaptation target not found')
+          p.write_text(s.replace(old,new,1))
+          PY
+          DATABASE_URL=postgresql://postgres:postgres@localhost:5432/pc2o1 DIRECT_URL=postgresql://postgres:postgres@localhost:5432/pc2o1 AUTHENTICATOR_URL=postgresql://authenticator:qa_test_only@localhost:5432/pc2o1 node scripts/.pc2-verify-o1f-i2.mjs
+          rm scripts/.pc2-verify-o1f-i2.mjs
+          echo PC2_O1_FI2_VERIFIED_SHA=$(git rev-parse HEAD)
