@@ -95,6 +95,9 @@ jobs:
             if has_function_privilege('authenticated', 'public.consume_public_booking_rate_limit(text)', 'EXECUTE') then
               raise exception 'authenticated can execute limiter directly';
             end if;
+            if not has_function_privilege('service_role', 'public.consume_public_booking_rate_limit(text)', 'EXECUTE') then
+              raise exception 'service role cannot execute limiter';
+            end if;
             if has_function_privilege('anon', 'public.create_public_booking(text,uuid,date,text,text,text,text,text)', 'EXECUTE') then
               raise exception 'anon can bypass limiter through raw booking RPC';
             end if;
@@ -113,6 +116,8 @@ jobs:
         run: npx vitest run src/features/public-booking
       - name: Security regression
         run: npx vitest run src/features/security
+      - name: Appointment regression
+        run: npx vitest run src/features/appointments
       - name: Full repository tests
         run: npm test
       - name: Next typegen
