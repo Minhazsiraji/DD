@@ -9,6 +9,8 @@ import {
   getSignatureUrl,
   listTemplates,
 } from "@/features/doctor/queries";
+import { getClinicLogoSettings } from "@/features/doctor/clinic-logo-query";
+import { ClinicLogoPanel } from "@/features/doctor/clinic-logo-panel";
 import { TemplateManager } from "@/features/doctor/components/template-manager";
 
 export const metadata: Metadata = { title: "Prescription layout" };
@@ -17,10 +19,11 @@ export default async function PrescriptionSettingsPage() {
   await requireUser();
 
   const identity = await getDoctorIdentity();
-  const [signatureUrl, locations, outcome] = await Promise.all([
+  const [signatureUrl, locations, outcome, clinicLogos] = await Promise.all([
     getSignatureUrl(identity.signaturePath),
     getPracticeLocations(),
     listTemplates(),
+    getClinicLogoSettings(),
   ]);
 
   const doctor = {
@@ -31,6 +34,7 @@ export default async function PrescriptionSettingsPage() {
     bmdcRegistrationNo: identity.bmdcRegistrationNo,
     signatureUrl,
   };
+  const clinicLogoByLocation = new Map(clinicLogos.map((logo) => [logo.locationId, logo.logoUrl]));
 
   return (
     <div className="space-y-5 sm:space-y-6">
@@ -48,12 +52,6 @@ export default async function PrescriptionSettingsPage() {
         subtitle="Set the header, footer and paper size once. Use a different layout at each chamber if you need to."
       />
 
-      {/*
-        The stationery and the clinical sections are different questions. This
-        page is the paper — a chamber's letterhead, which can differ per
-        location. The sections are the doctor's own way of working and are the
-        same wherever they practise.
-      */}
       <Link
         href="/settings/prescription/sections"
         className="flex min-h-11 items-center justify-between gap-3 rounded-glass glass-flat px-4 py-3 text-[13px] transition-colors hover:bg-surface-muted focus-visible:focus-ring"
@@ -81,11 +79,16 @@ export default async function PrescriptionSettingsPage() {
         </p>
       ) : null}
 
-      {/*
-        A failed read is NOT "no templates". Offering "create your first
-        template" after a broken query invites a doctor to build a duplicate of
-        one they already have.
-      */}
+      {identity.doctorId ? (
+        <ClinicLogoPanel
+          locations={clinicLogos.map((logo) => ({
+            locationId: logo.locationId,
+            locationName: logo.locationName,
+            logoUrl: logo.logoUrl,
+          }))}
+        />
+      ) : null}
+
       {!outcome.ok ? (
         <p className="flex items-start gap-2 rounded-glass bg-danger-soft px-4 py-3 text-[13px] font-medium text-[#a81c1c]">
           <CircleAlert className="mt-px size-4 shrink-0" aria-hidden="true" />
@@ -95,8 +98,6 @@ export default async function PrescriptionSettingsPage() {
       ) : identity.doctorId ? (
         <TemplateManager
           doctor={doctor}
-          // Only places where this user practises AS A DOCTOR can be chosen —
-          // matching may_scope_template_to() in the database.
           locations={locations
             .filter((l) => l.isDoctorHere)
             .map((l) => ({
@@ -105,14 +106,15 @@ export default async function PrescriptionSettingsPage() {
               address: l.address,
               district: l.district,
               phone: l.phone,
+              logoUrl: clinicLogoByLocation.get(l.id) ?? null,
             }))}
           templates={outcome.templates}
         />
       ) : null}
 
       <p className="text-xs text-ink-muted">
-        This sets up the paper only. Writing prescriptions — medicines, doses and
-        safety checks — comes in a later step.
+        Prescription layout changes affect future prescriptions only. Finalized prescriptions keep
+        the exact paper, signature and clinic logo they were approved with.
       </p>
     </div>
   );
