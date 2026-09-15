@@ -5,6 +5,13 @@ import { publicEnv, serviceRoleKey } from "@/lib/env";
 
 let cached: ReturnType<typeof createClient> | null = null;
 
+type PublicBookingRpcClient = {
+  rpc: (
+    name: "consume_public_booking_rate_limit" | "create_public_booking",
+    args: Record<string, unknown>,
+  ) => Promise<{ data: unknown; error: unknown }>;
+};
+
 function publicBookingServiceClient() {
   if (typeof window !== "undefined") {
     throw new Error("Public booking service client requested from client code");
@@ -14,6 +21,10 @@ function publicBookingServiceClient() {
     auth: { persistSession: false, autoRefreshToken: false },
   });
   return cached;
+}
+
+function reviewedRpcClient(): PublicBookingRpcClient {
+  return publicBookingServiceClient() as unknown as PublicBookingRpcClient;
 }
 
 function sourceKey(sourceIp: string): string {
@@ -27,7 +38,7 @@ function sourceKey(sourceIp: string): string {
 export async function consumePublicBookingRateLimit(sourceIp: string): Promise<boolean> {
   if (!sourceIp) return false;
 
-  const { data, error } = await publicBookingServiceClient().rpc(
+  const { data, error } = await reviewedRpcClient().rpc(
     "consume_public_booking_rate_limit",
     { p_source_key: sourceKey(sourceIp) },
   );
@@ -53,7 +64,7 @@ export interface PublicBookingWriteInput {
 }
 
 export async function createPublicBookingPrivileged(input: PublicBookingWriteInput): Promise<unknown> {
-  const { data, error } = await publicBookingServiceClient().rpc("create_public_booking", {
+  const { data, error } = await reviewedRpcClient().rpc("create_public_booking", {
     p_slug: input.slug,
     p_location_id: input.locationId,
     p_date: input.date,
