@@ -210,6 +210,12 @@ function TemperatureInput({
     if (converted !== valueCelsius) onChange(vital.key, converted);
   }, [displayValue, onChange, valueCelsius, vital.key]);
 
+  // The authoritative validator still reasons in Celsius because storage does.
+  // Never leak that implementation unit back into the Fahrenheit pilot UI.
+  const displayError = error
+    ? "Temperature should be between 50 and 122 °F. Check the value or unit."
+    : undefined;
+
   return (
     <div className="min-w-0">
       <label htmlFor={`${vital.key}-fahrenheit`} className="flex items-baseline justify-between gap-1 text-[12px] font-semibold text-ink-secondary">
@@ -233,13 +239,13 @@ function TemperatureInput({
             e.currentTarget.blur();
           }
         }}
-        aria-invalid={error ? true : undefined}
+        aria-invalid={displayError ? true : undefined}
         className={cn(
           "mt-1 h-11 w-full rounded-xl border bg-white/90 px-2.5 text-[15px] text-ink tabular-nums focus-visible:focus-ring disabled:bg-surface-muted",
-          error ? "border-danger" : dirty ? "border-warning/70" : "border-hairline",
+          displayError ? "border-danger" : dirty ? "border-warning/70" : "border-hairline",
         )}
       />
-      {error ? <p role="status" className="mt-1 text-[11px] font-medium text-danger">{error}</p> : null}
+      {displayError ? <p role="status" className="mt-1 text-[11px] font-medium text-danger">{displayError}</p> : null}
     </div>
   );
 }
