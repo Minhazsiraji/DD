@@ -3,7 +3,7 @@
 import { z } from "zod";
 import { requireLocationContext } from "@/lib/auth/session";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { serviceStorage } from "@/lib/supabase/service";
+import { signedClinicLogoObjectUrl } from "./freeze-store";
 
 /**
  * Short-lived URL for the exact clinic/chamber logo attested by this prescription.
@@ -25,10 +25,6 @@ export async function frozenClinicLogoUrlAction(
   );
   if (pathError || typeof path !== "string" || path === "") return { ok: false };
 
-  const { data, error } = await serviceStorage()
-    .from("clinic-assets")
-    .createSignedUrl(path, 120);
-
-  if (error || !data?.signedUrl) return { ok: false };
-  return { ok: true, url: data.signedUrl };
+  const url = await signedClinicLogoObjectUrl(path, 120);
+  return url ? { ok: true, url } : { ok: false };
 }
