@@ -5,6 +5,7 @@ import {
   PatientIdentity,
   PrescriptionFooter,
   PrescriptionHeader,
+  SignatureBlock,
   type Units,
 } from "./prescription-parts";
 import { SectionBlock } from "./section-parts";
@@ -13,8 +14,7 @@ import { SectionBlock } from "./section-parts";
  * THE V4 DOCUMENT — Prescription V2, on a Bangladesh chamber pad.
  *
  *     ┌──────────────────────────────────────────────┐
- *     │ doctor · chamber                             │
- *     │ Doctor's Diary brand                         │
+ *     │ doctor · chamber + chamber-logo space        │
  *     ├──────────────────────────────────────────────┤
  *     │ patient · age/sex · id · date                │
  *     ├───────────────┬──────────────────────────────┤
@@ -25,7 +25,7 @@ import { SectionBlock } from "./section-parts";
  *     │ their own     │                              │
  *     │ labels        │                              │
  *     ├───────────────┴──────────────────────────────┤
- *     │ signature · footer                           │
+ *     │                         signature · footer   │
  *     └──────────────────────────────────────────────┘
  *
  * WHAT DECIDES WHAT
@@ -64,8 +64,7 @@ export function ModularDocument({
 
   return (
     <>
-      <PrescriptionHeader view={view} u={u} />
-      <PrescriptionBrand u={u} />
+      <PrescriptionHeader view={view} u={u} reserveClinicLogoSlot />
       <PatientIdentity view={view} u={u} />
 
       <div className="flex flex-1 flex-col">
@@ -111,78 +110,7 @@ export function ModularDocument({
       </div>
 
       <SignatureBlock view={view} u={u} signatureUrl={signatureUrl} />
-      <PrescriptionFooter view={view} u={u} />
+      <PrescriptionFooter view={view} u={u} platformAttribution />
     </>
-  );
-}
-
-/** Owner-supplied canonical mark, printed directly with no background tile. */
-function PrescriptionBrand({ u }: { u: Units }) {
-  return (
-    <div
-      data-rx-brand="doctors-diary"
-      className="flex items-center justify-center"
-      style={{ marginBottom: u.mm(2.5) }}
-      aria-label="Doctor's Diary"
-    >
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img
-        src="/brand/dd-logo-mark-canonical.webp"
-        alt="Doctor's Diary"
-        style={{ width: u.mm(17), height: u.mm(17), objectFit: "contain" }}
-      />
-    </div>
-  );
-}
-
-/**
- * V4 layout correction only. The frozen signature image still comes from the
- * attested prescription bundle; this changes only its alignment on the current
- * print layout. Legacy v3 remains untouched. Keeping the component name
- * `SignatureBlock` preserves the document-composition invariant checked by the
- * renderer regression suite: the growing clinical body and one signature stay
- * siblings in the page column.
- */
-function SignatureBlock({
-  view,
-  u,
-  signatureUrl,
-}: {
-  view: ModularView;
-  u: Units;
-  signatureUrl?: string | null;
-}) {
-  if (view.signature.kind === "hidden") return null;
-
-  return (
-    <section
-      data-rx-signature="centered"
-      className="flex justify-center"
-      style={{ marginTop: u.mm(10), breakInside: "avoid", pageBreakInside: "avoid" }}
-    >
-      <div className="text-center" style={{ width: u.mm(45) }}>
-        {view.signature.kind === "frozen" && signatureUrl ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={signatureUrl}
-            alt="The signature fixed to this prescription"
-            style={{
-              height: u.mm(16),
-              maxWidth: "100%",
-              marginLeft: "auto",
-              marginRight: "auto",
-              marginBottom: u.mm(1),
-              objectFit: "contain",
-            }}
-          />
-        ) : (
-          <div style={{ height: u.mm(16) }} aria-hidden="true" />
-        )}
-        <div className="border-t border-ink/40" style={{ width: "100%", marginBottom: u.mm(1) }} />
-        <p style={{ fontSize: u.pt(view.baseFontPt * 0.85) }}>
-          {view.header?.doctorName ?? "Signature"}
-        </p>
-      </div>
-    </section>
   );
 }
