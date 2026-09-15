@@ -92,7 +92,7 @@ try {
   const ownerId = await sql.begin((tx) => createProfile(tx, "QA I2 Owner @qa.invalid"));
   await sql`insert into platform_owners(user_id,is_active) values (${ownerId},true)`;
   const [{ zeroDay, today }] = await sql`
-    select (current_date - 1)::text as "zeroDay", current_date::text as today
+    select (current_date - 2)::text as "zeroDay", current_date::text as today
   `;
   await sql`
     insert into pilot_cohorts(cohort_code,display_name,started_on,created_by)
@@ -127,6 +127,7 @@ try {
     limit 1
   `;
   check(Boolean(boundary?.name), "found IANA timezone crossing UTC clinic-day boundary");
+  check(zeroDay !== boundary.local_day, "zero fixture day is isolated from boundary local day", `zero=${zeroDay}, boundary=${boundary.local_day}`);
   const boundaryDoctor = doctors[0];
   const inserted = await sql.begin(tx=>service(tx, async sp => {
     const [r] = await sp`
@@ -214,7 +215,7 @@ try {
   `;
   check(todayDay === today, "test clock is internally consistent");
   await sql.begin(tx=>service(tx,sp=>sp`
-    select public.record_engagement_minute(${doctors[0].doctorId},${todayBucket}::timestamptz,'CONSULTATION',${todayZone})
+    select public.record_engagement_minute(${doctors[0].doctorId},${todayBucket}::timestamptz,'PRESCRIPTION',${todayZone})
   `));
   let [ctx] = await sql.begin(tx=>service(tx,sp=>sp`select * from public.get_activity_reconciliation_context(${doctors[0].doctorId},${todayDay}::date)`));
   check(Number(ctx.evidence_generation) === 1 && ctx.clinic_timezone === 'UTC', "first unique minute advances Doctor generation");
