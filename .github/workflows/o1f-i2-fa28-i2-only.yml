@@ -1,4 +1,4 @@
-name: O1-F-I2 fa28 verifier08
+name: O1-F-I2 integrated exact-SHA verifier08
 
 on:
   push:
@@ -32,16 +32,23 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - name: Exact candidate
+      - name: Exact integrated candidate and frozen authority
         shell: bash
         run: |
           set -euo pipefail
           git fetch origin --no-tags --prune
-          git worktree add --detach "$RUNNER_TEMP/candidate" fa28eda1b48b033bff591dac79e2cf4152ea03a8
+          CANDIDATE=4dbcc1006105d68c3120be79060e19d3023a72ab
+          VERIFIER_SOURCE=fa28eda1b48b033bff591dac79e2cf4152ea03a8
+          git worktree add --detach "$RUNNER_TEMP/candidate" "$CANDIDATE"
           cd "$RUNNER_TEMP/candidate"
-          test "$(git rev-parse HEAD)" = fa28eda1b48b033bff591dac79e2cf4152ea03a8
+          test "$(git rev-parse HEAD)" = "$CANDIDATE"
+          test -z "$(git status --short)"
           test "$(git rev-parse HEAD:supabase/policies/0047_o1_owner_analytics_authority.sql)" = b8645248fc22a98a2c2aa10f1b21ad0b5c9679d6
+          test "$(sha256sum supabase/policies/0047_o1_owner_analytics_authority.sql | awk '{print $1}')" = 3a316805d32391241ed506ec9627d9e77b21b20a0a4c1f36405b03e0695a2190
           test ! -e supabase/policies/0048_o1_owner_analytics_authority.sql
+          git show "$VERIFIER_SOURCE:scripts/verify-o1f-i2-contract.mjs" > "$RUNNER_TEMP/verify-o1f-i2-contract.mjs"
+          test "$(git hash-object "$RUNNER_TEMP/verify-o1f-i2-contract.mjs")" = 6a7f39006fc28e5bd40b628011259b528f1ef122
+          cp "$RUNNER_TEMP/verify-o1f-i2-contract.mjs" scripts/verify-o1f-i2-contract.mjs
       - name: Dependency
         shell: bash
         run: |
@@ -62,8 +69,8 @@ jobs:
           create role authenticator login noinherit;
           grant anon, authenticated, service_role to authenticator;
           SQL
-          createdb -h localhost -U postgres o1fi2fa28
-          psql -h localhost -U postgres -d o1fi2fa28 -v ON_ERROR_STOP=1 <<'SQL'
+          createdb -h localhost -U postgres o1fi2integrated
+          psql -h localhost -U postgres -d o1fi2integrated -v ON_ERROR_STOP=1 <<'SQL'
           create extension if not exists pgcrypto;
           create schema auth;
           create table auth.users (id uuid primary key default gen_random_uuid());
@@ -77,11 +84,20 @@ jobs:
           grant execute on function auth.uid() to public;
           grant execute on function auth.jwt() to public;
           SQL
-      - name: Verifier 08
+      - name: Verifier 08 against exact integrated runtime
         shell: bash
         run: |
           set -euo pipefail
           cd "$RUNNER_TEMP/candidate"
-          URL=postgresql://postgres@localhost:5432/o1fi2fa28
-          AUTH=postgresql://authenticator@localhost:5432/o1fi2fa28
+          URL=postgresql://postgres@localhost:5432/o1fi2integrated
+          AUTH=postgresql://authenticator@localhost:5432/o1fi2integrated
           DATABASE_URL="$URL" DIRECT_URL="$URL" AUTHENTICATOR_URL="$AUTH" node scripts/verify-o1f-i2-contract.mjs
+      - name: Postflight exact runtime authority
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/candidate"
+          test "$(git rev-parse HEAD)" = 4dbcc1006105d68c3120be79060e19d3023a72ab
+          test "$(git rev-parse HEAD:supabase/policies/0047_o1_owner_analytics_authority.sql)" = b8645248fc22a98a2c2aa10f1b21ad0b5c9679d6
+          test ! -e supabase/policies/0048_o1_owner_analytics_authority.sql
