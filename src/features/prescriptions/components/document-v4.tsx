@@ -87,6 +87,12 @@ export function ModularDocument({
                 on a printed pad. `verticalAlign: top` is load-bearing — a table
                 cell centres its content by default, which would float a short
                 complaint into the middle of a long medicine list.
+
+                The invisible Rx-shaped spacer is layout only. It consumes the
+                same heading height and 2 mm list lead-in as the visible Rx on
+                the medicine side, so the first clinical section starts on the
+                same baseline as medicine row 1. It contains no clinical data
+                and is hidden from assistive technology and print readers.
               */}
               <div
                 data-rx-column="left"
@@ -98,6 +104,12 @@ export function ModularDocument({
                   paddingRight: u.mm(4),
                 }}
               >
+                <div aria-hidden="true" style={{ visibility: "hidden" }}>
+                  <p className="font-serif italic" style={{ fontSize: u.pt(view.baseFontPt * 1.6) }}>
+                    R<span style={{ fontSize: u.pt(view.baseFontPt) }}>x</span>
+                  </p>
+                  <div style={{ height: u.mm(2) }} />
+                </div>
                 {view.left.map((section) => (
                   <SectionBlock key={section.module} section={section} view={view} u={u} />
                 ))}
