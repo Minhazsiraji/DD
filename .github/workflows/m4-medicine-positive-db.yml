@@ -1,0 +1,82 @@
+name: M4 Medicine Positive DB Proof
+
+on:
+  push:
+    branches:
+      - m4/medicine-pilot-closure
+
+permissions:
+  contents: read
+
+jobs:
+  positive-db:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: medicine_m4_positive
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d medicine_m4_positive"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      PGURL: postgresql://postgres:postgres@127.0.0.1:5432/medicine_m4_positive
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build isolated authority
+        shell: bash
+        run: |
+          set -euo pipefail
+          psql "$PGURL" -v ON_ERROR_STOP=1 <<'SQL'
+          create extension if not exists pgcrypto;
+          create role authenticated nologin;
+          create role anon nologin;
+          create schema auth;
+          create table auth.users (id uuid primary key, email text);
+          create or replace function auth.uid() returns uuid
+          language sql stable
+          as $$ select nullif(current_setting('request.jwt.claims', true)::jsonb ->> 'sub', '')::uuid $$;
+          grant usage on schema auth to authenticated, anon;
+          grant execute on function auth.uid() to authenticated, anon;
+          create table public.doctor_profiles (
+            id uuid primary key default gen_random_uuid(),
+            user_id uuid not null unique references auth.users(id) on delete cascade
+          );
+          create or replace function public.current_doctor_id() returns uuid
+          language sql stable security definer
+          set search_path = public, auth, pg_temp
+          as $$ select id from public.doctor_profiles where user_id = auth.uid() limit 1 $$;
+          revoke all on function public.current_doctor_id() from public, anon;
+          grant execute on function public.current_doctor_id() to authenticated;
+          SQL
+          psql "$PGURL" -v ON_ERROR_STOP=1 -f supabase/policies/0051_medicines_v1_reconciliation.sql
+
+      - name: Prove doctor create update archive restore
+        shell: bash
+        run: |
+          set -euo pipefail
+          U=11111111-1111-4111-8111-111111111111
+          D=aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa
+          M=dddddddd-dddd-4ddd-8ddd-dddddddddddd
+          psql "$PGURL" -v ON_ERROR_STOP=1 <<SQL
+          insert into auth.users(id,email) values ('$U','doctor@qa.invalid');
+          insert into public.doctor_profiles(id,user_id) values ('$D','$U');
+          SQL
+          auth_sql() {
+            psql "$PGURL" -v ON_ERROR_STOP=1 -Atqc "begin; set local role authenticated; select set_config('request.jwt.claims','{\"sub\":\"$U\",\"role\":\"authenticated\"}',true); $1; commit;" | tail -n1
+          }
+          test "$(auth_sql "with x as (insert into public.doctor_medicines(id,doctor_profile_id,display_name,generic_name,brand_name,strength_text,dosage_form) values('$M','$D','QA Brand 250 mg','QA Generic','QA Brand','250 mg','Tablet') returning 1) select count(*) from x")" = "1"
+          test "$(auth_sql "with x as (update public.doctor_medicines set default_dose_text='1 tablet', is_favorite=true where id='$M' returning 1) select count(*) from x")" = "1"
+          test "$(auth_sql "select count(*) from public.doctor_medicines where id='$M' and default_dose_text='1 tablet' and is_favorite")" = "1"
+          test "$(auth_sql "with x as (update public.doctor_medicines set is_active=false where id='$M' returning 1) select count(*) from x")" = "1"
+          test "$(auth_sql "select count(*) from public.doctor_medicines where id='$M' and not is_active")" = "1"
+          test "$(auth_sql "with x as (update public.doctor_medicines set is_active=true where id='$M' returning 1) select count(*) from x")" = "1"
+          test "$(auth_sql "select count(*) from public.doctor_medicines where id='$M' and is_active")" = "1"
+          echo "M4_MEDICINE_POSITIVE_MUTATIONS=PASS"
