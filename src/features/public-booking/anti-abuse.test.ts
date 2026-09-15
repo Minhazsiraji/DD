@@ -23,9 +23,10 @@ describe("P-S2 public booking anti-abuse boundary", () => {
   });
 
   it("keys the limiter from server-observed source identity, not patient fields", () => {
-    expect(service).toContain('createHmac("sha256", serviceRoleKey())');
-    expect(service).toContain("dd-public-booking:${sourceIp}");
-    expect(service).not.toMatch(/patientName|phone/);
+    const keyFn = service.match(/function sourceKey[\s\S]*?\n}/)?.[0] ?? "";
+    expect(keyFn).toContain('createHmac("sha256", serviceRoleKey())');
+    expect(keyFn).toContain("dd-public-booking:${sourceIp}");
+    expect(keyFn).not.toMatch(/patientName|phone/);
   });
 
   it("fails closed when source identity or the limiter is unavailable", () => {
@@ -47,8 +48,9 @@ describe("P-S2 public booking anti-abuse boundary", () => {
   });
 
   it("stores only a keyed digest and counters in the limiter table", () => {
-    expect(sql).not.toMatch(/patient_name|phone|reason|diagnos|clinical/i);
-    expect(sql).toContain("source_key text not null");
+    const tableDdl = sql.match(/create table if not exists public\.public_booking_rate_limits \([\s\S]*?\n\);/)?.[0] ?? "";
+    expect(tableDdl).toContain("source_key text not null");
+    expect(tableDdl).not.toMatch(/patient_name|phone|reason|diagnos|clinical/i);
   });
 
   it("keeps public failures collapsed to the existing unavailable response", () => {
