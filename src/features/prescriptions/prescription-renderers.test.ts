@@ -351,8 +351,8 @@ describe("the bundle keeps its promise across schema versions", () => {
     const { SUPPORTED_BUNDLE_SCHEMA_VERSIONS, CURRENT_BUNDLE_SCHEMA_VERSION } = await import(
       "./review-bundle"
     );
-    expect([...SUPPORTED_BUNDLE_SCHEMA_VERSIONS]).toEqual([2, 3, 4]);
-    expect(CURRENT_BUNDLE_SCHEMA_VERSION).toBe(4);
+    expect([...SUPPORTED_BUNDLE_SCHEMA_VERSIONS]).toEqual([2, 3, 4, 5]);
+    expect(CURRENT_BUNDLE_SCHEMA_VERSION).toBe(5);
   });
 
   it("a v3 bundle missing the new sections is REFUSED, not silently shortened", async () => {
