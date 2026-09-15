@@ -29,8 +29,7 @@ create index if not exists public_booking_rate_limits_window_idx
   on public.public_booking_rate_limits(window_start);
 
 alter table public.public_booking_rate_limits enable row level security;
-revoke all on table public.public_booking_rate_limits from public, anon, authenticated;
-grant select, insert, update, delete on table public.public_booking_rate_limits to service_role;
+revoke all on table public.public_booking_rate_limits from public, anon, authenticated, service_role;
 
 create or replace function public.consume_public_booking_rate_limit(p_source_key text)
 returns boolean
@@ -78,15 +77,16 @@ begin
 end;
 $$;
 
-revoke all on function public.consume_public_booking_rate_limit(text) from public, anon, authenticated;
+revoke all on function public.consume_public_booking_rate_limit(text) from public, anon, authenticated, service_role;
 grant execute on function public.consume_public_booking_rate_limit(text) to service_role;
 
 -- The raw SECURITY DEFINER booking write must no longer be directly callable by
 -- anonymous/authenticated clients, otherwise callers could bypass the source
--- limiter by invoking PostgREST RPC themselves.
+-- limiter by invoking PostgREST RPC themselves. Revoking PUBLIC is essential:
+-- anon/authenticated inherit PUBLIC function privileges in PostgreSQL.
 revoke execute on function public.create_public_booking(
   text, uuid, date, text, text, text, text, text
-) from anon, authenticated;
+) from public, anon, authenticated, service_role;
 grant execute on function public.create_public_booking(
   text, uuid, date, text, text, text, text, text
 ) to service_role;
