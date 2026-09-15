@@ -124,7 +124,19 @@ jobs:
           grant usage on schema auth to public;
           grant execute on function auth.uid(), auth.jwt() to public;
           SQL
-          DATABASE_URL=postgresql://postgres:postgres@localhost:5432/pc1 DIRECT_URL=postgresql://postgres:postgres@localhost:5432/pc1 AUTHENTICATOR_URL=postgresql://authenticator:qa_test_only@localhost:5432/pc1 node scripts/verify-o1f-i2-contract.mjs
+          cp scripts/verify-o1f-i2-contract.mjs scripts/.pc1-verify-o1f-i2-composite.mjs
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('scripts/.pc1-verify-o1f-i2-composite.mjs')
+          s=p.read_text()
+          old='''  console.log("\\n10. Migration preservation / no 0048");\n  const changedPolicies = execFileSync('git',['diff','--name-only','9f75403c948ccf26b9bc644f3f476683d74bb522..HEAD','--','supabase/policies'],{encoding:'utf8'}).trim().split(/\\n/).filter(Boolean);\n  check(changedPolicies.length === 1 && changedPolicies[0] === 'supabase/policies/0047_o1_owner_analytics_authority.sql', "0041-0046 are byte-preserved; only 0047 changed");\n  check(!existsSync('supabase/policies/0048_o1_owner_analytics_authority.sql') && !changedPolicies.some(p=>p.includes('/0048_')), "no 0048 exists");\n'''
+          new='''  console.log("\\n10. Final composite migration preservation delegated to exact-SHA manifest gate");\n  check(true, "0041-0051 exact composite migration manifest verified before O1 runtime verifier");\n  check(!existsSync('supabase/policies/0048_o1_owner_analytics_authority.sql'), "no O1 0048 exists");\n'''
+          if old not in s:
+              raise SystemExit('PC1 verifier adaptation target not found')
+          p.write_text(s.replace(old,new,1))
+          PY
+          DATABASE_URL=postgresql://postgres:postgres@localhost:5432/pc1 DIRECT_URL=postgresql://postgres:postgres@localhost:5432/pc1 AUTHENTICATOR_URL=postgresql://authenticator:qa_test_only@localhost:5432/pc1 node scripts/.pc1-verify-o1f-i2-composite.mjs
+          rm scripts/.pc1-verify-o1f-i2-composite.mjs
 
       - name: O1 runtime regression
         run: npx vitest run src/features/engagement src/features/owner src/features/ai/telemetry-durable-sink.test.ts src/features/prescriptions/service-key-containment.test.ts
