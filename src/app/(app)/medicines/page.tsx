@@ -4,7 +4,12 @@ import { PageHeader } from "@/components/common/page-header";
 import { MedicineSearch } from "@/features/medicines/components/medicine-search";
 import { ReferenceList } from "@/features/medicines/components/reference-list";
 import { LibraryList } from "@/features/medicines/components/library-list";
-import { listDoctorMedicines, searchMedicines } from "@/features/medicines/queries";
+import {
+  browseMedicines,
+  countActiveMedicineReferences,
+  listDoctorMedicines,
+  searchMedicines,
+} from "@/features/medicines/queries";
 import { normalizeMedicineText } from "@/features/medicines/medicine";
 
 export const metadata: Metadata = { title: "Medicines" };
@@ -25,15 +30,22 @@ export default async function MedicinesPage(props: PageProps<"/medicines">) {
   const query = typeof params.q === "string" ? params.q : "";
   const tab = params.tab === "mine" ? "mine" : "all";
   const showArchived = params.archived === "1";
+  const hasQuery = normalizeMedicineText(query).length > 0;
 
   /**
    * Both lists are needed on both tabs: the catalogue rows must know which are
    * already saved, so they can offer "In My Medicines" instead of an Add button
-   * that would fail as a duplicate. Fetched together rather than in sequence.
+   * that would fail as a duplicate. The live catalogue count labels the tab and
+   * the blank-query browse state fetches only 20 active rows.
    */
-  const [results, library] = await Promise.all([
-    tab === "all" ? searchMedicines(query) : Promise.resolve([]),
+  const [results, library, catalogueCount] = await Promise.all([
+    tab === "all"
+      ? hasQuery
+        ? searchMedicines(query)
+        : browseMedicines(20)
+      : Promise.resolve([]),
     listDoctorMedicines({ includeArchived: true }),
+    countActiveMedicineReferences(),
   ]);
 
   const needle = normalizeMedicineText(query);
@@ -50,6 +62,10 @@ export default async function MedicinesPage(props: PageProps<"/medicines">) {
       : library;
 
   const activeCount = library.filter((m) => m.isActive).length;
+  const allLabel =
+    typeof catalogueCount === "number"
+      ? `All Medicines (${catalogueCount.toLocaleString("en-US")})`
+      : "All Medicines";
 
   return (
     <div className="space-y-4 sm:space-y-5">
@@ -65,7 +81,7 @@ export default async function MedicinesPage(props: PageProps<"/medicines">) {
         <TabLink
           href={`/medicines${query ? `?q=${encodeURIComponent(query)}` : ""}`}
           current={tab === "all"}
-          label="All Medicines"
+          label={allLabel}
         />
         <TabLink
           href={`/medicines?tab=mine${query ? `&q=${encodeURIComponent(query)}` : ""}`}
@@ -112,7 +128,7 @@ function TabLink({
       href={href}
       aria-current={current ? "page" : undefined}
       className={
-        "inline-flex min-h-11 min-w-0 flex-1 items-center justify-center rounded-xl px-4 text-sm font-semibold transition-colors focus-visible:focus-ring sm:flex-none " +
+        "inline-flex min-h-11 min-w-0 flex-1 items-center justify-center rounded-xl px-3 text-center text-sm font-semibold leading-tight transition-colors focus-visible:focus-ring sm:flex-none sm:px-4 " +
         (current
           ? "bg-brand text-white shadow-soft"
           : "border border-hairline text-ink-secondary hover:bg-surface-muted")
