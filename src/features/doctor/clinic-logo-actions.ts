@@ -4,11 +4,13 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { requireUser, getMemberships } from "@/lib/auth/session";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { serviceStorage } from "@/lib/supabase/service";
 import { emitAudit } from "@/lib/audit/emit";
 import type { ActionState } from "@/features/auth/schema";
+import {
+  removeUnlinkedClinicLogoObject,
+  uploadClinicLogoObject,
+} from "@/features/prescriptions/freeze-store";
 
-const CLINIC_LOGO_BUCKET = "clinic-assets";
 const ALLOWED_TYPES = ["image/png", "image/jpeg", "image/webp"];
 const MAX_BYTES = 2 * 1024 * 1024;
 
@@ -36,12 +38,8 @@ export async function uploadClinicLogoAction(
 
   const ext = file.type === "image/png" ? "png" : file.type === "image/webp" ? "webp" : "jpg";
   const path = `${locationId}/logo-${Date.now()}.${ext}`;
-  const storage = serviceStorage().from(CLINIC_LOGO_BUCKET);
-  const { error: uploadError } = await storage.upload(path, file, {
-    contentType: file.type,
-    upsert: false,
-  });
-  if (uploadError) return { ok: false, message: `Could not upload it: ${uploadError.message}` };
+  const uploaded = await uploadClinicLogoObject(path, file, file.type);
+  if (!uploaded.ok) return { ok: false, message: `Could not upload it: ${uploaded.message}` };
 
   const supabase = await createSupabaseServerClient();
   const { error: saveError } = await supabase
@@ -49,7 +47,7 @@ export async function uploadClinicLogoAction(
     .update({ prescription_logo_path: path, updated_at: new Date().toISOString() })
     .eq("id", locationId);
   if (saveError) {
-    await storage.remove([path]);
+    await removeUnlinkedClinicLogoObject(path);
     return { ok: false, message: `Could not save it: ${saveError.message}` };
   }
 
