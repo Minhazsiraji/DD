@@ -18,6 +18,7 @@ const schema = z.object({
   reason: z.string().trim().max(300).optional(),
 });
 
+/** Keep every server refusal on one public response shape to avoid a disclosure oracle. */
 function publicBookingFailure(slug: string): never {
   redirect(`/dr/${encodeURIComponent(slug)}/book?error=unavailable`);
 }
