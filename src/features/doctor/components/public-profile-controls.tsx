@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useMemo, useState, useTransition } from "react";
-import { Check, Copy, ExternalLink, Facebook, Globe2, Lock, MessageCircle, Share2 } from "lucide-react";
+import { Check, Copy, ExternalLink, Globe2, Lock, MessageCircle, Share2 } from "lucide-react";
 import { setProfileVisibilityAction } from "@/features/doctor/publication-actions";
 
 type Visibility = "PRIVATE" | "PUBLIC";
@@ -127,7 +127,7 @@ export function PublicProfileControls({ slug, visibility: initialVisibility, com
                   <MessageCircle className="size-3.5" aria-hidden="true" /> WhatsApp
                 </button>
                 <button type="button" onClick={() => openShare("facebook")} className="inline-flex min-h-11 items-center gap-1.5 rounded-xl border border-hairline bg-white px-4 text-xs font-semibold text-ink hover:bg-surface-muted focus-visible:focus-ring">
-                  <Facebook className="size-3.5" aria-hidden="true" /> Facebook
+                  <Share2 className="size-3.5" aria-hidden="true" /> Facebook
                 </button>
                 <button type="button" onClick={() => void copyLink("Link copied — paste it into Messenger.")} className="inline-flex min-h-11 items-center gap-1.5 rounded-xl border border-hairline bg-white px-4 text-xs font-semibold text-ink hover:bg-surface-muted focus-visible:focus-ring">
                   <MessageCircle className="size-3.5" aria-hidden="true" /> Messenger
