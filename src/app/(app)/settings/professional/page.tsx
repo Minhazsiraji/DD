@@ -89,7 +89,15 @@ export default async function ProfessionalProfilePage() {
 
       <PublicProfileControls slug={profile.slug} visibility={profile.visibility} />
 
-      <ProfileEditor profile={profile} chambers={chambers} />
+      <p className="text-[13px] text-ink-secondary" data-m5-publication-copy>
+        {profile.visibility === "PUBLIC"
+          ? "Public profile is live. Only supported public fields appear on your shared page."
+          : "Private to you. Nothing here is published or searchable."}
+      </p>
+
+      <div className="[&>div>div:first-child>p:first-child]:hidden">
+        <ProfileEditor profile={profile} chambers={chambers} />
+      </div>
     </div>
   );
 }
