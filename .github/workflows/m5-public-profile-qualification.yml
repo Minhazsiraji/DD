@@ -38,6 +38,15 @@ jobs:
           git merge-base --is-ancestor e27b3f60ef413755eb35cee66423073cd7d86f2a HEAD
           echo "M5_STARTING_AUTHORITY=PASS"
 
+      - name: Generate Next route types
+        run: npx next typegen
+
+      - name: Clean standalone typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
       - name: Focused M5 public profile tests
         run: npx vitest run src/features/public-booking/public-profile-ui.test.ts
 
@@ -47,11 +56,5 @@ jobs:
       - name: Full repository tests
         run: npm test
 
-      - name: Typecheck
-        run: npm run typecheck
-
-      - name: Lint
-        run: npm run lint
-
-      - name: Build
+      - name: Production-equivalent build
         run: npm run build
