@@ -1,0 +1,117 @@
+name: Final Pilot Recompose Gate
+
+on:
+  push:
+    branches: [qa/final-pilot-recompose-gate]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  NEXT_PUBLIC_SUPABASE_URL: https://synthetic-final-pilot.supabase.co
+  NEXT_PUBLIC_SUPABASE_ANON_KEY: sb_publishable_final_pilot_synthetic_key_000000000000000000000
+  NEXT_PUBLIC_SITE_URL: http://localhost:3000
+  AI_MODE: mock
+  NOTIFICATION_MODE: mock
+  PAYMENT_MODE: mock
+
+jobs:
+  qualify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 28683b0d5f5c6e817769e6958bb14268c6a5ab1a
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Prove exact authority and one-commit ancestry
+        run: |
+          test "$(git rev-parse HEAD)" = "28683b0d5f5c6e817769e6958bb14268c6a5ab1a"
+          test "$(git rev-parse HEAD^)" = "e27b3f60ef413755eb35cee66423073cd7d86f2a"
+          git diff --name-only e27b3f60ef413755eb35cee66423073cd7d86f2a..HEAD | sort > /tmp/actual-files
+          cat > /tmp/expected-files <<'EOF'
+          .github/workflows/m3-production-clinic-logo-regression.yml
+          .github/workflows/m5-public-profile-qualification.yml
+          src/app/(app)/settings/professional/page.tsx
+          src/app/(app)/settings/professional/preview/page.tsx
+          src/app/dr/[slug]/page.tsx
+          src/components/layout/location-switcher.tsx
+          src/components/layout/nav-targets.test.ts
+          src/components/layout/top-bar.tsx
+          src/features/doctor/components/public-profile-controls.tsx
+          src/features/doctor/publication-actions.ts
+          src/features/patients/components/global-patient-finder.tsx
+          src/features/prescriptions/clinic-logo-header-layout.test.ts
+          src/features/prescriptions/components/clinic-logo-header.tsx
+          src/features/public-booking/components/public-share-actions.tsx
+          src/features/public-booking/public-profile-ui.test.ts
+          EOF
+          sed -i 's/^          //' /tmp/expected-files
+          sort -o /tmp/expected-files /tmp/expected-files
+          diff -u /tmp/expected-files /tmp/actual-files
+          echo "FINAL_RECOMPOSE_EXACT_DIFF=PASS"
+
+      - name: Preserve P-S2 and migration authority
+        run: |
+          for f in \
+            .github/workflows/ps2-public-booking-anti-abuse.yml \
+            src/features/public-booking/actions.ts \
+            src/features/public-booking/anti-abuse.test.ts \
+            src/features/public-booking/service.ts \
+            supabase/policies/0052_public_booking_anti_abuse.sql \
+            supabase/policies/0051_medicines_v1_reconciliation.sql; do
+            test "$(git rev-parse e27b3f60ef413755eb35cee66423073cd7d86f2a:$f)" = "$(git rev-parse HEAD:$f)"
+          done
+          echo "FINAL_RECOMPOSE_SECURITY_MIGRATIONS=PASS"
+
+      - name: Install exact lockfile
+        run: npm ci --ignore-scripts
+
+      - name: Next typegen
+        run: npx next typegen
+
+      - name: Standalone typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Focused M3 regression
+        run: >-
+          npx vitest run
+          src/features/prescriptions/clinic-logo-binding.test.ts
+          src/features/prescriptions/clinic-logo-header-layout.test.ts
+          src/features/prescriptions/prescription-renderers.test.ts
+          src/features/prescriptions/storage-writes.test.ts
+          src/features/prescriptions/service-key-containment.test.ts
+          src/features/prescriptions/freeze.test.ts
+          src/features/prescriptions/print-media-regression.test.ts
+          src/features/prescriptions/prescription-paper-hierarchy.test.ts
+
+      - name: Focused M5 regression
+        run: npx vitest run src/features/public-booking/public-profile-ui.test.ts src/features/public-booking src/features/booking-settings
+
+      - name: Mobile touch-target regression
+        run: npx vitest run src/components/layout/nav-targets.test.ts
+
+      - name: Security regression
+        run: npx vitest run src/features/public-booking/anti-abuse.test.ts src/lib/security src/features/auth
+
+      - name: Full repository suite
+        run: npm test
+
+      - name: Production-equivalent build
+        run: npm run build
+
+      - name: Diff whitespace check
+        run: git diff --check e27b3f60ef413755eb35cee66423073cd7d86f2a..HEAD
+
+      - name: Final exact SHA marker
+        run: echo "FINAL_RECOMPOSE_VERIFIED_SHA=$(git rev-parse HEAD)"
