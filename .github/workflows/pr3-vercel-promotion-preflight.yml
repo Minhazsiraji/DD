@@ -12,14 +12,72 @@ jobs:
     runs-on: ubuntu-24.04
     env:
       VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_PROJECT_ID: prj_KqN9XUVjTAYBrnu7PkKMb9iLTLWE
+      VERCEL_TEAM_ID: team_t9Rz1iIa8Pyb5bZJqUIIoY2x
+      VERCEL_DEPLOYMENT_ID: dpl_H6mF9qysmE73A2xwYUFsy6gJsrYn
+      EXPECTED_SHA: e27b3f60ef413755eb35cee66423073cd7d86f2a
     steps:
-      - name: Verify exact release artifact and promotion credential
+      - name: Verify exact release artifact and promotion credential via Vercel REST API
         shell: bash
         run: |
           set -euo pipefail
           test -n "$VERCEL_TOKEN"
-          npm install --global vercel
-          vercel whoami --token="$VERCEL_TOKEN"
-          vercel inspect https://dd-8gqbkkoaa-minhazs-projects-d28f7aed.vercel.app --scope=minhazs-projects-d28f7aed --token="$VERCEL_TOKEN" >/tmp/inspect.txt
-          grep -F 'e27b3f60ef413755eb35cee66423073cd7d86f2a' /tmp/inspect.txt || grep -F 'e27b3f6' /tmp/inspect.txt
+
+          auth=(-H "Authorization: Bearer $VERCEL_TOKEN")
+
+          project_code=$(curl -sS -o /tmp/project.json -w '%{http_code}' \
+            "https://api.vercel.com/v9/projects/$VERCEL_PROJECT_ID?teamId=$VERCEL_TEAM_ID" \
+            "${auth[@]}")
+          test "$project_code" = "200"
+          node -e '
+            const fs=require("fs");
+            const p=JSON.parse(fs.readFileSync("/tmp/project.json","utf8"));
+            if (p.id !== process.env.VERCEL_PROJECT_ID) throw new Error(`project id mismatch: ${p.id}`);
+            if (p.name !== "dd") throw new Error(`project name mismatch: ${p.name}`);
+            console.log(`PR3_PROJECT_ACCESS=PASS id=${p.id} name=${p.name}`);
+          '
+
+          deployment_code=$(curl -sS -o /tmp/deployment.json -w '%{http_code}' \
+            "https://api.vercel.com/v13/deployments/$VERCEL_DEPLOYMENT_ID?teamId=$VERCEL_TEAM_ID" \
+            "${auth[@]}")
+          test "$deployment_code" = "200"
+          node -e '
+            const fs=require("fs");
+            const d=JSON.parse(fs.readFileSync("/tmp/deployment.json","utf8"));
+            if (d.id !== process.env.VERCEL_DEPLOYMENT_ID) throw new Error(`deployment id mismatch: ${d.id}`);
+            const projectId = d.projectId || d.project?.id;
+            const projectName = d.name || d.project?.name;
+            const sha = d.meta?.githubCommitSha;
+            if (projectId !== process.env.VERCEL_PROJECT_ID) throw new Error(`deployment project mismatch: ${projectId}`);
+            if (projectName !== "dd") throw new Error(`deployment name mismatch: ${projectName}`);
+            if (sha !== process.env.EXPECTED_SHA) throw new Error(`git sha mismatch: ${sha}`);
+            if (d.readyState !== "READY" && d.state !== "READY") throw new Error(`deployment not READY`);
+            console.log(`PR3_EXACT_DEPLOYMENT=PASS id=${d.id} project=${projectName} sha=${sha}`);
+          '
+
+          # Non-mutating authorization probe: call the supported project promote endpoint
+          # with a deliberately invalid deployment id. 401/403 means no promotion authority;
+          # 400/404/409/410 proves the token reached the project-scoped promotion handler.
+          probe_code=$(curl -sS -o /tmp/promote-probe.json -w '%{http_code}' -X POST \
+            "https://api.vercel.com/v10/projects/$VERCEL_PROJECT_ID/promote/dpl_PR3_PERMISSION_PROBE_DO_NOT_EXIST?teamId=$VERCEL_TEAM_ID" \
+            "${auth[@]}" -H 'Content-Type: application/json')
+          case "$probe_code" in
+            400|404|409|410)
+              echo "PR3_PROMOTION_AUTHORITY=PASS http=$probe_code"
+              ;;
+            401|403)
+              echo "PR3_PROMOTION_AUTHORITY=FAIL http=$probe_code" >&2
+              exit 1
+              ;;
+            201|202)
+              echo "Unexpected successful permission probe" >&2
+              exit 1
+              ;;
+            *)
+              echo "Unexpected promotion probe status: $probe_code" >&2
+              cat /tmp/promote-probe.json >&2 || true
+              exit 1
+              ;;
+          esac
+
           echo PR3_PROMOTION_PREFLIGHT=PASS
