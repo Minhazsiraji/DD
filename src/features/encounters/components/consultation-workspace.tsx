@@ -6,6 +6,7 @@ import { ConsultationIdentity } from "./consultation-identity";
 import { ConsultationAutosave } from "./consultation-autosave";
 import { M2ClinicalNotes } from "./m2-clinical-notes";
 import { M2VitalFields } from "./m2-vital-fields";
+import { M6AVoicePanel } from "./m6a-voice-panel";
 import { FastEntry } from "./fast-entry";
 import { NextVisitFields } from "./next-visit-fields";
 import { InvestigationPanel } from "./investigation-panel";
@@ -36,14 +37,6 @@ import type {
 import type { Consultation } from "../queries";
 import type { PreviousVisit } from "../previous-visit";
 
-/**
- * M2 Consultation Workspace with Investigation V1 staged confirmation.
- *
- * There is still exactly ONE encounter coordinator, ONE encounter version and
- * ONE MutationGate. Investigation V1 stages locally, then sends one accepted
- * batch confirmation through s.runList so Diagnosis/notes and Investigation
- * continue to share the same encounter mutation boundary.
- */
 export function ConsultationWorkspace({
   consultation,
   locationName,
@@ -75,10 +68,6 @@ export function ConsultationWorkspace({
     [moduleConfig, consultation],
   );
 
-  /**
-   * The only previous-visit values that may be copied into today's encounter.
-   * Momentary vitals and visit-specific findings never enter this object.
-   */
   const carryForward = React.useMemo(
     () =>
       previousVisit
@@ -252,6 +241,14 @@ export function ConsultationWorkspace({
               shownBecauseFilled={visibility.VITALS.shownBecauseFilled}
             />
           ) : null}
+
+          {readOnly ? null : (
+            <M6AVoicePanel
+              values={s.values}
+              disabled={s.blocked}
+              onChange={s.setField}
+            />
+          )}
 
           <M2ClinicalNotes
             values={s.values}

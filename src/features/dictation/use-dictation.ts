@@ -5,8 +5,10 @@ import { dictationErrorMessage, type DictationState } from "./dictation";
 import {
   getVoiceTranscriptionProvider,
   type VoiceLatencySnapshot,
+  type VoiceTranscriptionProvider,
   type VoiceTranscriptionSession,
 } from "./provider";
+import { mockVoiceTranscriptionProvider } from "./mock-provider";
 import { sendVoiceUsageBeacon } from "./voice-usage";
 
 interface ActiveVoiceLease {
@@ -36,14 +38,8 @@ function providerUnavailable(code: string): boolean {
   return ["provider-unavailable", "TOKEN_CONFIG_MISSING", "TOKEN_GRANT_REJECTED"].includes(code);
 }
 
-/**
- * TRANSCRIPTION ORCHESTRATION, AND NOTHING ELSE.
- *
- * This hook receives text from the approved Deepgram transcription provider and
- * hands it back to the caller. It does not know a patient/encounter/prescription,
- * cannot save, add a medicine/investigation, finalize, print-confirm, or correct.
- * A module-level lease ensures only one DD voice run can own the microphone.
- */
+export type DictationProviderMode = "deepgram" | "mock";
+
 export interface Dictation {
   state: DictationState;
   transcript: string;
@@ -63,11 +59,16 @@ export function useDictation({
   onFinal,
   onCancel,
   language = "en-US",
+  providerMode = "deepgram",
+  providerOverride,
 }: {
   onPreview?: (transcript: string) => void;
   onFinal?: (transcript: string) => void;
   onCancel?: () => void;
   language?: string;
+  providerMode?: DictationProviderMode;
+  /** Test-only injection; production UI should select an approved mode. */
+  providerOverride?: VoiceTranscriptionProvider;
 } = {}): Dictation {
   const [rawState, setState] = React.useState<DictationState>("ready");
   const [transcript, setTranscript] = React.useState("");
@@ -75,7 +76,7 @@ export function useDictation({
   const [diagnosticCode, setDiagnosticCode] = React.useState<string | null>(null);
   const [latency, setLatency] = React.useState<VoiceLatencySnapshot>({});
 
-  const provider = getVoiceTranscriptionProvider("deepgram");
+  const provider = providerOverride ?? (providerMode === "mock" ? mockVoiceTranscriptionProvider : getVoiceTranscriptionProvider("deepgram"));
   const session = React.useRef<VoiceTranscriptionSession | null>(null);
   const activeRun = React.useRef(0);
   const owner = React.useRef(Symbol("voice-dictation-owner")).current;
@@ -175,11 +176,7 @@ export function useDictation({
           setState(providerUnavailable(code) ? "provider-unavailable" : "error");
         },
         onUsage(usage) {
-          // Accounting, not UI state, so deliberately NOT behind the stale-run
-          // guard: cancelling bumps the run before aborting, and a Discarded
-          // run's streamed audio must still be reported. The provider fires
-          // this at most once per session; the report carries no transcript.
-          sendVoiceUsageBeacon(usage);
+          if (providerMode === "deepgram") sendVoiceUsageBeacon(usage);
         },
         onEnd(said) {
           if (activeRun.current !== runId || ended) return;
@@ -191,6 +188,10 @@ export function useDictation({
           setDiagnosticCode(null);
           setState("ready");
           if (said !== "") onFinalRef.current?.(said);
+          else {
+            setError(dictationErrorMessage("no-speech"));
+            setState("error");
+          }
         },
       },
     });
@@ -214,7 +215,7 @@ export function useDictation({
         setState("error");
       }
     }
-  }, [cancelCurrent, language, owner, provider, releaseLease]);
+  }, [cancelCurrent, language, owner, provider, providerMode, releaseLease]);
 
   const stop = React.useCallback(() => {
     if (!session.current) return;

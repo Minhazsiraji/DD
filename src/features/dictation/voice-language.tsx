@@ -8,13 +8,10 @@ export interface DictationLanguageOption {
   providerLanguage: "en-US" | "bn";
 }
 
-/**
- * Deepgram Nova-3 is the only DD STT baseline in PA1-C1. The UI selects only
- * language; it does not expose a second transcription engine.
- */
 export const DICTATION_LANGUAGES: readonly DictationLanguageOption[] = [
   { label: "English", lang: "en-US", providerLanguage: "en-US" },
   { label: "বাংলা", lang: "bn-BD", providerLanguage: "bn" },
+  { label: "Bangla + English", lang: "bn-BD-mixed", providerLanguage: "bn" },
 ];
 
 export const DEFAULT_DICTATION_LANGUAGE = DICTATION_LANGUAGES[0]!.lang;
@@ -47,7 +44,6 @@ export function useVoiceLanguage() {
   return resolveDictationLanguage(activeLanguage);
 }
 
-/** Generic control only. PA1-C1 does not wire it into a clinical screen. */
 export function VoiceLanguageControl({ disabled = false }: { disabled?: boolean }) {
   const active = useVoiceLanguage();
 
@@ -60,14 +56,14 @@ export function VoiceLanguageControl({ disabled = false }: { disabled?: boolean 
           value={active.lang}
           disabled={disabled}
           onChange={(event) => setVoiceLanguage(event.target.value)}
-          className="min-w-0 max-w-32 bg-transparent font-semibold text-ink outline-none disabled:cursor-not-allowed disabled:opacity-55"
+          className="min-w-0 max-w-40 bg-transparent font-semibold text-ink outline-none disabled:cursor-not-allowed disabled:opacity-55"
         >
           {DICTATION_LANGUAGES.map((option) => (
             <option key={option.lang} value={option.lang}>{option.label}</option>
           ))}
         </select>
       </label>
-      <span className="text-[11px] font-medium text-ink-muted">Deepgram Nova-3</span>
+      <span className="text-[11px] font-medium text-ink-muted">M6A mock voice</span>
     </div>
   );
 }

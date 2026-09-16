@@ -1,0 +1,62 @@
+name: M6A Voice Dictation Qualification
+
+on:
+  push:
+    branches: [feat/m6a-voice-dictation]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  NEXT_PUBLIC_SUPABASE_URL: https://synthetic-m6a.supabase.co
+  NEXT_PUBLIC_SUPABASE_ANON_KEY: sb_publishable_m6a_synthetic_key_000000000000000000000
+  NEXT_PUBLIC_SITE_URL: http://localhost:3000
+  AI_MODE: mock
+  VOICE_MODE: mock
+  NOTIFICATION_MODE: mock
+  PAYMENT_MODE: mock
+
+jobs:
+  qualify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - name: Install exact lockfile
+        run: npm ci --ignore-scripts
+      - name: Exact M6A base ancestry
+        run: |
+          git merge-base --is-ancestor 28683b0d5f5c6e817769e6958bb14268c6a5ab1a HEAD
+          echo "M6A_BASE_AUTHORITY=PASS"
+      - name: Assert no migration delta
+        run: |
+          if git diff --name-only 28683b0d5f5c6e817769e6958bb14268c6a5ab1a...HEAD | grep -E '^(db/|supabase/migrations/)'; then
+            echo "M6A must not add or modify migrations" >&2
+            exit 1
+          fi
+          echo "M6A_NO_MIGRATION=PASS"
+      - name: Assert no live provider activation
+        run: |
+          test "$AI_MODE" = "mock"
+          test "$VOICE_MODE" = "mock"
+          ! git diff 28683b0d5f5c6e817769e6958bb14268c6a5ab1a...HEAD -- . | grep -E 'OPENAI_API_KEY|DEEPGRAM_API_KEY'
+          echo "M6A_MOCK_ONLY=PASS"
+      - name: Generate Next route types
+        run: npx next typegen
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Lint
+        run: npm run lint
+      - name: Focused M6A tests
+        run: npx vitest run src/features/dictation/m6a.test.ts src/features/dictation/dictation.test.ts src/features/dictation/deepgram-streaming.test.ts src/features/dictation/deepgram-security.test.ts
+      - name: Full repository tests
+        run: npm test
+      - name: Production-equivalent build
+        run: npm run build
