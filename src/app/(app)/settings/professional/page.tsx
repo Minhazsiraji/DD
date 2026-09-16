@@ -9,6 +9,7 @@ import {
   ProfileEditor,
   type EditableChamber,
 } from "@/features/doctor/components/profile-editor";
+import { PublicProfileControls } from "@/features/doctor/components/public-profile-controls";
 
 export const metadata: Metadata = { title: "Professional profile" };
 
@@ -65,8 +66,6 @@ export default async function ProfessionalProfilePage() {
       addressLine: [row?.address, row?.district].filter(Boolean).join(", ") || null,
       publicNote: saved?.publicNote ?? "",
       days: saved?.sessions.map((s) => s.weekday) ?? [],
-      // Sensible chamber hours to adjust, not to accept blindly — nothing is
-      // saved until the doctor presses Save on that chamber.
       startsAt: first?.startsAt ?? "18:00",
       endsAt: first?.endsAt ?? "21:00",
     };
@@ -84,9 +83,11 @@ export default async function ProfessionalProfilePage() {
 
       <PageHeader
         eyebrow="Professional profile"
-        title="How a patient would see you"
-        subtitle="Your photo, credentials and the hours you sit at each chamber. Private to you — nothing here is published."
+        title="Your professional profile"
+        subtitle="Edit what patients may see, preview it privately, then publish it intentionally when you are ready."
       />
+
+      <PublicProfileControls slug={profile.slug} visibility={profile.visibility} />
 
       <ProfileEditor profile={profile} chambers={chambers} />
     </div>
