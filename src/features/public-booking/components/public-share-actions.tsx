@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Check, Copy, Facebook, MessageCircle, Share2 } from "lucide-react";
+import { Check, Copy, MessageCircle, Share2 } from "lucide-react";
 
 interface Props {
   doctorName: string;
@@ -56,7 +56,7 @@ export function PublicShareActions({ doctorName }: Props) {
           <MessageCircle className="size-3.5" aria-hidden="true" /> WhatsApp
         </button>
         <button type="button" onClick={() => open("facebook")} className="inline-flex min-h-11 items-center gap-1.5 rounded-xl border border-hairline bg-white px-3.5 text-xs font-semibold text-ink hover:bg-surface-muted focus-visible:focus-ring">
-          <Facebook className="size-3.5" aria-hidden="true" /> Facebook
+          <Share2 className="size-3.5" aria-hidden="true" /> Facebook
         </button>
         <button type="button" onClick={() => void copy("Link copied — paste it into Messenger.")} className="inline-flex min-h-11 items-center gap-1.5 rounded-xl border border-hairline bg-white px-3.5 text-xs font-semibold text-ink hover:bg-surface-muted focus-visible:focus-ring">
           <MessageCircle className="size-3.5" aria-hidden="true" /> Messenger
