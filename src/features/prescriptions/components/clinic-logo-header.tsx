@@ -58,19 +58,17 @@ export function ClinicLogoHeader({
               style={{ gap: showLogo && h.clinicName ? u.mm(2) : 0 }}
             >
               {showLogo ? (
-                <span
+                // The clinic logo is a short-lived signed private-Storage URL.
+                // Use a real image element rather than CSS background-image so
+                // Review, finalized display and native A4 print all paint the
+                // exact attested asset without depending on "background graphics".
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
                   data-rx-clinic-logo-image
-                  role="img"
-                  aria-label={`${h.clinicName ?? "Clinic"} logo`}
-                  className="shrink-0"
-                  style={{
-                    width: u.mm(12),
-                    height: u.mm(12),
-                    backgroundImage: `url(${JSON.stringify(resolvedUrl).slice(1, -1)})`,
-                    backgroundPosition: "center",
-                    backgroundRepeat: "no-repeat",
-                    backgroundSize: "contain",
-                  }}
+                  src={resolvedUrl ?? undefined}
+                  alt={`${h.clinicName ?? "Clinic"} logo`}
+                  className="shrink-0 object-contain"
+                  style={{ width: u.mm(12), height: u.mm(12) }}
                 />
               ) : null}
               {h.clinicName ? (

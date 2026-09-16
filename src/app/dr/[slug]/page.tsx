@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import type { Metadata } from "next";
 import { MarketingShell } from "@/components/marketing/marketing-shell";
 import { PublicDoctorAvatar } from "@/features/public-booking/components/public-doctor-avatar";
+import { PublicShareActions } from "@/features/public-booking/components/public-share-actions";
 import {
   getPublicDoctor,
   getPublicDoctorPhotoUrl,
@@ -10,12 +11,40 @@ import {
 
 const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
+function canonicalProfileUrl(slug: string): URL | undefined {
+  const host = process.env.VERCEL_PROJECT_PRODUCTION_URL ?? process.env.VERCEL_URL;
+  if (!host) return undefined;
+  try {
+    return new URL(`/dr/${encodeURIComponent(slug)}`, `https://${host}`);
+  } catch {
+    return undefined;
+  }
+}
+
 export async function generateMetadata(props: PageProps<"/dr/[slug]">): Promise<Metadata> {
   const { slug } = await props.params;
   const doctor = await getPublicDoctor(slug);
+  if (!doctor) {
+    return { title: "Doctor Profile", robots: { index: false, follow: false } };
+  }
+
+  const canonical = canonicalProfileUrl(doctor.slug);
+  const photoUrl = await getPublicDoctorPhotoUrl(doctor.slug);
+  const descriptor = doctor.specialization ?? doctor.designation ?? doctor.qualification ?? "Doctor";
+  const description = `${doctor.fullName} · ${descriptor} · Professional profile on Doctor's Diary.`;
+
   return {
-    title: doctor ? `${doctor.fullName} · Doctor Profile` : "Doctor Profile",
-    robots: doctor ? undefined : { index: false, follow: false },
+    title: `${doctor.fullName} · Doctor Profile`,
+    description,
+    alternates: canonical ? { canonical } : undefined,
+    openGraph: {
+      title: `${doctor.fullName} · Doctor's Diary`,
+      description,
+      type: "profile",
+      url: canonical,
+      siteName: "Doctor's Diary",
+      images: photoUrl ? [{ url: photoUrl, alt: doctor.fullName }] : undefined,
+    },
   };
 }
 
@@ -24,9 +53,6 @@ export default async function PublicDoctorPage(props: PageProps<"/dr/[slug]">) {
   const doctor = await getPublicDoctor(slug);
   if (!doctor) notFound();
 
-  // Photo resolution is deliberately separate from the public profile RPC so
-  // no storage key becomes public Postgres data. Failure keeps the initials
-  // fallback instead of making the profile unavailable.
   const photoUrl = await getPublicDoctorPhotoUrl(slug);
 
   return (
@@ -38,7 +64,7 @@ export default async function PublicDoctorPage(props: PageProps<"/dr/[slug]">) {
 
             <div className="min-w-0 flex-1">
               <p className="text-xs font-semibold uppercase tracking-[0.14em] text-brand sm:text-sm sm:tracking-[0.16em]">
-                Professional profile
+                Professional profile · Doctor&apos;s Diary
               </p>
               <h1 className="mt-2 break-words text-3xl font-semibold tracking-tight sm:text-4xl">
                 {doctor.fullName}
@@ -54,11 +80,18 @@ export default async function PublicDoctorPage(props: PageProps<"/dr/[slug]">) {
                   <span className="sm:ml-1">(doctor-displayed; verification badge not implied)</span>
                 </p>
               )}
+              <PublicShareActions doctorName={doctor.fullName} />
             </div>
           </div>
         </div>
 
         <div className="mt-6 grid min-w-0 gap-5 sm:mt-8">
+          {doctor.chambers.length === 0 && (
+            <div className="rounded-3xl border border-hairline bg-white p-6 text-center text-sm text-ink-secondary">
+              Visiting information is not available yet.
+            </div>
+          )}
+
           {doctor.chambers.map((chamber) => (
             <article
               key={chamber.chamberId}
@@ -76,7 +109,7 @@ export default async function PublicDoctorPage(props: PageProps<"/dr/[slug]">) {
                     <p className="mt-2 break-words text-sm text-ink-muted">{chamber.publicNote}</p>
                   )}
 
-                  {chamber.sessions.length > 0 && (
+                  {chamber.sessions.length > 0 ? (
                     <div className="mt-5 grid min-w-0 gap-2 sm:grid-cols-2">
                       {chamber.sessions.map((s, i) => (
                         <div
@@ -88,6 +121,8 @@ export default async function PublicDoctorPage(props: PageProps<"/dr/[slug]">) {
                         </div>
                       ))}
                     </div>
+                  ) : (
+                    <p className="mt-4 text-sm text-ink-muted">Visiting hours are not available yet.</p>
                   )}
 
                   {chamber.consultationFee != null && (
@@ -97,18 +132,22 @@ export default async function PublicDoctorPage(props: PageProps<"/dr/[slug]">) {
                   )}
                 </div>
 
-                {chamber.bookingEnabled && (
-                  <div className="flex items-end md:min-w-36 md:justify-end">
+                <div className="flex items-end md:min-w-44 md:justify-end">
+                  {chamber.bookingEnabled ? (
                     <Link
                       data-public-chamber-booking-cta
                       data-booking-location={chamber.locationId}
                       href={`/dr/${encodeURIComponent(slug)}/book?loc=${encodeURIComponent(chamber.locationId)}`}
                       className="dd-primary inline-flex min-h-11 w-full items-center justify-center px-5 py-3 text-sm font-semibold focus-visible:focus-ring md:w-auto"
                     >
-                      Book Now
+                      Book appointment
                     </Link>
-                  </div>
-                )}
+                  ) : (
+                    <span className="inline-flex min-h-11 w-full items-center justify-center rounded-xl bg-surface-muted px-4 py-3 text-center text-xs font-medium text-ink-muted md:w-auto">
+                      Online booking unavailable
+                    </span>
+                  )}
+                </div>
               </div>
             </article>
           ))}

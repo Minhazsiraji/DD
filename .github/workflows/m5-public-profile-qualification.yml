@@ -1,0 +1,60 @@
+name: M5 Public Profile Qualification
+
+on:
+  push:
+    branches: [feat/m5-public-doctor-profile]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  NEXT_PUBLIC_SUPABASE_URL: https://synthetic-m5.supabase.co
+  NEXT_PUBLIC_SUPABASE_ANON_KEY: sb_publishable_m5_synthetic_key_000000000000000000000
+  NEXT_PUBLIC_SITE_URL: http://localhost:3000
+  AI_MODE: mock
+  NOTIFICATION_MODE: mock
+  PAYMENT_MODE: mock
+
+jobs:
+  qualify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install exact lockfile
+        run: npm ci --ignore-scripts
+
+      - name: Starting authority
+        run: |
+          git merge-base --is-ancestor e27b3f60ef413755eb35cee66423073cd7d86f2a HEAD
+          echo "M5_STARTING_AUTHORITY=PASS"
+
+      - name: Generate Next route types
+        run: npx next typegen
+
+      - name: Clean standalone typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Focused M5 public profile tests
+        run: npx vitest run src/features/public-booking/public-profile-ui.test.ts
+
+      - name: Affected public booking security regression
+        run: npx vitest run src/features/public-booking src/features/booking-settings
+
+      - name: Full repository tests
+        run: npm test
+
+      - name: Production-equivalent build
+        run: npm run build
