@@ -1,0 +1,54 @@
+name: P-R3 Promote Exact Validated Preview
+
+on:
+  push:
+    branches: [p-r3-cutover-runner]
+    paths: [.github/workflows/pr3-promote-exact.yml]
+
+permissions:
+  contents: read
+
+jobs:
+  promote:
+    runs-on: ubuntu-24.04
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_PROJECT_ID: prj_KqN9XUVjTAYBrnu7PkKMb9iLTLWE
+      VERCEL_TEAM_ID: team_t9Rz1iIa8Pyb5bZJqUIIoY2x
+      VERCEL_DEPLOYMENT_ID: dpl_H6mF9qysmE73A2xwYUFsy6gJsrYn
+      EXPECTED_SHA: e27b3f60ef413755eb35cee66423073cd7d86f2a
+    steps:
+      - name: Reconfirm exact artifact then promote through Vercel REST API
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$VERCEL_TOKEN"
+          auth=(-H "Authorization: Bearer $VERCEL_TOKEN")
+
+          code=$(curl -sS -o /tmp/deployment.json -w '%{http_code}' \
+            "https://api.vercel.com/v13/deployments/$VERCEL_DEPLOYMENT_ID?teamId=$VERCEL_TEAM_ID" \
+            "${auth[@]}")
+          test "$code" = "200"
+          node -e '
+            const fs=require("fs");
+            const d=JSON.parse(fs.readFileSync("/tmp/deployment.json","utf8"));
+            const projectId=d.projectId || d.project?.id;
+            if (d.id !== process.env.VERCEL_DEPLOYMENT_ID) throw new Error("deployment id mismatch");
+            if (projectId !== process.env.VERCEL_PROJECT_ID) throw new Error("project mismatch");
+            if ((d.name || d.project?.name) !== "dd") throw new Error("project name mismatch");
+            if (d.meta?.githubCommitSha !== process.env.EXPECTED_SHA) throw new Error("sha mismatch");
+            if (d.readyState !== "READY" && d.state !== "READY") throw new Error("deployment not READY");
+          '
+
+          promote_code=$(curl -sS -o /tmp/promote.json -w '%{http_code}' -X POST \
+            "https://api.vercel.com/v10/projects/$VERCEL_PROJECT_ID/promote/$VERCEL_DEPLOYMENT_ID?teamId=$VERCEL_TEAM_ID" \
+            "${auth[@]}" -H 'Content-Type: application/json')
+          case "$promote_code" in
+            200|201|202) ;;
+            *)
+              echo "PR3_PROMOTION=FAIL http=$promote_code" >&2
+              cat /tmp/promote.json >&2 || true
+              exit 1
+              ;;
+          esac
+          echo "PR3_PROMOTION=PASS deployment=$VERCEL_DEPLOYMENT_ID sha=$EXPECTED_SHA http=$promote_code"
