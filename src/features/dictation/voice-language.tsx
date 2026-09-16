@@ -63,7 +63,7 @@ export function VoiceLanguageControl({ disabled = false }: { disabled?: boolean 
           ))}
         </select>
       </label>
-      <span className="text-[11px] font-medium text-ink-muted">M6A mock voice</span>
+      <span className="text-[11px] font-medium text-ink-muted">Deepgram Nova-3 baseline · M6A mock mode</span>
     </div>
   );
 }
