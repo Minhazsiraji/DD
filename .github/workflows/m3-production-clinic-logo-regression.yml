@@ -1,0 +1,55 @@
+name: M3 Production Clinic Logo Regression
+
+on:
+  push:
+    branches:
+      - fix/m3-production-clinic-logo-regression
+
+permissions:
+  contents: read
+
+jobs:
+  qualify:
+    runs-on: ubuntu-24.04
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: https://synthetic-m3.supabase.co
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: sb_publishable_m3_synthetic_key_000000000000000000000
+      NEXT_PUBLIC_SITE_URL: http://localhost:3000
+      AI_MODE: mock
+      NOTIFICATION_MODE: mock
+      PAYMENT_MODE: mock
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - name: Install exact lockfile
+        run: npm ci --ignore-scripts
+      - name: Exact Production ancestry
+        run: |
+          git merge-base --is-ancestor e27b3f60ef413755eb35cee66423073cd7d86f2a HEAD
+          echo "M3_PRODUCTION_AUTHORITY=PASS"
+      - name: Generate Next route types
+        run: npx next typegen
+      - name: Clean standalone typecheck
+        run: npm run typecheck
+      - name: Lint
+        run: npm run lint
+      - name: Focused M3 clinic logo and immutable-asset tests
+        run: >-
+          npx vitest run
+          src/features/prescriptions/clinic-logo-binding.test.ts
+          src/features/prescriptions/clinic-logo-header-layout.test.ts
+          src/features/prescriptions/prescription-renderers.test.ts
+          src/features/prescriptions/storage-writes.test.ts
+          src/features/prescriptions/service-key-containment.test.ts
+          src/features/prescriptions/freeze.test.ts
+          src/features/prescriptions/print-media-regression.test.ts
+          src/features/prescriptions/prescription-paper-hierarchy.test.ts
+      - name: Full repository tests
+        run: npm test
+      - name: Production-equivalent build
+        run: npm run build
