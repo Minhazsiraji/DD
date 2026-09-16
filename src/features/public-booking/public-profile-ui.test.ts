@@ -87,6 +87,14 @@ describe("M5 publication, privacy and sharing boundary", () => {
     expect(controls).toContain("Unpublish");
   });
 
+  it("keeps professional editor wording aligned with the current publication state", () => {
+    const page = source("src/app/(app)/settings/professional/page.tsx");
+    expect(page).toContain('profile.visibility === "PUBLIC"');
+    expect(page).toContain("Public profile is live. Only supported public fields appear on your shared page.");
+    expect(page).toContain("Private to you. Nothing here is published or searchable.");
+    expect(page).toContain("data-m5-publication-copy");
+  });
+
   it("shares only the stable /dr slug route through supported browser/platform flows", () => {
     const controls = source("src/features/doctor/components/public-profile-controls.tsx");
     const publicShare = source("src/features/public-booking/components/public-share-actions.tsx");
