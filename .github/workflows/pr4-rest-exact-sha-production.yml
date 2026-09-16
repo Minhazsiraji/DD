@@ -1,0 +1,26 @@
+name: P-R4 REST Exact-SHA Production
+on:
+  push:
+    branches: [p-r3-cutover-runner]
+    paths: [.github/workflows/pr4-rest-exact-sha-production.yml]
+permissions:
+  contents: read
+jobs:
+  deploy:
+    runs-on: ubuntu-24.04
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      TEAM_ID: team_t9Rz1iIa8Pyb5bZJqUIIoY2x
+      EXPECTED_SHA: e27b3f60ef413755eb35cee66423073cd7d86f2a
+    steps:
+      - name: Create production deployment from exact Git SHA
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > /tmp/body.json <<'JSON'
+          {"name":"dd","project":"prj_KqN9XUVjTAYBrnu7PkKMb9iLTLWE","target":"production","gitSource":{"type":"github","org":"Minhazsiraji","repo":"DD","ref":"integration/p-c2-recomposed","sha":"e27b3f60ef413755eb35cee66423073cd7d86f2a"}}
+          JSON
+          code=$(curl -sS -o /tmp/out.json -w '%{http_code}' -X POST "https://api.vercel.com/v13/deployments?teamId=$TEAM_ID&forceNew=1" -H "Authorization: Bearer $VERCEL_TOKEN" -H 'Content-Type: application/json' --data-binary @/tmp/body.json)
+          cat /tmp/out.json
+          test "$code" = "200" -o "$code" = "201"
+          node -e 'const d=require("/tmp/out.json"); if(!d.id) throw Error("missing deployment id"); console.log(`PR4_DEPLOYMENT_ID=${d.id}`); console.log(`PR4_DEPLOYMENT_URL=${d.url}`); console.log(`PR4_TARGET=${d.target}`);'
