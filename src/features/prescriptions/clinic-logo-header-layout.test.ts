@@ -19,17 +19,19 @@ describe("M3 final clinic logo header visual contract", () => {
     );
   });
 
-  it("preserves the logo aspect ratio and fixed visual box", () => {
+  it("renders the attested clinic asset as a real printable image", () => {
+    expect(headerSource).toContain("<img");
+    expect(headerSource).toContain("data-rx-clinic-logo-image");
+    expect(headerSource).toContain("src={resolvedUrl ?? undefined}");
+    expect(headerSource).toContain('className="shrink-0 object-contain"');
     expect(headerSource).toContain("width: u.mm(12)");
     expect(headerSource).toContain("height: u.mm(12)");
-    expect(headerSource).toContain('backgroundSize: "contain"');
-    expect(headerSource).toContain('backgroundPosition: "center"');
-    expect(headerSource).toContain('backgroundRepeat: "no-repeat"');
+    expect(headerSource).not.toContain("backgroundImage");
+    expect(headerSource).not.toContain("backgroundSize");
   });
 
   it("does not reserve an empty logo slot when the clinic has no logo", () => {
     expect(headerSource).not.toContain('data-rx-clinic-logo-slot="reserved"');
-    expect(headerSource).not.toContain('aria-hidden="true"');
     expect(headerSource).toContain("{showLogo ? (");
     expect(headerSource).toContain(") : null}");
   });
@@ -47,7 +49,7 @@ describe("M3 final clinic logo header visual contract", () => {
 
   it("keeps long clinic names attached to the logo without forcing the logo to shrink", () => {
     expect(headerSource).toContain("flex-nowrap");
-    expect(headerSource).toContain('className="shrink-0"');
+    expect(headerSource).toContain('className="shrink-0 object-contain"');
     expect(headerSource).toContain('className="min-w-0 font-semibold"');
   });
 });
