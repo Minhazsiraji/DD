@@ -215,7 +215,7 @@ export function GlobalPatientFinder() {
         type="button"
         onClick={openMobileFinder}
         aria-label="Find patient"
-        className="dd-icon-btn inline-flex size-10 shrink-0 items-center justify-center rounded-xl border border-hairline bg-white/80 text-ink-secondary focus-visible:focus-ring sm:hidden"
+        className="dd-icon-btn inline-flex size-10 max-sm:size-11 shrink-0 items-center justify-center rounded-xl border border-hairline bg-white/80 text-ink-secondary focus-visible:focus-ring sm:hidden"
       >
         <Search className="size-4" aria-hidden="true" />
       </button>

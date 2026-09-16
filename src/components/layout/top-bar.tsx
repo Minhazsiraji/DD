@@ -29,7 +29,7 @@ export function TopBar({ doctorNamePromise, fallbackDoctorName, locations, activ
         {/* Brand — mobile only; the sidebar carries it from lg up. */}
         <Link
           href="/dashboard"
-          className="flex shrink-0 items-center gap-2 rounded-lg lg:hidden focus-visible:focus-ring"
+          className="flex shrink-0 items-center gap-2 rounded-lg max-sm:min-h-11 max-sm:min-w-11 max-sm:justify-center lg:hidden focus-visible:focus-ring"
         >
           <BrandMark className="h-8 w-10" />
           <span className="sr-only">Doctor&apos;s Diary — Dashboard</span>
@@ -72,7 +72,7 @@ export function TopBar({ doctorNamePromise, fallbackDoctorName, locations, activ
               type="submit"
               aria-label="Sign out"
               title="Sign out"
-              className="flex size-10 items-center justify-center rounded-xl text-ink-secondary transition-colors hover:bg-white/70 hover:text-ink focus-visible:focus-ring sm:size-9"
+              className="flex size-10 max-sm:size-11 items-center justify-center rounded-xl text-ink-secondary transition-colors hover:bg-white/70 hover:text-ink focus-visible:focus-ring sm:size-9"
             >
               <LogOut className="size-4" aria-hidden="true" />
             </button>

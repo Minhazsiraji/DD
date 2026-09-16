@@ -116,7 +116,7 @@ export function LocationSwitcher({
             disabled={pending}
             aria-label={`Location: ${active.name}. Change location.`}
             className={cn(
-              "inline-flex h-10 max-w-[240px] items-center gap-2 rounded-xl border border-hairline bg-white/80 px-2.5 text-left transition-colors hover:bg-white disabled:opacity-60 focus-visible:focus-ring",
+              "inline-flex h-10 max-w-[240px] max-sm:h-11 max-sm:min-w-11 items-center gap-2 rounded-xl border border-hairline bg-white/80 px-2.5 text-left transition-colors hover:bg-white disabled:opacity-60 focus-visible:focus-ring",
               className,
             )}
           />

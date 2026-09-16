@@ -112,4 +112,14 @@ describe("Top Bar identity treatment", () => {
     expect(topbar).toContain("justify-items-center");
     expect(topbar).toContain("contents sm:flex");
   });
+
+  it("keeps every interactive mobile top-bar target at least 44px without changing sm+ sizing", () => {
+    const topbar = readFileSync(path.resolve("src/components/layout/top-bar.tsx"), "utf8");
+    const switcher = readFileSync(path.resolve("src/components/layout/location-switcher.tsx"), "utf8");
+    const finder = readFileSync(path.resolve("src/features/patients/components/global-patient-finder.tsx"), "utf8");
+    expect(topbar).toContain("max-sm:min-h-11 max-sm:min-w-11");
+    expect(topbar).toContain("size-10 max-sm:size-11");
+    expect(switcher).toContain("h-10 max-w-[240px] max-sm:h-11 max-sm:min-w-11");
+    expect(finder).toContain("size-10 max-sm:size-11");
+  });
 });
