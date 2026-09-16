@@ -1,0 +1,15 @@
+name: P-R4 Vercel CLI Promote
+on:
+  push:
+    branches: [p-r3-cutover-runner]
+    paths: [.github/workflows/pr4-vercel-cli-promote.yml]
+permissions:
+  contents: read
+jobs:
+  promote:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Promote exact validated preview
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: npx --yes vercel@latest promote https://dd-8gqbkkoaa-minhazs-projects-d28f7aed.vercel.app --yes --scope minhazs-projects-d28f7aed --token "$VERCEL_TOKEN"
