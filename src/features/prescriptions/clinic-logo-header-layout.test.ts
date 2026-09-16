@@ -5,6 +5,14 @@ const headerSource = readFileSync(
   "src/features/prescriptions/components/clinic-logo-header.tsx",
   "utf8",
 );
+const reviewSheetSource = readFileSync(
+  "src/features/prescriptions/components/review-sheet.tsx",
+  "utf8",
+);
+const printSheetSource = readFileSync(
+  "src/features/prescriptions/components/print-sheet.tsx",
+  "utf8",
+);
 
 describe("M3 final clinic logo header visual contract", () => {
   it("pairs the logo immediately with the chamber name on one centered row", () => {
@@ -28,6 +36,12 @@ describe("M3 final clinic logo header visual contract", () => {
     expect(headerSource).toContain("height: u.mm(12)");
     expect(headerSource).not.toContain("backgroundImage");
     expect(headerSource).not.toContain("backgroundSize");
+  });
+
+  it("uses the same corrected document renderer for review and native print", () => {
+    expect(reviewSheetSource).toContain("<PrescriptionDocument");
+    expect(printSheetSource).toContain("<PrescriptionDocument");
+    expect(printSheetSource).toContain("data-print-root");
   });
 
   it("does not reserve an empty logo slot when the clinic has no logo", () => {
