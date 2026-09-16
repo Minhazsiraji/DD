@@ -1,0 +1,25 @@
+name: P-R3 Vercel Promotion Preflight
+
+on:
+  push:
+    branches: [p-r3-cutover-runner]
+
+permissions:
+  contents: read
+
+jobs:
+  preflight:
+    runs-on: ubuntu-24.04
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+    steps:
+      - name: Verify exact release artifact and promotion credential
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$VERCEL_TOKEN"
+          npm install --global vercel
+          vercel whoami --token="$VERCEL_TOKEN"
+          vercel inspect https://dd-8gqbkkoaa-minhazs-projects-d28f7aed.vercel.app --scope=minhazs-projects-d28f7aed --token="$VERCEL_TOKEN" >/tmp/inspect.txt
+          grep -F 'e27b3f60ef413755eb35cee66423073cd7d86f2a' /tmp/inspect.txt || grep -F 'e27b3f6' /tmp/inspect.txt
+          echo PR3_PROMOTION_PREFLIGHT=PASS
