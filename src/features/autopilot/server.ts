@@ -92,6 +92,13 @@ export async function generateAutopilotPrescriptionProposalAction(
       practiceLocationId: prescription.practiceLocationId,
       status: "DRAFT",
       version: prescription.version,
+      items: prescription.items.map((item) => ({
+        id: item.id, displayName: item.display_name, brandName: item.brand_name,
+        genericName: item.generic_name, strengthText: item.strength_text, doseText: item.dose_text,
+        dosageForm: item.dosage_form, route: item.route, scheduleText: item.schedule_text,
+        durationText: item.duration_text, quantityText: item.quantity_text, foodRelation: item.food_relation,
+        instructions: item.instructions, isPrn: item.is_prn, substitutionAllowed: item.substitution_allowed,
+      })),
     };
   }
 
