@@ -50,6 +50,7 @@ export const autopilotPrescriptionSchema = z.object({
   warnings: z.array(z.string().min(1).max(500)).max(100),
   uncertainties: z.array(z.string().min(1).max(500)).max(100),
   context: z.object({
+    doctorId: z.uuid(),
     encounterId: z.uuid(),
     patientId: z.uuid(),
     practiceLocationId: z.uuid(),
@@ -60,6 +61,24 @@ export const autopilotPrescriptionSchema = z.object({
 }).strict();
 
 export type AutopilotPrescription = z.infer<typeof autopilotPrescriptionSchema>;
+
+const draftMedicineItemSchema = z.object({
+  id: z.uuid(),
+  displayName: z.string().min(1).max(2000),
+  brandName: z.string().max(2000).nullable(),
+  genericName: z.string().max(2000).nullable(),
+  strengthText: z.string().max(2000).nullable(),
+  doseText: z.string().max(2000).nullable(),
+  dosageForm: z.string().max(2000).nullable(),
+  route: z.string().max(2000).nullable(),
+  scheduleText: z.string().max(2000).nullable(),
+  durationText: z.string().max(2000).nullable(),
+  quantityText: z.string().max(2000).nullable(),
+  foodRelation: z.string().max(2000).nullable(),
+  instructions: z.string().max(2000).nullable(),
+  isPrn: z.boolean(),
+  substitutionAllowed: z.boolean(),
+}).strict();
 
 export const boundAutopilotContextSchema = z.object({
   actor: z.object({ userId: z.uuid() }).strict(),
@@ -82,6 +101,7 @@ export const boundAutopilotContextSchema = z.object({
     practiceLocationId: z.uuid(),
     status: z.literal("DRAFT"),
     version: z.number().int().positive(),
+    items: z.array(draftMedicineItemSchema).max(100),
   }).strict().nullable(),
   medicineReferences: z.array(z.object({
     id: z.uuid(),
