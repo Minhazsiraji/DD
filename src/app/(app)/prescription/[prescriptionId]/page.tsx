@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 import { ArrowLeft, CloudOff, Lock } from "lucide-react";
 import { requireLocationContext } from "@/lib/auth/session";
 import { safeConsultationReturn } from "@/features/encounters/return-context";
+import { getConsultation } from "@/features/encounters/queries";
 import {
   getFinalizedPrescription,
   getPrescription,
@@ -94,6 +95,9 @@ export default async function PrescriptionPage({
 
   if (!outcome.ok) notFound();
 
+  const consultationOutcome = await getConsultation(outcome.prescription.encounterId, ctx.locationId);
+  const encounterVersion = consultationOutcome.ok ? consultationOutcome.consultation.version : null;
+
   const backHref = returnTo ?? `/consultation/${outcome.prescription.encounterId}`;
   const backLabel = returnTo ? "Return to current consultation" : "Back to the consultation";
 
@@ -107,7 +111,7 @@ export default async function PrescriptionPage({
         {backLabel}
       </Link>
 
-      <PrescriptionComposer prescription={outcome.prescription} locationName={ctx.locationName} m6bMedicine={m6bMedicine} />
+      <PrescriptionComposer key={`${outcome.prescription.id}:${outcome.prescription.version}`} prescription={outcome.prescription} locationName={ctx.locationName} encounterVersion={encounterVersion} m6bMedicine={m6bMedicine} />
     </div>
   );
 }

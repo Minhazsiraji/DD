@@ -23,6 +23,7 @@ import { MedicineForm } from "./medicine-form";
 import { MedicineList } from "./medicine-list";
 import { PrescriptionReuse } from "./prescription-reuse";
 import { SignedMedicineHistory } from "./signed-medicine-history";
+import { M6C2AutopilotPanel } from "@/features/autopilot/components/m6c2-autopilot-panel";
 
 /**
  * The prescription composer — a DRAFT workflow.
@@ -39,10 +40,12 @@ import { SignedMedicineHistory } from "./signed-medicine-history";
 export function PrescriptionComposer({
   prescription,
   locationName,
+  encounterVersion,
   m6bMedicine = null,
 }: {
   prescription: PrescriptionDetail;
   locationName: string;
+  encounterVersion: number | null;
   m6bMedicine?: string | null;
 }) {
   const readOnly = prescription.status !== "DRAFT";
@@ -155,6 +158,16 @@ export function PrescriptionComposer({
             Dismiss
           </button>
         </p>
+      ) : null}
+
+      {!readOnly && encounterVersion !== null ? (
+        <M6C2AutopilotPanel
+          encounterId={prescription.encounterId}
+          encounterVersion={encounterVersion}
+          prescriptionId={prescription.id}
+          prescriptionVersion={rx.version}
+          disabled={rx.blocked || rx.editor !== null}
+        />
       ) : null}
 
       {/*
