@@ -58,6 +58,7 @@ export async function generateAutopilotPrescription(
 
   const proposal = parsedProposal.data;
   if (
+    proposal.context.doctorId !== context.doctor.doctorId ||
     proposal.context.encounterId !== context.encounter.encounterId ||
     proposal.context.patientId !== context.patient.patientId ||
     proposal.context.practiceLocationId !== context.practice.locationId ||
