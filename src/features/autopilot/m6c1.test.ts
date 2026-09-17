@@ -29,31 +29,14 @@ function context(overrides: Partial<BoundAutopilotContext> = {}): BoundAutopilot
       version: 3,
       consultationText: { advice: "Rest and hydrate", nextVisitOn: "2026-09-25" },
       investigations: [{ id: ids.investigation, name: "CBC", note: "Synthetic only" }],
-    },
-    draft: {
+    },    draft: {
       prescriptionId: ids.draft,
       encounterId: ids.encounter,
       patientId: ids.patient,
       practiceLocationId: ids.location,
       status: "DRAFT",
       version: 7,
-      items: [{
-        id: ids.medicine,
-        displayName: "SyntheticMed",
-        brandName: "SyntheticMed",
-        genericName: "Synthetic Generic",
-        strengthText: "10 mg",
-        doseText: null,
-        dosageForm: "Tablet",
-        route: null,
-        scheduleText: null,
-        durationText: null,
-        quantityText: null,
-        foodRelation: null,
-        instructions: null,
-        isPrn: false,
-        substitutionAllowed: true,
-      }],
+      items: [{ id: ids.medicine, displayName: "SyntheticMed", brandName: "SyntheticMed", genericName: "Synthetic Generic", strengthText: "10 mg", doseText: null, dosageForm: "Tablet", route: null, scheduleText: null, durationText: null, quantityText: null, foodRelation: null, instructions: null, isPrn: false, substitutionAllowed: true }],
     },
     medicineReferences: [{
       id: ids.medicine,
@@ -79,8 +62,7 @@ function proposalFor(ctx: BoundAutopilotContext): AutopilotPrescription {
       doctorId: ctx.doctor.doctorId,
       encounterId: ctx.encounter.encounterId,
       patientId: ctx.patient.patientId,
-      practiceLocationId: ctx.practice.locationId,
-      prescriptionId: ctx.draft?.prescriptionId ?? null,
+      practiceLocationId: ctx.practice.locationId,      prescriptionId: ctx.draft?.prescriptionId ?? null,
       encounterVersion: ctx.encounter.version,
       prescriptionVersion: ctx.draft?.version ?? null,
     },
@@ -97,10 +79,16 @@ describe("M6C1 Autopilot prescription engine", () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.proposal.type).toBe("AUTOPILOT_PRESCRIPTION");
-    expect(result.proposal.medicines[0]?.displayName).toBe("SyntheticMed");
-    expect(result.proposal.investigations[0]?.name).toBe("CBC");
+    expect(result.proposal.investigations).toEqual([]);
     expect(result.proposal.advice[0]?.text).toBe("Rest and hydrate");
     expect(result.proposal.followUp.date).toBe("2026-09-25");
+  });
+
+  it("does not infer new investigation necessity from existing encounter investigation rows", async () => {
+    const result = await generateAutopilotPrescription(context(), new MockAutopilotProvider());
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.proposal.investigations).toEqual([]);
   });
 
   it("turns incomplete consultation context into structured uncertainty", async () => {
@@ -113,7 +101,6 @@ describe("M6C1 Autopilot prescription engine", () => {
     expect(result.proposal.status).toBe("NEEDS_REVIEW");
     expect(result.proposal.uncertainties.length).toBeGreaterThan(0);
   });
-
   it("keeps ambiguous medicine data in needs-review state", async () => {
     const ctx = context();
     const value = proposalFor(ctx);
@@ -145,8 +132,7 @@ describe("M6C1 Autopilot prescription engine", () => {
 
   it("does not invent missing dose, frequency, route, or duration", async () => {
     const ctx = context();
-    const value = proposalFor(ctx);
-    value.medicines = [{
+    const value = proposalFor(ctx);    value.medicines = [{
       medicineReferenceId: ids.medicine,
       displayName: "SyntheticMed",
       brandName: "SyntheticMed",
@@ -178,8 +164,7 @@ describe("M6C1 Autopilot prescription engine", () => {
   it("rejects wrong patient and encounter binding before provider generation", async () => {
     const ctx = context({ encounter: { ...context().encounter, patientId: ids.doctor } });
     const provider = providerReturning(proposalFor(context()));
-    const result = await generateAutopilotPrescription(ctx, provider);
-    expect(result).toMatchObject({ ok: false, reason: "binding-rejected" });
+    const result = await generateAutopilotPrescription(ctx, provider);    expect(result).toMatchObject({ ok: false, reason: "binding-rejected" });
     expect(provider.generate).not.toHaveBeenCalled();
   });
 
@@ -211,8 +196,7 @@ describe("M6C1 Autopilot prescription engine", () => {
   it("fails closed on malformed provider output and unknown fields", async () => {
     const ctx = context();
     expect(await generateAutopilotPrescription(ctx, providerReturning({ nope: true })))
-      .toMatchObject({ ok: false, reason: "malformed-provider-output" });
-    const withUnknown = { ...proposalFor(ctx), secretWrite: true };
+      .toMatchObject({ ok: false, reason: "malformed-provider-output" });    const withUnknown = { ...proposalFor(ctx), secretWrite: true };
     expect(await generateAutopilotPrescription(ctx, providerReturning(withUnknown)))
       .toMatchObject({ ok: false, reason: "malformed-provider-output" });
   });
