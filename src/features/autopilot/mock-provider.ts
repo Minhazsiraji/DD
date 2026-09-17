@@ -33,12 +33,27 @@ export class MockAutopilotProvider implements AutopilotProvider {
 
     if (!hasClinicalText) uncertainties.push("Consultation context is incomplete; clinical proposals require doctor review.");
     if (!followUp.date && !followUp.note) uncertainties.push("No explicit follow-up plan is present in the consultation context.");
+    const medicines = (context.draft?.items ?? []).map((item) => {
+      const needsReview: string[] = [];
+      if (!item.doseText) needsReview.push("Dose is not explicit in the current draft.");
+      if (!item.scheduleText) needsReview.push("Frequency/schedule is not explicit in the current draft.");
+      if (!item.route) needsReview.push("Route is not explicit in the current draft.");
+      if (!item.durationText) needsReview.push("Duration is not explicit in the current draft.");
+      return {
+        medicineReferenceId: null, displayName: item.displayName, brandName: item.brandName, genericName: item.genericName,
+        strengthText: item.strengthText, doseText: item.doseText, dosageForm: item.dosageForm, route: item.route,
+        scheduleText: item.scheduleText, durationText: item.durationText, quantityText: item.quantityText,
+        foodRelation: item.foodRelation, instructions: item.instructions, isPrn: item.isPrn,
+        substitutionAllowed: item.substitutionAllowed, needsReview, sourceRefs: [{ kind: "draft" as const, ref: item.id }],
+      };
+    });
+    if (medicines.some((item) => item.needsReview.length > 0)) uncertainties.push("One or more current draft medicines have missing explicit directions.");
 
     return {
       type: "AUTOPILOT_PRESCRIPTION",
       schemaVersion: 1,
       status: uncertainties.length ? "NEEDS_REVIEW" : "PROPOSAL",
-      medicines: [],
+      medicines,
       investigations: context.encounter.investigations.map((investigation) => ({
         name: investigation.name || null,
         note: investigation.note,
@@ -60,6 +75,7 @@ export class MockAutopilotProvider implements AutopilotProvider {
       warnings: [],
       uncertainties,
       context: {
+        doctorId: context.doctor.doctorId,
         encounterId: context.encounter.encounterId,
         patientId: context.patient.patientId,
         practiceLocationId: context.practice.locationId,
