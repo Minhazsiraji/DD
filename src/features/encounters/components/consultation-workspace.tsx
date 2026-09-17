@@ -1,18 +1,21 @@
 "use client";
 
 import * as React from "react";
+import { useRouter } from "next/navigation";
 import { CloudAlert, Info, Lock, RefreshCw, Stethoscope } from "lucide-react";
 import { ConsultationIdentity } from "./consultation-identity";
 import { ConsultationAutosave } from "./consultation-autosave";
 import { M2ClinicalNotes } from "./m2-clinical-notes";
 import { M2VitalFields } from "./m2-vital-fields";
 import { M6AVoicePanel } from "./m6a-voice-panel";
+import { M6BVoiceCommands } from "@/features/dictation/components/m6b-voice-commands";
+import type { M6BIntent, M6BNavigationTarget } from "@/features/dictation/m6b-command-parser";
 import { FastEntry } from "./fast-entry";
 import { NextVisitFields } from "./next-visit-fields";
 import { InvestigationPanel } from "./investigation-panel";
 import { resolveVisibility } from "../module-visibility";
 import type { RxModuleSetting } from "@/features/doctor/rx-modules";
-import type { FollowUpShortcut } from "../follow-up-dates";
+import { addCalendarDays, type FollowUpShortcut } from "../follow-up-dates";
 import { ConflictPanel } from "./conflict-panel";
 import { FindingConflictPanel } from "./finding-conflict-panel";
 import { SaveBar } from "./save-bar";
@@ -20,6 +23,8 @@ import { UnsavedGuard } from "./unsaved-guard";
 import { FindingList } from "./finding-list";
 import { PreviousVisitCard } from "./previous-visit-card";
 import { OpenPrescriptionButton } from "@/features/prescriptions/components/open-prescription-button";
+import { openPrescriptionAction } from "@/features/prescriptions/actions";
+import { requestGuardedNavigation } from "./unsaved-guard";
 import { FinishConsultation } from "./finish-consultation";
 import { useConsultation } from "../use-consultation";
 import {
@@ -30,10 +35,7 @@ import {
 import { noteInstruction } from "../list-schema";
 import { DESYNC_TITLE } from "../version-contract";
 import type { FindingRow } from "../finding-types";
-import type {
-  LocalStagedInvestigation,
-  PendingInvestigationConfirmation,
-} from "../investigation-v1-ui";
+import { addStagedInvestigation, type LocalStagedInvestigation, type PendingInvestigationConfirmation } from "../investigation-v1-ui";
 import type { Consultation } from "../queries";
 import type { PreviousVisit } from "../previous-visit";
 
@@ -52,6 +54,7 @@ export function ConsultationWorkspace({
   moduleConfig: RxModuleSetting[] | null;
   followUpShortcuts: FollowUpShortcut[];
 }) {
+  const router = useRouter();
   const s = useConsultation(consultation);
   const readOnly = consultation.status !== "DRAFT";
   const [stagedInvestigations, setStagedInvestigations] = React.useState<LocalStagedInvestigation[]>([]);
@@ -133,6 +136,54 @@ export function ConsultationWorkspace({
         rowId: row.id,
       }),
     );
+  }
+
+  function scrollTo(id: string) {
+    const element = document.getElementById(id);
+    element?.scrollIntoView({ behavior: "smooth", block: "center" });
+    if (element instanceof HTMLElement) element.focus({ preventScroll: true });
+  }
+
+  async function openRx(review: boolean, medicine?: Extract<M6BIntent, { type: "PROPOSE_MEDICINE" }>) {
+    const result = await openPrescriptionAction({ encounterId: consultation.id });
+    if (!result.ok) return;
+    const returnTo = `/consultation/${consultation.id}`;
+    const proposal = medicine ? `&m6bMedicine=${encodeURIComponent(JSON.stringify(medicine.medicine))}` : "";
+    const path = review
+      ? `/prescription/${result.prescriptionId}/review?returnTo=${encodeURIComponent(returnTo)}`
+      : `/prescription/${result.prescriptionId}?returnTo=${encodeURIComponent(returnTo)}${proposal}`;
+    requestGuardedNavigation(() => router.push(path));
+  }
+
+  async function handleM6BNavigation(target: M6BNavigationTarget) {
+    if (target === "prescription") return openRx(false);
+    if (target === "prescription-review") return openRx(true);
+    if (target === "investigations") return scrollTo("m6b-investigations");
+    if (target === "previous-history") return scrollTo("m6b-previous-history");
+    const ids = {
+      "chief-complaint": "chiefComplaints", history: "presentIllness", examination: "examination",
+      assessment: "assessment", advice: "advice", "follow-up": "nextVisitNote",
+    } as const;
+    scrollTo(ids[target]);
+  }
+
+  function applyM6BInvestigations(names: string[]) {
+    let rows = stagedInvestigations;
+    for (const name of names) rows = addStagedInvestigation(rows, { name, note: null }, crypto.randomUUID()).rows;
+    setStagedInvestigations(rows);
+  }
+
+  function applyM6BFollowUp(days: number) {
+    const exactShortcut = days === 1 ? "Tomorrow" : days === 3 ? "3 days" : days === 7 ? "1 week" : days === 14 ? "2 weeks" : null;
+    const shortcut = exactShortcut ? followUpShortcuts.find((item) => item.label === exactShortcut) : null;
+    if (shortcut) {
+      s.setField("nextVisitOn", shortcut.date);
+      return;
+    }
+    const tomorrow = followUpShortcuts.find((item) => item.label === "Tomorrow");
+    const today = tomorrow ? addCalendarDays(tomorrow.date, -1) : null;
+    const date = today ? addCalendarDays(today, days) : null;
+    if (date) s.setField("nextVisitOn", date);
   }
 
   return (
@@ -224,7 +275,7 @@ export function ConsultationWorkspace({
 
       <div className="grid min-w-0 gap-4 xl:grid-cols-[minmax(0,1fr)_340px] xl:items-start">
         {previousVisit ? (
-          <aside className="order-1 min-w-0 xl:order-2 xl:sticky xl:top-[188px]">
+          <aside id="m6b-previous-history" tabIndex={-1} className="order-1 min-w-0 xl:order-2 xl:sticky xl:top-[188px]">
             <PreviousVisitCard visit={previousVisit} expandedByDefault={expandPreviousVisit} />
           </aside>
         ) : null}
@@ -247,6 +298,16 @@ export function ConsultationWorkspace({
               values={s.values}
               disabled={s.blocked}
               onChange={s.setField}
+            />
+          )}
+
+          {readOnly ? null : (
+            <M6BVoiceCommands
+              disabled={s.blocked || investigationUnknown !== null}
+              onNavigate={handleM6BNavigation}
+              onApplyMedicine={(intent) => openRx(false, intent)}
+              onApplyInvestigations={applyM6BInvestigations}
+              onApplyFollowUp={applyM6BFollowUp}
             />
           )}
 
@@ -286,6 +347,7 @@ export function ConsultationWorkspace({
           ) : null}
 
           {visibility.INVESTIGATIONS.visible ? (
+            <div id="m6b-investigations" tabIndex={-1}>
             <InvestigationPanel
               title="Investigation orders"
               encounterId={consultation.id}
@@ -305,6 +367,7 @@ export function ConsultationWorkspace({
               onActionErrorChange={setInvestigationActionError}
               shownBecauseFilled={visibility.INVESTIGATIONS.shownBecauseFilled}
             />
+            </div>
           ) : null}
 
           {visibility.NEXT_VISIT.visible ? (

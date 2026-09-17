@@ -18,6 +18,7 @@ import {
   RX_TITLE_UNKNOWN,
 } from "../errors";
 import type { PrescriptionDetail } from "../queries";
+import { emptyMedicine } from "../schema";
 import { MedicineForm } from "./medicine-form";
 import { MedicineList } from "./medicine-list";
 import { PrescriptionReuse } from "./prescription-reuse";
@@ -38,9 +39,11 @@ import { SignedMedicineHistory } from "./signed-medicine-history";
 export function PrescriptionComposer({
   prescription,
   locationName,
+  m6bMedicine = null,
 }: {
   prescription: PrescriptionDetail;
   locationName: string;
+  m6bMedicine?: string | null;
 }) {
   const readOnly = prescription.status !== "DRAFT";
   const rx = usePrescription(
@@ -53,6 +56,22 @@ export function PrescriptionComposer({
   const status = describe(rx.state, rx.busy, readOnly);
   const panel = recoveryPanel(rx.state);
   const acceleratorDisabled = rx.blocked || rx.editor !== null;
+  const m6bProposalApplied = React.useRef(false);
+
+  React.useEffect(() => {
+    if (readOnly || !m6bMedicine || m6bProposalApplied.current || rx.editor !== null) return;
+    try {
+      const parsed = JSON.parse(m6bMedicine) as { name?: unknown; strengthText?: unknown };
+      if (typeof parsed.name !== "string" || !parsed.name.trim()) return;
+      const draft = emptyMedicine();
+      draft.displayName = parsed.name.trim();
+      draft.strengthText = typeof parsed.strengthText === "string" ? parsed.strengthText.trim() : "";
+      rx.proposeMedicine(draft);
+      m6bProposalApplied.current = true;
+    } catch {
+      // Invalid/foreign query data is ignored; it can never become a clinical write.
+    }
+  }, [m6bMedicine, readOnly, rx]);
 
   return (
     <div className="space-y-4 pb-2">

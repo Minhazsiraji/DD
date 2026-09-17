@@ -23,6 +23,7 @@ export default async function PrescriptionPage({
   const { prescriptionId } = await params;
   const query = await searchParams;
   const returnTo = safeConsultationReturn(query.returnTo);
+  const m6bMedicine = typeof query.m6bMedicine === "string" ? query.m6bMedicine : null;
   const ctx = await requireLocationContext();
 
   const finalized = await getFinalizedPrescription(prescriptionId, ctx.locationId);
@@ -106,7 +107,7 @@ export default async function PrescriptionPage({
         {backLabel}
       </Link>
 
-      <PrescriptionComposer prescription={outcome.prescription} locationName={ctx.locationName} />
+      <PrescriptionComposer prescription={outcome.prescription} locationName={ctx.locationName} m6bMedicine={m6bMedicine} />
     </div>
   );
 }
