@@ -54,12 +54,9 @@ export class MockAutopilotProvider implements AutopilotProvider {
       schemaVersion: 1,
       status: uncertainties.length ? "NEEDS_REVIEW" : "PROPOSAL",
       medicines,
-      investigations: context.encounter.investigations.map((investigation) => ({
-        name: investigation.name || null,
-        note: investigation.note,
-        needsReview: [],
-        sourceRefs: [{ kind: "investigation", ref: investigation.id }],
-      })),
+      // Existing encounter investigations are context, not a new clinical recommendation.
+      // M6C1 must never infer investigation necessity from convention or prior rows.
+      investigations: [],
       advice: advice
         ? [{ text: advice, sourceRefs: [{ kind: "consultation", ref: "advice" }] }]
         : [],
