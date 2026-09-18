@@ -93,12 +93,20 @@ export function useLiveQueue({
   const readOnce = React.useCallback(async () => {
     const mine = ++ticket.current;
     try {
-      const outcome = await refreshQueueAction(sessionDate);
+      const outcome = await refreshQueueAction(sessionDate, locationId);
       if (mine !== ticket.current) return; // overtaken by a newer read
       if (outcome.ok) {
         setRows(outcome.rows);
         setFailed(false);
         setLastUpdated(Date.now());
+      } else if (outcome.locationChanged) {
+        /**
+         * Location selection is shared across authenticated tabs. The server
+         * deliberately withheld the new location's rows because this mounted
+         * surface still names `locationId`; reload the whole app chrome before
+         * any operational data for the new context is allowed onto the screen.
+         */
+        window.location.reload();
       } else {
         // Keep the rows we already have. A failed read is not an empty room.
         setFailed(true);
@@ -106,7 +114,7 @@ export function useLiveQueue({
     } catch {
       if (mine === ticket.current) setFailed(true);
     }
-  }, [sessionDate]);
+  }, [sessionDate, locationId]);
 
   /**
    * Signals are COALESCED, never dropped.
