@@ -1,7 +1,11 @@
 import type { MetadataRoute } from "next";
 
 export default function sitemap(): MetadataRoute.Sitemap {
-  const base = process.env.NEXT_PUBLIC_SITE_URL || "https://dd-sigma-vert.vercel.app";
+  const configuredBase = process.env.NEXT_PUBLIC_SITE_URL;
+  if (!configuredBase && process.env.VERCEL_ENV === "production") {
+    throw new Error("NEXT_PUBLIC_SITE_URL is required in Production.");
+  }
+  const base = configuredBase ?? "http://localhost:3000";
   return [
     "",
     "/features",

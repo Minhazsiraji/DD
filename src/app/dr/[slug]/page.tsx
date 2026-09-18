@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
+import { publicEnv } from "@/lib/env";
 import { MarketingShell } from "@/components/marketing/marketing-shell";
 import { PublicDoctorAvatar } from "@/features/public-booking/components/public-doctor-avatar";
 import { PublicShareActions } from "@/features/public-booking/components/public-share-actions";
@@ -11,14 +12,8 @@ import {
 
 const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
-function canonicalProfileUrl(slug: string): URL | undefined {
-  const host = process.env.VERCEL_PROJECT_PRODUCTION_URL ?? process.env.VERCEL_URL;
-  if (!host) return undefined;
-  try {
-    return new URL(`/dr/${encodeURIComponent(slug)}`, `https://${host}`);
-  } catch {
-    return undefined;
-  }
+function canonicalProfileUrl(slug: string): URL {
+  return new URL(`/dr/${encodeURIComponent(slug)}`, publicEnv().NEXT_PUBLIC_SITE_URL);
 }
 
 export async function generateMetadata(props: PageProps<"/dr/[slug]">): Promise<Metadata> {

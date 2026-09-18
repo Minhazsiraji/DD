@@ -5,7 +5,8 @@ export default function robots(): MetadataRoute.Robots {
   if (!production) {
     return { rules: { userAgent: "*", disallow: "/" } };
   }
-  const base = process.env.NEXT_PUBLIC_SITE_URL || "https://dd-sigma-vert.vercel.app";
+  const base = process.env.NEXT_PUBLIC_SITE_URL;
+  if (!base) throw new Error("NEXT_PUBLIC_SITE_URL is required in Production.");
   return {
     rules: {
       userAgent: "*",

@@ -29,6 +29,8 @@ const PUBLIC_PATHS = [
   "/signup",
   "/forgot-password",
   "/reset-password",
+  "/robots.txt",
+  "/sitemap.xml",
   // Version marker. Must stay reachable signed-out, or it cannot answer the
   // one question it exists for: which commit is live?
   "/api/health",
@@ -89,6 +91,8 @@ export async function proxy(request: NextRequest) {
     user &&
     isPublic(pathname) &&
     pathname !== "/" &&
+    pathname !== "/robots.txt" &&
+    pathname !== "/sitemap.xml" &&
     !pathname.startsWith("/features") &&
     !pathname.startsWith("/how-it-works") &&
     !pathname.startsWith("/pricing") &&
