@@ -208,10 +208,23 @@ export async function clearPriorityAction(
  * A Server Action rather than a route handler so the client can call it
  * directly, and so the read stays on the RLS-checked server path. Realtime only
  * ever says "something changed" — this is what decides what the user sees.
+ *
+ * `expectedLocationId` is the location that the currently rendered queue tab
+ * names. Location selection is shared by authenticated browser tabs, so another
+ * tab can change that cookie while this one is still mounted. Never return the
+ * newly active location's rows into chrome that still names the old location:
+ * signal the context change instead and let the client reload the whole surface.
  */
 export async function refreshQueueAction(
   sessionDate: string,
-): Promise<{ ok: true; rows: QueueRow[] } | { ok: false; reason: string }> {
+  expectedLocationId: string,
+): Promise<
+  | { ok: true; rows: QueueRow[] }
+  | { ok: false; reason: string; locationChanged?: boolean }
+> {
   const ctx = await requireLocationContext();
+  if (ctx.locationId !== expectedLocationId) {
+    return { ok: false, reason: "location-context-changed", locationChanged: true };
+  }
   return getQueue(ctx.locationId, sessionDate);
 }
