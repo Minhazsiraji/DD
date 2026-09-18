@@ -35,7 +35,17 @@ export function MobileBottomNav() {
           <NavTab key={item.href} {...item} pathname={pathname} />
         ))}
 
-        <li className="flex shrink-0 items-start justify-center px-1">
+        <li
+          className={cn(
+            "flex shrink-0 items-start justify-center px-1",
+            // On a phone the Live Queue's patient actions are safety-critical.
+            // The raised FAB used to sit over the lowest action row and could
+            // intercept a normal tap on “No answer”. Remove only that floating
+            // hit target on the queue below sm; tablet/desktop behaviour stays
+            // exactly as before.
+            pathname === "/queue" && "max-sm:hidden",
+          )}
+        >
           <QuickActionMenu variant="fab" />
         </li>
 
