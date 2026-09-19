@@ -28,6 +28,7 @@ export interface PublicDoctor {
   specialization: string | null;
   bmdc: string | null;
   slug: string;
+  is_search_indexable: boolean;
   /** Only a short-lived signed HTTPS URL. The raw storage object key is never public data. */
   photoUrl?: string | null;
   chambers: PublicChamber[];
@@ -51,8 +52,29 @@ export interface PublicBookingConfirmation {
 export async function getPublicDoctor(slug: string): Promise<PublicDoctor | null> {
   const supabase = await createSupabaseServerClient();
   const { data, error } = await supabase.rpc("public_doctor_profile", { p_slug: slug });
-  if (error || !data) return null;
-  return data as unknown as PublicDoctor;
+  if (error || !data || typeof data !== "object") return null;
+
+  const value = data as Record<string, unknown>;
+  return {
+    ...(value as unknown as Omit<PublicDoctor, "is_search_indexable">),
+    // Fail closed if the reviewed 0054 contract is not present or returns an
+    // unexpected value. No private eligibility input is read by the browser.
+    is_search_indexable: value.is_search_indexable === true,
+  };
+}
+
+export async function getSearchIndexableDoctorSlugs(): Promise<string[]> {
+  const supabase = await createSupabaseServerClient();
+  const { data, error } = await supabase.rpc("public_search_indexable_doctor_slugs");
+  if (error || !Array.isArray(data)) return [];
+
+  return data
+    .map((row) =>
+      row && typeof row === "object" && typeof (row as { profile_slug?: unknown }).profile_slug === "string"
+        ? (row as { profile_slug: string }).profile_slug
+        : null,
+    )
+    .filter((slug): slug is string => Boolean(slug));
 }
 
 /**
