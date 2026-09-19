@@ -865,7 +865,7 @@ begin
   ) values (
     target_location_id, auth.uid(), 'STAFF_APPOINTMENT_CREATED',
     'appointment', v_appointment_id,
-    jsonb_build_object('doctor_profile_id', target_doctor_id)
+    jsonb_build_object('doctor_profile_id', target_doctor_id, 'staff_role', 'RECEPTIONIST')
   );
   return v_appointment_id;
 end;
@@ -959,6 +959,7 @@ begin
     'STAFF_APPOINTMENT_STATUS_CHANGED', 'appointment', v_appointment.id,
     jsonb_build_object(
       'doctor_profile_id', v_appointment.owner_doctor_id,
+      'staff_role', 'RECEPTIONIST',
       'from_status', v_appointment.status,
       'to_status', target_status
     )
@@ -1021,7 +1022,7 @@ begin
   ) values (
     v_appointment.practice_location_id, auth.uid(),
     'STAFF_QUEUE_PRIORITY_SET', 'appointment', v_appointment.id,
-    jsonb_build_object('doctor_profile_id', v_appointment.owner_doctor_id)
+    jsonb_build_object('doctor_profile_id', v_appointment.owner_doctor_id, 'staff_role', 'RECEPTIONIST')
   );
 end;
 $$;
@@ -1071,7 +1072,7 @@ begin
   values(v_new_id,v_old.practice_location_id,'CREATED','SCHEDULED',auth.uid());
   insert into public.audit_events(practice_location_id,actor_id,action,resource_type,resource_id,meta)
   values(v_old.practice_location_id,auth.uid(),'STAFF_APPOINTMENT_RESCHEDULED','appointment',v_new_id,
-    jsonb_build_object('doctor_profile_id',v_old.owner_doctor_id,'from_appointment_id',v_old.id));
+    jsonb_build_object('doctor_profile_id',v_old.owner_doctor_id,'staff_role','RECEPTIONIST','from_appointment_id',v_old.id));
   return v_new_id;
 end;
 $$;
@@ -1111,7 +1112,7 @@ begin
   values(target_appointment_id,target_location_id,(case when v_was_skipped then 'RECALLED' else 'CALLED' end)::public.queue_event_type,
     nullif(btrim(coalesce(target_note,'')),''),auth.uid());
   insert into public.audit_events(practice_location_id,actor_id,action,resource_type,resource_id,meta)
-  values(target_location_id,auth.uid(),'STAFF_QUEUE_CALLED','appointment',target_appointment_id,jsonb_build_object('doctor_profile_id',v_doc));
+  values(target_location_id,auth.uid(),'STAFF_QUEUE_CALLED','appointment',target_appointment_id,jsonb_build_object('doctor_profile_id',v_doc,'staff_role','RECEPTIONIST'));
   return v_count;
 end;
 $$;
@@ -1128,7 +1129,7 @@ begin
   insert into public.queue_events(appointment_id,practice_location_id,event_type,note,actor_id)
   values(target_appointment_id,target_location_id,'SKIPPED',nullif(btrim(coalesce(target_note,'')),''),auth.uid());
   insert into public.audit_events(practice_location_id,actor_id,action,resource_type,resource_id,meta)
-  values(target_location_id,auth.uid(),'STAFF_QUEUE_SKIPPED','appointment',target_appointment_id,jsonb_build_object('doctor_profile_id',v_doc));
+  values(target_location_id,auth.uid(),'STAFF_QUEUE_SKIPPED','appointment',target_appointment_id,jsonb_build_object('doctor_profile_id',v_doc,'staff_role','RECEPTIONIST'));
   return v_count;
 end;
 $$;
@@ -1144,7 +1145,7 @@ begin
   insert into public.queue_events(appointment_id,practice_location_id,event_type,actor_id)
   values(target_appointment_id,target_location_id,'PRIORITY_CLEARED',auth.uid());
   insert into public.audit_events(practice_location_id,actor_id,action,resource_type,resource_id,meta)
-  values(target_location_id,auth.uid(),'STAFF_QUEUE_PRIORITY_CLEARED','appointment',target_appointment_id,jsonb_build_object('doctor_profile_id',v_doc));
+  values(target_location_id,auth.uid(),'STAFF_QUEUE_PRIORITY_CLEARED','appointment',target_appointment_id,jsonb_build_object('doctor_profile_id',v_doc,'staff_role','RECEPTIONIST'));
 end;
 $$;
 

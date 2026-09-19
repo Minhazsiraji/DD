@@ -126,9 +126,14 @@ select public.test_expect_error($cmd$select public.staff_create_appointment('100
 select public.staff_set_appointment_status(:'managed_appointment_id','ARRIVED',null,null);
 select public.staff_set_queue_priority(:'managed_appointment_id','20000000-0000-0000-0000-000000000001','ELDERLY',null);
 select public.staff_call_patient(:'managed_appointment_id','20000000-0000-0000-0000-000000000001','call');
+select public.staff_skip_patient(:'managed_appointment_id','20000000-0000-0000-0000-000000000001','skip');
+select public.staff_call_patient(:'managed_appointment_id','20000000-0000-0000-0000-000000000001','recall');
+select public.staff_clear_queue_priority(:'managed_appointment_id','20000000-0000-0000-0000-000000000001');
 select public.test_assert((select count(*)=1 from public.staff_get_queue('20000000-0000-0000-0000-000000000001',current_date) where owner_doctor_id='10000000-0000-0000-0000-000000000001'), 'managed queue returns Doctor A row');
 select public.test_assert((select count(*)=0 from public.staff_get_queue('20000000-0000-0000-0000-000000000001',current_date) where owner_doctor_id='10000000-0000-0000-0000-000000000002'), 'Doctor B queue row excluded at shared location');
+select public.staff_reschedule_appointment(:'managed_appointment_id',now()+interval '4 hours',15,'reschedule') as managed_rescheduled_id \gset
 reset role;
+select public.test_assert((select count(distinct action)=7 and count(*) filter (where actor_id<>'00000000-0000-0000-0000-000000000003' or meta->>'doctor_profile_id'<>'10000000-0000-0000-0000-000000000001' or meta->>'staff_role'<>'RECEPTIONIST')=0 from public.audit_events where action in ('STAFF_APPOINTMENT_CREATED','STAFF_APPOINTMENT_STATUS_CHANGED','STAFF_APPOINTMENT_RESCHEDULED','STAFF_QUEUE_PRIORITY_SET','STAFF_QUEUE_CALLED','STAFF_QUEUE_SKIPPED','STAFF_QUEUE_PRIORITY_CLEARED')), 'Receptionist operational audit metadata includes actor, Doctor context, and role');
 
 -- Permission omission and role ceiling fail closed.
 set role authenticated;
@@ -193,7 +198,8 @@ select public.test_expect_error(format('select public.doctor_replace_staff_permi
 reset role;
 
 -- Audit attribution and visibility before lifecycle removal.
-select public.test_assert(exists(select 1 from public.audit_events where actor_id='00000000-0000-0000-0000-000000000003' and meta->>'doctor_profile_id'='10000000-0000-0000-0000-000000000001'::text), 'staff audit actor and Doctor context are separate');
+select public.test_assert(exists(select 1 from public.audit_events where actor_id='00000000-0000-0000-0000-000000000003' and meta->>'doctor_profile_id'='10000000-0000-0000-0000-000000000001' and meta->>'staff_role'='RECEPTIONIST'), 'Receptionist audit actor, Doctor context, and role are separate');
+select public.test_assert(exists(select 1 from public.audit_events where actor_id='00000000-0000-0000-0000-000000000005' and meta->>'doctor_profile_id'='10000000-0000-0000-0000-000000000001' and meta->>'staff_role'='ASSISTANT'), 'Assistant audit actor, Doctor context, and role remain separate');
 set role authenticated;
 select set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000001',false);
 select set_config('request.jwt.claim.aal','aal2',false);
