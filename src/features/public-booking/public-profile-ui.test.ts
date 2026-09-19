@@ -106,14 +106,18 @@ describe("M5 publication, privacy and sharing boundary", () => {
     expect(publicShare).toContain("navigator.clipboard.writeText(currentUrl())");
   });
 
-  it("builds social metadata only after the public allowlist RPC resolves a profile", () => {
+  it("keeps public metadata privacy-safe while gating search indexing and ProfilePage schema", () => {
     const profile = source("src/app/dr/[slug]/page.tsx");
     expect(profile).toContain("const doctor = await getPublicDoctor(slug)");
     expect(profile).toContain("if (!doctor)");
     expect(profile).toContain("openGraph");
-    expect(profile).toContain('siteName: "Doctor\'s Diary"');
-    expect(profile).not.toContain("patient");
-    expect(profile).not.toContain("audit");
+    expect(profile).toContain("siteName: SEARCH_BRAND_NAME");
+    expect(profile).toContain("robots: searchRobots(doctor.is_search_indexable)");
+    expect(profile).toContain("isProductionIndexable(doctor.is_search_indexable)");
+    expect(profile).toContain("doctorProfileJsonLd(doctor)");
+    expect(profile).not.toContain("deleted_at");
+    expect(profile).not.toContain("banned_until");
+    expect(profile).not.toContain("search_identity_class");
     expect(profile).not.toContain("professional_photo_path");
   });
 });
