@@ -1,7 +1,11 @@
-import type { Metadata } from "next";
 import { MarketingPage } from "@/components/marketing/marketing-shell";
+import { publicPageMetadata } from "@/lib/seo";
 
-export const metadata: Metadata = { title: "How it works" };
+export const metadata = publicPageMetadata({
+  title: "How it works",
+  description: "See how Doctor's Diary supports a doctor from patient context and consultation through prescription review, finalization and return-visit continuity.",
+  path: "/how-it-works",
+});
 
 const steps = [
   ["1", "Prepare", "Find the patient, see previous context and start from the correct chamber."],
