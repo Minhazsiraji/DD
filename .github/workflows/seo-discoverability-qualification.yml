@@ -1,0 +1,39 @@
+name: SEO discoverability qualification
+
+on:
+  push:
+    branches:
+      - feat/seo-discoverability
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  qualify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: ci-placeholder-anon-key-00000000000000000000
+      NEXT_PUBLIC_SITE_URL: https://dd.agentsiraji.com
+      AI_MODE: mock
+      NOTIFICATION_MODE: mock
+      PAYMENT_MODE: mock
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - name: Focused SEO tests
+        run: npm test -- src/lib/seo.test.ts src/lib/seo-eligibility-migration.test.ts src/lib/sitemap.test.ts
+      - name: Full suite
+        run: npm test
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Lint
+        run: npm run lint
+      - name: Build
+        run: npm run build
