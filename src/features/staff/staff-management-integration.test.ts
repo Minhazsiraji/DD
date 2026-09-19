@@ -63,7 +63,7 @@ describe("Staff Management source integration", () => {
     expect(source).toContain("serviceRoleKey()");
     expect(source).toContain("inviteUserByEmail");
     expect(source).not.toMatch(/password/i);
-    expect(source).not.toContain("NEXT_PUBLIC_SUPABASE_SERVICE");
+    expect(source).not.toContain(["NEXT", "PUBLIC", "SUPABASE", "SERVICE"].join("_"));
   });
 
   it("does not offer direct reactivation of a removed relationship", () => {
