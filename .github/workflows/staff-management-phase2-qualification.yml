@@ -1,0 +1,129 @@
+name: Staff Management Phase 2 Qualification
+
+on:
+  push:
+    branches: [feature/staff-management-v1]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  FROZEN_BASE: 8489db1704c80a0bf547232515be59d3c7701b3e
+  NEXT_PUBLIC_SUPABASE_URL: https://synthetic-staff.invalid
+  NEXT_PUBLIC_SUPABASE_ANON_KEY: sb_publishable_staff_synthetic_only
+  NEXT_PUBLIC_SITE_URL: http://localhost:3000
+  AI_MODE: mock
+  NOTIFICATION_MODE: mock
+  PAYMENT_MODE: mock
+  PA1_PROPOSAL_SIGNING_SECRET: synthetic-ci-signing-value-not-a-live-secret
+  CRON_SECRET: synthetic-ci-cron-value-not-a-live-secret
+  O1_PILOT_CLOSE_TIME_ZONE: Asia/Dhaka
+
+jobs:
+  qualify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_DB: staffq
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres -d staffq"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Frozen base ancestry and clean patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git merge-base "$FROZEN_BASE" HEAD)" = "$FROZEN_BASE"
+          git diff --check "$FROZEN_BASE"...HEAD
+          echo STAFF_FROZEN_BASE=PASS
+
+      - name: Install exact lockfile
+        run: npm ci --ignore-scripts
+
+      - name: PostgreSQL 17 isolated migration apply
+        shell: bash
+        run: |
+          set -euo pipefail
+          psql -h localhost -U postgres -d staffq -v ON_ERROR_STOP=1 -f scripts/staff-management/post0052-fixture.sql
+          psql -h localhost -U postgres -d staffq -v ON_ERROR_STOP=1 -f supabase/migrations/0053_staff_management_v1.sql
+          echo STAFF_0053_FIRST_APPLY=PASS
+
+      - name: PostgreSQL 17 database security matrix
+        shell: bash
+        run: |
+          set -euo pipefail
+          psql -h localhost -U postgres -d staffq -v ON_ERROR_STOP=1 -f scripts/staff-management/db-qualification.sql | tee /tmp/staff-db.log
+          grep -q 'STAFF_MANAGEMENT_DB_QUALIFICATION_PASS' /tmp/staff-db.log
+          echo STAFF_DB_SECURITY_MATRIX=PASS
+
+      - name: Migration repeatability expectation
+        shell: bash
+        run: |
+          set -euo pipefail
+          set +e
+          psql -h localhost -U postgres -d staffq -v ON_ERROR_STOP=1 -f supabase/migrations/0053_staff_management_v1.sql > /tmp/reapply.log 2>&1
+          rc=$?
+          set -e
+          test "$rc" -ne 0
+          grep -Eqi 'already exists|duplicate_object' /tmp/reapply.log
+          echo STAFF_0053_SECOND_APPLY=EXPECTED_NON_IDEMPOTENT
+
+      - name: Staff focused tests
+        run: npx vitest run src/features/staff
+      - name: RBAC tests
+        run: npx vitest run src/lib/rbac/permissions.test.ts
+      - name: Appointment regression tests
+        run: npx vitest run src/features/appointments
+      - name: Queue regression tests
+        run: npx vitest run src/features/queue
+      - name: Full Vitest suite
+        run: npm test
+      - name: Next route type generation
+        run: npx next typegen
+      - name: TypeScript
+        run: npm run typecheck
+      - name: Lint
+        run: npm run lint
+      - name: Production build
+        run: npm run build
+
+      - name: Repository credential/scratch scan
+        shell: bash
+        run: |
+          set -euo pipefail
+          test ! -e patch_staff_integration.py
+          test ! -e patch_queue_integration.py
+          test ! -e patch_queue_query.py
+          test ! -e patch_migration.py
+          test ! -e patch_team_ui.py
+          test ! -e patch_staff_service.py
+          test ! -e managed_queue_fragment.sql
+          ! git grep -nEi '(TOTP|authenticator.*secret|test[_ -]?password|DATABASE_URL=.*@|SUPABASE_SERVICE_ROLE_KEY=)' -- ':!package-lock.json'
+          echo STAFF_CREDENTIAL_SCRATCH_SCAN=PASS
+
+      - name: Exact candidate evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo STAFF_VERIFIED_SHA=$GITHUB_SHA
+          echo STAFF_0053_BLOB=$(git rev-parse HEAD:supabase/migrations/0053_staff_management_v1.sql)
+          echo STAFF_CHANGED_FILES_BEGIN
+          git diff --name-only "$FROZEN_BASE"...HEAD | sort
+          echo STAFF_CHANGED_FILES_END
