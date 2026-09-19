@@ -1,8 +1,12 @@
 import Link from "next/link";
-import type { Metadata } from "next";
 import { MarketingPage } from "@/components/marketing/marketing-shell";
+import { publicPageMetadata } from "@/lib/seo";
 
-export const metadata: Metadata = { title: "Pricing" };
+export const metadata = publicPageMetadata({
+  title: "Pricing",
+  description: "Doctor's Diary founding-doctor pricing approach for the pilot-to-paid transition, with clinical history kept separate from subscription status.",
+  path: "/pricing",
+});
 
 const included = [
   "Doctor workspace",
