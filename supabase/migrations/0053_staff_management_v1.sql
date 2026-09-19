@@ -410,7 +410,7 @@ declare v_grant public.doctor_staff_grants%rowtype;
 begin
   perform public.require_aal2();
   select * into v_grant from public.doctor_staff_grants where id = target_grant_id for update;
-  if not found or v_grant.doctor_profile_id <> public.current_doctor_id() then
+  if not found or v_grant.doctor_profile_id is distinct from public.current_doctor_id() then
     raise exception 'STAFF_GRANT_NOT_FOUND' using errcode = '42501';
   end if;
   if v_grant.status = 'REMOVED' and target_status <> 'REMOVED' then
@@ -457,7 +457,7 @@ declare
 begin
   perform public.require_aal2();
   select * into v_grant from public.doctor_staff_grants where id = target_grant_id for update;
-  if not found or v_grant.doctor_profile_id <> public.current_doctor_id()
+  if not found or v_grant.doctor_profile_id is distinct from public.current_doctor_id()
      or v_grant.status = 'REMOVED' then
     raise exception 'STAFF_GRANT_NOT_EDITABLE' using errcode = '42501';
   end if;
@@ -509,7 +509,7 @@ declare
 begin
   perform public.require_aal2();
   select * into v_grant from public.doctor_staff_grants where id = target_grant_id for update;
-  if not found or v_grant.doctor_profile_id <> public.current_doctor_id()
+  if not found or v_grant.doctor_profile_id is distinct from public.current_doctor_id()
      or v_grant.status = 'REMOVED' then
     raise exception 'STAFF_GRANT_NOT_EDITABLE' using errcode = '42501';
   end if;
