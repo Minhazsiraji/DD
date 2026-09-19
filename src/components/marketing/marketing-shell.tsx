@@ -4,6 +4,7 @@ import { BrandMark, BrandWordmark } from "@/components/brand/brand-mark";
 
 const nav = [
   ["Features", "/features"],
+  ["For Doctors", "/for-doctors"],
   ["How it works", "/how-it-works"],
   ["Pricing", "/pricing"],
   ["Security", "/security"],
@@ -34,15 +35,17 @@ export function MarketingShell({ children }: { children: ReactNode }) {
       <footer className="dd-material-panel dd-panel-pearl mt-8 rounded-t-[32px] border-t border-white/80">
         <div className="mx-auto grid max-w-7xl gap-8 px-5 py-10 text-sm text-ink-secondary md:grid-cols-[1.5fr_1fr_1fr] lg:px-8">
           <div>
-            <p className="font-semibold text-ink">Doctor&apos;s Diary</p>
+            <p className="font-semibold text-ink">Doctor&apos;s Diary by AgentSiraji</p>
             <p className="mt-2 max-w-md">Less typing. Less searching. Less remembering. More patient.</p>
           </div>
           <div className="grid gap-2">
             <Link href="/features">Features</Link>
+            <Link href="/for-doctors">For Doctors</Link>
             <Link href="/pricing">Pricing</Link>
             <Link href="/security">Security</Link>
           </div>
           <div className="grid gap-2">
+            <Link href="/about">About</Link>
             <Link href="/faq">FAQ</Link>
             <Link href="/contact">Contact</Link>
             <Link href="/login">Doctor sign in</Link>
