@@ -7,24 +7,33 @@ function source(file: string): string {
 }
 
 describe("pilot custom-domain readiness", () => {
-  it("uses NEXT_PUBLIC_SITE_URL for doctor canonical and OpenGraph URLs", () => {
+  it("uses the branded production origin for doctor canonical and OpenGraph URLs", () => {
     const profile = source("src/app/dr/[slug]/page.tsx");
-    expect(profile).toContain("publicEnv().NEXT_PUBLIC_SITE_URL");
-    expect(profile).toContain("alternates: canonical ? { canonical } : undefined");
+    const seo = source("src/lib/seo.ts");
+
+    expect(seo).toContain('SITE_ORIGIN = "https://dd.agentsiraji.com"');
+    expect(profile).toContain("canonicalUrl(`/dr/${encodeURIComponent(doctor.slug)}`)");
+    expect(profile).toContain("alternates: { canonical }");
     expect(profile).toContain("url: canonical");
     expect(profile).not.toContain("VERCEL_PROJECT_PRODUCTION_URL");
     expect(profile).not.toContain("process.env.VERCEL_URL");
+    expect(profile).not.toContain("vercel.app");
   });
 
-  it("uses the configured canonical hostname for robots and sitemap", () => {
+  it("uses the branded production origin for robots and sitemap while Preview stays blocked", () => {
     const robots = source("src/app/robots.ts");
     const sitemap = source("src/app/sitemap.ts");
-    expect(robots).toContain("process.env.NEXT_PUBLIC_SITE_URL");
-    expect(sitemap).toContain("process.env.NEXT_PUBLIC_SITE_URL");
-    expect(robots).toContain("NEXT_PUBLIC_SITE_URL is required in Production.");
-    expect(sitemap).toContain("NEXT_PUBLIC_SITE_URL is required in Production.");
+    const sitemapBuilder = source("src/lib/sitemap.ts");
+    const seo = source("src/lib/seo.ts");
+
+    expect(seo).toContain('SITE_ORIGIN = "https://dd.agentsiraji.com"');
+    expect(robots).toContain("SITE_ORIGIN");
+    expect(sitemapBuilder).toContain("SITE_ORIGIN");
+    expect(robots).toContain('process.env.VERCEL_ENV === "production"');
+    expect(robots).toContain('disallow: "/"');
+    expect(sitemap).not.toContain("process.env.VERCEL_URL");
+    expect(sitemapBuilder).not.toContain("vercel.app");
     expect(robots).not.toContain("dd-sigma-vert.vercel.app");
-    expect(sitemap).not.toContain("dd-sigma-vert.vercel.app");
   });
 
   it("publishes only robots and sitemap without widening protected app routes", () => {
