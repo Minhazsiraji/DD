@@ -1,5 +1,15 @@
 import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+import {
+  DEFAULT_DESCRIPTION,
+  PRODUCT_NAME,
+  SEARCH_BRAND_NAME,
+  SITE_ORIGIN,
+  organizationJsonLd,
+  serializeJsonLd,
+  softwareApplicationJsonLd,
+  websiteJsonLd,
+} from "@/lib/seo";
 import "./globals.css";
 import "./branding-logo.css";
 import "./canonical-brand.css";
@@ -27,16 +37,31 @@ const fontMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
+  metadataBase: new URL(SITE_ORIGIN),
   title: {
-    default: "Doctor's Diary",
-    template: "%s · Doctor's Diary",
+    default: "Doctor's Diary by AgentSiraji",
+    template: "%s · Doctor's Diary by AgentSiraji",
   },
-  description:
-    "Doctor's Diary is a doctor productivity workspace for patient history, consultations, prescriptions, chambers and follow-up — built for less typing, less searching and more patient time.",
-  applicationName: "Doctor's Diary",
+  description: DEFAULT_DESCRIPTION,
+  applicationName: PRODUCT_NAME,
+  alternates: { canonical: "/" },
+  openGraph: {
+    title: SEARCH_BRAND_NAME,
+    description: DEFAULT_DESCRIPTION,
+    type: "website",
+    url: "/",
+    siteName: SEARCH_BRAND_NAME,
+    images: [{ url: "/opengraph-image", width: 1200, height: 630, alt: SEARCH_BRAND_NAME }],
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: SEARCH_BRAND_NAME,
+    description: DEFAULT_DESCRIPTION,
+    images: ["/opengraph-image"],
+  },
   appleWebApp: {
     capable: true,
-    title: "Doctor's Diary",
+    title: PRODUCT_NAME,
     statusBarStyle: "default",
   },
   formatDetection: { telephone: false },
@@ -61,7 +86,12 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       lang="en"
       className={`${fontSans.variable} ${fontMono.variable} h-full antialiased`}
     >
-      <body className="min-h-full">{children}</body>
+      <body className="min-h-full">
+        <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: serializeJsonLd(websiteJsonLd()) }} />
+        <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: serializeJsonLd(organizationJsonLd()) }} />
+        <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: serializeJsonLd(softwareApplicationJsonLd()) }} />
+        {children}
+      </body>
     </html>
   );
 }
