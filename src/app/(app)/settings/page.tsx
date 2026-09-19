@@ -11,6 +11,7 @@ import {
   IdCard,
   CalendarClock,
   Palette,
+  Users,
 } from "lucide-react";
 import { cookies } from "next/headers";
 import { PageHeader } from "@/components/common/page-header";
@@ -130,6 +131,23 @@ export default async function SettingsPage() {
         </ul>
 
         <AddLocationForm />
+      </SectionCard>
+
+      <SectionCard className="overflow-hidden">
+        <SectionHeader title="Team" icon={<Users className="size-4" />} />
+        <div className="p-4 sm:p-5">
+          <Link
+            href="/settings/team"
+            className="inline-flex min-h-11 items-center gap-2 rounded-xl border border-hairline bg-white px-4 text-sm font-semibold text-ink transition-colors hover:bg-surface-muted focus-visible:focus-ring"
+          >
+            <Users className="size-4 text-brand" aria-hidden="true" />
+            Staff access, chambers &amp; permissions
+            <ChevronRight className="size-4 text-ink-muted" aria-hidden="true" />
+          </Link>
+          <p className="mt-2 text-xs text-ink-muted">
+            Add receptionists or assistants using their own accounts and Doctor-scoped access.
+          </p>
+        </div>
       </SectionCard>
 
       <SectionCard className="overflow-hidden">

@@ -32,6 +32,15 @@ function fieldErrors(error: z.ZodError): Record<string, string[]> {
   return z.flattenError(error).fieldErrors as Record<string, string[]>;
 }
 
+async function managedStaffAt(locationId: string): Promise<boolean> {
+  const supabase = await createSupabaseServerClient();
+  const { data, error } = await supabase.rpc("managed_staff_entry_at", {
+    target_location: locationId,
+  });
+  if (error) throw new Error("STAFF_CONTEXT_CHECK_FAILED");
+  return data === true;
+}
+
 /**
  * Turn a database refusal into something safe to render.
  *
@@ -70,11 +79,18 @@ export async function callPatientAction(
   const ctx = await requireLocationContext();
   const supabase = await createSupabaseServerClient();
 
-  const { data, error } = await supabase.rpc("call_patient", {
-    p_appointment_id: parsed.data.appointmentId,
-    p_practice_location_id: ctx.locationId,
-    p_note: empty(formData.get("note")),
-  });
+  const managed = await managedStaffAt(ctx.locationId);
+  const { data, error } = managed
+    ? await supabase.rpc("staff_call_patient", {
+        target_appointment_id: parsed.data.appointmentId,
+        target_location_id: ctx.locationId,
+        target_note: empty(formData.get("note")),
+      })
+    : await supabase.rpc("call_patient", {
+        p_appointment_id: parsed.data.appointmentId,
+        p_practice_location_id: ctx.locationId,
+        p_note: empty(formData.get("note")),
+      });
 
   if (error) return { ok: false, message: safeMessage("call_patient", error.message) };
 
@@ -109,11 +125,18 @@ export async function skipPatientAction(
   const ctx = await requireLocationContext();
   const supabase = await createSupabaseServerClient();
 
-  const { error } = await supabase.rpc("skip_patient", {
-    p_appointment_id: parsed.data.appointmentId,
-    p_practice_location_id: ctx.locationId,
-    p_note: empty(formData.get("note")),
-  });
+  const managed = await managedStaffAt(ctx.locationId);
+  const { error } = managed
+    ? await supabase.rpc("staff_skip_patient", {
+        target_appointment_id: parsed.data.appointmentId,
+        target_location_id: ctx.locationId,
+        target_note: empty(formData.get("note")),
+      })
+    : await supabase.rpc("skip_patient", {
+        p_appointment_id: parsed.data.appointmentId,
+        p_practice_location_id: ctx.locationId,
+        p_note: empty(formData.get("note")),
+      });
 
   if (error) return { ok: false, message: safeMessage("skip_patient", error.message) };
 
@@ -150,12 +173,20 @@ export async function setPriorityAction(
   const ctx = await requireLocationContext();
   const supabase = await createSupabaseServerClient();
 
-  const { error } = await supabase.rpc("set_queue_priority", {
-    p_appointment_id: parsed.data.appointmentId,
-    p_practice_location_id: ctx.locationId,
-    p_reason: parsed.data.reason,
-    p_note: empty(formData.get("note")),
-  });
+  const managed = await managedStaffAt(ctx.locationId);
+  const { error } = managed
+    ? await supabase.rpc("staff_set_queue_priority", {
+        target_appointment_id: parsed.data.appointmentId,
+        target_location_id: ctx.locationId,
+        target_reason: parsed.data.reason,
+        target_note: empty(formData.get("note")),
+      })
+    : await supabase.rpc("set_queue_priority", {
+        p_appointment_id: parsed.data.appointmentId,
+        p_practice_location_id: ctx.locationId,
+        p_reason: parsed.data.reason,
+        p_note: empty(formData.get("note")),
+      });
 
   if (error) return { ok: false, message: safeMessage("set_queue_priority", error.message) };
 
@@ -184,10 +215,16 @@ export async function clearPriorityAction(
   const ctx = await requireLocationContext();
   const supabase = await createSupabaseServerClient();
 
-  const { error } = await supabase.rpc("clear_queue_priority", {
-    p_appointment_id: id,
-    p_practice_location_id: ctx.locationId,
-  });
+  const managed = await managedStaffAt(ctx.locationId);
+  const { error } = managed
+    ? await supabase.rpc("staff_clear_queue_priority", {
+        target_appointment_id: id,
+        target_location_id: ctx.locationId,
+      })
+    : await supabase.rpc("clear_queue_priority", {
+        p_appointment_id: id,
+        p_practice_location_id: ctx.locationId,
+      });
   if (error) return { ok: false, message: safeMessage("clear_queue_priority", error.message) };
 
   await emitAudit({

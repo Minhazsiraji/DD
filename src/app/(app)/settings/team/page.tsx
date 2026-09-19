@@ -212,11 +212,11 @@ export default async function TeamSettingsPage() {
                     </div>
                     <form action={setStaffStatusAction} className="flex flex-wrap gap-2">
                       <input type="hidden" name="grantId" value={grant.id} />
-                      {grant.status !== "ACTIVE" ? (
+                      {grant.status === "TEMPORARILY_DISABLED" ? (
                         <button name="status" value="ACTIVE" className="min-h-11 rounded-xl border border-hairline px-3 text-sm font-semibold">Reactivate</button>
-                      ) : (
+                      ) : grant.status === "ACTIVE" ? (
                         <button name="status" value="TEMPORARILY_DISABLED" className="min-h-11 rounded-xl border border-hairline px-3 text-sm font-semibold">Temporarily disable</button>
-                      )}
+                      ) : null}
                       {grant.status !== "REMOVED" ? (
                         <button name="status" value="REMOVED" className="min-h-11 rounded-xl border border-hairline px-3 text-sm font-semibold">Remove access</button>
                       ) : null}

@@ -53,13 +53,25 @@ export const getQueue = cache(async function getQueue(
   await requireUser();
   const supabase = await createSupabaseServerClient();
 
+  const managedCheck = await supabase.rpc("managed_staff_entry_at", {
+    target_location: practiceLocationId,
+  });
+  if (managedCheck.error) {
+    return { ok: false, reason: "managed-staff-context-check-failed" };
+  }
+  const queueRpc = managedCheck.data === true
+    ? supabase.rpc("staff_get_queue", {
+        target_location_id: practiceLocationId,
+        target_session_date: sessionDate,
+      })
+    : supabase.rpc("get_queue", {
+        p_practice_location_id: practiceLocationId,
+        p_session_date: sessionDate,
+      });
   const { data, error } = await timedPreviewStage(
     "m1-queue-timing",
     "get_queue_rpc",
-    supabase.rpc("get_queue", {
-      p_practice_location_id: practiceLocationId,
-      p_session_date: sessionDate,
-    }),
+    queueRpc,
   );
 
   if (error) {

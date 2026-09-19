@@ -61,7 +61,11 @@ export async function serviceLinkStaffInvitation(input: {
   staffUserId: string;
 }): Promise<string> {
   const client = staffPrivilegedClient();
-  const { data, error } = await client.rpc("service_link_doctor_staff_invitation", {
+  const rpc = client.rpc as unknown as (
+    fn: string,
+    args: Record<string, unknown>,
+  ) => Promise<{ data: unknown; error: { message?: string } | null }>;
+  const { data, error } = await rpc("service_link_doctor_staff_invitation", {
     target_invitation_id: input.invitationId,
     target_staff_user_id: input.staffUserId,
   });

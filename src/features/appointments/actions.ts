@@ -48,6 +48,15 @@ function fieldErrors(error: z.ZodError): Record<string, string[]> {
   return z.flattenError(error).fieldErrors as Record<string, string[]>;
 }
 
+async function managedStaffAt(locationId: string): Promise<boolean> {
+  const supabase = await createSupabaseServerClient();
+  const { data, error } = await supabase.rpc("managed_staff_entry_at", {
+    target_location: locationId,
+  });
+  if (error) throw new Error("STAFF_CONTEXT_CHECK_FAILED");
+  return data === true;
+}
+
 /**
  * Turn "2026-09-01T15:30" as typed into an instant, using the LOCATION's
  * timezone rather than the server's.
@@ -107,15 +116,26 @@ export async function bookAppointmentAction(
     return { ok: false, values: echo(formData), message: "Could not read that date and time." };
   }
 
-  const { data, error } = await supabase.rpc("create_appointment", {
-    p_owner_doctor_id: v.ownerDoctorId,
-    p_practice_location_id: ctx.locationId,
-    p_patient_id: v.patientId,
-    p_scheduled_for: instant,
-    p_duration_minutes: v.durationMinutes,
-    p_visit_type: v.visitType,
-    p_reason: empty(formData.get("reason")),
-  });
+  const managed = await managedStaffAt(ctx.locationId);
+  const { data, error } = managed
+    ? await supabase.rpc("staff_create_appointment", {
+        target_doctor_id: v.ownerDoctorId,
+        target_location_id: ctx.locationId,
+        target_patient_id: v.patientId,
+        target_scheduled_for: instant,
+        target_duration_minutes: v.durationMinutes,
+        target_visit_type: v.visitType,
+        target_reason: empty(formData.get("reason")),
+      })
+    : await supabase.rpc("create_appointment", {
+        p_owner_doctor_id: v.ownerDoctorId,
+        p_practice_location_id: ctx.locationId,
+        p_patient_id: v.patientId,
+        p_scheduled_for: instant,
+        p_duration_minutes: v.durationMinutes,
+        p_visit_type: v.visitType,
+        p_reason: empty(formData.get("reason")),
+      });
 
   if (error || !data) {
     return {
@@ -182,9 +202,18 @@ export async function changeStatusAction(
   }
 
   const note = empty(formData.get("note"));
+  const managed = await managedStaffAt(ctx.locationId);
   let mutationError: { code?: string; message: string } | null = null;
 
-  if (v.toStatus === "CANCELLED" && v.reason) {
+  if (managed) {
+    const managedResult = await supabase.rpc("staff_set_appointment_status", {
+      target_appointment_id: v.appointmentId,
+      target_status: v.toStatus,
+      target_reason: v.reason ?? null,
+      target_note: note,
+    });
+    mutationError = managedResult.error;
+  } else if (v.toStatus === "CANCELLED" && v.reason) {
     const v2 = await supabase.rpc("cancel_appointment", {
       appointment_key: v.appointmentId,
       cancel_reason: v.reason,
@@ -265,12 +294,20 @@ export async function rescheduleAction(
     return { ok: false, values: echo(formData), message: "Could not read that date and time." };
   }
 
-  const { data, error } = await supabase.rpc("reschedule_appointment", {
-    p_appointment_id: v.appointmentId,
-    p_scheduled_for: instant,
-    p_duration_minutes: v.durationMinutes ?? null,
-    p_note: empty(formData.get("note")),
-  });
+  const managed = await managedStaffAt(ctx.locationId);
+  const { data, error } = managed
+    ? await supabase.rpc("staff_reschedule_appointment", {
+        target_appointment_id: v.appointmentId,
+        target_scheduled_for: instant,
+        target_duration_minutes: v.durationMinutes ?? null,
+        target_note: empty(formData.get("note")),
+      })
+    : await supabase.rpc("reschedule_appointment", {
+        p_appointment_id: v.appointmentId,
+        p_scheduled_for: instant,
+        p_duration_minutes: v.durationMinutes ?? null,
+        p_note: empty(formData.get("note")),
+      });
 
   if (error || !data) {
     return {
