@@ -1,7 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
-import { publicEnv } from "@/lib/env";
 import { MarketingShell } from "@/components/marketing/marketing-shell";
 import { PublicDoctorAvatar } from "@/features/public-booking/components/public-doctor-avatar";
 import { PublicShareActions } from "@/features/public-booking/components/public-share-actions";
@@ -9,12 +8,16 @@ import {
   getPublicDoctor,
   getPublicDoctorPhotoUrl,
 } from "@/features/public-booking/queries";
+import {
+  SEARCH_BRAND_NAME,
+  canonicalUrl,
+  doctorProfileJsonLd,
+  isProductionIndexable,
+  searchRobots,
+  serializeJsonLd,
+} from "@/lib/seo";
 
 const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-
-function canonicalProfileUrl(slug: string): URL {
-  return new URL(`/dr/${encodeURIComponent(slug)}`, publicEnv().NEXT_PUBLIC_SITE_URL);
-}
 
 export async function generateMetadata(props: PageProps<"/dr/[slug]">): Promise<Metadata> {
   const { slug } = await props.params;
@@ -23,22 +26,30 @@ export async function generateMetadata(props: PageProps<"/dr/[slug]">): Promise<
     return { title: "Doctor Profile", robots: { index: false, follow: false } };
   }
 
-  const canonical = canonicalProfileUrl(doctor.slug);
+  const canonical = canonicalUrl(`/dr/${encodeURIComponent(doctor.slug)}`);
   const photoUrl = await getPublicDoctorPhotoUrl(doctor.slug);
   const descriptor = doctor.specialization ?? doctor.designation ?? doctor.qualification ?? "Doctor";
   const description = `${doctor.fullName} · ${descriptor} · Professional profile on Doctor's Diary.`;
+  const socialImage = photoUrl ?? "/opengraph-image";
 
   return {
     title: `${doctor.fullName} · Doctor Profile`,
     description,
-    alternates: canonical ? { canonical } : undefined,
+    alternates: { canonical },
+    robots: searchRobots(doctor.is_search_indexable),
     openGraph: {
-      title: `${doctor.fullName} · Doctor's Diary`,
+      title: `${doctor.fullName} · ${SEARCH_BRAND_NAME}`,
       description,
       type: "profile",
       url: canonical,
-      siteName: "Doctor's Diary",
-      images: photoUrl ? [{ url: photoUrl, alt: doctor.fullName }] : undefined,
+      siteName: SEARCH_BRAND_NAME,
+      images: [{ url: socialImage, alt: doctor.fullName }],
+    },
+    twitter: {
+      card: "summary_large_image",
+      title: `${doctor.fullName} · ${SEARCH_BRAND_NAME}`,
+      description,
+      images: [socialImage],
     },
   };
 }
@@ -49,9 +60,16 @@ export default async function PublicDoctorPage(props: PageProps<"/dr/[slug]">) {
   if (!doctor) notFound();
 
   const photoUrl = await getPublicDoctorPhotoUrl(slug);
+  const emitSearchSchema = isProductionIndexable(doctor.is_search_indexable);
 
   return (
     <MarketingShell>
+      {emitSearchSchema && (
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{ __html: serializeJsonLd(doctorProfileJsonLd(doctor)) }}
+        />
+      )}
       <section className="mx-auto min-w-0 max-w-5xl px-4 py-8 sm:px-5 sm:py-12 lg:px-8 lg:py-20">
         <div className="dd-material-panel dd-panel-pearl min-w-0 rounded-[2rem] p-5 sm:p-8 lg:p-10">
           <div className="flex min-w-0 flex-col items-center gap-5 text-center sm:flex-row sm:items-center sm:gap-7 sm:text-left">
