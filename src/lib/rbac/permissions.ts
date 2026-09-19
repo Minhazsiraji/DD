@@ -9,9 +9,14 @@
  *   1. RECEPTIONIST never gains clinical-note access, at any location, ever.
  *   2. LOCATION_ADMIN is an OPERATIONAL role. It never reads a doctor's
  *      private notes. There is no admin override.
+ *
+ * Staff Management V1 adds ASSISTANT as a deliberately inert broad
+ * location-entry role. Doctor-scoped Team permissions are NOT represented by
+ * this matrix; they are checked separately by the Staff Management grant layer.
+ * This prevents a location membership alone from becoming delegated authority.
  */
 
-export const LOCATION_ROLES = ["DOCTOR", "RECEPTIONIST", "LOCATION_ADMIN"] as const;
+export const LOCATION_ROLES = ["DOCTOR", "RECEPTIONIST", "LOCATION_ADMIN", "ASSISTANT"] as const;
 export type LocationRole = (typeof LOCATION_ROLES)[number];
 
 export const RESOURCES = [
@@ -19,26 +24,14 @@ export const RESOURCES = [
   "location_member",
   "doctor_profile",
   "patient",
-  /**
-   * Split deliberately. Lumping these together let reception read chronic
-   * conditions and current medications — enough to infer a diagnosis such as
-   * HIV from an antiretroviral. A drug-allergy flag is a front-desk safety
-   * signal; a diagnosis is not.
-   */
-  "patient_allergy", // drug allergies — a safety flag, not a diagnosis
-  "patient_clinical", // conditions, medications, alerts — diagnosis-revealing
-  "patient_contact", // administrative; reception phones the family
+  "patient_allergy",
+  "patient_clinical",
+  "patient_contact",
   "encounter",
   "private_notes",
   "prescription",
   "investigation_result",
   "document",
-  /**
-   * Appointments are CANCELLED, never deleted — the append-only event history
-   * would otherwise lose its subject, and "this patient was booked and the
-   * booking vanished" is unanswerable. No role holds `delete` here, and there
-   * is deliberately no DELETE policy in Postgres to match.
-   */
   "appointment",
   "queue",
   "payment",
@@ -57,10 +50,6 @@ const RW = ["read", "create", "update"] as const;
 const RWD = ["read", "create", "update", "delete"] as const;
 const NONE = [] as const;
 
-/**
- * Anything not listed is denied. Default-deny is the point — adding a resource
- * without touching this file makes it inaccessible, which is the safe failure.
- */
 const MATRIX: Matrix = {
   DOCTOR: {
     practice_location: R,
@@ -87,16 +76,13 @@ const MATRIX: Matrix = {
     location_member: NONE,
     doctor_profile: R,
     patient: RW,
-    // A drug-allergy flag is a front-desk safety signal — reception may read
-    // it, never author it.
     patient_allergy: R,
-    // Conditions, medications and alerts reveal a diagnosis. Not the desk's.
     patient_clinical: NONE,
     patient_contact: RW,
     encounter: NONE,
     private_notes: NONE,
-    prescription: R, // print/hand over only
-    investigation_result: NONE, // metadata surfaces via document, not the result body
+    prescription: R,
+    investigation_result: NONE,
     document: ["read", "create"],
     appointment: RW,
     queue: RW,
@@ -110,13 +96,11 @@ const MATRIX: Matrix = {
     location_member: RWD,
     doctor_profile: R,
     patient: RW,
-    // Operational role. It sees no clinical content, by the same reasoning
-    // that keeps private_notes away from it.
     patient_allergy: NONE,
     patient_clinical: NONE,
     patient_contact: R,
     encounter: R,
-    private_notes: NONE, // operational role — no clinical-note access, ever
+    private_notes: NONE,
     prescription: R,
     investigation_result: R,
     document: RW,
@@ -126,29 +110,37 @@ const MATRIX: Matrix = {
     audit_log: R,
     ai_assistant: NONE,
   },
+
+  /**
+   * ASSISTANT is intentionally not an application-RBAC grant. It is only the
+   * broad location-entry marker used by Doctor-scoped Staff Management.
+   * `requireStaffPermission()` + RLS/RPC helpers decide every delegated action.
+   */
+  ASSISTANT: {
+    practice_location: R,
+    location_member: NONE,
+    doctor_profile: NONE,
+    patient: NONE,
+    patient_allergy: NONE,
+    patient_clinical: NONE,
+    patient_contact: NONE,
+    encounter: NONE,
+    private_notes: NONE,
+    prescription: NONE,
+    investigation_result: NONE,
+    document: NONE,
+    appointment: NONE,
+    queue: NONE,
+    payment: NONE,
+    audit_log: NONE,
+    ai_assistant: NONE,
+  },
 };
 
-/**
- * Can `role` perform `action` on `resource`?
- *
- * This answers the ROLE question only. Callers must separately establish that
- * the row belongs to the caller's active clinic — see requireLocationContext.
- * Both checks are required; neither is sufficient alone.
- */
 export function can(role: LocationRole, action: Action, resource: Resource): boolean {
   return MATRIX[role]?.[resource]?.includes(action) ?? false;
 }
 
-/**
- * Can a user holding ANY of `roles` perform the action?
- *
- * A user may hold several roles at one clinic (a solo doctor is both DOCTOR and
- * LOCATION_ADMIN of their own chamber), so permission is the union. This is what
- * request-path code should call — `can()` is the single-role primitive.
- *
- * Note the union never widens a denial that matters: `private_notes` is granted
- * only to DOCTOR, so adding LOCATION_ADMIN cannot unlock it, and vice versa.
- */
 export function canAny(
   roles: readonly LocationRole[],
   action: Action,
@@ -157,7 +149,6 @@ export function canAny(
   return roles.some((role) => can(role, action, resource));
 }
 
-/** Every action a role may take on a resource. Useful for building UI. */
 export function allowedActions(
   role: LocationRole,
   resource: Resource,
@@ -165,12 +156,6 @@ export function allowedActions(
   return MATRIX[role]?.[resource] ?? [];
 }
 
-/** Roles permitted to manage clinic settings and membership. */
 export function isLocationManager(role: LocationRole): boolean {
   return can(role, "update", "location_member");
 }
-
-
-
-
-
