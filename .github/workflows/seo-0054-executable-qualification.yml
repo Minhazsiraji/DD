@@ -1,0 +1,465 @@
+name: SEO 0054 executable qualification
+
+on:
+  push:
+    branches:
+      - qa/seo-0054-executable-qualification
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  qualify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: dd_qa
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d dd_qa"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      PGPASSWORD: postgres
+      PGHOST: 127.0.0.1
+      PGPORT: 5432
+      PGUSER: postgres
+      PGDATABASE: dd_qa
+      CANDIDATE_SHA: 96ed0adbf04ed9d85f86310e8ac39c3412b15f5f
+      MIGRATION_BLOB_SHA: 0b530863dcb3be98043ba694ec4eab6d10eeac5c
+      NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: ci-placeholder-anon-key-00000000000000000000
+      NEXT_PUBLIC_SITE_URL: https://dd.agentsiraji.com
+      AI_MODE: mock
+      NOTIFICATION_MODE: mock
+      PAYMENT_MODE: mock
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: 96ed0adbf04ed9d85f86310e8ac39c3412b15f5f
+
+      - name: Prove exact candidate and exact 0054 blob
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
+          test "$(git hash-object supabase/migrations/0054_seo_search_eligibility.sql)" = "$MIGRATION_BLOB_SHA"
+          echo "candidate=$(git rev-parse HEAD)"
+          echo "0054_blob=$(git hash-object supabase/migrations/0054_seo_search_eligibility.sql)"
+          psql -Atqc "select version();"
+
+      - name: Build authoritative post-0052 fixture
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > /tmp/post0052.sql <<'SQL'
+          create role anon nologin;
+          create role authenticated nologin;
+          create role service_role nologin bypassrls;
+          create schema auth;
+
+          create type public.profile_visibility as enum ('PRIVATE','PUBLIC');
+          create type public.location_type as enum ('PERSONAL_CHAMBER','CLINIC','HOSPITAL','TELEMEDICINE','OTHER');
+
+          create table auth.users (
+            id uuid primary key,
+            email text,
+            deleted_at timestamptz,
+            banned_until timestamptz
+          );
+
+          create table public.profiles (
+            id uuid primary key references auth.users(id) on delete cascade,
+            full_name text not null,
+            phone text,
+            avatar_url text,
+            locale text not null default 'en',
+            onboarded_at timestamptz,
+            created_at timestamptz not null default now(),
+            updated_at timestamptz not null default now()
+          );
+
+          create table public.doctor_profiles (
+            id uuid primary key default gen_random_uuid(),
+            user_id uuid not null references public.profiles(id) on delete cascade,
+            qualification text,
+            specialization text,
+            bmdc_registration_no text,
+            signature_url text,
+            patient_number_prefix text not null default 'PT',
+            patient_number_seq integer not null default 0,
+            created_at timestamptz not null default now(),
+            updated_at timestamptz not null default now(),
+            designation text,
+            bmdc_normalized text,
+            professional_photo_path text,
+            show_bmdc_on_profile boolean not null default false,
+            profile_visibility public.profile_visibility not null default 'PRIVATE',
+            profile_slug text,
+            constraint doctor_profiles_slug_shape check (
+              profile_slug is null or profile_slug ~ '^[a-z0-9]([a-z0-9-]{1,38}[a-z0-9])$'::text
+            )
+          );
+
+          create table public.practice_locations (
+            id uuid primary key default gen_random_uuid(),
+            name text not null,
+            type public.location_type not null default 'PERSONAL_CHAMBER',
+            address text,
+            district text,
+            phone text,
+            logo_url text,
+            timezone text not null default 'Asia/Dhaka',
+            settings jsonb not null default '{}'::jsonb,
+            created_by uuid references public.profiles(id) on delete set null,
+            is_active boolean not null default true,
+            created_at timestamptz not null default now(),
+            updated_at timestamptz not null default now(),
+            prescription_logo_path text
+          );
+
+          create table public.doctor_chambers (
+            id uuid primary key default gen_random_uuid(),
+            doctor_profile_id uuid not null references public.doctor_profiles(id) on delete cascade,
+            practice_location_id uuid not null references public.practice_locations(id) on delete cascade,
+            public_note text,
+            position integer not null default 0,
+            created_at timestamptz not null default now(),
+            updated_at timestamptz not null default now(),
+            constraint doctor_chambers_note_length check (public_note is null or length(public_note) <= 120)
+          );
+
+          create table public.doctor_booking_settings (
+            id uuid primary key default gen_random_uuid(),
+            doctor_profile_id uuid not null references public.doctor_profiles(id) on delete cascade,
+            doctor_chamber_id uuid not null references public.doctor_chambers(id) on delete cascade,
+            booking_enabled boolean not null default false,
+            booking_mode text not null default 'TOKEN',
+            slot_minutes integer not null default 15,
+            max_patients integer not null default 30,
+            booking_window_days integer not null default 30,
+            min_lead_minutes integer not null default 60,
+            consultation_fee numeric,
+            currency text not null default 'BDT',
+            created_at timestamptz not null default now(),
+            updated_at timestamptz not null default now(),
+            constraint doctor_booking_settings_mode check (booking_mode = any (array['TOKEN'::text,'TIME_SLOT'::text])),
+            constraint doctor_booking_settings_slot check (slot_minutes >= 5 and slot_minutes <= 180),
+            constraint doctor_booking_settings_max check (max_patients >= 1 and max_patients <= 500),
+            constraint doctor_booking_settings_window check (booking_window_days >= 1 and booking_window_days <= 180),
+            constraint doctor_booking_settings_lead check (min_lead_minutes >= 0 and min_lead_minutes <= 10080),
+            constraint doctor_booking_settings_fee check (consultation_fee is null or consultation_fee >= 0::numeric),
+            constraint doctor_booking_settings_currency check (currency ~ '^[A-Z]{3}$'::text)
+          );
+
+          create table public.doctor_chamber_hours (
+            id uuid primary key default gen_random_uuid(),
+            chamber_id uuid not null references public.doctor_chambers(id) on delete cascade,
+            weekday integer not null,
+            starts_at text not null,
+            ends_at text not null,
+            created_at timestamptz not null default now(),
+            constraint doctor_chamber_hours_weekday check (weekday >= 0 and weekday <= 6),
+            constraint doctor_chamber_hours_shape check (starts_at ~ '^\d{2}:\d{2}$'::text and ends_at ~ '^\d{2}:\d{2}$'::text),
+            constraint doctor_chamber_hours_order check (starts_at::time < ends_at::time)
+          );
+
+          create or replace function public.public_doctor_profile(p_slug text)
+          returns jsonb
+          language plpgsql
+          security definer
+          set search_path = public, pg_temp
+          as $$
+          declare
+            v_doctor public.doctor_profiles%rowtype;
+            v_full_name text;
+            v_chambers jsonb;
+          begin
+            if p_slug is null or btrim(p_slug) = '' then return null; end if;
+            select d.* into v_doctor
+            from public.doctor_profiles d
+            where d.profile_slug = lower(btrim(p_slug))
+              and d.profile_visibility = 'PUBLIC'
+            limit 1;
+            if not found then return null; end if;
+            select p.full_name into v_full_name from public.profiles p where p.id = v_doctor.user_id;
+            select coalesce(jsonb_agg(ch order by (ch->>'position')::int), '[]'::jsonb)
+            into v_chambers
+            from (
+              select jsonb_build_object(
+                'chamberId', dc.id,
+                'locationId', pl.id,
+                'name', pl.name,
+                'address', pl.address,
+                'district', pl.district,
+                'publicNote', dc.public_note,
+                'position', dc.position,
+                'bookingEnabled', coalesce(bs.booking_enabled, false),
+                'bookingMode', bs.booking_mode,
+                'consultationFee', bs.consultation_fee,
+                'currency', coalesce(bs.currency, 'BDT'),
+                'sessions', coalesce((
+                  select jsonb_agg(jsonb_build_object('weekday',h.weekday,'startsAt',h.starts_at,'endsAt',h.ends_at) order by h.weekday,h.starts_at)
+                  from public.doctor_chamber_hours h where h.chamber_id = dc.id
+                ), '[]'::jsonb)
+              ) as ch
+              from public.doctor_chambers dc
+              join public.practice_locations pl on pl.id = dc.practice_location_id
+              left join public.doctor_booking_settings bs on bs.doctor_chamber_id = dc.id
+              where dc.doctor_profile_id = v_doctor.id and pl.is_active = true
+            ) q;
+            return jsonb_build_object(
+              'fullName', coalesce(nullif(btrim(v_full_name), ''), 'Doctor'),
+              'qualification', v_doctor.qualification,
+              'designation', v_doctor.designation,
+              'specialization', v_doctor.specialization,
+              'bmdc', case when v_doctor.show_bmdc_on_profile then v_doctor.bmdc_registration_no else null end,
+              'slug', v_doctor.profile_slug,
+              'chambers', v_chambers
+            );
+          end;
+          $$;
+
+          revoke all on function public.public_doctor_profile(text) from public;
+          grant execute on function public.public_doctor_profile(text) to anon, authenticated, service_role;
+          grant select,insert,update,delete,references,trigger on public.doctor_profiles to authenticated;
+          grant all on public.doctor_profiles to service_role;
+          SQL
+          psql -v ON_ERROR_STOP=1 -f /tmp/post0052.sql
+
+      - name: First apply exact 0054
+        shell: bash
+        run: |
+          set -euo pipefail
+          psql -v ON_ERROR_STOP=1 -f supabase/migrations/0054_seo_search_eligibility.sql | tee /tmp/first-apply.log
+          echo "FIRST_APPLY=PASS"
+
+      - name: Record objects and privileges
+        shell: bash
+        run: |
+          set -euo pipefail
+          psql -P pager=off -c "select t.typname,e.enumlabel,e.enumsortorder from pg_type t join pg_enum e on e.enumtypid=t.oid where t.typnamespace='public'::regnamespace and t.typname='search_identity_class' order by e.enumsortorder;"
+          psql -P pager=off -c "select table_schema,table_name,column_name,data_type,udt_name,is_nullable,column_default from information_schema.columns where table_schema='public' and table_name='doctor_search_identities' order by ordinal_position;"
+          psql -P pager=off -c "select tgname,pg_get_triggerdef(oid,true) from pg_trigger where tgrelid='public.doctor_profiles'::regclass and not tgisinternal and tgname='doctor_profiles_search_identity_default';"
+          psql -P pager=off -c "select p.proname,pg_get_function_identity_arguments(p.oid) args,pg_get_function_result(p.oid) result,p.prosecdef,p.proconfig from pg_proc p where p.pronamespace='public'::regnamespace and p.proname in ('ensure_doctor_search_identity','is_doctor_search_indexable','public_search_indexable_doctor_slugs','public_doctor_profile') order by p.proname;"
+          psql -P pager=off -c "select grantee,table_name,privilege_type from information_schema.role_table_grants where table_schema='public' and table_name='doctor_search_identities' order by grantee,privilege_type;"
+          psql -P pager=off -c "select grantee,routine_name,privilege_type from information_schema.routine_privileges where routine_schema='public' and routine_name in ('ensure_doctor_search_identity','is_doctor_search_indexable','public_search_indexable_doctor_slugs','public_doctor_profile') order by routine_name,grantee;"
+          psql -P pager=off -c "select schemaname,tablename,policyname,roles,cmd from pg_policies where schemaname='public' and tablename='doctor_search_identities';"
+
+      - name: Seed executable eligibility matrix
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > /tmp/seed.sql <<'SQL'
+          insert into auth.users(id,email,deleted_at,banned_until) values
+            ('00000000-0000-0000-0000-000000000001','real1@example.com',null,null),
+            ('00000000-0000-0000-0000-000000000002','private@example.com',null,null),
+            ('00000000-0000-0000-0000-000000000003','deleted@example.com',now(),null),
+            ('00000000-0000-0000-0000-000000000004','banned@example.com',null,now()+interval '1 day'),
+            ('00000000-0000-0000-0000-000000000005','qa@qa.invalid',null,null),
+            ('00000000-0000-0000-0000-000000000006','synthetic@example.com',null,null),
+            ('00000000-0000-0000-0000-000000000007','test@example.com',null,null),
+            ('00000000-0000-0000-0000-000000000008','unclassified@example.com',null,null),
+            ('00000000-0000-0000-0000-000000000009','noslug@example.com',null,null),
+            ('00000000-0000-0000-0000-000000000010','noname@example.com',null,null),
+            ('00000000-0000-0000-0000-000000000011','nodescriptor@example.com',null,null),
+            ('00000000-0000-0000-0000-000000000012','autodefault@example.com',null,null),
+            ('00000000-0000-0000-0000-000000000013','missingclass@example.com',null,null);
+
+          insert into public.profiles(id,full_name) values
+            ('00000000-0000-0000-0000-000000000001','Dr Eligible'),
+            ('00000000-0000-0000-0000-000000000002','Dr Private'),
+            ('00000000-0000-0000-0000-000000000003','Dr Deleted'),
+            ('00000000-0000-0000-0000-000000000004','Dr Banned'),
+            ('00000000-0000-0000-0000-000000000005','Dr QA'),
+            ('00000000-0000-0000-0000-000000000006','Dr Synthetic'),
+            ('00000000-0000-0000-0000-000000000007','Dr Test'),
+            ('00000000-0000-0000-0000-000000000008','Dr Unclassified'),
+            ('00000000-0000-0000-0000-000000000009','Dr No Slug'),
+            ('00000000-0000-0000-0000-000000000010',''),
+            ('00000000-0000-0000-0000-000000000011','Dr No Descriptor'),
+            ('00000000-0000-0000-0000-000000000012','Dr Auto Default'),
+            ('00000000-0000-0000-0000-000000000013','Dr Missing Class');
+
+          insert into public.doctor_profiles(id,user_id,qualification,designation,specialization,profile_visibility,profile_slug,show_bmdc_on_profile,bmdc_registration_no) values
+            ('10000000-0000-0000-0000-000000000001','00000000-0000-0000-0000-000000000001','MBBS',null,null,'PUBLIC','dr-eligible',true,'A-123'),
+            ('10000000-0000-0000-0000-000000000002','00000000-0000-0000-0000-000000000002','MBBS',null,null,'PRIVATE','dr-private',false,null),
+            ('10000000-0000-0000-0000-000000000003','00000000-0000-0000-0000-000000000003','MBBS',null,null,'PUBLIC','dr-deleted',false,null),
+            ('10000000-0000-0000-0000-000000000004','00000000-0000-0000-0000-000000000004','MBBS',null,null,'PUBLIC','dr-banned',false,null),
+            ('10000000-0000-0000-0000-000000000005','00000000-0000-0000-0000-000000000005','MBBS',null,null,'PUBLIC','dr-qa',false,null),
+            ('10000000-0000-0000-0000-000000000006','00000000-0000-0000-0000-000000000006','MBBS',null,null,'PUBLIC','dr-synthetic',false,null),
+            ('10000000-0000-0000-0000-000000000007','00000000-0000-0000-0000-000000000007','MBBS',null,null,'PUBLIC','dr-test',false,null),
+            ('10000000-0000-0000-0000-000000000008','00000000-0000-0000-0000-000000000008','MBBS',null,null,'PUBLIC','dr-unclassified',false,null),
+            ('10000000-0000-0000-0000-000000000009','00000000-0000-0000-0000-000000000009','MBBS',null,null,'PUBLIC',null,false,null),
+            ('10000000-0000-0000-0000-000000000010','00000000-0000-0000-0000-000000000010','MBBS',null,null,'PUBLIC','dr-no-name',false,null),
+            ('10000000-0000-0000-0000-000000000011','00000000-0000-0000-0000-000000000011',null,null,null,'PUBLIC','dr-no-descriptor',false,null),
+            ('10000000-0000-0000-0000-000000000012','00000000-0000-0000-0000-000000000012','MBBS',null,null,'PUBLIC','dr-auto-default',false,null),
+            ('10000000-0000-0000-0000-000000000013','00000000-0000-0000-0000-000000000013','MBBS',null,null,'PUBLIC','dr-missing-class',false,null);
+
+          update public.doctor_search_identities set search_identity_class='REAL' where doctor_profile_id in (
+            '10000000-0000-0000-0000-000000000001','10000000-0000-0000-0000-000000000002','10000000-0000-0000-0000-000000000003','10000000-0000-0000-0000-000000000004','10000000-0000-0000-0000-000000000005','10000000-0000-0000-0000-000000000009','10000000-0000-0000-0000-000000000010','10000000-0000-0000-0000-000000000011'
+          );
+          update public.doctor_search_identities set search_identity_class='SYNTHETIC' where doctor_profile_id='10000000-0000-0000-0000-000000000006';
+          update public.doctor_search_identities set search_identity_class='TEST' where doctor_profile_id='10000000-0000-0000-0000-000000000007';
+          delete from public.doctor_search_identities where doctor_profile_id='10000000-0000-0000-0000-000000000013';
+
+          insert into public.practice_locations(id,name,address,district,is_active) values ('20000000-0000-0000-0000-000000000001','Eligible Chamber','1 Test Road','Dhaka',true);
+          insert into public.doctor_chambers(id,doctor_profile_id,practice_location_id,public_note,position) values ('30000000-0000-0000-0000-000000000001','10000000-0000-0000-0000-000000000001','20000000-0000-0000-0000-000000000001','Public note',1);
+          insert into public.doctor_booking_settings(doctor_profile_id,doctor_chamber_id,booking_enabled,booking_mode,consultation_fee,currency) values ('10000000-0000-0000-0000-000000000001','30000000-0000-0000-0000-000000000001',true,'TOKEN',500,'BDT');
+          insert into public.doctor_chamber_hours(chamber_id,weekday,starts_at,ends_at) values ('30000000-0000-0000-0000-000000000001',1,'10:00','12:00');
+
+          -- Corrupt-state simulation for the explicit missing-auth-row requirement.
+          -- The authoritative FK normally prevents this state; disabling FK triggers here proves the helper still fails closed.
+          alter table public.profiles disable trigger all;
+          insert into public.profiles(id,full_name) values ('00000000-0000-0000-0000-000000000014','Dr Missing Auth');
+          alter table public.profiles enable trigger all;
+          insert into public.doctor_profiles(id,user_id,qualification,profile_visibility,profile_slug) values ('10000000-0000-0000-0000-000000000014','00000000-0000-0000-0000-000000000014','MBBS','PUBLIC','dr-missing-auth');
+          update public.doctor_search_identities set search_identity_class='REAL' where doctor_profile_id='10000000-0000-0000-0000-000000000014';
+          SQL
+          psql -v ON_ERROR_STOP=1 -f /tmp/seed.sql
+
+      - name: Executable eligibility and compatibility assertions
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > /tmp/assert.sql <<'SQL'
+          do $$
+          declare
+            payload jsonb;
+            keys text[];
+          begin
+            if public.is_doctor_search_indexable('10000000-0000-0000-0000-000000000001') is distinct from true then raise exception 'eligible expected true'; end if;
+            if public.is_doctor_search_indexable('10000000-0000-0000-0000-000000000002') is distinct from false then raise exception 'private expected false'; end if;
+            if public.is_doctor_search_indexable('10000000-0000-0000-0000-000000000003') is distinct from false then raise exception 'deleted expected false'; end if;
+            if public.is_doctor_search_indexable('10000000-0000-0000-0000-000000000004') is distinct from false then raise exception 'banned expected false'; end if;
+            if public.is_doctor_search_indexable('10000000-0000-0000-0000-000000000005') is distinct from false then raise exception 'qa expected false'; end if;
+            if public.is_doctor_search_indexable('10000000-0000-0000-0000-000000000006') is distinct from false then raise exception 'synthetic expected false'; end if;
+            if public.is_doctor_search_indexable('10000000-0000-0000-0000-000000000007') is distinct from false then raise exception 'test expected false'; end if;
+            if public.is_doctor_search_indexable('10000000-0000-0000-0000-000000000008') is distinct from false then raise exception 'unclassified expected false'; end if;
+            if public.is_doctor_search_indexable('10000000-0000-0000-0000-000000000009') is distinct from false then raise exception 'missing slug expected false'; end if;
+            if public.is_doctor_search_indexable('10000000-0000-0000-0000-000000000010') is distinct from false then raise exception 'missing name expected false'; end if;
+            if public.is_doctor_search_indexable('10000000-0000-0000-0000-000000000011') is distinct from false then raise exception 'missing descriptor expected false'; end if;
+            if public.is_doctor_search_indexable('10000000-0000-0000-0000-000000000013') is distinct from false then raise exception 'missing classification expected false'; end if;
+            if public.is_doctor_search_indexable('10000000-0000-0000-0000-000000000014') is distinct from false then raise exception 'missing auth expected false'; end if;
+
+            if (select search_identity_class from public.doctor_search_identities where doctor_profile_id='10000000-0000-0000-0000-000000000012') <> 'UNCLASSIFIED' then raise exception 'new-doctor default not UNCLASSIFIED'; end if;
+            if public.is_doctor_search_indexable('10000000-0000-0000-0000-000000000012') is distinct from false then raise exception 'new-doctor default inferred REAL'; end if;
+
+            if (select array_agg(profile_slug order by profile_slug) from public.public_search_indexable_doctor_slugs()) <> array['dr-eligible']::text[] then raise exception 'slug enumeration leaked ineligible slug'; end if;
+
+            payload := public.public_doctor_profile('dr-eligible');
+            if payload is null then raise exception 'public profile unexpectedly null'; end if;
+            select array_agg(k order by k) into keys from jsonb_object_keys(payload) k;
+            if keys <> array['bmdc','chambers','designation','fullName','is_search_indexable','qualification','slug','specialization']::text[] then raise exception 'public profile key regression: %', keys; end if;
+            if payload->>'fullName' <> 'Dr Eligible' then raise exception 'fullName regression'; end if;
+            if payload->>'qualification' <> 'MBBS' then raise exception 'qualification regression'; end if;
+            if payload->>'bmdc' <> 'A-123' then raise exception 'BMDC regression'; end if;
+            if jsonb_array_length(payload->'chambers') <> 1 then raise exception 'chambers regression'; end if;
+            if (payload->>'is_search_indexable')::boolean is distinct from true then raise exception 'public boolean regression'; end if;
+            if payload ? 'email' or payload ? 'deleted_at' or payload ? 'banned_until' or payload ? 'search_identity_class' or payload ? 'synthetic' or payload ? 'test' then raise exception 'private eligibility input leaked'; end if;
+          end $$;
+          SQL
+          psql -v ON_ERROR_STOP=1 -f /tmp/assert.sql
+
+          # Invalid enum/classification is rejected rather than becoming REAL.
+          set +e
+          psql -v ON_ERROR_STOP=1 -c "update public.doctor_search_identities set search_identity_class='MALFORMED' where doctor_profile_id='10000000-0000-0000-0000-000000000001';" >/tmp/malformed.out 2>&1
+          malformed_rc=$?
+          set -e
+          test "$malformed_rc" -ne 0
+          grep -qi "invalid input value for enum search_identity_class" /tmp/malformed.out
+          test "$(psql -Atqc "select public.is_doctor_search_indexable('10000000-0000-0000-0000-000000000001');")" = "t"
+
+      - name: Database privilege and privacy matrix
+        shell: bash
+        run: |
+          set -euo pipefail
+          expect_denied() {
+            role="$1"; sql="$2"; pattern="$3"
+            set +e
+            psql -v ON_ERROR_STOP=1 -c "set role $role; $sql" >/tmp/deny.out 2>&1
+            rc=$?
+            set -e
+            test "$rc" -ne 0
+            grep -Eqi "$pattern" /tmp/deny.out
+          }
+
+          expect_denied anon "select * from public.doctor_search_identities" "permission denied"
+          expect_denied authenticated "select * from public.doctor_search_identities" "permission denied"
+          expect_denied anon "select public.is_doctor_search_indexable('10000000-0000-0000-0000-000000000001')" "permission denied"
+          expect_denied authenticated "select public.is_doctor_search_indexable('10000000-0000-0000-0000-000000000001')" "permission denied"
+
+          # PUBLIC has no table or helper execute privilege.
+          test "$(psql -Atqc "select has_table_privilege('public','public.doctor_search_identities','select');")" = "f"
+          test "$(psql -Atqc "select has_function_privilege('public','public.is_doctor_search_indexable(uuid)','execute');")" = "f"
+
+          # service_role can manage the private classification table as intended.
+          psql -v ON_ERROR_STOP=1 <<'SQL'
+          set role service_role;
+          select doctor_profile_id,search_identity_class from public.doctor_search_identities where doctor_profile_id='10000000-0000-0000-0000-000000000001';
+          update public.doctor_search_identities set updated_at=updated_at where doctor_profile_id='10000000-0000-0000-0000-000000000001';
+          reset role;
+          SQL
+
+          # Public RPCs remain callable and reveal only approved outputs.
+          test "$(psql -Atqc "set role anon; select (public.public_doctor_profile('dr-eligible') ? 'is_search_indexable')::text;")" = "true"
+          test "$(psql -Atqc "set role anon; select string_agg(profile_slug,',' order by profile_slug) from public.public_search_indexable_doctor_slugs();")" = "dr-eligible"
+          test "$(psql -Atqc "select has_function_privilege('anon','public.public_doctor_profile(text)','execute');")" = "t"
+          test "$(psql -Atqc "select has_function_privilege('anon','public.public_search_indexable_doctor_slugs()','execute');")" = "t"
+
+      - name: Second apply behavior
+        shell: bash
+        run: |
+          set -euo pipefail
+          set +e
+          psql -v ON_ERROR_STOP=1 -f supabase/migrations/0054_seo_search_eligibility.sql >/tmp/second-apply.out 2>&1
+          rc=$?
+          set -e
+          cat /tmp/second-apply.out
+          test "$rc" -ne 0
+          grep -qi 'type "search_identity_class" already exists' /tmp/second-apply.out
+          echo "SECOND_APPLY=EXPECTED_NON_IDEMPOTENT"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Focused SEO tests
+        run: npm test -- src/lib/seo.test.ts src/lib/seo-eligibility-migration.test.ts src/lib/sitemap.test.ts
+
+      - name: Full suite
+        run: npm test
+
+      - name: Generate Next route types
+        run: npx next typegen
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Build
+        run: npm run build
+
+      - name: Clean worktree proof
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -z "$(git status --porcelain)"
+          test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
+          test "$(git hash-object supabase/migrations/0054_seo_search_eligibility.sql)" = "$MIGRATION_BLOB_SHA"
+          echo "WORKTREE=CLEAN"
