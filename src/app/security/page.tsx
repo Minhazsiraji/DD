@@ -1,7 +1,11 @@
-import type { Metadata } from "next";
 import { MarketingPage } from "@/components/marketing/marketing-shell";
+import { publicPageMetadata } from "@/lib/seo";
 
-export const metadata: Metadata = { title: "Security & clinical trust" };
+export const metadata = publicPageMetadata({
+  title: "Security & clinical trust",
+  description: "Doctor's Diary security architecture covers doctor isolation, trusted finalization, controlled corrections, staff boundaries and private-by-default profiles.",
+  path: "/security",
+});
 
 export default function SecurityPage() {
   return (
