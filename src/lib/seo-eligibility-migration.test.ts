@@ -21,10 +21,10 @@ function expectPredicate(fragment: string) {
 }
 
 describe("0054 search eligibility contract", () => {
-  it("is allocated as a separate migration and never references reserved migrations", () => {
-    expect(migration).not.toContain("0051_m5_booking_rules");
-    expect(migration).not.toContain("0052_public_booking_anti_abuse");
-    expect(migration).not.toContain("0053_staff_management_v1");
+  it("is isolated from prior and reserved migration objects", () => {
+    expect(migration).not.toContain("alter table public.public_booking_rate_limits");
+    expect(migration).not.toContain("create table public.staff");
+    expect(migration).not.toContain("drop function public.create_public_booking");
   });
 
   it("keeps classification private and fail-closed", () => {
