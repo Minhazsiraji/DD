@@ -1,7 +1,11 @@
-import type { Metadata } from "next";
 import { MarketingPage } from "@/components/marketing/marketing-shell";
+import { publicPageMetadata } from "@/lib/seo";
 
-export const metadata: Metadata = { title: "Features" };
+export const metadata = publicPageMetadata({
+  title: "Features",
+  description: "Explore Doctor's Diary features for patient continuity, consultations, prescriptions, chambers, professional profiles and scoped staff workflows.",
+  path: "/features",
+});
 
 const features = [
   ["Patient memory", "Keep previous consultations, prescriptions and investigations available without merging them into today’s findings."],
