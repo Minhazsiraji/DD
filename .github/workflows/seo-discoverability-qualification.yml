@@ -33,6 +33,8 @@ jobs:
         run: npm test -- src/lib/seo.test.ts src/lib/seo-eligibility-migration.test.ts src/lib/sitemap.test.ts
       - name: Full suite
         run: npm test
+      - name: Generate Next route types
+        run: npx next typegen
       - name: Typecheck
         run: npm run typecheck
       - name: Lint
