@@ -1,0 +1,35 @@
+name: Staff Management Auth Hardening
+on:
+  push:
+    branches: [feature/staff-management-v1]
+permissions:
+  contents: write
+jobs:
+  harden:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with: {fetch-depth: 0}
+      - name: Apply null-safe Doctor ownership checks
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('supabase/migrations/0053_staff_management_v1.sql')
+          s=p.read_text()
+          old='v_grant.doctor_profile_id <> public.current_doctor_id()'
+          count=s.count(old)
+          if count != 3:
+              raise SystemExit(f'expected 3 Doctor ownership checks, found {count}')
+          s=s.replace(old, 'v_grant.doctor_profile_id is distinct from public.current_doctor_id()')
+          p.write_text(s)
+          PY
+          rm .github/workflows/staff-management-auth-hardening.yml
+          git diff --check
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'fix(staff): make Doctor-only grant ownership checks null-safe'
+          git push origin HEAD:feature/staff-management-v1
