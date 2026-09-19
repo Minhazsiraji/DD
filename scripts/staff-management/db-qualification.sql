@@ -175,7 +175,11 @@ select set_config('request.jwt.claim.aal','aal2',false);
 select public.staff_write_intake_vitals('50000000-0000-0000-0000-000000000001',170,60,37,80,120,80,16,99);
 select public.staff_attach_document_record('10000000-0000-0000-0000-000000000001','20000000-0000-0000-0000-000000000001','30000000-0000-0000-0000-000000000001','50000000-0000-0000-0000-000000000001','LAB_REPORT','CBC',current_date,null,'staff/a/cbc.pdf','application/pdf',100,'cbc.pdf') as assistant_document_id \gset
 select public.staff_prepare_investigation('50000000-0000-0000-0000-000000000001','CBC','proposal only') as assistant_proposal_id \gset
+reset role;
 select public.test_assert((select vital_height_cm=170 from public.encounters where id='50000000-0000-0000-0000-000000000001'), 'Assistant vitals write succeeded');
+set role authenticated;
+select set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000005',false);
+select set_config('request.jwt.claim.aal','aal2',false);
 select public.test_assert(not has_table_privilege('authenticated','public.encounter_investigations','INSERT'), 'Assistant has no final investigation insert authority');
 select public.test_assert(not has_table_privilege('authenticated','public.encounter_diagnoses','INSERT'), 'Assistant has no diagnosis finalization write authority');
 select public.test_assert(not has_table_privilege('authenticated','public.prescriptions','INSERT'), 'Assistant has no prescription write authority');
