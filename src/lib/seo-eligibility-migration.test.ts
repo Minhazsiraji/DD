@@ -20,6 +20,48 @@ function expectPredicate(fragment: string) {
   expect(eligibilityFunction).toContain(fragment);
 }
 
+type ContractCase = {
+  visibility: "PUBLIC" | "PRIVATE";
+  authRow: boolean;
+  deleted: boolean;
+  currentlyBanned: boolean;
+  email: string | null;
+  identityClass: "UNCLASSIFIED" | "REAL" | "SYNTHETIC" | "TEST";
+  slug: string;
+  fullName: string;
+  qualification?: string;
+  designation?: string;
+  specialization?: string;
+};
+
+function contractEligibility(value: ContractCase): boolean {
+  return (
+    value.visibility === "PUBLIC" &&
+    value.authRow &&
+    !value.deleted &&
+    !value.currentlyBanned &&
+    value.identityClass === "REAL" &&
+    !value.email?.toLowerCase().endsWith("@qa.invalid") &&
+    value.slug.trim().length > 0 &&
+    value.fullName.trim().length > 0 &&
+    [value.qualification, value.designation, value.specialization].some(
+      (entry) => typeof entry === "string" && entry.trim().length > 0,
+    )
+  );
+}
+
+const eligible: ContractCase = {
+  visibility: "PUBLIC",
+  authRow: true,
+  deleted: false,
+  currentlyBanned: false,
+  email: "doctor@example.com",
+  identityClass: "REAL",
+  slug: "doctor-one",
+  fullName: "Dr Example",
+  qualification: "MBBS",
+};
+
 describe("0054 search eligibility contract", () => {
   it("is isolated from prior and reserved migration objects", () => {
     expect(migration).not.toContain("alter table public.public_booking_rate_limits");
@@ -48,6 +90,28 @@ describe("0054 search eligibility contract", () => {
     expectPredicate("nullif(btrim(d.qualification), '') is not null");
     expectPredicate("nullif(btrim(d.designation), '') is not null");
     expectPredicate("nullif(btrim(d.specialization), '') is not null");
+  });
+
+  it("matches the explicit CENTRAL eligibility truth table", () => {
+    expect(contractEligibility(eligible)).toBe(true);
+    expect(contractEligibility({ ...eligible, visibility: "PRIVATE" })).toBe(false);
+    expect(contractEligibility({ ...eligible, authRow: false })).toBe(false);
+    expect(contractEligibility({ ...eligible, deleted: true })).toBe(false);
+    expect(contractEligibility({ ...eligible, currentlyBanned: true })).toBe(false);
+    expect(contractEligibility({ ...eligible, email: "pi1.doctor.a@qa.invalid" })).toBe(false);
+    expect(contractEligibility({ ...eligible, identityClass: "SYNTHETIC" })).toBe(false);
+    expect(contractEligibility({ ...eligible, identityClass: "TEST" })).toBe(false);
+    expect(contractEligibility({ ...eligible, identityClass: "UNCLASSIFIED" })).toBe(false);
+    expect(
+      contractEligibility({
+        ...eligible,
+        qualification: "",
+        designation: "",
+        specialization: "",
+      }),
+    ).toBe(false);
+    expect(contractEligibility({ ...eligible, slug: "" })).toBe(false);
+    expect(contractEligibility({ ...eligible, fullName: "" })).toBe(false);
   });
 
   it("uses safe SECURITY DEFINER search paths and withholds the private helper", () => {
