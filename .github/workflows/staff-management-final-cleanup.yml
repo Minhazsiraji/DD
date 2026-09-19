@@ -1,0 +1,41 @@
+name: Staff Management Final Cleanup
+on:
+  push:
+    branches: [feature/staff-management-v1]
+permissions:
+  contents: write
+jobs:
+  cleanup:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with: {fetch-depth: 0}
+      - name: Correct DB harness and remove temporary machinery
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('scripts/staff-management/db-qualification.sql')
+          s=p.read_text()
+          old="""select public.test_assert((select vital_height_cm=170 from public.encounters where id='50000000-0000-0000-0000-000000000001'), 'Assistant vitals write succeeded');
+select public.test_assert(not has_table_privilege('authenticated','public.encounter_investigations','INSERT'), 'Assistant has no final investigation insert authority');"""
+          new="""reset role;
+select public.test_assert((select vital_height_cm=170 from public.encounters where id='50000000-0000-0000-0000-000000000001'), 'Assistant vitals write succeeded');
+set role authenticated;
+select set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000005',false);
+select set_config('request.jwt.claim.aal','aal2',false);
+select public.test_assert(not has_table_privilege('authenticated','public.encounter_investigations','INSERT'), 'Assistant has no final investigation insert authority');"""
+          if old not in s: raise SystemExit('harness patch target not found')
+          p.write_text(s.replace(old,new,1))
+          PY
+          rm -f .github/workflows/staff-management-apply-finalization.yml
+          rm -f scripts/staff-management/apply-finalization.py
+          rm -f .github/workflows/staff-management-final-cleanup.yml
+          git diff --check
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'test(staff): fix DB postcondition harness and clean temporary machinery'
+          git push origin HEAD:feature/staff-management-v1
