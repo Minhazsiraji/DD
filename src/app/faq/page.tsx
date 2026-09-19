@@ -1,7 +1,11 @@
-import type { Metadata } from "next";
 import { MarketingPage } from "@/components/marketing/marketing-shell";
+import { publicPageMetadata } from "@/lib/seo";
 
-export const metadata: Metadata = { title: "FAQ" };
+export const metadata = publicPageMetadata({
+  title: "FAQ",
+  description: "Answers about Doctor's Diary prescriptions, AI review boundaries, multi-chamber support, public profiles and BMDC display status.",
+  path: "/faq",
+});
 
 const faq = [
   ["Is Doctor’s Diary only prescription software?", "No. Prescription is one part of a doctor productivity workflow that also keeps patient history, consultations, chambers, appointments and continuity together."],
