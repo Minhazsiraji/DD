@@ -1,8 +1,12 @@
 import Link from "next/link";
-import type { Metadata } from "next";
 import { MarketingPage } from "@/components/marketing/marketing-shell";
+import { publicPageMetadata } from "@/lib/seo";
 
-export const metadata: Metadata = { title: "Contact" };
+export const metadata = publicPageMetadata({
+  title: "Contact",
+  description: "Contact Doctor's Diary by AgentSiraji about founding-doctor onboarding, pilot access and doctor workflow evaluation.",
+  path: "/contact",
+});
 
 export default function ContactPage() {
   return (
