@@ -20,7 +20,7 @@ export interface MockVoiceFixture {
 
 const ENGLISH = "Fever for three days with dry cough. BP 120/80 mmHg.";
 const BANGLA = "তিন দিন ধরে জ্বর এবং শুকনো কাশি। BP 120/80 mmHg।";
-const BANGLISH = "Patient er three din dhore fever, dry cough ache. BP 120/80 mmHg.";
+const BANGLISH = "Patient এর তিন দিন ধরে fever এবং dry cough আছে। BP 120/80 mmHg।";
 
 export function mockTranscriptFor(language: string): string {
   if (language === "bn") return BANGLA;
