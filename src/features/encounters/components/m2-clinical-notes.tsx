@@ -4,6 +4,7 @@ import * as React from "react";
 import { MessageSquareText } from "lucide-react";
 import { SectionCard, SectionHeader } from "@/components/common/section-card";
 import { cn } from "@/lib/utils";
+import { DictateButton } from "@/features/dictation/components/dictate-button";
 import { MODULE_BY_DRAFT_KEY, type VisibilityMap } from "../module-visibility";
 import type { DraftKey, DraftValues, SectionKey } from "../schema";
 import {
@@ -12,13 +13,14 @@ import {
   appendTextSuggestion,
 } from "../text-suggestions";
 
-/**
- * M2's current-visit editor.
- *
- * This is deliberately one clinical panel rather than one large glass card per
- * textarea. Every value still writes to the SAME accepted encounter draft key;
- * the redesign changes reachability and typing effort, never persistence.
- */
+const VOICE_SECTION_KEYS = new Set<SectionKey>([
+  "chiefComplaints",
+  "presentIllness",
+  "examination",
+  "assessment",
+  "advice",
+]);
+
 export function M2ClinicalNotes({
   values,
   dirtyKeys,
@@ -32,7 +34,6 @@ export function M2ClinicalNotes({
   disabled: boolean;
   onChange: (key: DraftKey, value: string) => void;
   visibility: VisibilityMap;
-  /** The workspace is the single place that decides what historical value is reusable. */
   carryForward?: { pastHistory: string | null };
 }) {
   const visible = React.useCallback(
@@ -243,14 +244,24 @@ function ClinicalTextarea({
   onChange: (key: DraftKey, value: string) => void;
   children?: React.ReactNode;
 }) {
+  const voiceEnabled = VOICE_SECTION_KEYS.has(field);
   return (
     <div className="min-w-0">
-      <div className="mb-1.5 flex min-h-5 items-center gap-2">
+      <div className="mb-1.5 flex min-h-11 flex-wrap items-center gap-2">
         <label htmlFor={field} className="text-[13px] font-semibold text-ink">{label}</label>
         {dirty ? (
           <span className="rounded-full bg-warning-soft px-2 py-0.5 text-[10px] font-semibold text-warning">
             Pending
           </span>
+        ) : null}
+        {voiceEnabled ? (
+          <DictateButton
+            fieldLabel={label}
+            disabled={disabled}
+            value={value}
+            onInsert={(next) => onChange(field, next)}
+            className="ml-auto"
+          />
         ) : null}
       </div>
       {shownBecauseFilled ? <FilledNotice /> : null}
