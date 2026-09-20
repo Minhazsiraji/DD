@@ -18,6 +18,7 @@ const LABELS: Record<M6DTarget, string> = {
   nextVisitNote: "Follow-up",
 };
 const M6D_CLINICAL_EVENT = "dd:m6d-clinical-command";
+const SILENCE_FINALIZE_MS = 1400;
 
 type LastDraftChange = { key: M6DTarget; before: string; after: string } | null;
 
@@ -58,11 +59,7 @@ function navigationSection(intent: M6BIntent): M6DTarget | null {
   return map[intent.target] ?? null;
 }
 
-export function M6AVoicePanel({
-  values,
-  disabled,
-  onChange,
-}: {
+export function M6AVoicePanel({ values, disabled, onChange }: {
   values: DraftValues;
   disabled: boolean;
   onChange: (key: DraftKey, value: string) => void;
@@ -79,9 +76,29 @@ export function M6AVoicePanel({
   const activeRef = React.useRef(false);
   const pausedRef = React.useRef(false);
   const startRef = React.useRef<(() => void) | null>(null);
+  const stopRef = React.useRef<(() => void) | null>(null);
+  const silenceTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
 
   React.useEffect(() => { activeRef.current = sessionActive; }, [sessionActive]);
   React.useEffect(() => { pausedRef.current = paused; }, [paused]);
+  React.useEffect(() => () => {
+    if (silenceTimer.current) clearTimeout(silenceTimer.current);
+  }, []);
+
+  function clearSilenceTimer() {
+    if (silenceTimer.current) clearTimeout(silenceTimer.current);
+    silenceTimer.current = null;
+  }
+
+  function previewWithSilenceFinalization(text: string) {
+    setPreview(text);
+    clearSilenceTimer();
+    if (!text.trim()) return;
+    silenceTimer.current = setTimeout(() => {
+      silenceTimer.current = null;
+      if (activeRef.current && !pausedRef.current) stopRef.current?.();
+    }, SILENCE_FINALIZE_MS);
+  }
 
   function writeDraft(key: M6DTarget, next: string) {
     const before = values[key] ?? "";
@@ -142,6 +159,7 @@ export function M6AVoicePanel({
   }
 
   async function handleFinal(rawText: string) {
+    clearSilenceTimer();
     setPreview("");
     const text = await normalizeTranscript(rawText, voiceLanguage.lang);
     if (mode === "ambient") {
@@ -150,14 +168,12 @@ export function M6AVoicePanel({
       scheduleRestart();
       return;
     }
-
     const local = parseM6DLocalCommand(text);
     if (local.type !== "NONE") {
       applyLocal(local);
       scheduleRestart();
       return;
     }
-
     const interpreted = await interpretCommand(text, voiceLanguage.lang);
     if (interpreted && interpreted.type !== "UNKNOWN") {
       const section = navigationSection(interpreted);
@@ -166,7 +182,6 @@ export function M6AVoicePanel({
       scheduleRestart();
       return;
     }
-
     appendDraft(target, text);
     setStatus(`Inserted into editable ${LABELS[target]} draft. Existing autosave/version/conflict protections remain active.`);
     scheduleRestart();
@@ -175,11 +190,12 @@ export function M6AVoicePanel({
   const dictation = useDictation({
     language: voiceLanguage.providerLanguage,
     providerMode: LIVE_VOICE_ENABLED ? "deepgram" : "mock",
-    onPreview: setPreview,
+    onPreview: previewWithSilenceFinalization,
     onFinal: (text) => void handleFinal(text),
-    onCancel: () => setPreview(""),
+    onCancel: () => { clearSilenceTimer(); setPreview(""); },
   });
   startRef.current = dictation.start;
+  stopRef.current = dictation.stop;
   const providerBusy = ["connecting", "listening", "finalizing"].includes(dictation.state);
 
   function scheduleRestart() {
@@ -195,11 +211,12 @@ export function M6AVoicePanel({
     pausedRef.current = false;
     setSessionActive(true);
     setPaused(false);
-    setStatus(`Listening continuously · target ${LABELS[target]}.`);
+    setStatus(`Listening continuously · target ${LABELS[target]}. Silence finalizes each utterance automatically.`);
     dictation.start();
   }
 
   function pauseSession() {
+    clearSilenceTimer();
     pausedRef.current = true;
     setPaused(true);
     setStatus("Voice session paused.");
@@ -215,6 +232,7 @@ export function M6AVoicePanel({
   }
 
   function endSession() {
+    clearSilenceTimer();
     activeRef.current = false;
     pausedRef.current = false;
     setSessionActive(false);
@@ -243,25 +261,16 @@ export function M6AVoicePanel({
   }
 
   return (
-    <section data-m6d-voice-assistant data-voice-mode={LIVE_VOICE_ENABLED ? "live-ai" : "mock"} className="sticky bottom-3 z-40 min-w-0 rounded-2xl border border-brand/25 bg-white/95 p-3 shadow-xl backdrop-blur-md sm:p-4">
+    <section data-m6d-voice-assistant data-voice-mode={LIVE_VOICE_ENABLED ? "live-ai" : "mock"} data-silence-finalize-ms={SILENCE_FINALIZE_MS} className="sticky bottom-3 z-40 min-w-0 rounded-2xl border border-brand/25 bg-white/95 p-3 shadow-xl backdrop-blur-md sm:p-4">
       <div className="flex min-w-0 flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
         <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-2">
-            <Mic2 className="size-4 text-brand" aria-hidden="true" />
-            <h2 className="text-[14px] font-semibold text-ink">Voice Assistant</h2>
-            <span className="rounded-full bg-brand/10 px-2 py-0.5 text-[10px] font-semibold text-brand">M6D</span>
-            {sessionActive && !paused ? <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-[#a81c1c]"><span className="size-2 animate-pulse rounded-full bg-[#a81c1c]" />Listening</span> : null}
-          </div>
+          <div className="flex flex-wrap items-center gap-2"><Mic2 className="size-4 text-brand" aria-hidden="true" /><h2 className="text-[14px] font-semibold text-ink">Voice Assistant</h2><span className="rounded-full bg-brand/10 px-2 py-0.5 text-[10px] font-semibold text-brand">M6D</span>{sessionActive && !paused ? <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-[#a81c1c]"><span className="size-2 animate-pulse rounded-full bg-[#a81c1c]" />Listening</span> : null}</div>
           <p className="mt-1 text-[11px] text-ink-muted">Notes may enter editable draft fields directly. Clinical actions still require proposal review and explicit Apply.</p>
         </div>
         <div className="flex min-w-0 flex-wrap items-center gap-2">
           <VoiceLanguageControl disabled={disabled || providerBusy} />
-          <select aria-label="Voice mode" value={mode} disabled={providerBusy} onChange={(e) => setMode(e.target.value as "guided" | "ambient")} className="min-h-11 rounded-xl border border-hairline bg-white px-3 text-[12px] font-semibold text-ink">
-            <option value="guided">Guided Voice</option><option value="ambient">Ambient Consultation</option>
-          </select>
-          <select aria-label="Current voice target" value={target} disabled={disabled || providerBusy || mode === "ambient"} onChange={(e) => navigate(e.target.value as M6DTarget)} className="min-h-11 min-w-0 rounded-xl border border-hairline bg-white px-3 text-[12px] font-semibold text-ink">
-            {M6D_TARGETS.map((key) => <option key={key} value={key}>{LABELS[key]}</option>)}
-          </select>
+          <select aria-label="Voice mode" value={mode} disabled={providerBusy} onChange={(e) => setMode(e.target.value as "guided" | "ambient")} className="min-h-11 rounded-xl border border-hairline bg-white px-3 text-[12px] font-semibold text-ink"><option value="guided">Guided Voice</option><option value="ambient">Ambient Consultation</option></select>
+          <select aria-label="Current voice target" value={target} disabled={disabled || providerBusy || mode === "ambient"} onChange={(e) => navigate(e.target.value as M6DTarget)} className="min-h-11 min-w-0 rounded-xl border border-hairline bg-white px-3 text-[12px] font-semibold text-ink">{M6D_TARGETS.map((key) => <option key={key} value={key}>{LABELS[key]}</option>)}</select>
           {!sessionActive ? <button type="button" onClick={startSession} disabled={disabled || !dictation.supported} className="inline-flex min-h-11 items-center gap-1.5 rounded-xl bg-brand px-3 text-[12px] font-semibold text-white disabled:opacity-50"><Play className="size-4" />Start Voice</button> : paused ? <button type="button" onClick={resumeSession} disabled={disabled} className="inline-flex min-h-11 items-center gap-1.5 rounded-xl bg-brand px-3 text-[12px] font-semibold text-white disabled:opacity-50"><Play className="size-4" />Resume</button> : <button type="button" onClick={pauseSession} className="inline-flex min-h-11 items-center gap-1.5 rounded-xl border border-hairline bg-white px-3 text-[12px] font-semibold text-ink"><Pause className="size-4" />Pause</button>}
           {sessionActive ? <button type="button" onClick={endSession} className="inline-flex min-h-11 items-center gap-1.5 rounded-xl border border-hairline bg-white px-3 text-[12px] font-semibold text-ink"><Square className="size-3.5 fill-current" />End</button> : null}
           <button type="button" onClick={undoLast} disabled={!lastChange} className="inline-flex min-h-11 items-center gap-1.5 rounded-xl border border-hairline bg-white px-3 text-[12px] font-semibold text-ink disabled:opacity-45"><Undo2 className="size-4" />Undo</button>
@@ -270,12 +279,7 @@ export function M6AVoicePanel({
       {preview ? <p role="status" className="mt-2 break-words rounded-xl bg-surface-muted px-3 py-2 text-[12px] text-ink-secondary"><strong>Hearing:</strong> {preview}</p> : null}
       {dictation.error ? <p role="alert" className="mt-2 text-[12px] font-medium text-[#a81c1c]">{dictation.error}</p> : null}
       <p role="status" aria-live="polite" className="mt-2 text-[11px] text-ink-secondary">{status}</p>
-      {mode === "ambient" ? <div className="mt-3 rounded-xl border border-brand/20 bg-brand/5 p-3" data-m6d-ambient-prototype>
-        <div className="flex items-center gap-2"><Waves className="size-4 text-brand" /><strong className="text-[12px] text-ink">Ambient prototype</strong></div>
-        <p className="mt-1 text-[11px] text-ink-muted">Synthetic speech is prepared in a local review buffer. It does not infer examination findings, diagnose, prescribe or finalize.</p>
-        <textarea readOnly value={ambientDraft} rows={3} placeholder="Prepared ambient transcript appears here…" className="mt-2 w-full resize-y rounded-xl border border-hairline bg-white px-3 py-2 text-[13px] leading-relaxed text-ink" />
-        <div className="mt-2 flex flex-wrap gap-2"><button type="button" disabled={!ambientDraft.trim()} onClick={applyAmbientToHistory} className="inline-flex min-h-11 items-center rounded-xl bg-brand px-3 text-[12px] font-semibold text-white disabled:opacity-45">Move to editable History draft</button><button type="button" disabled={!ambientDraft.trim()} onClick={() => setAmbientDraft("")} className="inline-flex min-h-11 items-center rounded-xl border border-hairline bg-white px-3 text-[12px] font-semibold text-ink disabled:opacity-45">Discard prepared text</button></div>
-      </div> : null}
+      {mode === "ambient" ? <div className="mt-3 rounded-xl border border-brand/20 bg-brand/5 p-3" data-m6d-ambient-prototype><div className="flex items-center gap-2"><Waves className="size-4 text-brand" /><strong className="text-[12px] text-ink">Ambient prototype</strong></div><p className="mt-1 text-[11px] text-ink-muted">Synthetic speech is prepared in a local review buffer. It does not infer examination findings, diagnose, prescribe or finalize.</p><textarea readOnly value={ambientDraft} rows={3} placeholder="Prepared ambient transcript appears here…" className="mt-2 w-full resize-y rounded-xl border border-hairline bg-white px-3 py-2 text-[13px] leading-relaxed text-ink" /><div className="mt-2 flex flex-wrap gap-2"><button type="button" disabled={!ambientDraft.trim()} onClick={applyAmbientToHistory} className="inline-flex min-h-11 items-center rounded-xl bg-brand px-3 text-[12px] font-semibold text-white disabled:opacity-45">Move to editable History draft</button><button type="button" disabled={!ambientDraft.trim()} onClick={() => setAmbientDraft("")} className="inline-flex min-h-11 items-center rounded-xl border border-hairline bg-white px-3 text-[12px] font-semibold text-ink disabled:opacity-45">Discard prepared text</button></div></div> : null}
       <p className="mt-2 flex items-start gap-1.5 text-[10px] text-ink-muted"><ShieldAlert className="mt-px size-3.5 shrink-0" />A spoken finalize request can only enter the existing protected Review/Finalize path; this assistant cannot sign or finalize.</p>
     </section>
   );
