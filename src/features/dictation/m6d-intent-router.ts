@@ -15,7 +15,7 @@ export type M6DLocalIntent =
   | { type: "NEXT" }
   | { type: "PREVIOUS" }
   | { type: "UNDO" }
-  | { type: "NOTE_EDIT"; operation: "ADD" | "REMOVE" | "REPLACE" | "CLEAR" | "READ"; value?: string; replacement?: string }
+  | { type: "NOTE_EDIT"; operation: "REMOVE" | "REPLACE" | "CLEAR" | "READ"; value?: string; replacement?: string }
   | { type: "NONE" };
 
 const SECTION_ALIASES: readonly [M6DTarget, readonly string[]][] = [
@@ -48,8 +48,6 @@ export function parseM6DLocalCommand(text: string): M6DLocalIntent {
   if (replace) return { type: "NOTE_EDIT", operation: "REPLACE", value: replace[1]!.trim(), replacement: replace[2]!.trim() };
   const remove = raw.match(/^remove\s+(.+)$/i);
   if (remove) return { type: "NOTE_EDIT", operation: "REMOVE", value: remove[1]!.trim() };
-  const add = raw.match(/^add\s+(.+)$/i);
-  if (add) return { type: "NOTE_EDIT", operation: "ADD", value: add[1]!.trim() };
   for (const [target, aliases] of SECTION_ALIASES) if (aliases.includes(value)) return { type: "NAVIGATE", target };
   return { type: "NONE" };
 }
