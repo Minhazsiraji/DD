@@ -7,13 +7,20 @@ import {
   type KnowledgeAudience,
   getArticlesForAudience,
 } from "@/lib/knowledge";
-import { getProductDiscoveryArticles } from "@/lib/product-discovery";
+import {
+  getProductDiscoveryArticles,
+  type ProductDiscoveryArticle,
+} from "@/lib/product-discovery";
 import { publicPageMetadata } from "@/lib/seo";
 
 const audiences = Object.keys(AUDIENCE_LABELS) as KnowledgeAudience[];
 
 function isAudience(value: string): value is KnowledgeAudience {
   return audiences.includes(value as KnowledgeAudience);
+}
+
+function isProductDiscoveryArticle(article: object): article is ProductDiscoveryArticle {
+  return "capabilityStatus" in article && "statusDetail" in article;
 }
 
 export function generateStaticParams() {
@@ -52,7 +59,9 @@ export default async function AudienceHub({ params }: { params: Promise<{ audien
       {articles.length > 0 ? (
         <div className="grid gap-5 md:grid-cols-2">
           {articles.map((article) => {
-            const capabilityStatus = "capabilityStatus" in article ? article.capabilityStatus : undefined;
+            const capabilityStatus = isProductDiscoveryArticle(article)
+              ? article.capabilityStatus
+              : undefined;
             return (
               <article key={article.slug} className="dd-material-record dd-record-pearl p-6">
                 <div className="flex flex-wrap items-center gap-2 text-xs font-semibold uppercase tracking-[0.14em] text-brand">
