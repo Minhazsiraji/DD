@@ -2,14 +2,14 @@
 
 import * as React from "react";
 import { Mic2, Pause, Play, ShieldAlert, Square, Undo2, Waves } from "lucide-react";
-import type { DraftKey, DraftValues, SectionKey } from "../schema";
+import type { DraftKey, DraftValues } from "../schema";
 import { insertTranscript } from "@/features/dictation/dictation";
 import { useDictation } from "@/features/dictation/use-dictation";
 import { LIVE_VOICE_ENABLED, useVoiceLanguage, VoiceLanguageControl } from "@/features/dictation/voice-language";
-import { parseM6DLocalCommand, M6D_TARGETS, nextM6DTarget, type M6DLocalIntent } from "@/features/dictation/m6d-intent-router";
+import { parseM6DLocalCommand, M6D_TARGETS, nextM6DTarget, type M6DLocalIntent, type M6DTarget } from "@/features/dictation/m6d-intent-router";
 import type { M6BIntent } from "@/features/dictation/m6b-command-parser";
 
-const LABELS: Record<SectionKey, string> = {
+const LABELS: Record<M6DTarget, string> = {
   chiefComplaints: "Chief complaint",
   presentIllness: "History",
   examination: "Examination",
@@ -19,7 +19,7 @@ const LABELS: Record<SectionKey, string> = {
 };
 const M6D_CLINICAL_EVENT = "dd:m6d-clinical-command";
 
-type LastDraftChange = { key: SectionKey; before: string; after: string } | null;
+type LastDraftChange = { key: M6DTarget; before: string; after: string } | null;
 
 async function normalizeTranscript(transcript: string, language: string) {
   if (!LIVE_VOICE_ENABLED || language !== "bn-BD-mixed") return transcript;
@@ -45,9 +45,9 @@ async function interpretCommand(transcript: string, language: string): Promise<M
   return response.ok && payload.intent ? payload.intent : null;
 }
 
-function navigationSection(intent: M6BIntent): SectionKey | null {
+function navigationSection(intent: M6BIntent): M6DTarget | null {
   if (intent.type !== "NAVIGATE") return null;
-  const map: Partial<Record<typeof intent.target, SectionKey>> = {
+  const map: Partial<Record<typeof intent.target, M6DTarget>> = {
     "chief-complaint": "chiefComplaints",
     history: "presentIllness",
     examination: "examination",
@@ -68,7 +68,7 @@ export function M6AVoicePanel({
   onChange: (key: DraftKey, value: string) => void;
 }) {
   const voiceLanguage = useVoiceLanguage();
-  const [target, setTarget] = React.useState<SectionKey>("chiefComplaints");
+  const [target, setTarget] = React.useState<M6DTarget>("chiefComplaints");
   const [sessionActive, setSessionActive] = React.useState(false);
   const [paused, setPaused] = React.useState(false);
   const [mode, setMode] = React.useState<"guided" | "ambient">("guided");
@@ -83,20 +83,20 @@ export function M6AVoicePanel({
   React.useEffect(() => { activeRef.current = sessionActive; }, [sessionActive]);
   React.useEffect(() => { pausedRef.current = paused; }, [paused]);
 
-  function writeDraft(key: SectionKey, next: string) {
+  function writeDraft(key: M6DTarget, next: string) {
     const before = values[key] ?? "";
     if (next === before) return;
     setLastChange({ key, before, after: next });
     onChange(key, next);
   }
 
-  function appendDraft(key: SectionKey, text: string) {
+  function appendDraft(key: M6DTarget, text: string) {
     const current = values[key] ?? "";
     const result = insertTranscript(current, text, current.length);
     writeDraft(key, result.text);
   }
 
-  function navigate(next: SectionKey) {
+  function navigate(next: M6DTarget) {
     setTarget(next);
     setStatus(`Current target: ${LABELS[next]}.`);
     requestAnimationFrame(() => document.getElementById(next)?.scrollIntoView({ behavior: "smooth", block: "center" }));
@@ -259,7 +259,7 @@ export function M6AVoicePanel({
           <select aria-label="Voice mode" value={mode} disabled={providerBusy} onChange={(e) => setMode(e.target.value as "guided" | "ambient")} className="min-h-11 rounded-xl border border-hairline bg-white px-3 text-[12px] font-semibold text-ink">
             <option value="guided">Guided Voice</option><option value="ambient">Ambient Consultation</option>
           </select>
-          <select aria-label="Current voice target" value={target} disabled={disabled || providerBusy || mode === "ambient"} onChange={(e) => navigate(e.target.value as SectionKey)} className="min-h-11 min-w-0 rounded-xl border border-hairline bg-white px-3 text-[12px] font-semibold text-ink">
+          <select aria-label="Current voice target" value={target} disabled={disabled || providerBusy || mode === "ambient"} onChange={(e) => navigate(e.target.value as M6DTarget)} className="min-h-11 min-w-0 rounded-xl border border-hairline bg-white px-3 text-[12px] font-semibold text-ink">
             {M6D_TARGETS.map((key) => <option key={key} value={key}>{LABELS[key]}</option>)}
           </select>
           {!sessionActive ? <button type="button" onClick={startSession} disabled={disabled || !dictation.supported} className="inline-flex min-h-11 items-center gap-1.5 rounded-xl bg-brand px-3 text-[12px] font-semibold text-white disabled:opacity-50"><Play className="size-4" />Start Voice</button> : paused ? <button type="button" onClick={resumeSession} disabled={disabled} className="inline-flex min-h-11 items-center gap-1.5 rounded-xl bg-brand px-3 text-[12px] font-semibold text-white disabled:opacity-50"><Play className="size-4" />Resume</button> : <button type="button" onClick={pauseSession} className="inline-flex min-h-11 items-center gap-1.5 rounded-xl border border-hairline bg-white px-3 text-[12px] font-semibold text-ink"><Pause className="size-4" />Pause</button>}
