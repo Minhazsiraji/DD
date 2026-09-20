@@ -1,0 +1,47 @@
+name: AEO GEO discoverability qualification
+
+on:
+  push:
+    branches:
+      - feat/aeo-geo-discoverability
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  qualify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: ci-placeholder-anon-key-00000000000000000000
+      NEXT_PUBLIC_SITE_URL: https://dd.agentsiraji.com
+      AI_MODE: mock
+      NOTIFICATION_MODE: mock
+      PAYMENT_MODE: mock
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Verify qualified SEO ancestry and immutable 0054 blob
+        run: |
+          test "$(git merge-base HEAD 96ed0adbf04ed9d85f86310e8ac39c3412b15f5f)" = "96ed0adbf04ed9d85f86310e8ac39c3412b15f5f"
+          test "$(git hash-object supabase/migrations/0054_seo_search_eligibility.sql)" = "0b530863dcb3be98043ba694ec4eab6d10eeac5c"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Focused AEO GEO tests
+        run: npm test -- src/lib/public-routes.test.ts src/lib/crawl-policy.test.ts src/lib/knowledge.test.ts src/lib/aeo-structured-data.test.ts src/lib/seo.test.ts src/lib/sitemap.test.ts src/lib/seo-eligibility-migration.test.ts
+      - name: Full suite
+        run: npm test
+      - name: Generate Next route types
+        run: npx next typegen
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Lint
+        run: npm run lint
+      - name: Build
+        run: npm run build
