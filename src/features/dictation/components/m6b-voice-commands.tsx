@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { Check, CircleAlert, Command, Mic, ShieldAlert, Square, Trash2 } from "lucide-react";
+import { Check, CircleAlert, Command, Loader2, Mic, ShieldAlert, Square, Trash2 } from "lucide-react";
 import { createMockVoiceTranscriptionProvider } from "../mock-provider";
 import { parseM6BCommand, type M6BIntent, type M6BNavigationTarget } from "../m6b-command-parser";
 import { useDictation } from "../use-dictation";
@@ -27,6 +27,20 @@ function proposalTitle(intent: M6BIntent): string {
   return "Voice command";
 }
 
+async function interpretLiveCommand(transcript: string, language: string): Promise<M6BIntent> {
+  const response = await fetch("/api/voice/command", {
+    method: "POST",
+    cache: "no-store",
+    headers: { "Content-Type": "application/json", Accept: "application/json" },
+    body: JSON.stringify({ transcript, language }),
+  });
+  const payload = (await response.json().catch(() => ({}))) as { intent?: M6BIntent; code?: string };
+  if (!response.ok || !payload.intent) {
+    throw new Error(payload.code ?? "openai-command-unavailable");
+  }
+  return payload.intent;
+}
+
 export function M6BVoiceCommands({
   disabled,
   onNavigate,
@@ -45,6 +59,7 @@ export function M6BVoiceCommands({
   const [transcript, setTranscript] = React.useState("");
   const [intent, setIntent] = React.useState<M6BIntent | null>(null);
   const [message, setMessage] = React.useState<string | null>(null);
+  const [interpreting, setInterpreting] = React.useState(false);
 
   const provider = React.useMemo(
     () => createMockVoiceTranscriptionProvider({ transcript: fixture(language.lang, scenario) }),
@@ -52,9 +67,6 @@ export function M6BVoiceCommands({
   );
 
   const dictation = useDictation({
-    // The live Banglish pilot deliberately starts from Bengali Nova-3 rather
-    // than claiming unsupported Bengali+English multilingual qualification.
-    // The internal benchmark must qualify the final provider/configuration.
     language:
       language.lang === "bn-BD-mixed" && !LIVE_VOICE_ENABLED
         ? "mixed"
@@ -62,11 +74,12 @@ export function M6BVoiceCommands({
     providerMode: LIVE_VOICE_ENABLED ? "deepgram" : "mock",
     providerOverride: LIVE_VOICE_ENABLED ? undefined : provider,
     onPreview: setTranscript,
-    onFinal: (text) => handleParsed(text),
+    onFinal: (text) => void handleParsed(text),
     onCancel: () => setTranscript(""),
   });
 
-  const active = ["connecting", "listening", "finalizing"].includes(dictation.state);
+  const dictating = ["connecting", "listening", "finalizing"].includes(dictation.state);
+  const active = dictating || interpreting;
 
   function reset() {
     dictation.cancel();
@@ -74,11 +87,29 @@ export function M6BVoiceCommands({
     setTranscript("");
     setIntent(null);
     setMessage(null);
+    setInterpreting(false);
   }
 
-  function handleParsed(text: string) {
+  async function handleParsed(text: string) {
     setTranscript(text);
-    const parsed = parseM6BCommand(text);
+    setMessage(null);
+    let parsed: M6BIntent;
+
+    if (LIVE_VOICE_ENABLED) {
+      setInterpreting(true);
+      try {
+        parsed = await interpretLiveCommand(text, language.lang);
+      } catch {
+        setIntent(null);
+        setMessage("OpenAI command understanding is unavailable. Nothing was changed.");
+        setInterpreting(false);
+        return;
+      }
+      setInterpreting(false);
+    } else {
+      parsed = parseM6BCommand(text);
+    }
+
     if (parsed.type === "NAVIGATE") {
       setIntent(null);
       setMessage(`Recognized navigation: ${parsed.target.replaceAll("-", " ")}.`);
@@ -101,6 +132,8 @@ export function M6BVoiceCommands({
 
   function editTranscript(value: string) {
     setTranscript(value);
+    // Editing stays deterministic and fail-closed. The next spoken command is
+    // interpreted by OpenAI again; manual edits never gain extra authority.
     setIntent(parseM6BCommand(value));
     setMessage(null);
   }
@@ -126,17 +159,18 @@ export function M6BVoiceCommands({
   );
 
   return (
-    <section data-m6b-voice-commands data-voice-mode={LIVE_VOICE_ENABLED ? "live" : "mock"} className="dd-app-panel min-w-0 rounded-glass p-4 sm:p-5">
+    <section data-m6b-voice-commands data-voice-mode={LIVE_VOICE_ENABLED ? "live-ai" : "mock"} className="dd-app-panel min-w-0 rounded-glass p-4 sm:p-5">
       <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0">
           <div className="flex items-center gap-2"><Command className="size-4 text-brand" aria-hidden="true" /><h2 className="text-[15px] font-semibold text-ink">Voice commands</h2></div>
-          <p className="mt-1 text-[11px] text-ink-muted">Allowlisted intents only · clinical actions require review and explicit Apply.</p>
+          <p className="mt-1 text-[11px] text-ink-muted">Deepgram transcribes speech; OpenAI interprets allowlisted commands. Clinical actions still require review and explicit Apply.</p>
         </div>
-        <span className="shrink-0 rounded-full bg-surface-muted px-2.5 py-1 text-[10px] font-semibold text-ink-secondary">{LIVE_VOICE_ENABLED ? "M6B live pilot" : "M6B mock"}</span>
+        <span className="shrink-0 rounded-full bg-surface-muted px-2.5 py-1 text-[10px] font-semibold text-ink-secondary">{LIVE_VOICE_ENABLED ? "M6B AI pilot" : "M6B mock"}</span>
       </div>
 
       <div className="mt-3 flex min-w-0 flex-wrap items-center gap-2">
         <VoiceLanguageControl disabled={disabled || active || intent !== null} />
+        {LIVE_VOICE_ENABLED ? <span className="text-[11px] font-semibold text-ink-muted">Deepgram STT → OpenAI command understanding</span> : null}
         {!LIVE_VOICE_ENABLED ? (
           <label className="inline-flex min-h-11 min-w-0 items-center gap-2 rounded-xl border border-hairline bg-white px-3 text-[12px] text-ink-secondary">
             <span className="shrink-0 font-medium">Mock command</span>
@@ -145,11 +179,17 @@ export function M6BVoiceCommands({
             </select>
           </label>
         ) : null}
-        {active ? <button type="button" onClick={dictation.stop} className="inline-flex min-h-11 items-center gap-1.5 rounded-xl bg-[#a81c1c] px-3 text-[12px] font-semibold text-white"><Square className="size-3.5 fill-current" /> Stop</button> : intent ? null : <button type="button" disabled={disabled} onClick={dictation.start} className="inline-flex min-h-11 items-center gap-1.5 rounded-xl border border-hairline bg-white px-3 text-[12px] font-semibold text-ink"><Mic className="size-4" /> Command</button>}
+        {interpreting ? (
+          <span className="inline-flex min-h-11 items-center gap-1.5 rounded-xl border border-hairline bg-white px-3 text-[12px] font-semibold text-ink-secondary"><Loader2 className="size-4 animate-spin" /> Understanding command…</span>
+        ) : dictating ? (
+          <button type="button" onClick={dictation.stop} className="inline-flex min-h-11 items-center gap-1.5 rounded-xl bg-[#a81c1c] px-3 text-[12px] font-semibold text-white"><Square className="size-3.5 fill-current" /> Stop</button>
+        ) : intent ? null : (
+          <button type="button" disabled={disabled} onClick={dictation.start} className="inline-flex min-h-11 items-center gap-1.5 rounded-xl border border-hairline bg-white px-3 text-[12px] font-semibold text-ink"><Mic className="size-4" /> Command</button>
+        )}
         {(active || intent) ? <button type="button" onClick={reset} className="inline-flex min-h-11 items-center gap-1.5 rounded-xl border border-hairline bg-white px-3 text-[12px] font-semibold text-ink"><Trash2 className="size-4" /> Discard</button> : null}
       </div>
 
-      {active && transcript ? <p role="status" className="mt-2 break-words text-[12px] text-ink-secondary"><strong>Live command:</strong> {transcript}</p> : null}
+      {dictating && transcript ? <p role="status" className="mt-2 break-words text-[12px] text-ink-secondary"><strong>Live command:</strong> {transcript}</p> : null}
       {dictation.error ? <p role="alert" className="mt-2 flex items-start gap-1.5 text-[12px] font-medium text-[#a81c1c]"><CircleAlert className="mt-0.5 size-4 shrink-0" />{dictation.error}</p> : null}
 
       {intent ? <div className="mt-3 min-w-0 rounded-xl border border-brand/25 bg-white p-3" data-m6b-command-review>
@@ -166,7 +206,7 @@ export function M6BVoiceCommands({
       {message ? <p role="status" className="mt-2 text-[12px] font-medium text-ink-secondary">{message}</p> : null}
       <p className="mt-2 text-[10px] text-ink-muted">
         {LIVE_VOICE_ENABLED
-          ? "Live pilot · microphone audio is transcribed by Deepgram. Commands remain allowlisted; clinical changes require review and explicit Apply."
+          ? "Live synthetic pilot · Deepgram handles speech-to-text and OpenAI handles command understanding. Neither may finalize a prescription; clinical changes require review and explicit Apply/confirmation."
           : "Mock mode · no microphone, provider token, Deepgram, OpenAI, or unrestricted agent/tool calling."}
       </p>
     </section>
