@@ -139,7 +139,7 @@ export default async function KnowledgeArticlePage({
 
         {productDiscovery ? (
           <section className="mt-12 border-t border-ink/10 pt-8">
-            <h2 className="text-2xl font-semibold text-ink">Related Doctor's Diary pages</h2>
+            <h2 className="text-2xl font-semibold text-ink">Related Doctor’s Diary pages</h2>
             <ul className="mt-4 grid gap-3 sm:grid-cols-2">
               {productDiscovery.relatedProductLinks.map((item) => (
                 <li key={item.href}>
