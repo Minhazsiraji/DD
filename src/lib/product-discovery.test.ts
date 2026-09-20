@@ -16,17 +16,29 @@ afterEach(() => {
 });
 
 describe("voice and Autopilot product discovery content", () => {
-  it("defines exactly eight doctor discovery articles and keeps all pending CENTRAL approval", () => {
+  it("defines exactly eight doctor discovery articles and marks all CENTRAL-approved", () => {
     const articles = getProductDiscoveryArticles({ productionOnly: false });
     expect(articles).toHaveLength(8);
     expect(articles.every((article) => article.audience === "doctors")).toBe(true);
-    expect(articles.every((article) => article.editorialApproval === "PENDING_CENTRAL")).toBe(true);
+    expect(articles.every((article) => article.editorialApproval === "APPROVED")).toBe(true);
   });
 
-  it("fails closed in Production until editorial approval", () => {
+  it("exposes all eight through the Production editorial publication gate", () => {
     process.env.VERCEL_ENV = "production";
-    expect(getProductDiscoveryArticles()).toEqual([]);
-    expect(getProductDiscoverySitemapPaths()).toEqual([]);
+    expect(getProductDiscoveryArticles()).toHaveLength(8);
+    expect(getProductDiscoverySitemapPaths()).toHaveLength(8);
+    expect(getProductDiscoverySitemapPaths()).toEqual(
+      expect.arrayContaining([
+        "/learn/doctors/voice-controlled-prescription-software",
+        "/learn/doctors/prescriptions-without-typing",
+        "/learn/doctors/ai-autopilot-clinical-documentation",
+        "/learn/doctors/english-bangla-banglish-voice-clinical-notes",
+        "/learn/doctors/ai-prescription-doctor-final-approval",
+        "/learn/doctors/voice-commands-consultation-documentation",
+        "/learn/doctors/ai-assisted-investigation-diagnosis-workflow",
+        "/learn/doctors/doctor-in-the-loop-medical-ai",
+      ]),
+    );
   });
 
   it("uses explicit product-truth status labels without unsupported availability claims", () => {
