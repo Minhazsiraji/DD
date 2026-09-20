@@ -35,11 +35,6 @@ export interface VoiceTranscriptionCallbacks {
   onLatency: (latency: VoiceLatencySnapshot) => void;
   onError: (code: string) => void;
   onEnd: (finalTranscript: string) => void;
-  /**
-   * Accounting, not UI state: fired exactly once per session on EVERY terminal
-   * path — end, error and cancel — because audio streamed before a Discard was
-   * still sent to the provider. Carries no transcript.
-   */
   onUsage?: (usage: VoiceStreamUsage) => void;
 }
 
@@ -49,7 +44,6 @@ export interface VoiceTranscriptionSession {
   abort(): void;
 }
 
-/** Provider boundary only; no clinical identifiers or write callbacks cross it. */
 export interface VoiceTranscriptionProvider {
   id: VoiceTranscriptionProviderId;
   privacyNotice: string;
@@ -83,6 +77,7 @@ function preferredRecorderMimeType(): string | null {
 }
 
 const TOKEN_ROUTE_TIMEOUT_MS = 6500;
+const MAX_BUFFERED_AUDIO_BYTES = 4 * 1024 * 1024;
 const TOKEN_QA_DIAGNOSTICS = new Set([
   "TOKEN_ROUTE_UNAUTHORIZED",
   "TOKEN_ROUTE_FORBIDDEN",
@@ -163,10 +158,9 @@ const deepgramProvider: VoiceTranscriptionProvider = {
     let qaDiagnostics = false;
     const assembler = new DeepgramTranscriptAssembler();
     const latency: VoiceLatencySnapshot = {};
+    const pendingAudio: Blob[] = [];
+    let pendingAudioBytes = 0;
 
-    // Usage accounting. Streamed audio is measured from recorder start to the
-    // last chunk actually SENT, so audio captured after the socket died is not
-    // counted as streamed. Reported once, on whichever terminal path comes first.
     const voiceSessionId = mintVoiceSessionId();
     let grantId: string | null = null;
     let recorderStartedAt: number | null = null;
@@ -210,6 +204,8 @@ const deepgramProvider: VoiceTranscriptionProvider = {
       finalizeTimer = null;
       if (keepAlive) clearInterval(keepAlive);
       keepAlive = null;
+      pendingAudio.length = 0;
+      pendingAudioBytes = 0;
 
       if (recorder) {
         recorder.ondataavailable = null;
@@ -253,46 +249,72 @@ const deepgramProvider: VoiceTranscriptionProvider = {
       callbacks.onEnd(latestTranscript.trim());
     };
 
+    const markFirstAudioSent = () => {
+      if (latency.firstAudioSentMs !== undefined) return;
+      latency.firstAudioSentMs = elapsed(startedAt);
+      emitLatency();
+      firstTranscriptTimer = setTimeout(
+        () => fail(qaCode("FIRST_TRANSCRIPT_TIMEOUT", "first-transcript-timeout")),
+        DEEPGRAM_FIRST_TRANSCRIPT_TIMEOUT_MS,
+      );
+    };
+
+    const sendAudioChunk = (chunk: Blob) => {
+      if (!socket || socket.readyState !== WebSocket.OPEN || chunk.size === 0) return false;
+      markFirstAudioSent();
+      socket.send(chunk);
+      lastChunkSentAt = performance.now();
+      return true;
+    };
+
+    const flushPendingAudio = () => {
+      if (!socket || socket.readyState !== WebSocket.OPEN) return;
+      while (pendingAudio.length > 0) {
+        const chunk = pendingAudio.shift()!;
+        pendingAudioBytes -= chunk.size;
+        if (!sendAudioChunk(chunk)) break;
+      }
+      if (pendingAudioBytes < 0) pendingAudioBytes = 0;
+    };
+
     const beginFinalize = () => {
       if (cancelled || terminal || finalizing) return;
+      if (!socket || socket.readyState !== WebSocket.OPEN) return;
       finalizing = true;
       callbacks.onPhase("finalizing");
       if (stopAt === null) stopAt = performance.now();
+      flushPendingAudio();
 
-      if (socket?.readyState === WebSocket.OPEN) {
-        try {
-          socket.send(JSON.stringify({ type: "Finalize" }));
-        } catch {
-          settle();
-          return;
-        }
-        finalizeTimer = setTimeout(settle, DEEPGRAM_FINALIZE_TIMEOUT_MS);
-      } else {
+      try {
+        socket.send(JSON.stringify({ type: "Finalize" }));
+      } catch {
         settle();
+        return;
       }
+      finalizeTimer = setTimeout(settle, DEEPGRAM_FINALIZE_TIMEOUT_MS);
     };
 
     const startRecorder = () => {
-      if (!stream || !socket || socket.readyState !== WebSocket.OPEN || cancelled || terminal) return;
+      if (!stream || cancelled || terminal || recorder) return;
       try {
         recorder = new MediaRecorder(stream, { mimeType });
         recorder.ondataavailable = (event) => {
-          if (cancelled || terminal || event.data.size === 0 || socket?.readyState !== WebSocket.OPEN) return;
-          if (latency.firstAudioSentMs === undefined) {
-            latency.firstAudioSentMs = elapsed(startedAt);
-            emitLatency();
-            firstTranscriptTimer = setTimeout(
-              () => fail(qaCode("FIRST_TRANSCRIPT_TIMEOUT", "first-transcript-timeout")),
-              DEEPGRAM_FIRST_TRANSCRIPT_TIMEOUT_MS,
-            );
+          if (cancelled || terminal || event.data.size === 0) return;
+          if (socket?.readyState === WebSocket.OPEN) {
+            sendAudioChunk(event.data);
+            return;
           }
-          socket.send(event.data);
-          lastChunkSentAt = performance.now();
+          if (pendingAudioBytes + event.data.size > MAX_BUFFERED_AUDIO_BYTES) {
+            fail(qaCode("AUDIO_CAPTURE", "audio-capture"));
+            return;
+          }
+          pendingAudio.push(event.data);
+          pendingAudioBytes += event.data.size;
         };
         recorder.onerror = () => fail(qaCode("AUDIO_CAPTURE", "audio-capture"));
         recorder.onstop = () => {
           releaseTracks();
-          if (!cancelled && !terminal) beginFinalize();
+          if (!cancelled && !terminal && socket?.readyState === WebSocket.OPEN) beginFinalize();
         };
         recorderStartedAt = performance.now();
         recorder.start(DEEPGRAM_MEDIA_TIMESLICE_MS);
@@ -322,6 +344,11 @@ const deepgramProvider: VoiceTranscriptionProvider = {
         }
         latency.micReadyMs = elapsed(startedAt);
         emitLatency();
+
+        // Capture immediately. Provider/token/WebSocket startup may take several
+        // seconds on a cold Preview; chunks are buffered locally and flushed as
+        // soon as Deepgram connects, so the doctor's first words are not lost.
+        startRecorder();
 
         tokenController = new AbortController();
         const tokenTimeout = setTimeout(() => tokenController?.abort(), TOKEN_ROUTE_TIMEOUT_MS);
@@ -357,7 +384,8 @@ const deepgramProvider: VoiceTranscriptionProvider = {
               socket.send(JSON.stringify({ type: "KeepAlive" }));
             }
           }, 3000);
-          startRecorder();
+          flushPendingAudio();
+          if (stopped) beginFinalize();
         };
 
         socket.onmessage = (event) => {
@@ -430,8 +458,6 @@ const deepgramProvider: VoiceTranscriptionProvider = {
         else if (socket?.readyState === WebSocket.OPEN) beginFinalize();
       },
       abort() {
-        // A cancelled or Discarded run still streamed whatever it streamed.
-        // No-op if the session already reported on end or error.
         reportUsage();
         cancelled = true;
         terminal = true;
