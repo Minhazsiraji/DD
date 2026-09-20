@@ -7,6 +7,19 @@ import { normalizeClinicalTranscript } from "../normalize";
 import { useDictation } from "../use-dictation";
 import { LIVE_VOICE_ENABLED, useVoiceLanguage, VoiceLanguageControl } from "../voice-language";
 
+async function normalizeLiveTranscript(transcript: string, language: string): Promise<string> {
+  if (!LIVE_VOICE_ENABLED || language !== "bn-BD-mixed") return transcript;
+  const response = await fetch("/api/voice/normalize", {
+    method: "POST",
+    cache: "no-store",
+    headers: { "Content-Type": "application/json", Accept: "application/json" },
+    body: JSON.stringify({ transcript, language }),
+  });
+  const payload = (await response.json().catch(() => ({}))) as { transcript?: string };
+  if (!response.ok || !payload.transcript) return transcript;
+  return payload.transcript;
+}
+
 export function M6ADictationReview({
   fieldLabel,
   value,
@@ -22,11 +35,9 @@ export function M6ADictationReview({
   const [raw, setRaw] = React.useState("");
   const [edited, setEdited] = React.useState("");
   const [reviewing, setReviewing] = React.useState(false);
+  const [normalizing, setNormalizing] = React.useState(false);
 
   const dictation = useDictation({
-    // Mock mode keeps its deterministic mixed fixture. The live pilot uses the
-    // Bengali Nova-3 stream as the conservative Banglish baseline; qualification
-    // must prove the mixed-script target before any real-doctor rollout.
     language:
       language.lang === "bn-BD-mixed" && !LIVE_VOICE_ENABLED
         ? "mixed"
@@ -34,19 +45,26 @@ export function M6ADictationReview({
     providerMode: LIVE_VOICE_ENABLED ? "deepgram" : "mock",
     onPreview: (text) => setRaw(text),
     onFinal: (text) => {
-      const next = normalizeClinicalTranscript(text);
-      setRaw(next.raw);
-      setEdited(next.normalized);
-      setReviewing(true);
+      void (async () => {
+        setNormalizing(true);
+        const mixedScript = await normalizeLiveTranscript(text, language.lang);
+        const next = normalizeClinicalTranscript(mixedScript);
+        setRaw(text);
+        setEdited(next.normalized);
+        setReviewing(true);
+        setNormalizing(false);
+      })();
     },
     onCancel: () => {
       setRaw("");
       setEdited("");
       setReviewing(false);
+      setNormalizing(false);
     },
   });
 
-  const active = ["connecting", "listening", "finalizing"].includes(dictation.state);
+  const dictating = ["connecting", "listening", "finalizing"].includes(dictation.state);
+  const active = dictating || normalizing;
   const failed = dictation.state === "error" || dictation.state === "provider-unavailable";
 
   function discard() {
@@ -55,6 +73,7 @@ export function M6ADictationReview({
     setRaw("");
     setEdited("");
     setReviewing(false);
+    setNormalizing(false);
   }
 
   function accept() {
@@ -75,7 +94,11 @@ export function M6ADictationReview({
     >
       <div className="flex min-w-0 flex-wrap items-center gap-2">
         <VoiceLanguageControl disabled={disabled || active || reviewing} />
-        {active ? (
+        {normalizing ? (
+          <span className="inline-flex min-h-11 items-center gap-1.5 rounded-xl border border-hairline px-3 text-[12px] font-semibold text-ink-secondary">
+            <Loader2 className="size-4 animate-spin" aria-hidden="true" /> Preparing mixed-script transcript
+          </span>
+        ) : dictating ? (
           <>
             {dictation.state === "finalizing" ? (
               <span className="inline-flex min-h-11 items-center gap-1.5 rounded-xl border border-hairline px-3 text-[12px] font-semibold text-ink-secondary">
@@ -103,7 +126,7 @@ export function M6ADictationReview({
         )}
       </div>
 
-      {active && raw ? (
+      {dictating && raw ? (
         <p role="status" aria-live="polite" className="mt-2 break-words text-[12px] text-ink-secondary">
           <span className="font-semibold">Live transcript:</span> {raw}
         </p>
@@ -119,7 +142,7 @@ export function M6ADictationReview({
       {reviewing ? (
         <div className="mt-2 rounded-xl border border-brand/25 bg-white p-2.5" data-m6a-transcript-review>
           <p className="text-[11px] font-semibold uppercase tracking-wide text-brand">Review before adding</p>
-          <p className="mt-1 text-[11px] text-ink-muted">Raw transcript is shown for comparison. Nothing is added to the clinical draft until Accept.</p>
+          <p className="mt-1 text-[11px] text-ink-muted">Raw provider text is shown for comparison. Banglish mode restores confident English/medical terms to English script while keeping Bangla in বাংলা. Nothing is added until Accept.</p>
           <p className="mt-2 break-words rounded-lg bg-surface-muted px-2.5 py-2 text-[12px] text-ink-secondary"><span className="font-semibold">Raw:</span> {raw}</p>
           <label className="mt-2 block text-[12px] font-semibold text-ink" htmlFor={`m6a-${fieldLabel.replace(/\W+/g, "-").toLowerCase()}`}>Editable transcript</label>
           <textarea
@@ -141,7 +164,7 @@ export function M6ADictationReview({
       ) : (
         <p className="mt-1.5 text-[10px] text-ink-muted">
           {LIVE_VOICE_ENABLED
-            ? "Live pilot · microphone audio is streamed to Deepgram only for transcription; audio is not stored by Doctor's Diary. Review and explicit Accept remain mandatory."
+            ? "Live synthetic pilot · microphone audio is streamed to Deepgram for speech-to-text. Banglish final text may be script-normalized by OpenAI; Doctor's Diary does not store the audio. Review and explicit Accept remain mandatory."
             : "Mock mode · no microphone audio or external provider is used in this M6A development candidate."}
         </p>
       )}
