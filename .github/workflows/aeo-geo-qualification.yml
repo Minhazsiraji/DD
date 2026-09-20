@@ -5,6 +5,7 @@ on:
     branches:
       - feat/aeo-geo-discoverability
       - feat/aeo-geo-voice-autopilot
+      - feat/aeo-geo-editorial-approved
   workflow_dispatch:
 
 permissions:
