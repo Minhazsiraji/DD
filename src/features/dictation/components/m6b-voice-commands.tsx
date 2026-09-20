@@ -5,18 +5,18 @@ import { Check, CircleAlert, Command, Mic, ShieldAlert, Square, Trash2 } from "l
 import { createMockVoiceTranscriptionProvider } from "../mock-provider";
 import { parseM6BCommand, type M6BIntent, type M6BNavigationTarget } from "../m6b-command-parser";
 import { useDictation } from "../use-dictation";
-import { useVoiceLanguage, VoiceLanguageControl } from "../voice-language";
+import { LIVE_VOICE_ENABLED, useVoiceLanguage, VoiceLanguageControl } from "../voice-language";
 
 type MockScenario = "navigation" | "medicine" | "investigation" | "follow-up" | "finalize";
 
 function fixture(lang: string, scenario: MockScenario): string {
   const bn = lang === "bn-BD";
   const mixed = lang === "bn-BD-mixed";
-  if (scenario === "medicine") return bn ? "Napa 500 mg add করো" : mixed ? "Napa 500 add koro" : "Add Napa 500 mg";
-  if (scenario === "investigation") return bn ? "CBC আর creatinine add করো" : mixed ? "CBC ar creatinine add koro" : "Add CBC and serum creatinine";
-  if (scenario === "follow-up") return bn ? "ফলো আপ সাত দিন" : mixed ? "follow up sat din" : "follow-up seven days";
-  if (scenario === "finalize") return bn ? "প্রেসক্রিপশন ফাইনাল করো" : mixed ? "prescription final koro" : "finalize prescription";
-  return bn ? "পরীক্ষা অংশে যাও" : mixed ? "examination e jao" : "go to examination";
+  if (scenario === "medicine") return bn ? "Napa 500 mg add করো" : mixed ? "Napa 500 mg add করো" : "Add Napa 500 mg";
+  if (scenario === "investigation") return bn ? "CBC আর creatinine add করো" : mixed ? "CBC আর creatinine add করো" : "Add CBC and serum creatinine";
+  if (scenario === "follow-up") return bn ? "ফলো আপ সাত দিন" : mixed ? "follow up সাত দিন" : "follow-up seven days";
+  if (scenario === "finalize") return bn ? "প্রেসক্রিপশন ফাইনাল করো" : mixed ? "prescription final করো" : "finalize prescription";
+  return bn ? "পরীক্ষা অংশে যাও" : mixed ? "examination এ যাও" : "go to examination";
 }
 
 function proposalTitle(intent: M6BIntent): string {
@@ -52,9 +52,15 @@ export function M6BVoiceCommands({
   );
 
   const dictation = useDictation({
-    language: language.lang === "bn-BD-mixed" ? "mixed" : language.providerLanguage,
-    providerMode: "mock",
-    providerOverride: provider,
+    // The live Banglish pilot deliberately starts from Bengali Nova-3 rather
+    // than claiming unsupported Bengali+English multilingual qualification.
+    // The internal benchmark must qualify the final provider/configuration.
+    language:
+      language.lang === "bn-BD-mixed" && !LIVE_VOICE_ENABLED
+        ? "mixed"
+        : language.providerLanguage,
+    providerMode: LIVE_VOICE_ENABLED ? "deepgram" : "mock",
+    providerOverride: LIVE_VOICE_ENABLED ? undefined : provider,
     onPreview: setTranscript,
     onFinal: (text) => handleParsed(text),
     onCancel: () => setTranscript(""),
@@ -120,23 +126,25 @@ export function M6BVoiceCommands({
   );
 
   return (
-    <section data-m6b-voice-commands data-voice-mode="mock" className="dd-app-panel min-w-0 rounded-glass p-4 sm:p-5">
+    <section data-m6b-voice-commands data-voice-mode={LIVE_VOICE_ENABLED ? "live" : "mock"} className="dd-app-panel min-w-0 rounded-glass p-4 sm:p-5">
       <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0">
           <div className="flex items-center gap-2"><Command className="size-4 text-brand" aria-hidden="true" /><h2 className="text-[15px] font-semibold text-ink">Voice commands</h2></div>
           <p className="mt-1 text-[11px] text-ink-muted">Allowlisted intents only · clinical actions require review and explicit Apply.</p>
         </div>
-        <span className="shrink-0 rounded-full bg-surface-muted px-2.5 py-1 text-[10px] font-semibold text-ink-secondary">M6B mock</span>
+        <span className="shrink-0 rounded-full bg-surface-muted px-2.5 py-1 text-[10px] font-semibold text-ink-secondary">{LIVE_VOICE_ENABLED ? "M6B live pilot" : "M6B mock"}</span>
       </div>
 
       <div className="mt-3 flex min-w-0 flex-wrap items-center gap-2">
         <VoiceLanguageControl disabled={disabled || active || intent !== null} />
-        <label className="inline-flex min-h-11 min-w-0 items-center gap-2 rounded-xl border border-hairline bg-white px-3 text-[12px] text-ink-secondary">
-          <span className="shrink-0 font-medium">Mock command</span>
-          <select aria-label="M6B mock command" value={scenario} disabled={disabled || active || intent !== null} onChange={(e) => setScenario(e.target.value as MockScenario)} className="min-w-0 max-w-40 bg-transparent font-semibold text-ink outline-none">
-            <option value="navigation">Navigation</option><option value="medicine">Medicine</option><option value="investigation">Investigation</option><option value="follow-up">Follow-up</option><option value="finalize">Finalize guard</option>
-          </select>
-        </label>
+        {!LIVE_VOICE_ENABLED ? (
+          <label className="inline-flex min-h-11 min-w-0 items-center gap-2 rounded-xl border border-hairline bg-white px-3 text-[12px] text-ink-secondary">
+            <span className="shrink-0 font-medium">Mock command</span>
+            <select aria-label="M6B mock command" value={scenario} disabled={disabled || active || intent !== null} onChange={(e) => setScenario(e.target.value as MockScenario)} className="min-w-0 max-w-40 bg-transparent font-semibold text-ink outline-none">
+              <option value="navigation">Navigation</option><option value="medicine">Medicine</option><option value="investigation">Investigation</option><option value="follow-up">Follow-up</option><option value="finalize">Finalize guard</option>
+            </select>
+          </label>
+        ) : null}
         {active ? <button type="button" onClick={dictation.stop} className="inline-flex min-h-11 items-center gap-1.5 rounded-xl bg-[#a81c1c] px-3 text-[12px] font-semibold text-white"><Square className="size-3.5 fill-current" /> Stop</button> : intent ? null : <button type="button" disabled={disabled} onClick={dictation.start} className="inline-flex min-h-11 items-center gap-1.5 rounded-xl border border-hairline bg-white px-3 text-[12px] font-semibold text-ink"><Mic className="size-4" /> Command</button>}
         {(active || intent) ? <button type="button" onClick={reset} className="inline-flex min-h-11 items-center gap-1.5 rounded-xl border border-hairline bg-white px-3 text-[12px] font-semibold text-ink"><Trash2 className="size-4" /> Discard</button> : null}
       </div>
@@ -156,7 +164,11 @@ export function M6BVoiceCommands({
       </div> : null}
 
       {message ? <p role="status" className="mt-2 text-[12px] font-medium text-ink-secondary">{message}</p> : null}
-      <p className="mt-2 text-[10px] text-ink-muted">Mock mode · no microphone, provider token, Deepgram, OpenAI, or unrestricted agent/tool calling.</p>
+      <p className="mt-2 text-[10px] text-ink-muted">
+        {LIVE_VOICE_ENABLED
+          ? "Live pilot · microphone audio is transcribed by Deepgram. Commands remain allowlisted; clinical changes require review and explicit Apply."
+          : "Mock mode · no microphone, provider token, Deepgram, OpenAI, or unrestricted agent/tool calling."}
+      </p>
     </section>
   );
 }
