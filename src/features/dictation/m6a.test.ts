@@ -37,15 +37,16 @@ describe("M6A clinical transcript normalization", () => {
       .toBe("তিন দিন ধরে জ্বর। BP 120/80");
   });
 
-  it("preserves Banglish/mixed clinical wording", () => {
-    expect(normalizeClinicalTranscript("patient er 3 din fever , dry cough ache").normalized)
-      .toBe("patient er 3 din fever, dry cough ache");
+  it("preserves Banglish/mixed clinical wording without transliterating Bangla", () => {
+    expect(normalizeClinicalTranscript("Patient এর তিন দিন ধরে fever , dry cough আছে").normalized)
+      .toBe("Patient এর তিন দিন ধরে fever, dry cough আছে");
   });
 
-  it("provides deterministic English, Bangla and Banglish fixtures", () => {
+  it("provides deterministic English, Bangla and native-script Banglish fixtures", () => {
     expect(mockTranscriptFor("en-US")).toContain("Fever");
     expect(mockTranscriptFor("bn")).toContain("জ্বর");
-    expect(mockTranscriptFor("mixed")).toContain("Patient er");
+    expect(mockTranscriptFor("mixed")).toContain("Patient এর");
+    expect(mockTranscriptFor("mixed")).not.toContain("Patient er");
   });
 });
 
