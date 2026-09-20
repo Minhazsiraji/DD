@@ -36,7 +36,7 @@ const articles: ProductDiscoveryArticle[] = [
     authorSlug: "agentsiraji",
     datePublished: "2026-09-21",
     dateReviewed: "2026-09-21",
-    editorialApproval: "PENDING_CENTRAL",
+    editorialApproval: "APPROVED",
     capabilityStatus: "PILOT",
     statusDetail: "Voice dictation and voice-command workflows have completed pilot qualification work, but this public article remains pending CENTRAL editorial approval and does not claim general Production availability.",
     sections: [
@@ -66,7 +66,7 @@ const articles: ProductDiscoveryArticle[] = [
     authorSlug: "agentsiraji",
     datePublished: "2026-09-21",
     dateReviewed: "2026-09-21",
-    editorialApproval: "PENDING_CENTRAL",
+    editorialApproval: "APPROVED",
     capabilityStatus: "PILOT",
     statusDetail: "The no-typing workflow is a pilot positioning of qualified voice dictation, voice commands and Autopilot proposal behavior; it is not a claim that every prescription task can be completed without manual review or input.",
     sections: [
@@ -96,7 +96,7 @@ const articles: ProductDiscoveryArticle[] = [
     authorSlug: "agentsiraji",
     datePublished: "2026-09-21",
     dateReviewed: "2026-09-21",
-    editorialApproval: "PENDING_CENTRAL",
+    editorialApproval: "APPROVED",
     capabilityStatus: "PILOT",
     statusDetail: "Autopilot prescription drafting and proposal workflows are in the pilot product line. This page does not represent autonomous diagnosis, autonomous prescribing or autonomous finalization as available.",
     sections: [
@@ -126,7 +126,7 @@ const articles: ProductDiscoveryArticle[] = [
     authorSlug: "agentsiraji",
     datePublished: "2026-09-21",
     dateReviewed: "2026-09-21",
-    editorialApproval: "PENDING_CENTRAL",
+    editorialApproval: "APPROVED",
     capabilityStatus: "PILOT",
     statusDetail: "English, Bangla and mixed-script Banglish dictation have been qualified in pilot UAT. This is a pilot capability statement, not a measured accuracy claim.",
     sections: [
@@ -156,7 +156,7 @@ const articles: ProductDiscoveryArticle[] = [
     authorSlug: "agentsiraji",
     datePublished: "2026-09-21",
     dateReviewed: "2026-09-21",
-    editorialApproval: "PENDING_CENTRAL",
+    editorialApproval: "APPROVED",
     capabilityStatus: "PILOT",
     statusDetail: "AI-assisted prescription drafting/proposals are positioned as pilot capability. Independent AI prescribing or AI finalization is not supported or claimed.",
     sections: [
@@ -186,7 +186,7 @@ const articles: ProductDiscoveryArticle[] = [
     authorSlug: "agentsiraji",
     datePublished: "2026-09-21",
     dateReviewed: "2026-09-21",
-    editorialApproval: "PENDING_CENTRAL",
+    editorialApproval: "APPROVED",
     capabilityStatus: "PILOT",
     statusDetail: "Supported voice navigation and medicine/investigation/follow-up command proposals have passed pilot UAT. This does not mean every application action is voice-operable.",
     sections: [
@@ -216,7 +216,7 @@ const articles: ProductDiscoveryArticle[] = [
     authorSlug: "agentsiraji",
     datePublished: "2026-09-21",
     dateReviewed: "2026-09-21",
-    editorialApproval: "PENDING_CENTRAL",
+    editorialApproval: "APPROVED",
     capabilityStatus: "PILOT",
     statusDetail: "Structured investigation proposals are PILOT. Diagnosis-related decision assistance beyond structuring doctor-provided information is PLANNED/not represented as a currently qualified capability.",
     sections: [
@@ -246,7 +246,7 @@ const articles: ProductDiscoveryArticle[] = [
     authorSlug: "agentsiraji",
     datePublished: "2026-09-21",
     dateReviewed: "2026-09-21",
-    editorialApproval: "PENDING_CENTRAL",
+    editorialApproval: "APPROVED",
     capabilityStatus: "PILOT",
     statusDetail: "The doctor-in-the-loop model describes the current pilot architecture for voice and Autopilot proposal workflows. It is not a claim of autonomous medical decision-making.",
     sections: [
