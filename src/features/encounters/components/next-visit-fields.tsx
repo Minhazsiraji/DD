@@ -2,17 +2,13 @@
 
 import * as React from "react";
 import { SectionCard, SectionHeader } from "@/components/common/section-card";
+import { DictateButton } from "@/features/dictation/components/dictate-button";
 import { CALENDAR_DATE, type DraftKey, type DraftValues } from "../schema";
 import type { FollowUpShortcut } from "../follow-up-dates";
 import { appendTextSuggestion } from "../text-suggestions";
 
 const NOTE_SUGGESTIONS = ["With reports", "If symptoms persist", "After treatment course"] as const;
 
-/**
- * Follow-up remains the accepted `date + short note` contract. Date shortcuts
- * are already resolved by the server from the active location timezone; this
- * component only copies the literal YYYY-MM-DD the doctor explicitly selects.
- */
 export function NextVisitFields({
   values,
   dirtyKeys,
@@ -97,9 +93,18 @@ export function NextVisitFields({
           </div>
 
           <div className="min-w-0 flex-1">
-            <label htmlFor="nextVisitNote" className="block text-[12px] font-medium text-ink-secondary">
-              Note
-            </label>
+            <div className="flex min-h-11 flex-wrap items-center gap-2">
+              <label htmlFor="nextVisitNote" className="text-[12px] font-medium text-ink-secondary">
+                Note
+              </label>
+              <DictateButton
+                fieldLabel="Follow-up note"
+                disabled={disabled}
+                value={note}
+                onInsert={(next) => onChange("nextVisitNote", next)}
+                className="ml-auto"
+              />
+            </div>
             <input
               id="nextVisitNote"
               name="nextVisitNote"
@@ -116,9 +121,7 @@ export function NextVisitFields({
                   key={suggestion}
                   type="button"
                   disabled={disabled}
-                  onClick={() =>
-                    onChange("nextVisitNote", appendTextSuggestion(note, suggestion))
-                  }
+                  onClick={() => onChange("nextVisitNote", appendTextSuggestion(note, suggestion))}
                   className="inline-flex min-h-11 items-center rounded-xl px-2.5 text-[11px] font-semibold text-brand hover:bg-white/35 disabled:opacity-45 focus-visible:focus-ring"
                 >
                   {suggestion}
