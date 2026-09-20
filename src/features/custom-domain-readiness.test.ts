@@ -22,36 +22,50 @@ describe("pilot custom-domain readiness", () => {
 
   it("uses the branded production origin for robots and sitemap while Preview stays blocked", () => {
     const robots = source("src/app/robots.ts");
+    const crawlPolicy = source("src/lib/crawl-policy.ts");
     const sitemap = source("src/app/sitemap.ts");
     const sitemapBuilder = source("src/lib/sitemap.ts");
     const seo = source("src/lib/seo.ts");
 
     expect(seo).toContain('SITE_ORIGIN = "https://dd.agentsiraji.com"');
-    expect(robots).toContain("SITE_ORIGIN");
+    expect(crawlPolicy).toContain("SITE_ORIGIN");
+    expect(crawlPolicy).toContain('sitemap: `${SITE_ORIGIN}/sitemap.xml`');
     expect(sitemapBuilder).toContain("SITE_ORIGIN");
     expect(robots).toContain('process.env.VERCEL_ENV === "production"');
-    expect(robots).toContain('disallow: "/"');
+    expect(crawlPolicy).toContain('disallow: "/"');
     expect(sitemap).not.toContain("process.env.VERCEL_URL");
     expect(sitemapBuilder).not.toContain("vercel.app");
-    expect(robots).not.toContain("dd-sigma-vert.vercel.app");
+    expect(crawlPolicy).not.toContain("dd-sigma-vert.vercel.app");
   });
 
-  it("publishes only robots and sitemap without widening protected app routes", () => {
+  it("publishes approved public discovery routes without widening protected app routes", () => {
     const proxy = source("src/proxy.ts");
-    const publicStart = proxy.indexOf("const PUBLIC_PATHS = [");
-    const publicEnd = proxy.indexOf("];", publicStart);
-    const publicPaths = proxy.slice(publicStart, publicEnd);
+    const publicRoutes = source("src/lib/public-routes.ts");
+    const crawlPolicy = source("src/lib/crawl-policy.ts");
 
-    expect(publicPaths).toContain('"/robots.txt"');
-    expect(publicPaths).toContain('"/sitemap.xml"');
-    expect(publicPaths).not.toContain('"/dashboard"');
-    expect(publicPaths).not.toContain('"/patients"');
-    expect(publicPaths).not.toContain('"/settings"');
-    expect(publicPaths).not.toContain('"/owner"');
+    expect(publicRoutes).toContain('"/robots.txt"');
+    expect(publicRoutes).toContain('"/sitemap.xml"');
+    expect(publicRoutes).toContain('"/about"');
+    expect(publicRoutes).toContain('"/for-doctors"');
+    expect(publicRoutes).toContain('"/learn"');
+    expect(publicRoutes).toContain('"/editorial-policy"');
+    expect(publicRoutes).toContain('"/medical-content-policy"');
+    expect(publicRoutes).toContain('"/corrections-policy"');
+    expect(publicRoutes).toContain('"/authors"');
+    expect(publicRoutes).toContain('"/reviewers"');
 
-    expect(proxy).toContain("if (!user && !isPublic(pathname))");
+    expect(publicRoutes).not.toContain('"/dashboard"');
+    expect(publicRoutes).not.toContain('"/patients"');
+    expect(publicRoutes).not.toContain('"/settings"');
+    expect(publicRoutes).not.toContain('"/owner"');
+
+    expect(proxy).toContain("if (!user && !isPublicRequestPath(pathname))");
     expect(proxy).toContain('url.pathname = "/login"');
-    expect(proxy).toContain('pathname !== "/robots.txt"');
-    expect(proxy).toContain('pathname !== "/sitemap.xml"');
+
+    expect(crawlPolicy).toContain('"/dashboard"');
+    expect(crawlPolicy).toContain('"/patients"');
+    expect(crawlPolicy).toContain('"/settings"');
+    expect(crawlPolicy).toContain('"/owner"');
+    expect(crawlPolicy).toContain('"/api/"');
   });
 });
