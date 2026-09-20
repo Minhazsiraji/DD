@@ -41,7 +41,7 @@ export default function MedicalContentPolicyPage() {
       </div>
       <section className="mt-6 dd-material-record dd-record-pearl p-6">
         <h2 className="text-xl font-semibold">Reviewer requirement</h2>
-        <p className="mt-3 leading-7 text-ink-secondary">A reviewer is not displayed until identity is verified, credentials are verified and explicit consent is recorded. Having a public Doctor's Diary doctor profile does not automatically make a doctor an editorial reviewer.</p>
+        <p className="mt-3 leading-7 text-ink-secondary">A reviewer is not displayed until identity is verified, credentials are verified and explicit consent is recorded. Having a public Doctor’s Diary doctor profile does not automatically make a doctor an editorial reviewer.</p>
         <p className="mt-3 leading-7 text-ink-secondary">Patient-facing educational material is educational information, not individualized diagnosis or treatment advice. Content that could affect health decisions remains unpublished until the required medical review and evidence are present.</p>
       </section>
     </MarketingPage>
