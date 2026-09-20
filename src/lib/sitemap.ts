@@ -11,9 +11,22 @@ export const STATIC_PUBLIC_PATHS = [
   "/contact",
   "/about",
   "/for-doctors",
+  "/learn",
+  "/learn/doctors",
+  "/learn/patients",
+  "/learn/medical-students",
+  "/editorial-policy",
+  "/medical-content-policy",
+  "/corrections-policy",
+  "/authors",
+  "/authors/agentsiraji",
+  "/reviewers",
 ] as const;
 
-export function buildSitemap(searchIndexableDoctorSlugs: string[]): MetadataRoute.Sitemap {
+export function buildSitemap(
+  searchIndexableDoctorSlugs: string[],
+  knowledgePaths: string[] = [],
+): MetadataRoute.Sitemap {
   const staticEntries: MetadataRoute.Sitemap = STATIC_PUBLIC_PATHS.map((path) => ({
     url: new URL(path || "/", SITE_ORIGIN).toString(),
     changeFrequency: path === "" ? "weekly" : "monthly",
@@ -26,5 +39,13 @@ export function buildSitemap(searchIndexableDoctorSlugs: string[]): MetadataRout
     priority: 0.6,
   }));
 
-  return [...staticEntries, ...doctorEntries];
+  const knowledgeEntries: MetadataRoute.Sitemap = knowledgePaths.map((path) => ({
+    url: new URL(path, SITE_ORIGIN).toString(),
+    changeFrequency: "monthly",
+    priority: 0.7,
+  }));
+
+  const unique = new Map<string, MetadataRoute.Sitemap[number]>();
+  for (const entry of [...staticEntries, ...doctorEntries, ...knowledgeEntries]) unique.set(entry.url, entry);
+  return [...unique.values()];
 }

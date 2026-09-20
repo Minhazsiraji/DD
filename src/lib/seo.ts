@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import type { KnowledgeArticle, PublicAuthor, PublicReviewer } from "./knowledge";
 
 export const SITE_ORIGIN = "https://dd.agentsiraji.com";
 export const PRODUCT_NAME = "Doctor's Diary";
@@ -28,6 +29,7 @@ export function publicPageMetadata({
     title,
     description,
     alternates: { canonical },
+    robots: searchRobots(true),
     openGraph: {
       title: `${title} · ${SEARCH_BRAND_NAME}`,
       description,
@@ -111,6 +113,62 @@ export function doctorProfileJsonLd(doctor: {
     url,
     name: `${doctor.fullName} · ${SEARCH_BRAND_NAME}`,
     mainEntity: person,
+  };
+}
+
+export function articleJsonLd({
+  article,
+  path,
+  author,
+  reviewer,
+}: {
+  article: KnowledgeArticle;
+  path: string;
+  author: PublicAuthor;
+  reviewer?: PublicReviewer;
+}) {
+  const url = canonicalUrl(path);
+  const value: Record<string, unknown> = {
+    "@context": "https://schema.org",
+    "@type": "Article",
+    headline: article.title,
+    description: article.description,
+    url,
+    mainEntityOfPage: url,
+    datePublished: article.datePublished,
+    dateModified: article.dateReviewed,
+    author: {
+      "@type": author.kind,
+      name: author.name,
+      url: canonicalUrl(`/authors/${author.slug}`),
+    },
+    publisher: {
+      "@type": "Organization",
+      name: "AgentSiraji",
+    },
+  };
+
+  if (reviewer) {
+    value.reviewedBy = {
+      "@type": "Person",
+      name: reviewer.name,
+      url: canonicalUrl(`/reviewers/${reviewer.slug}`),
+    };
+  }
+
+  return value;
+}
+
+export function breadcrumbJsonLd(items: Array<{ name: string; path: string }>) {
+  return {
+    "@context": "https://schema.org",
+    "@type": "BreadcrumbList",
+    itemListElement: items.map((item, index) => ({
+      "@type": "ListItem",
+      position: index + 1,
+      name: item.name,
+      item: canonicalUrl(item.path),
+    })),
   };
 }
 
