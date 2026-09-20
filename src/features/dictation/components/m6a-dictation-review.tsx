@@ -5,7 +5,7 @@ import { CircleAlert, Loader2, Mic, Square, Trash2, Check } from "lucide-react";
 import { insertTranscript } from "../dictation";
 import { normalizeClinicalTranscript } from "../normalize";
 import { useDictation } from "../use-dictation";
-import { useVoiceLanguage, VoiceLanguageControl } from "../voice-language";
+import { LIVE_VOICE_ENABLED, useVoiceLanguage, VoiceLanguageControl } from "../voice-language";
 
 export function M6ADictationReview({
   fieldLabel,
@@ -24,8 +24,14 @@ export function M6ADictationReview({
   const [reviewing, setReviewing] = React.useState(false);
 
   const dictation = useDictation({
-    language: language.lang === "bn-BD-mixed" ? "mixed" : language.providerLanguage,
-    providerMode: "mock",
+    // Mock mode keeps its deterministic mixed fixture. The live pilot uses the
+    // Bengali Nova-3 stream as the conservative Banglish baseline; qualification
+    // must prove the mixed-script target before any real-doctor rollout.
+    language:
+      language.lang === "bn-BD-mixed" && !LIVE_VOICE_ENABLED
+        ? "mixed"
+        : language.providerLanguage,
+    providerMode: LIVE_VOICE_ENABLED ? "deepgram" : "mock",
     onPreview: (text) => setRaw(text),
     onFinal: (text) => {
       const next = normalizeClinicalTranscript(text);
@@ -62,7 +68,11 @@ export function M6ADictationReview({
   }
 
   return (
-    <div className="mt-2 min-w-0 rounded-xl border border-hairline bg-white/55 p-2.5" data-m6a-dictation data-voice-mode="mock">
+    <div
+      className="mt-2 min-w-0 rounded-xl border border-hairline bg-white/55 p-2.5"
+      data-m6a-dictation
+      data-voice-mode={LIVE_VOICE_ENABLED ? "live" : "mock"}
+    >
       <div className="flex min-w-0 flex-wrap items-center gap-2">
         <VoiceLanguageControl disabled={disabled || active || reviewing} />
         {active ? (
@@ -129,7 +139,11 @@ export function M6ADictationReview({
           </div>
         </div>
       ) : (
-        <p className="mt-1.5 text-[10px] text-ink-muted">Mock mode · no microphone audio or external provider is used in this M6A development candidate.</p>
+        <p className="mt-1.5 text-[10px] text-ink-muted">
+          {LIVE_VOICE_ENABLED
+            ? "Live pilot · microphone audio is streamed to Deepgram only for transcription; audio is not stored by Doctor's Diary. Review and explicit Accept remain mandatory."
+            : "Mock mode · no microphone audio or external provider is used in this M6A development candidate."}
+        </p>
       )}
     </div>
   );
