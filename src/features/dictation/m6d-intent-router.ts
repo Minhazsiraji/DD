@@ -15,7 +15,7 @@ export type M6DLocalIntent =
   | { type: "NEXT" }
   | { type: "PREVIOUS" }
   | { type: "UNDO" }
-  | { type: "NOTE_EDIT"; operation: "REMOVE" | "REPLACE" | "CLEAR" | "READ"; value?: string; replacement?: string }
+  | { type: "NOTE_EDIT"; operation: "ADD" | "REMOVE" | "REPLACE" | "CLEAR" | "READ"; value?: string; replacement?: string }
   | { type: "NONE" };
 
 const SECTION_ALIASES: readonly [M6DTarget, readonly string[]][] = [
