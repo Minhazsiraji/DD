@@ -20,7 +20,7 @@ export default function EditorialPolicyPage() {
       <div className="space-y-6">
         <section className="dd-material-record dd-record-pearl p-6">
           <h2 className="text-xl font-semibold">PRODUCT</h2>
-          <p className="mt-3 leading-7 text-ink-secondary">Product features, Doctor's Diary workflows, software usage, security/privacy behavior, booking and public-profile documentation require product/technical review.</p>
+          <p className="mt-3 leading-7 text-ink-secondary">Product features, Doctor’s Diary workflows, software usage, security/privacy behavior, booking and public-profile documentation require product/technical review.</p>
         </section>
         <section className="dd-material-record dd-record-pearl p-6">
           <h2 className="text-xl font-semibold">PROFESSIONAL_WORKFLOW</h2>
