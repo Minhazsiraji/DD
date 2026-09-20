@@ -11,6 +11,11 @@ import {
   getReviewer,
 } from "@/lib/knowledge";
 import {
+  getProductDiscoveryArticle,
+  getProductDiscoveryArticles,
+  type ProductDiscoveryArticle,
+} from "@/lib/product-discovery";
+import {
   articleJsonLd,
   breadcrumbJsonLd,
   publicPageMetadata,
@@ -18,7 +23,7 @@ import {
 } from "@/lib/seo";
 
 export function generateStaticParams() {
-  return getKnowledgeArticles().map((article) => ({
+  return [...getKnowledgeArticles(), ...getProductDiscoveryArticles()].map((article) => ({
     audience: article.audience,
     slug: article.slug,
   }));
@@ -30,7 +35,8 @@ export async function generateMetadata({
   params: Promise<{ audience: string; slug: string }>;
 }): Promise<Metadata> {
   const { audience, slug } = await params;
-  const article = getKnowledgeArticle(audience, slug);
+  const article =
+    getKnowledgeArticle(audience, slug) ?? getProductDiscoveryArticle(audience, slug);
   if (!article) return { robots: { index: false, follow: false } };
   return publicPageMetadata({
     title: article.title,
@@ -39,13 +45,18 @@ export async function generateMetadata({
   });
 }
 
+function isProductDiscoveryArticle(article: object): article is ProductDiscoveryArticle {
+  return "capabilityStatus" in article && "statusDetail" in article;
+}
+
 export default async function KnowledgeArticlePage({
   params,
 }: {
   params: Promise<{ audience: string; slug: string }>;
 }) {
   const { audience, slug } = await params;
-  const article = getKnowledgeArticle(audience, slug);
+  const article =
+    getKnowledgeArticle(audience, slug) ?? getProductDiscoveryArticle(audience, slug);
   if (!article) notFound();
 
   const author = getAuthor(article.authorSlug);
@@ -54,6 +65,7 @@ export default async function KnowledgeArticlePage({
   const path = articlePath(article);
   const audienceLabel = AUDIENCE_LABELS[article.audience];
   const preview = process.env.VERCEL_ENV !== "production";
+  const productDiscovery = isProductDiscoveryArticle(article) ? article : undefined;
 
   const breadcrumbs = [
     { name: "Home", path: "/" },
@@ -95,6 +107,15 @@ export default async function KnowledgeArticlePage({
           {article.contentClass.replaceAll("_", " ")}
         </p>
         <h1 className="mt-4 text-4xl font-semibold tracking-tight text-ink sm:text-5xl">{article.question}</h1>
+
+        {productDiscovery ? (
+          <section className="mt-6 dd-material-record dd-record-pearl p-6" aria-label="Current capability status">
+            <p className="text-sm font-semibold uppercase tracking-[0.14em] text-brand">Current capability status</p>
+            <p className="mt-2 text-2xl font-semibold text-ink">{productDiscovery.capabilityStatus}</p>
+            <p className="mt-3 leading-7 text-ink-secondary">{productDiscovery.statusDetail}</p>
+          </section>
+        ) : null}
+
         <div className="mt-6 dd-material-record dd-record-pearl p-6">
           <p className="text-lg font-semibold text-ink">Direct answer</p>
           <p className="mt-3 text-lg leading-8 text-ink-secondary">{article.directAnswer}</p>
@@ -115,6 +136,21 @@ export default async function KnowledgeArticlePage({
             </section>
           ))}
         </div>
+
+        {productDiscovery ? (
+          <section className="mt-12 border-t border-ink/10 pt-8">
+            <h2 className="text-2xl font-semibold text-ink">Related Doctor's Diary pages</h2>
+            <ul className="mt-4 grid gap-3 sm:grid-cols-2">
+              {productDiscovery.relatedProductLinks.map((item) => (
+                <li key={item.href}>
+                  <Link href={item.href} className="font-semibold text-brand hover:underline">
+                    {item.title}
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          </section>
+        ) : null}
 
         <section className="mt-12 border-t border-ink/10 pt-8">
           <h2 className="text-2xl font-semibold text-ink">Related questions</h2>
