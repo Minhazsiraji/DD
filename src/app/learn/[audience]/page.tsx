@@ -7,6 +7,7 @@ import {
   type KnowledgeAudience,
   getArticlesForAudience,
 } from "@/lib/knowledge";
+import { getProductDiscoveryArticles } from "@/lib/product-discovery";
 import { publicPageMetadata } from "@/lib/seo";
 
 const audiences = Object.keys(AUDIENCE_LABELS) as KnowledgeAudience[];
@@ -34,7 +35,12 @@ export default async function AudienceHub({ params }: { params: Promise<{ audien
   const { audience } = await params;
   if (!isAudience(audience)) notFound();
 
-  const articles = getArticlesForAudience(audience);
+  const standardArticles = getArticlesForAudience(audience);
+  const discoveryArticles =
+    audience === "doctors"
+      ? getProductDiscoveryArticles().filter((article) => article.audience === audience)
+      : [];
+  const articles = [...discoveryArticles, ...standardArticles];
   const label = AUDIENCE_LABELS[audience];
 
   return (
@@ -45,21 +51,25 @@ export default async function AudienceHub({ params }: { params: Promise<{ audien
     >
       {articles.length > 0 ? (
         <div className="grid gap-5 md:grid-cols-2">
-          {articles.map((article) => (
-            <article key={article.slug} className="dd-material-record dd-record-pearl p-6">
-              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-brand">
-                {article.contentClass.replaceAll("_", " ")}
-              </p>
-              <h2 className="mt-3 text-xl font-semibold text-ink">{article.title}</h2>
-              <p className="mt-3 leading-7 text-ink-secondary">{article.description}</p>
-              <Link
-                href={`/learn/${article.audience}/${article.slug}`}
-                className="mt-5 inline-flex min-h-11 items-center font-semibold text-brand focus-visible:focus-ring"
-              >
-                Read answer
-              </Link>
-            </article>
-          ))}
+          {articles.map((article) => {
+            const capabilityStatus = "capabilityStatus" in article ? article.capabilityStatus : undefined;
+            return (
+              <article key={article.slug} className="dd-material-record dd-record-pearl p-6">
+                <div className="flex flex-wrap items-center gap-2 text-xs font-semibold uppercase tracking-[0.14em] text-brand">
+                  <span>{article.contentClass.replaceAll("_", " ")}</span>
+                  {capabilityStatus ? <span aria-label="Current capability status">· {capabilityStatus}</span> : null}
+                </div>
+                <h2 className="mt-3 text-xl font-semibold text-ink">{article.title}</h2>
+                <p className="mt-3 leading-7 text-ink-secondary">{article.description}</p>
+                <Link
+                  href={`/learn/${article.audience}/${article.slug}`}
+                  className="mt-5 inline-flex min-h-11 items-center font-semibold text-brand focus-visible:focus-ring"
+                >
+                  Read answer
+                </Link>
+              </article>
+            );
+          })}
         </div>
       ) : (
         <div className="dd-material-record dd-record-pearl p-6">
