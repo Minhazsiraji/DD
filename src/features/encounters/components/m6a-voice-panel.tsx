@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { flushSync } from "react-dom";
 import { Mic2 } from "lucide-react";
 import { SectionCard, SectionHeader } from "@/components/common/section-card";
 import type { DraftKey, DraftValues, SectionKey } from "../schema";
@@ -25,7 +26,26 @@ export function M6AVoicePanel({
   onChange: (key: DraftKey, value: string) => void;
 }) {
   const [target, setTarget] = React.useState<SectionKey>("chiefComplaints");
+  const [acceptedMessage, setAcceptedMessage] = React.useState<string | null>(null);
   const selected = TARGETS.find((item) => item.key === target) ?? TARGETS[0]!;
+
+  function acceptIntoTarget(next: string) {
+    // Accept is a deliberate doctor action. Commit the selected draft field
+    // synchronously before the review widget clears itself so the controlled
+    // Current visit textarea cannot visually lag behind the accepted voice text.
+    flushSync(() => {
+      onChange(target, next);
+    });
+    setAcceptedMessage(`Added to ${selected.label}.`);
+
+    window.requestAnimationFrame(() => {
+      const field = document.getElementById(target);
+      if (field instanceof HTMLElement) {
+        field.scrollIntoView({ behavior: "smooth", block: "center" });
+        field.focus({ preventScroll: true });
+      }
+    });
+  }
 
   return (
     <SectionCard className="overflow-hidden" data-m6a-voice-panel>
@@ -43,7 +63,10 @@ export function M6AVoicePanel({
             id="m6a-target"
             value={target}
             disabled={disabled}
-            onChange={(event) => setTarget(event.target.value as SectionKey)}
+            onChange={(event) => {
+              setAcceptedMessage(null);
+              setTarget(event.target.value as SectionKey);
+            }}
             className="min-h-11 min-w-0 flex-1 rounded-xl border border-hairline bg-white px-3 text-[14px] font-semibold text-ink focus-visible:focus-ring disabled:bg-surface-muted disabled:text-ink-secondary sm:max-w-xs"
           >
             {TARGETS.map((item) => (
@@ -57,8 +80,14 @@ export function M6AVoicePanel({
           fieldLabel={selected.label}
           value={values[target]}
           disabled={disabled}
-          onAccept={(next) => onChange(target, next)}
+          onAccept={acceptIntoTarget}
         />
+
+        {acceptedMessage ? (
+          <p role="status" data-m6a-accepted className="mt-2 text-[12px] font-semibold text-brand">
+            {acceptedMessage}
+          </p>
+        ) : null}
       </div>
     </SectionCard>
   );
