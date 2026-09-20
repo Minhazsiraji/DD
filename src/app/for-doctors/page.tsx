@@ -62,7 +62,7 @@ export default function ForDoctorsPage() {
           <div>
             <p className="font-semibold text-ink">PLANNED / not currently qualified</p>
             <p className="mt-2 leading-7 text-ink-secondary">
-              Autonomous diagnosis is not a Doctor's Diary capability. Diagnosis-related AI assistance beyond organizing or structuring Doctor-provided information is not represented as currently qualified; final diagnosis and interpretation remain with the Doctor.
+              Autonomous diagnosis is not a Doctor’s Diary capability. Diagnosis-related AI assistance beyond organizing or structuring Doctor-provided information is not represented as currently qualified; final diagnosis and interpretation remain with the Doctor.
             </p>
           </div>
         </div>
@@ -82,7 +82,7 @@ export default function ForDoctorsPage() {
       <section className="mt-8 dd-material-record dd-record-pearl p-6">
         <h2 className="text-xl font-semibold text-ink">Natural mixed-script Banglish</h2>
         <p className="mt-3 leading-7 text-ink-secondary">
-          Doctor's Diary Banglish preserves natural scripts. Preferred example: <strong className="text-ink">Patient এর তিন দিন ধরে fever এবং dry cough আছে।</strong> English words stay English and Bangla words stay বাংলা; Romanized Bangla is not the preferred output convention.
+          Doctor’s Diary Banglish preserves natural scripts. Preferred example: <strong className="text-ink">Patient এর তিন দিন ধরে fever এবং dry cough আছে।</strong> English words stay English and Bangla words stay বাংলা; Romanized Bangla is not the preferred output convention.
         </p>
       </section>
 
