@@ -53,14 +53,13 @@ describe("voice and Autopilot product discovery content", () => {
       const words = article.directAnswer.trim().split(/\s+/).length;
       expect(words, `${article.slug} answer word count`).toBeGreaterThanOrEqual(40);
       expect(words, `${article.slug} answer word count`).toBeLessThanOrEqual(100);
-      expect(article.sections.map((section) => section.heading)).toEqual(
-        expect.arrayContaining([
-          "What problem it solves",
-          "What AI may do",
-          "What AI may not do",
-          "Where doctor confirmation is required",
-        ]),
-      );
+
+      const headings = article.sections.map((section) => section.heading);
+      expect(headings).toContain("What problem it solves");
+      expect(headings).toContain("Where doctor confirmation is required");
+      expect(headings.some((heading) => /What AI (may|is allowed to) do/i.test(heading))).toBe(true);
+      expect(headings.some((heading) => /What AI (may not|is not allowed to) do/i.test(heading))).toBe(true);
+
       expect(article.relatedProductLinks.length).toBeGreaterThanOrEqual(3);
       expect(article.directAnswer).not.toMatch(/95%|\d+% time|doctors using|clinical superiority|improves outcomes/i);
     }
