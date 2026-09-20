@@ -1,18 +1,24 @@
-import type { SectionKey } from "@/features/encounters/schema";
+export type M6DTarget =
+  | "chiefComplaints"
+  | "presentIllness"
+  | "examination"
+  | "assessment"
+  | "advice"
+  | "nextVisitNote";
 
-export const M6D_TARGETS: readonly SectionKey[] = [
+export const M6D_TARGETS: readonly M6DTarget[] = [
   "chiefComplaints", "presentIllness", "examination", "assessment", "advice", "nextVisitNote",
 ];
 
 export type M6DLocalIntent =
-  | { type: "NAVIGATE"; target: SectionKey }
+  | { type: "NAVIGATE"; target: M6DTarget }
   | { type: "NEXT" }
   | { type: "PREVIOUS" }
   | { type: "UNDO" }
   | { type: "NOTE_EDIT"; operation: "ADD" | "REMOVE" | "REPLACE" | "CLEAR" | "READ"; value?: string; replacement?: string }
   | { type: "NONE" };
 
-const SECTION_ALIASES: readonly [SectionKey, readonly string[]][] = [
+const SECTION_ALIASES: readonly [M6DTarget, readonly string[]][] = [
   ["chiefComplaints", ["chief complaint", "chief complaints", "প্রধান অভিযোগ"]],
   ["presentIllness", ["history", "history of present illness", "hpi", "হিস্ট্রি", "ইতিহাস"]],
   ["examination", ["examination", "exam", "পরীক্ষা"]],
@@ -25,7 +31,7 @@ function clean(text: string) {
   return text.normalize("NFC").trim().replace(/[।!?]+$/g, "").replace(/\s+/g, " ");
 }
 
-export function nextM6DTarget(current: SectionKey, direction: 1 | -1): SectionKey {
+export function nextM6DTarget(current: M6DTarget, direction: 1 | -1): M6DTarget {
   const index = Math.max(0, M6D_TARGETS.indexOf(current));
   return M6D_TARGETS[(index + direction + M6D_TARGETS.length) % M6D_TARGETS.length]!;
 }
