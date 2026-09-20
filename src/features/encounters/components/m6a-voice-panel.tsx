@@ -1,20 +1,62 @@
 "use client";
 
 import * as React from "react";
-import { flushSync } from "react-dom";
-import { Mic2 } from "lucide-react";
-import { SectionCard, SectionHeader } from "@/components/common/section-card";
+import { Mic2, Pause, Play, ShieldAlert, Square, Undo2, Waves } from "lucide-react";
 import type { DraftKey, DraftValues, SectionKey } from "../schema";
-import { M6ADictationReview } from "@/features/dictation/components/m6a-dictation-review";
+import { insertTranscript } from "@/features/dictation/dictation";
+import { useDictation } from "@/features/dictation/use-dictation";
+import { LIVE_VOICE_ENABLED, useVoiceLanguage, VoiceLanguageControl } from "@/features/dictation/voice-language";
+import { parseM6DLocalCommand, M6D_TARGETS, nextM6DTarget, type M6DLocalIntent } from "@/features/dictation/m6d-intent-router";
+import type { M6BIntent } from "@/features/dictation/m6b-command-parser";
 
-const TARGETS: readonly { key: SectionKey; label: string }[] = [
-  { key: "chiefComplaints", label: "Chief complaint" },
-  { key: "presentIllness", label: "History" },
-  { key: "examination", label: "Examination" },
-  { key: "assessment", label: "Assessment" },
-  { key: "advice", label: "Advice" },
-  { key: "nextVisitNote", label: "Follow-up" },
-];
+const LABELS: Record<SectionKey, string> = {
+  chiefComplaints: "Chief complaint",
+  presentIllness: "History",
+  examination: "Examination",
+  assessment: "Assessment",
+  advice: "Advice",
+  nextVisitNote: "Follow-up",
+};
+const M6D_CLINICAL_EVENT = "dd:m6d-clinical-command";
+
+type LastDraftChange = { key: SectionKey; before: string; after: string } | null;
+
+async function normalizeTranscript(transcript: string, language: string) {
+  if (!LIVE_VOICE_ENABLED || language !== "bn-BD-mixed") return transcript;
+  const response = await fetch("/api/voice/normalize", {
+    method: "POST",
+    cache: "no-store",
+    headers: { "Content-Type": "application/json", Accept: "application/json" },
+    body: JSON.stringify({ transcript, language }),
+  });
+  const payload = (await response.json().catch(() => ({}))) as { transcript?: string };
+  return response.ok && payload.transcript ? payload.transcript : transcript;
+}
+
+async function interpretCommand(transcript: string, language: string): Promise<M6BIntent | null> {
+  if (!LIVE_VOICE_ENABLED) return null;
+  const response = await fetch("/api/voice/command", {
+    method: "POST",
+    cache: "no-store",
+    headers: { "Content-Type": "application/json", Accept: "application/json" },
+    body: JSON.stringify({ transcript, language }),
+  });
+  const payload = (await response.json().catch(() => ({}))) as { intent?: M6BIntent };
+  return response.ok && payload.intent ? payload.intent : null;
+}
+
+function navigationSection(intent: M6BIntent): SectionKey | null {
+  if (intent.type !== "NAVIGATE") return null;
+  const map: Partial<Record<typeof intent.target, SectionKey>> = {
+    "chief-complaint": "chiefComplaints",
+    history: "presentIllness",
+    examination: "examination",
+    assessment: "assessment",
+    advice: "advice",
+    "follow-up": "nextVisitNote",
+  };
+  return map[intent.target] ?? null;
+}
 
 export function M6AVoicePanel({
   values,
@@ -25,70 +67,216 @@ export function M6AVoicePanel({
   disabled: boolean;
   onChange: (key: DraftKey, value: string) => void;
 }) {
+  const voiceLanguage = useVoiceLanguage();
   const [target, setTarget] = React.useState<SectionKey>("chiefComplaints");
-  const [acceptedMessage, setAcceptedMessage] = React.useState<string | null>(null);
-  const selected = TARGETS.find((item) => item.key === target) ?? TARGETS[0]!;
+  const [sessionActive, setSessionActive] = React.useState(false);
+  const [paused, setPaused] = React.useState(false);
+  const [mode, setMode] = React.useState<"guided" | "ambient">("guided");
+  const [preview, setPreview] = React.useState("");
+  const [status, setStatus] = React.useState("Ready. Start Voice once, then speak naturally or use short commands.");
+  const [ambientDraft, setAmbientDraft] = React.useState("");
+  const [lastChange, setLastChange] = React.useState<LastDraftChange>(null);
+  const activeRef = React.useRef(false);
+  const pausedRef = React.useRef(false);
+  const startRef = React.useRef<(() => void) | null>(null);
 
-  function acceptIntoTarget(next: string) {
-    // Accept is a deliberate doctor action. Commit the selected draft field
-    // synchronously before the review widget clears itself so the controlled
-    // Current visit textarea cannot visually lag behind the accepted voice text.
-    flushSync(() => {
-      onChange(target, next);
-    });
-    setAcceptedMessage(`Added to ${selected.label}.`);
+  React.useEffect(() => { activeRef.current = sessionActive; }, [sessionActive]);
+  React.useEffect(() => { pausedRef.current = paused; }, [paused]);
 
-    window.requestAnimationFrame(() => {
-      const field = document.getElementById(target);
-      if (field instanceof HTMLElement) {
-        field.scrollIntoView({ behavior: "smooth", block: "center" });
-        field.focus({ preventScroll: true });
+  function writeDraft(key: SectionKey, next: string) {
+    const before = values[key] ?? "";
+    if (next === before) return;
+    setLastChange({ key, before, after: next });
+    onChange(key, next);
+  }
+
+  function appendDraft(key: SectionKey, text: string) {
+    const current = values[key] ?? "";
+    const result = insertTranscript(current, text, current.length);
+    writeDraft(key, result.text);
+  }
+
+  function navigate(next: SectionKey) {
+    setTarget(next);
+    setStatus(`Current target: ${LABELS[next]}.`);
+    requestAnimationFrame(() => document.getElementById(next)?.scrollIntoView({ behavior: "smooth", block: "center" }));
+  }
+
+  function handOffClinicalAction(text: string) {
+    window.dispatchEvent(new CustomEvent(M6D_CLINICAL_EVENT, { detail: { text } }));
+    setStatus("Clinical action moved to the protected proposal/review surface. Nothing was silently applied.");
+  }
+
+  function applyLocal(intent: Exclude<M6DLocalIntent, { type: "NONE" }>) {
+    const current = values[target] ?? "";
+    if (intent.type === "NAVIGATE") return navigate(intent.target);
+    if (intent.type === "NEXT") return navigate(nextM6DTarget(target, 1));
+    if (intent.type === "PREVIOUS") return navigate(nextM6DTarget(target, -1));
+    if (intent.type === "UNDO") return undoLast();
+    if (intent.type !== "NOTE_EDIT") return;
+    if (intent.operation === "CLEAR") {
+      writeDraft(target, "");
+      setStatus(`${LABELS[target]} cleared in the editable draft.`);
+    } else if (intent.operation === "READ") {
+      setStatus(current ? `${LABELS[target]}: ${current}` : `${LABELS[target]} is empty.`);
+      if (current && "speechSynthesis" in window) {
+        window.speechSynthesis.cancel();
+        window.speechSynthesis.speak(new SpeechSynthesisUtterance(current));
       }
-    });
+    } else if (intent.operation === "ADD" && intent.value) {
+      appendDraft(target, intent.value);
+      setStatus(`Added to ${LABELS[target]} draft.`);
+    } else if (intent.operation === "REMOVE" && intent.value) {
+      if (!current.includes(intent.value)) setStatus(`Could not find “${intent.value}”. Nothing changed.`);
+      else {
+        writeDraft(target, current.replace(intent.value, "").replace(/\s{2,}/g, " ").trim());
+        setStatus(`Removed requested text from ${LABELS[target]} draft.`);
+      }
+    } else if (intent.operation === "REPLACE" && intent.value && intent.replacement) {
+      if (!current.includes(intent.value)) setStatus(`Could not find “${intent.value}”. Nothing changed.`);
+      else {
+        writeDraft(target, current.replace(intent.value, intent.replacement));
+        setStatus(`Updated ${LABELS[target]} draft.`);
+      }
+    }
+  }
+
+  async function handleFinal(rawText: string) {
+    setPreview("");
+    const text = await normalizeTranscript(rawText, voiceLanguage.lang);
+    if (mode === "ambient") {
+      setAmbientDraft((current) => [current.trim(), text.trim()].filter(Boolean).join(" "));
+      setStatus("Ambient speech prepared for review. No diagnosis, prescription or finalized record was changed.");
+      scheduleRestart();
+      return;
+    }
+
+    const local = parseM6DLocalCommand(text);
+    if (local.type !== "NONE") {
+      applyLocal(local);
+      scheduleRestart();
+      return;
+    }
+
+    const interpreted = await interpretCommand(text, voiceLanguage.lang);
+    if (interpreted && interpreted.type !== "UNKNOWN") {
+      const section = navigationSection(interpreted);
+      if (section) navigate(section);
+      else handOffClinicalAction(text);
+      scheduleRestart();
+      return;
+    }
+
+    appendDraft(target, text);
+    setStatus(`Inserted into editable ${LABELS[target]} draft. Existing autosave/version/conflict protections remain active.`);
+    scheduleRestart();
+  }
+
+  const dictation = useDictation({
+    language: voiceLanguage.providerLanguage,
+    providerMode: LIVE_VOICE_ENABLED ? "deepgram" : "mock",
+    onPreview: setPreview,
+    onFinal: (text) => void handleFinal(text),
+    onCancel: () => setPreview(""),
+  });
+  startRef.current = dictation.start;
+  const providerBusy = ["connecting", "listening", "finalizing"].includes(dictation.state);
+
+  function scheduleRestart() {
+    if (!activeRef.current || pausedRef.current) return;
+    window.setTimeout(() => {
+      if (activeRef.current && !pausedRef.current) startRef.current?.();
+    }, 350);
+  }
+
+  function startSession() {
+    if (disabled) return;
+    activeRef.current = true;
+    pausedRef.current = false;
+    setSessionActive(true);
+    setPaused(false);
+    setStatus(`Listening continuously · target ${LABELS[target]}.`);
+    dictation.start();
+  }
+
+  function pauseSession() {
+    pausedRef.current = true;
+    setPaused(true);
+    setStatus("Voice session paused.");
+    if (providerBusy) dictation.stop();
+  }
+
+  function resumeSession() {
+    if (disabled) return;
+    pausedRef.current = false;
+    setPaused(false);
+    setStatus(`Voice session resumed · target ${LABELS[target]}.`);
+    dictation.start();
+  }
+
+  function endSession() {
+    activeRef.current = false;
+    pausedRef.current = false;
+    setSessionActive(false);
+    setPaused(false);
+    setPreview("");
+    dictation.cancel();
+    setStatus("Voice session ended.");
+  }
+
+  function undoLast() {
+    if (!lastChange) {
+      setStatus("Nothing to undo from this voice session.");
+      return;
+    }
+    onChange(lastChange.key, lastChange.before);
+    setLastChange(null);
+    setStatus(`Last voice change undone in ${LABELS[lastChange.key]}.`);
+  }
+
+  function applyAmbientToHistory() {
+    const prepared = ambientDraft.trim();
+    if (!prepared) return;
+    appendDraft("presentIllness", prepared);
+    setAmbientDraft("");
+    setStatus("Ambient-prepared text moved to editable History draft for normal review/autosave.");
   }
 
   return (
-    <SectionCard className="overflow-hidden" data-m6a-voice-panel>
-      <SectionHeader
-        title="Voice clinical notes"
-        icon={<Mic2 className="size-4" />}
-        action={<span className="text-[11px] text-ink-muted">Review required before clinical write</span>}
-      />
-      <div className="p-4 sm:p-5">
-        <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center">
-          <label htmlFor="m6a-target" className="text-[12px] font-semibold text-ink-secondary">
-            Dictate into
-          </label>
-          <select
-            id="m6a-target"
-            value={target}
-            disabled={disabled}
-            onChange={(event) => {
-              setAcceptedMessage(null);
-              setTarget(event.target.value as SectionKey);
-            }}
-            className="min-h-11 min-w-0 flex-1 rounded-xl border border-hairline bg-white px-3 text-[14px] font-semibold text-ink focus-visible:focus-ring disabled:bg-surface-muted disabled:text-ink-secondary sm:max-w-xs"
-          >
-            {TARGETS.map((item) => (
-              <option key={item.key} value={item.key}>{item.label}</option>
-            ))}
-          </select>
+    <section data-m6d-voice-assistant data-voice-mode={LIVE_VOICE_ENABLED ? "live-ai" : "mock"} className="sticky bottom-3 z-40 min-w-0 rounded-2xl border border-brand/25 bg-white/95 p-3 shadow-xl backdrop-blur-md sm:p-4">
+      <div className="flex min-w-0 flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <Mic2 className="size-4 text-brand" aria-hidden="true" />
+            <h2 className="text-[14px] font-semibold text-ink">Voice Assistant</h2>
+            <span className="rounded-full bg-brand/10 px-2 py-0.5 text-[10px] font-semibold text-brand">M6D</span>
+            {sessionActive && !paused ? <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-[#a81c1c]"><span className="size-2 animate-pulse rounded-full bg-[#a81c1c]" />Listening</span> : null}
+          </div>
+          <p className="mt-1 text-[11px] text-ink-muted">Notes may enter editable draft fields directly. Clinical actions still require proposal review and explicit Apply.</p>
         </div>
-
-        <M6ADictationReview
-          key={target}
-          fieldLabel={selected.label}
-          value={values[target]}
-          disabled={disabled}
-          onAccept={acceptIntoTarget}
-        />
-
-        {acceptedMessage ? (
-          <p role="status" data-m6a-accepted className="mt-2 text-[12px] font-semibold text-brand">
-            {acceptedMessage}
-          </p>
-        ) : null}
+        <div className="flex min-w-0 flex-wrap items-center gap-2">
+          <VoiceLanguageControl disabled={disabled || providerBusy} />
+          <select aria-label="Voice mode" value={mode} disabled={providerBusy} onChange={(e) => setMode(e.target.value as "guided" | "ambient")} className="min-h-11 rounded-xl border border-hairline bg-white px-3 text-[12px] font-semibold text-ink">
+            <option value="guided">Guided Voice</option><option value="ambient">Ambient Consultation</option>
+          </select>
+          <select aria-label="Current voice target" value={target} disabled={disabled || providerBusy || mode === "ambient"} onChange={(e) => navigate(e.target.value as SectionKey)} className="min-h-11 min-w-0 rounded-xl border border-hairline bg-white px-3 text-[12px] font-semibold text-ink">
+            {M6D_TARGETS.map((key) => <option key={key} value={key}>{LABELS[key]}</option>)}
+          </select>
+          {!sessionActive ? <button type="button" onClick={startSession} disabled={disabled || !dictation.supported} className="inline-flex min-h-11 items-center gap-1.5 rounded-xl bg-brand px-3 text-[12px] font-semibold text-white disabled:opacity-50"><Play className="size-4" />Start Voice</button> : paused ? <button type="button" onClick={resumeSession} disabled={disabled} className="inline-flex min-h-11 items-center gap-1.5 rounded-xl bg-brand px-3 text-[12px] font-semibold text-white disabled:opacity-50"><Play className="size-4" />Resume</button> : <button type="button" onClick={pauseSession} className="inline-flex min-h-11 items-center gap-1.5 rounded-xl border border-hairline bg-white px-3 text-[12px] font-semibold text-ink"><Pause className="size-4" />Pause</button>}
+          {sessionActive ? <button type="button" onClick={endSession} className="inline-flex min-h-11 items-center gap-1.5 rounded-xl border border-hairline bg-white px-3 text-[12px] font-semibold text-ink"><Square className="size-3.5 fill-current" />End</button> : null}
+          <button type="button" onClick={undoLast} disabled={!lastChange} className="inline-flex min-h-11 items-center gap-1.5 rounded-xl border border-hairline bg-white px-3 text-[12px] font-semibold text-ink disabled:opacity-45"><Undo2 className="size-4" />Undo</button>
+        </div>
       </div>
-    </SectionCard>
+      {preview ? <p role="status" className="mt-2 break-words rounded-xl bg-surface-muted px-3 py-2 text-[12px] text-ink-secondary"><strong>Hearing:</strong> {preview}</p> : null}
+      {dictation.error ? <p role="alert" className="mt-2 text-[12px] font-medium text-[#a81c1c]">{dictation.error}</p> : null}
+      <p role="status" aria-live="polite" className="mt-2 text-[11px] text-ink-secondary">{status}</p>
+      {mode === "ambient" ? <div className="mt-3 rounded-xl border border-brand/20 bg-brand/5 p-3" data-m6d-ambient-prototype>
+        <div className="flex items-center gap-2"><Waves className="size-4 text-brand" /><strong className="text-[12px] text-ink">Ambient prototype</strong></div>
+        <p className="mt-1 text-[11px] text-ink-muted">Synthetic speech is prepared in a local review buffer. It does not infer examination findings, diagnose, prescribe or finalize.</p>
+        <textarea readOnly value={ambientDraft} rows={3} placeholder="Prepared ambient transcript appears here…" className="mt-2 w-full resize-y rounded-xl border border-hairline bg-white px-3 py-2 text-[13px] leading-relaxed text-ink" />
+        <div className="mt-2 flex flex-wrap gap-2"><button type="button" disabled={!ambientDraft.trim()} onClick={applyAmbientToHistory} className="inline-flex min-h-11 items-center rounded-xl bg-brand px-3 text-[12px] font-semibold text-white disabled:opacity-45">Move to editable History draft</button><button type="button" disabled={!ambientDraft.trim()} onClick={() => setAmbientDraft("")} className="inline-flex min-h-11 items-center rounded-xl border border-hairline bg-white px-3 text-[12px] font-semibold text-ink disabled:opacity-45">Discard prepared text</button></div>
+      </div> : null}
+      <p className="mt-2 flex items-start gap-1.5 text-[10px] text-ink-muted"><ShieldAlert className="mt-px size-3.5 shrink-0" />A spoken finalize request can only enter the existing protected Review/Finalize path; this assistant cannot sign or finalize.</p>
+    </section>
   );
 }
