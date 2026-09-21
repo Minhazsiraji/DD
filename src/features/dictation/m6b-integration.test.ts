@@ -7,9 +7,9 @@ function read(rel: string) {
 }
 
 describe("M6B command safety integration", () => {
-  it("keeps M6B on mock voice with explicit review/apply", () => {
+  it("uses the accepted conditional live/mock voice contract with explicit review/apply", () => {
     const panel = read("src/features/dictation/components/m6b-voice-commands.tsx");
-    expect(panel).toContain('providerMode: "mock"');
+    expect(panel).toContain('providerMode: LIVE_VOICE_ENABLED ? "deepgram" : "mock"');
     expect(panel).toContain("Review/edit command transcript");
     expect(panel).toContain("Apply");
     expect(panel).toContain("Discard");
