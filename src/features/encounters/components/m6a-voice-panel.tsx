@@ -194,8 +194,10 @@ export function M6AVoicePanel({ values, disabled, onChange }: {
     onFinal: (text) => void handleFinal(text),
     onCancel: () => { clearSilenceTimer(); setPreview(""); },
   });
-  startRef.current = dictation.start;
-  stopRef.current = dictation.stop;
+  React.useEffect(() => {
+    startRef.current = dictation.start;
+    stopRef.current = dictation.stop;
+  }, [dictation.start, dictation.stop]);
   const providerBusy = ["connecting", "listening", "finalizing"].includes(dictation.state);
 
   function scheduleRestart() {
