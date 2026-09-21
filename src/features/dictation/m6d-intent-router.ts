@@ -28,7 +28,7 @@ const SECTION_ALIASES: readonly [M6DTarget, readonly string[]][] = [
 ];
 
 function clean(text: string) {
-  return text.normalize("NFC").trim().replace(/[।!?]+$/g, "").replace(/\s+/g, " ");
+  return text.normalize("NFC").trim().replace(/[.।!?]+$/g, "").replace(/\s+/g, " ");
 }
 
 export function nextM6DTarget(current: M6DTarget, direction: 1 | -1): M6DTarget {

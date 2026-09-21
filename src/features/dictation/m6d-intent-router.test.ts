@@ -16,11 +16,19 @@ describe("M6D local command router", () => {
   it("routes explicit section names without treating them as note text", () => {
     expect(parseM6DLocalCommand("History")).toEqual({ type: "NAVIGATE", target: "presentIllness" });
     expect(parseM6DLocalCommand("Examination")).toEqual({ type: "NAVIGATE", target: "examination" });
+    expect(parseM6DLocalCommand("Assessment")).toEqual({ type: "NAVIGATE", target: "assessment" });
+    expect(parseM6DLocalCommand("Advice")).toEqual({ type: "NAVIGATE", target: "advice" });
+    expect(parseM6DLocalCommand("Follow-up")).toEqual({ type: "NAVIGATE", target: "nextVisitNote" });
+    expect(parseM6DLocalCommand("Follow-up.")).toEqual({ type: "NAVIGATE", target: "nextVisitNote" });
     expect(parseM6DLocalCommand("ফলো আপ")).toEqual({ type: "NAVIGATE", target: "nextVisitNote" });
   });
 
   it("supports next and previous section movement", () => {
     expect(parseM6DLocalCommand("Next").type).toBe("NEXT");
+    expect(parseM6DLocalCommand("Previous").type).toBe("PREVIOUS");
+    expect(parseM6DLocalCommand("Previous.").type).toBe("PREVIOUS");
+    expect(parseM6DLocalCommand("Previous!").type).toBe("PREVIOUS");
+    expect(parseM6DLocalCommand("Previous?").type).toBe("PREVIOUS");
     expect(parseM6DLocalCommand("Previous section").type).toBe("PREVIOUS");
     expect(nextM6DTarget("presentIllness", 1)).toBe("examination");
     expect(nextM6DTarget("presentIllness", -1)).toBe("chiefComplaints");
@@ -35,6 +43,8 @@ describe("M6D local command router", () => {
       value: "three days",
       replacement: "five days",
     });
+    expect(parseM6DLocalCommand("Read current section")).toEqual({ type: "NOTE_EDIT", operation: "READ" });
+    expect(parseM6DLocalCommand("Remove last sentence").type).toBe("UNDO");
     expect(parseM6DLocalCommand("Remove vomiting")).toEqual({
       type: "NOTE_EDIT",
       operation: "REMOVE",
