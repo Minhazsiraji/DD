@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { M6D_TARGETS, nextM6DTarget, parseM6DLocalCommand } from "./m6d-intent-router";
+import { isM6DCommandLikeUtterance, M6D_TARGETS, nextM6DTarget, parseM6DLocalCommand } from "./m6d-intent-router";
 
 describe("M6D local command router", () => {
   it("keeps the supported clinical-note target order stable", () => {
@@ -55,5 +55,13 @@ describe("M6D local command router", () => {
   it("leaves ordinary dictation for semantic command interpretation or note insertion", () => {
     expect(parseM6DLocalCommand("Patient has fever for three days with dry cough.")).toEqual({ type: "NONE" });
     expect(parseM6DLocalCommand("Patient এর তিন দিন ধরে fever আছে।")).toEqual({ type: "NONE" });
+  });
+
+  it("sends only command-like unknown utterances to semantic interpretation", () => {
+    expect(isM6DCommandLikeUtterance("Patient has fever for three days with dry cough.")).toBe(false);
+    expect(isM6DCommandLikeUtterance("রোগীর তিন দিন ধরে জ্বর আছে।")).toBe(false);
+    expect(isM6DCommandLikeUtterance("Please add Napa 500 mg twice daily")).toBe(true);
+    expect(isM6DCommandLikeUtterance("Finalize prescription")).toBe(true);
+    expect(isM6DCommandLikeUtterance("Follow up after seven days")).toBe(true);
   });
 });

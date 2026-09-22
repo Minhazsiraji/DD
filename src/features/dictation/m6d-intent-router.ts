@@ -31,6 +31,15 @@ function clean(text: string) {
   return text.normalize("NFC").trim().replace(/[.।!?]+$/g, "").replace(/\s+/g, " ");
 }
 
+export function isM6DCommandLikeUtterance(text: string): boolean {
+  const raw = clean(text);
+  if (!raw) return false;
+  const value = raw.toLocaleLowerCase("en-US");
+  if (/^(?:please\s+)?(?:add|prescribe|order|open|go\s+to|finali[sz]e|delete|change|edit|modify|bypass|skip)\b/i.test(value)) return true;
+  if (/(?:^|\s)follow[- ]?up(?:\s|$)/i.test(value)) return true;
+  return /(?:যোগ|দাও|করো|খোলো|যাও|মুছ|পরিবর্তন|প্রেসক্রিপশন)/u.test(raw);
+}
+
 export function nextM6DTarget(current: M6DTarget, direction: 1 | -1): M6DTarget {
   const index = Math.max(0, M6D_TARGETS.indexOf(current));
   return M6D_TARGETS[(index + direction + M6D_TARGETS.length) % M6D_TARGETS.length]!;

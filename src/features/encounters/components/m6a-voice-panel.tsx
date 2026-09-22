@@ -6,8 +6,8 @@ import type { DraftKey, DraftValues } from "../schema";
 import { insertTranscript } from "@/features/dictation/dictation";
 import { useDictation } from "@/features/dictation/use-dictation";
 import { LIVE_VOICE_ENABLED, useVoiceLanguage, VoiceLanguageControl } from "@/features/dictation/voice-language";
-import { parseM6DLocalCommand, M6D_TARGETS, nextM6DTarget, type M6DLocalIntent, type M6DTarget } from "@/features/dictation/m6d-intent-router";
-import type { M6BIntent } from "@/features/dictation/m6b-command-parser";
+import { isM6DCommandLikeUtterance, parseM6DLocalCommand, M6D_TARGETS, nextM6DTarget, type M6DLocalIntent, type M6DTarget } from "@/features/dictation/m6d-intent-router";
+import { parseM6BCommand, type M6BIntent } from "@/features/dictation/m6b-command-parser";
 
 const LABELS: Record<M6DTarget, string> = {
   chiefComplaints: "Chief complaint",
@@ -18,7 +18,9 @@ const LABELS: Record<M6DTarget, string> = {
   nextVisitNote: "Follow-up",
 };
 const M6D_CLINICAL_EVENT = "dd:m6d-clinical-command";
-const SILENCE_FINALIZE_MS = 1400;
+const SILENCE_FINALIZE_MS = 800;
+const FAST_NAVIGATION_STABLE_MS = 160;
+const VOICE_RESTART_DELAY_MS = 100;
 
 type LastDraftChange = { key: M6DTarget; before: string; after: string } | null;
 
@@ -78,11 +80,16 @@ export function M6AVoicePanel({ values, disabled, onChange }: {
   const startRef = React.useRef<(() => void) | null>(null);
   const stopRef = React.useRef<(() => void) | null>(null);
   const silenceTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const fastNavigationTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const latestPreviewRef = React.useRef("");
+  const targetRef = React.useRef<M6DTarget>("chiefComplaints");
 
   React.useEffect(() => { activeRef.current = sessionActive; }, [sessionActive]);
   React.useEffect(() => { pausedRef.current = paused; }, [paused]);
+  React.useEffect(() => { targetRef.current = target; }, [target]);
   React.useEffect(() => () => {
     if (silenceTimer.current) clearTimeout(silenceTimer.current);
+    if (fastNavigationTimer.current) clearTimeout(fastNavigationTimer.current);
   }, []);
 
   function clearSilenceTimer() {
@@ -92,8 +99,21 @@ export function M6AVoicePanel({ values, disabled, onChange }: {
 
   function previewWithSilenceFinalization(text: string) {
     setPreview(text);
+    latestPreviewRef.current = text;
     clearSilenceTimer();
+    if (fastNavigationTimer.current) clearTimeout(fastNavigationTimer.current);
+    fastNavigationTimer.current = null;
     if (!text.trim()) return;
+    if (mode === "guided") {
+      const candidate = parseM6DLocalCommand(text);
+      if (candidate.type === "NAVIGATE") {
+        const observed = text;
+        fastNavigationTimer.current = setTimeout(() => {
+          fastNavigationTimer.current = null;
+          if (activeRef.current && !pausedRef.current && latestPreviewRef.current === observed) navigate(candidate.target);
+        }, FAST_NAVIGATION_STABLE_MS);
+      }
+    }
     silenceTimer.current = setTimeout(() => {
       silenceTimer.current = null;
       if (activeRef.current && !pausedRef.current) stopRef.current?.();
@@ -114,9 +134,11 @@ export function M6AVoicePanel({ values, disabled, onChange }: {
   }
 
   function navigate(next: M6DTarget) {
+    const changed = targetRef.current !== next;
+    targetRef.current = next;
     setTarget(next);
     setStatus(`Current target: ${LABELS[next]}.`);
-    requestAnimationFrame(() => document.getElementById(next)?.scrollIntoView({ behavior: "smooth", block: "center" }));
+    if (changed) requestAnimationFrame(() => document.getElementById(next)?.scrollIntoView({ behavior: "smooth", block: "center" }));
   }
 
   function handOffClinicalAction(text: string) {
@@ -174,6 +196,20 @@ export function M6AVoicePanel({ values, disabled, onChange }: {
       scheduleRestart();
       return;
     }
+    const parsedClinical = parseM6BCommand(text);
+    if (parsedClinical.type !== "UNKNOWN") {
+      const section = navigationSection(parsedClinical);
+      if (section) navigate(section);
+      else handOffClinicalAction(text);
+      scheduleRestart();
+      return;
+    }
+    if (!isM6DCommandLikeUtterance(text)) {
+      appendDraft(targetRef.current, text);
+      setStatus(`Inserted into editable ${LABELS[targetRef.current]} draft. Existing autosave/version/conflict protections remain active.`);
+      scheduleRestart();
+      return;
+    }
     const interpreted = await interpretCommand(text, voiceLanguage.lang);
     if (interpreted && interpreted.type !== "UNKNOWN") {
       const section = navigationSection(interpreted);
@@ -182,8 +218,8 @@ export function M6AVoicePanel({ values, disabled, onChange }: {
       scheduleRestart();
       return;
     }
-    appendDraft(target, text);
-    setStatus(`Inserted into editable ${LABELS[target]} draft. Existing autosave/version/conflict protections remain active.`);
+    appendDraft(targetRef.current, text);
+    setStatus(`Inserted into editable ${LABELS[targetRef.current]} draft. Existing autosave/version/conflict protections remain active.`);
     scheduleRestart();
   }
 
@@ -204,7 +240,7 @@ export function M6AVoicePanel({ values, disabled, onChange }: {
     if (!activeRef.current || pausedRef.current) return;
     window.setTimeout(() => {
       if (activeRef.current && !pausedRef.current) startRef.current?.();
-    }, 350);
+    }, VOICE_RESTART_DELAY_MS);
   }
 
   function startSession() {

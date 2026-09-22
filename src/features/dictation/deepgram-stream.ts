@@ -2,7 +2,7 @@ export const DEEPGRAM_STREAM_MODEL = "nova-3";
 export const DEEPGRAM_STREAM_ENDPOINT = "wss://api.deepgram.com/v1/listen";
 export const DEEPGRAM_ENDPOINTING_MS = 300;
 export const DEEPGRAM_UTTERANCE_END_MS = 1000;
-export const DEEPGRAM_MEDIA_TIMESLICE_MS = 250;
+export const DEEPGRAM_MEDIA_TIMESLICE_MS = 100;
 export const DEEPGRAM_CONNECTION_TIMEOUT_MS = 7000;
 // Five seconds was too aggressive for first-use browser mic + provider warmup,
 // especially on Preview and on mixed Bangla/English speech. Keep the session

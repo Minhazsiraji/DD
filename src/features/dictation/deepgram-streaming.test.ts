@@ -13,7 +13,7 @@ import {
 describe("Deepgram Nova-3 selective streaming core", () => {
   it("locks the approved model and bounded pilot timings", () => {
     expect(DEEPGRAM_STREAM_MODEL).toBe("nova-3");
-    expect(DEEPGRAM_MEDIA_TIMESLICE_MS).toBe(250);
+    expect(DEEPGRAM_MEDIA_TIMESLICE_MS).toBe(100);
     expect(DEEPGRAM_CONNECTION_TIMEOUT_MS).toBe(7000);
     expect(DEEPGRAM_FIRST_TRANSCRIPT_TIMEOUT_MS).toBe(15000);
     expect(DEEPGRAM_FINALIZE_TIMEOUT_MS).toBe(4000);
