@@ -41,6 +41,8 @@ export interface VoiceTranscriptionCallbacks {
 
 export interface VoiceTranscriptionSession {
   start(): void;
+  /** Flush one consumed command without closing the persistent provider session. */
+  commitUtterance?(): void;
   stop(): void;
   abort(): void;
 }
@@ -154,6 +156,7 @@ const deepgramProvider: VoiceTranscriptionProvider = {
     let terminal = false;
     let stopped = false;
     let finalizing = false;
+    let utteranceBoundaryPending = false;
     let latestTranscript = "";
     let startedAt = 0;
     let stopAt: number | null = null;
@@ -208,6 +211,7 @@ const deepgramProvider: VoiceTranscriptionProvider = {
       keepAlive = null;
       pendingAudio.length = 0;
       pendingAudioBytes = 0;
+      utteranceBoundaryPending = false;
 
       if (recorder) {
         recorder.ondataavailable = null;
@@ -296,6 +300,26 @@ const deepgramProvider: VoiceTranscriptionProvider = {
       finalizeTimer = setTimeout(settle, DEEPGRAM_FINALIZE_TIMEOUT_MS);
     };
 
+    const commitContinuousUtterance = () => {
+      if (
+        !continuous ||
+        utteranceBoundaryPending ||
+        cancelled ||
+        terminal ||
+        !socket ||
+        socket.readyState !== WebSocket.OPEN
+      ) return;
+      utteranceBoundaryPending = true;
+      flushPendingAudio();
+      try {
+        // Finalize flushes the current utterance but deliberately keeps the
+        // Deepgram WebSocket and microphone session alive.
+        socket.send(JSON.stringify({ type: "Finalize" }));
+      } catch {
+        utteranceBoundaryPending = false;
+      }
+    };
+
     const startRecorder = () => {
       if (!stream || cancelled || terminal || recorder) return;
       try {
@@ -367,7 +391,7 @@ const deepgramProvider: VoiceTranscriptionProvider = {
         if (cancelled || terminal) return;
 
         socket = new WebSocket(
-          buildDeepgramStreamingUrl(language, continuous && language === "en-US"),
+          buildDeepgramStreamingUrl(language),
           deepgramBearerProtocols(accessToken),
         );
         connectionTimer = setTimeout(
@@ -411,9 +435,14 @@ const deepgramProvider: VoiceTranscriptionProvider = {
             }
             callbacks.onTranscript(next);
           }
-          if (continuous && message.speech_final === true) {
+          if (
+            continuous &&
+            (message.speech_final === true ||
+              (utteranceBoundaryPending && message.from_finalize === true))
+          ) {
             const utterance = assembler.current().trim();
             assembler.reset();
+            utteranceBoundaryPending = false;
             latestTranscript = "";
             if (utterance) callbacks.onUtteranceEnd?.(utterance);
           }
@@ -456,6 +485,9 @@ const deepgramProvider: VoiceTranscriptionProvider = {
     return {
       start() {
         void connect();
+      },
+      commitUtterance() {
+        commitContinuousUtterance();
       },
       stop() {
         if (cancelled || terminal) return;
