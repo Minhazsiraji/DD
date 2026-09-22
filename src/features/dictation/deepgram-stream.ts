@@ -18,7 +18,7 @@ const ALLOWED_LANGUAGES = new Set(["bn", "en-US"]);
  * MediaRecorder sends a containerized WebM/Ogg stream, so encoding/sample_rate
  * are deliberately omitted and Deepgram reads them from the container.
  */
-export function buildDeepgramStreamingUrl(language: string): string {
+export function buildDeepgramStreamingUrl(language: string, lowLatencyNavigation = false): string {
   if (!ALLOWED_LANGUAGES.has(language)) throw new Error("unsupported Deepgram language");
 
   const params = new URLSearchParams({
@@ -32,6 +32,10 @@ export function buildDeepgramStreamingUrl(language: string): string {
     punctuate: "true",
     mip_opt_out: "true",
   });
+  // Deepgram smart formatting can hold short English command hypotheses while
+  // waiting for more context. Guided navigation needs the earliest stable text;
+  // keep Bangla and non-continuous dictation on their already-qualified path.
+  if (lowLatencyNavigation && language === "en-US") params.set("no_delay", "true");
 
   return `${DEEPGRAM_STREAM_ENDPOINT}?${params.toString()}`;
 }

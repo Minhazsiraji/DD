@@ -367,7 +367,7 @@ const deepgramProvider: VoiceTranscriptionProvider = {
         if (cancelled || terminal) return;
 
         socket = new WebSocket(
-          buildDeepgramStreamingUrl(language),
+          buildDeepgramStreamingUrl(language, continuous && language === "en-US"),
           deepgramBearerProtocols(accessToken),
         );
         connectionTimer = setTimeout(
