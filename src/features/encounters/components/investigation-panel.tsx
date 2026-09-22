@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { SectionCard, SectionHeader } from "@/components/common/section-card";
 import { DictateButton } from "@/features/dictation/components/dictate-button";
+import { insertTranscript } from "@/features/dictation/dictation";
 import { confirmInvestigationsAction, type InvestigationConfirmationResult } from "../investigation-v1-actions";
 import {
   INVESTIGATION_V1_MAX_NAME,
@@ -65,6 +66,11 @@ interface InvestigationPanelProps {
   shownBecauseFilled?: boolean;
 }
 
+export interface InvestigationPanelHandle {
+  focusVoiceField: () => void;
+  appendVoiceText: (text: string) => boolean;
+}
+
 type ReadState = "loading" | "ready" | "unavailable";
 type ConfirmationTone = "idle" | "working" | "success" | "warning";
 
@@ -91,7 +97,7 @@ function safeDateTime(value: string): string {
   }).format(date);
 }
 
-export function InvestigationPanel({
+export const InvestigationPanel = React.forwardRef<InvestigationPanelHandle, InvestigationPanelProps>(function InvestigationPanel({
   title,
   encounterId,
   patientId,
@@ -109,7 +115,7 @@ export function InvestigationPanel({
   onUnknownChange,
   onActionErrorChange,
   shownBecauseFilled = false,
-}: InvestigationPanelProps) {
+}, ref) {
   const searchInputRef = React.useRef<HTMLInputElement>(null);
   const [searchText, setSearchText] = React.useState("");
   const [highlighted, setHighlighted] = React.useState(0);
@@ -181,6 +187,19 @@ export function InvestigationPanel({
   const visibleHistory = historyIsCurrent ? history : [];
   const visibleHistoryState: ReadState = historyIsCurrent ? historyState : "loading";
   const visibleHistoryError = historyIsCurrent ? historyError : null;
+
+  React.useImperativeHandle(ref, () => ({
+    focusVoiceField() {
+      searchInputRef.current?.scrollIntoView({ behavior: "instant", block: "center" });
+      searchInputRef.current?.focus({ preventScroll: true });
+    },
+    appendVoiceText(text: string) {
+      if (interactionLocked) return false;
+      setSearchText((current) => insertTranscript(current, text, current.length).text);
+      setHighlighted(0);
+      return true;
+    },
+  }), [interactionLocked]);
 
   function updateSearchText(value: string) {
     setSearchText(value);
@@ -775,4 +794,6 @@ export function InvestigationPanel({
       </div>
     </SectionCard>
   );
-}
+});
+
+InvestigationPanel.displayName = "InvestigationPanel";

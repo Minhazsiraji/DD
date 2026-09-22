@@ -12,7 +12,7 @@ import { M6BVoiceCommands } from "@/features/dictation/components/m6b-voice-comm
 import type { M6BIntent, M6BNavigationTarget } from "@/features/dictation/m6b-command-parser";
 import { FastEntry } from "./fast-entry";
 import { NextVisitFields } from "./next-visit-fields";
-import { InvestigationPanel } from "./investigation-panel";
+import { InvestigationPanel, type InvestigationPanelHandle } from "./investigation-panel";
 import { resolveVisibility } from "../module-visibility";
 import type { RxModuleSetting } from "@/features/doctor/rx-modules";
 import { addCalendarDays, type FollowUpShortcut } from "../follow-up-dates";
@@ -61,6 +61,7 @@ export function ConsultationWorkspace({
   const [investigationUnknown, setInvestigationUnknown] =
     React.useState<PendingInvestigationConfirmation | null>(null);
   const [investigationActionError, setInvestigationActionError] = React.useState<string | null>(null);
+  const investigationPanelRef = React.useRef<InvestigationPanelHandle>(null);
 
   const visibility = React.useMemo(
     () =>
@@ -303,6 +304,8 @@ export function ConsultationWorkspace({
                 if (!s.editors.diagnosis) s.openAdd("diagnosis");
               }}
               onDiagnosisDraftChange={(draft) => s.setDraft("diagnosis", draft)}
+              onFocusInvestigation={() => investigationPanelRef.current?.focusVoiceField()}
+              onAppendInvestigation={(text) => investigationPanelRef.current?.appendVoiceText(text) ?? false}
             />
           )}
 
@@ -356,6 +359,7 @@ export function ConsultationWorkspace({
           {visibility.INVESTIGATIONS.visible ? (
             <div id="m6b-investigations" tabIndex={-1}>
             <InvestigationPanel
+              ref={investigationPanelRef}
               title="Investigation orders"
               encounterId={consultation.id}
               patientId={consultation.patient.id}

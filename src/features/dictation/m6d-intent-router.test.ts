@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isM6DCommandLikeUtterance, isM6DDiagnosisIntent, isM6DNavigationIntent, isM6DStandaloneControlIntent, m6dNavigationCommandKey, M6D_TARGETS, nextM6DTarget, parseM6DLocalCommand, resolveM6DNavigationTarget } from "./m6d-intent-router";
+import { isM6DCommandLikeUtterance, isM6DDiagnosisIntent, isM6DInvestigationIntent, isM6DNavigationIntent, isM6DStandaloneControlIntent, m6dNavigationCommandKey, M6D_TARGETS, nextM6DTarget, parseM6DLocalCommand, removeM6DLastSentence, resolveM6DExtendedSectionStep, resolveM6DNavigationTarget } from "./m6d-intent-router";
 
 describe("M6D local command router", () => {
   it("keeps the supported clinical-note target order stable", () => {
@@ -100,12 +100,19 @@ describe("M6D local command router", () => {
       replacement: "five days",
     });
     expect(parseM6DLocalCommand("Read current section")).toEqual({ type: "NOTE_EDIT", operation: "READ" });
-    expect(parseM6DLocalCommand("Remove last sentence").type).toBe("UNDO");
+    expect(parseM6DLocalCommand("Remove last sentence").type).toBe("REMOVE_LAST_SENTENCE");
+    expect(parseM6DLocalCommand("Clear this section.")).toEqual({ type: "NOTE_EDIT", operation: "CLEAR" });
     expect(parseM6DLocalCommand("Remove vomiting")).toEqual({
       type: "NOTE_EDIT",
       operation: "REMOVE",
       value: "vomiting",
     });
+  });
+
+  it("removes only the final sentence for diagnosis sub-target editing", () => {
+    expect(removeM6DLastSentence("Dengue fever. Platelets falling, review tomorrow.")).toBe("Dengue fever.");
+    expect(removeM6DLastSentence("Single diagnosis phrase")).toBe("");
+    expect(removeM6DLastSentence("First। Second।")).toBe("First।");
   });
 
   it.each([
@@ -168,6 +175,32 @@ describe("M6D local command router", () => {
     ]) {
       expect(parseM6DLocalCommand(said)).toEqual({ type: "NONE" });
     }
+  });
+
+  it.each([
+    "Investigation", "Investigation.", "Investigations", "Investigations.",
+    "Investigation order", "Investigation orders.",
+  ])("navigates to Investigation orders for standalone %s", (said) => {
+    const intent = parseM6DLocalCommand(said);
+    expect(intent).toEqual({ type: "INVESTIGATION_NAVIGATE" });
+    expect(isM6DInvestigationIntent(intent)).toBe(true);
+  });
+
+  it.each(["Investigation field", "Investigation field.", "Investigation search", "Investigation search."])(
+    "focuses the Investigation input for standalone %s",
+    (said) => expect(parseM6DLocalCommand(said)).toEqual({ type: "INVESTIGATION_TARGET", target: "field" }),
+  );
+
+  it("keeps investigation prose as dictation", () => {
+    expect(parseM6DLocalCommand("The investigations were normal")).toEqual({ type: "NONE" });
+    expect(parseM6DLocalCommand("Patient needs further investigation")).toEqual({ type: "NONE" });
+  });
+
+  it("extends only the Diagnoses/Investigation-orders edge of the section graph", () => {
+    expect(resolveM6DExtendedSectionStep("diagnoses", 1)).toBe("investigations");
+    expect(resolveM6DExtendedSectionStep("investigations", -1)).toBe("diagnoses");
+    expect(resolveM6DExtendedSectionStep("diagnoses", -1)).toBeNull();
+    expect(resolveM6DExtendedSectionStep("investigations", 1)).toBeNull();
   });
 
   it.each(["Add diagnosis", "Confirm diagnosis", "Save diagnosis"])(

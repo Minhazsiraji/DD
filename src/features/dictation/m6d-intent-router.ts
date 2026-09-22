@@ -19,7 +19,8 @@ export type M6DStandaloneControlIntent =
   | { type: "PAUSE" }
   | { type: "RESUME" }
   | { type: "END" }
-  | { type: "UNDO" };
+  | { type: "UNDO" }
+  | { type: "REMOVE_LAST_SENTENCE" };
 
 export type M6DDiagnosisIntent =
   | { type: "DIAGNOSIS_NAVIGATE" }
@@ -27,10 +28,17 @@ export type M6DDiagnosisIntent =
   | { type: "DIAGNOSIS_CERTAINTY"; certainty: "PROVISIONAL" | "WORKING" | "CONFIRMED" | "RULED_OUT" }
   | { type: "DIAGNOSIS_REVIEW" };
 
+export type M6DInvestigationIntent =
+  | { type: "INVESTIGATION_NAVIGATE" }
+  | { type: "INVESTIGATION_TARGET"; target: "field" };
+
+export type M6DExtendedSection = "diagnoses" | "investigations";
+
 export type M6DLocalIntent =
   | M6DNavigationIntent
   | M6DStandaloneControlIntent
   | M6DDiagnosisIntent
+  | M6DInvestigationIntent
   | { type: "NOTE_EDIT"; operation: "ADD" | "REMOVE" | "REPLACE" | "CLEAR" | "READ"; value?: string; replacement?: string }
   | { type: "NONE" };
 
@@ -66,12 +74,39 @@ export function isM6DNavigationIntent(intent: M6DLocalIntent): intent is M6DNavi
 }
 
 export function isM6DStandaloneControlIntent(intent: M6DLocalIntent): intent is M6DStandaloneControlIntent {
-  return intent.type === "PAUSE" || intent.type === "RESUME" || intent.type === "END" || intent.type === "UNDO";
+  return intent.type === "PAUSE" || intent.type === "RESUME" || intent.type === "END" ||
+    intent.type === "UNDO" || intent.type === "REMOVE_LAST_SENTENCE";
 }
 
 export function isM6DDiagnosisIntent(intent: M6DLocalIntent): intent is M6DDiagnosisIntent {
   return intent.type === "DIAGNOSIS_NAVIGATE" || intent.type === "DIAGNOSIS_TARGET" ||
     intent.type === "DIAGNOSIS_CERTAINTY" || intent.type === "DIAGNOSIS_REVIEW";
+}
+
+export function isM6DInvestigationIntent(intent: M6DLocalIntent): intent is M6DInvestigationIntent {
+  return intent.type === "INVESTIGATION_NAVIGATE" || intent.type === "INVESTIGATION_TARGET";
+}
+
+export function resolveM6DExtendedSectionStep(
+  current: M6DExtendedSection,
+  direction: 1 | -1,
+): M6DExtendedSection | null {
+  if (current === "diagnoses" && direction === 1) return "investigations";
+  if (current === "investigations" && direction === -1) return "diagnoses";
+  return null;
+}
+
+export function removeM6DLastSentence(text: string): string {
+  const trimmed = text.trimEnd();
+  if (!trimmed) return "";
+  const withoutTrailingStop = trimmed.replace(/[.!?।]+$/u, "").trimEnd();
+  const boundary = Math.max(
+    withoutTrailingStop.lastIndexOf("."),
+    withoutTrailingStop.lastIndexOf("!"),
+    withoutTrailingStop.lastIndexOf("?"),
+    withoutTrailingStop.lastIndexOf("।"),
+  );
+  return boundary < 0 ? "" : withoutTrailingStop.slice(0, boundary + 1).trimEnd();
 }
 
 export function m6dNavigationCommandKey(intent: M6DNavigationIntent): string {
@@ -91,7 +126,8 @@ export function parseM6DLocalCommand(text: string): M6DLocalIntent {
   if (value === "pause") return { type: "PAUSE" };
   if (value === "resume") return { type: "RESUME" };
   if (value === "end") return { type: "END" };
-  if (["undo", "undo last sentence", "remove last sentence", "শেষ বাক্য undo", "শেষ বাক্য মুছো"].includes(value)) return { type: "UNDO" };
+  if (["undo", "undo last sentence", "শেষ বাক্য undo"].includes(value)) return { type: "UNDO" };
+  if (["remove last sentence", "শেষ বাক্য মুছো"].includes(value)) return { type: "REMOVE_LAST_SENTENCE" };
   if (value === "diagnosis" || value === "diagnoses") return { type: "DIAGNOSIS_NAVIGATE" };
   if (value === "diagnosis field") return { type: "DIAGNOSIS_TARGET", target: "title" };
   if (value === "how certain") return { type: "DIAGNOSIS_TARGET", target: "certainty" };
@@ -101,7 +137,9 @@ export function parseM6DLocalCommand(text: string): M6DLocalIntent {
   if (value === "confirmed") return { type: "DIAGNOSIS_CERTAINTY", certainty: "CONFIRMED" };
   if (value === "ruled out") return { type: "DIAGNOSIS_CERTAINTY", certainty: "RULED_OUT" };
   if (["save diagnosis", "confirm diagnosis", "add diagnosis"].includes(value)) return { type: "DIAGNOSIS_REVIEW" };
-  if (["clear current section", "clear section", "এই সেকশন clear", "এই অংশ মুছো"].includes(value)) return { type: "NOTE_EDIT", operation: "CLEAR" };
+  if (["investigation", "investigations", "investigation order", "investigation orders"].includes(value)) return { type: "INVESTIGATION_NAVIGATE" };
+  if (["investigation field", "investigation search"].includes(value)) return { type: "INVESTIGATION_TARGET", target: "field" };
+  if (["clear current section", "clear this section", "clear section", "এই সেকশন clear", "এই অংশ মুছো"].includes(value)) return { type: "NOTE_EDIT", operation: "CLEAR" };
   if (["read current section", "read section", "এই সেকশন পড়ো", "এই অংশ পড়ো"].includes(value)) return { type: "NOTE_EDIT", operation: "READ" };
   const replace = raw.match(/^replace\s+(.+?)\s+with\s+(.+)$/i);
   if (replace) return { type: "NOTE_EDIT", operation: "REPLACE", value: replace[1]!.trim(), replacement: replace[2]!.trim() };
