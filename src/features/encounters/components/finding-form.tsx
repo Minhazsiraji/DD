@@ -55,6 +55,7 @@ export function FindingForm({
         </label>
         <input
           id={`${id}-title`}
+          data-m6d-diagnosis-title={isDiagnosis ? "true" : undefined}
           value={value.title}
           disabled={busy}
           autoComplete="off"
@@ -96,7 +97,7 @@ export function FindingForm({
       </div>
 
       {isDiagnosis ? (
-        <fieldset disabled={busy}>
+        <fieldset data-m6d-diagnosis-certainty={isDiagnosis ? "true" : undefined} disabled={busy}>
           <legend className="text-[13px] font-medium text-ink-secondary">How certain</legend>
           <div className="mt-1.5 grid gap-1.5 sm:grid-cols-2">
             {CERTAINTIES.map((c) => (
@@ -111,6 +112,7 @@ export function FindingForm({
               >
                 <input
                   type="radio"
+                  data-m6d-diagnosis-certainty-option={c}
                   name={`${id}-certainty`}
                   value={c}
                   checked={value.certainty === c}
@@ -133,6 +135,7 @@ export function FindingForm({
         </label>
         <textarea
           id={`${id}-note`}
+          data-m6d-diagnosis-note={isDiagnosis ? "true" : undefined}
           rows={2}
           value={value.note}
           disabled={busy}
@@ -147,6 +150,7 @@ export function FindingForm({
       <div className="flex flex-wrap gap-2">
         <button
           type="submit"
+          data-m6d-diagnosis-submit={isDiagnosis ? "true" : undefined}
           disabled={!canSubmit}
           className="dd-primary inline-flex h-11 items-center justify-center px-4 text-[13px] font-semibold disabled:cursor-not-allowed disabled:opacity-55 focus-visible:focus-ring"
         >

@@ -3,10 +3,11 @@
 import * as React from "react";
 import { Mic2, Pause, Play, ShieldAlert, Square, Undo2, Waves } from "lucide-react";
 import type { DraftKey, DraftValues } from "../schema";
+import type { FindingDraft } from "../finding-types";
 import { insertTranscript } from "@/features/dictation/dictation";
 import { useDictation } from "@/features/dictation/use-dictation";
 import { LIVE_VOICE_ENABLED, useVoiceLanguage, VoiceLanguageControl } from "@/features/dictation/voice-language";
-import { isM6DCommandLikeUtterance, isM6DNavigationIntent, isM6DStandaloneControlIntent, m6dNavigationCommandKey, parseM6DLocalCommand, M6D_TARGETS, nextM6DTarget, resolveM6DNavigationTarget, type M6DLocalIntent, type M6DNavigationIntent, type M6DTarget } from "@/features/dictation/m6d-intent-router";
+import { isM6DCommandLikeUtterance, isM6DDiagnosisIntent, isM6DNavigationIntent, isM6DStandaloneControlIntent, m6dNavigationCommandKey, parseM6DLocalCommand, M6D_TARGETS, nextM6DTarget, resolveM6DNavigationTarget, type M6DDiagnosisIntent, type M6DLocalIntent, type M6DNavigationIntent, type M6DTarget } from "@/features/dictation/m6d-intent-router";
 import { parseM6BCommand, type M6BIntent } from "@/features/dictation/m6b-command-parser";
 
 const LABELS: Record<M6DTarget, string> = {
@@ -23,6 +24,7 @@ const FAST_NAVIGATION_STABLE_MS = 80;
 const VOICE_RESTART_DELAY_MS = 100;
 
 type LastDraftChange = { key: M6DTarget; before: string; after: string } | null;
+type DiagnosisVoiceTarget = "title" | "certainty" | "note" | null;
 type PendingNavigation = {
   key: string;
   target: M6DTarget;
@@ -67,10 +69,20 @@ function navigationSection(intent: M6BIntent): M6DTarget | null {
   return map[intent.target] ?? null;
 }
 
-export function M6AVoicePanel({ values, disabled, onChange }: {
+export function M6AVoicePanel({
+  values,
+  diagnosisDraft,
+  disabled,
+  onChange,
+  onOpenDiagnosis,
+  onDiagnosisDraftChange,
+}: {
   values: DraftValues;
+  diagnosisDraft: FindingDraft | null;
   disabled: boolean;
   onChange: (key: DraftKey, value: string) => void;
+  onOpenDiagnosis: () => void;
+  onDiagnosisDraftChange: (draft: FindingDraft) => void;
 }) {
   const voiceLanguage = useVoiceLanguage();
   const [target, setTarget] = React.useState<M6DTarget>("chiefComplaints");
@@ -90,10 +102,25 @@ export function M6AVoicePanel({ values, disabled, onChange }: {
   const latestPreviewRef = React.useRef("");
   const targetRef = React.useRef<M6DTarget>("chiefComplaints");
   const pendingNavigationRef = React.useRef<PendingNavigation | null>(null);
+  const diagnosisDraftRef = React.useRef<FindingDraft | null>(diagnosisDraft);
+  const diagnosisTargetRef = React.useRef<DiagnosisVoiceTarget>(null);
+  const pendingDiagnosisIntentRef = React.useRef<M6DDiagnosisIntent | null>(null);
+  const applyDiagnosisIntentRef = React.useRef<(intent: M6DDiagnosisIntent) => void>(() => undefined);
 
   React.useEffect(() => { activeRef.current = sessionActive; }, [sessionActive]);
   React.useEffect(() => { pausedRef.current = paused; }, [paused]);
   React.useEffect(() => { targetRef.current = target; }, [target]);
+  React.useEffect(() => {
+    applyDiagnosisIntentRef.current = applyDiagnosisIntent;
+  });
+  React.useEffect(() => {
+    diagnosisDraftRef.current = diagnosisDraft;
+    const pending = pendingDiagnosisIntentRef.current;
+    if (diagnosisDraft && pending) {
+      pendingDiagnosisIntentRef.current = null;
+      applyDiagnosisIntentRef.current(pending);
+    }
+  }, [diagnosisDraft]);
   React.useEffect(() => () => {
     if (silenceTimer.current) clearTimeout(silenceTimer.current);
     if (fastNavigationTimer.current) clearTimeout(fastNavigationTimer.current);
@@ -178,10 +205,79 @@ export function M6AVoicePanel({ values, disabled, onChange }: {
 
   function navigate(next: M6DTarget) {
     const changed = targetRef.current !== next;
+    diagnosisTargetRef.current = null;
     targetRef.current = next;
     setTarget(next);
     setStatus(`Current target: ${LABELS[next]}.`);
     if (changed) requestAnimationFrame(() => document.getElementById(next)?.scrollIntoView({ behavior: "instant", block: "center" }));
+  }
+
+  function focusDiagnosis(selector: string) {
+    requestAnimationFrame(() => {
+      const element = document.querySelector(selector);
+      element?.scrollIntoView({ behavior: "instant", block: "center" });
+      if (element instanceof HTMLElement) element.focus({ preventScroll: true });
+    });
+  }
+
+  function applyDiagnosisIntent(intent: M6DDiagnosisIntent) {
+    if (intent.type === "DIAGNOSIS_NAVIGATE") {
+      diagnosisTargetRef.current = null;
+      focusDiagnosis("#diagnoses");
+      setStatus("Current voice section: Diagnoses. Say Diagnosis field, How certain, or Diagnosis note.");
+      return;
+    }
+
+    const draft = diagnosisDraftRef.current;
+    if (!draft) {
+      pendingDiagnosisIntentRef.current = intent;
+      onOpenDiagnosis();
+      return;
+    }
+
+    if (intent.type === "DIAGNOSIS_TARGET") {
+      diagnosisTargetRef.current = intent.target;
+      const selector = intent.target === "title"
+        ? "[data-m6d-diagnosis-title]"
+        : intent.target === "certainty"
+          ? "[data-m6d-diagnosis-certainty]"
+          : "[data-m6d-diagnosis-note]";
+      focusDiagnosis(selector);
+      setStatus(intent.target === "title"
+        ? "Diagnosis field focused. Ordinary speech will enter the editable diagnosis draft."
+        : intent.target === "certainty"
+          ? "Diagnosis certainty focused. Say Provisional, Working, Confirmed, or Ruled out."
+          : "Diagnosis note focused. Ordinary speech will enter the optional diagnosis note.");
+      return;
+    }
+
+    if (intent.type === "DIAGNOSIS_CERTAINTY") {
+      diagnosisTargetRef.current = "certainty";
+      const next = { ...draft, certainty: intent.certainty };
+      diagnosisDraftRef.current = next;
+      onDiagnosisDraftChange(next);
+      focusDiagnosis(`[data-m6d-diagnosis-certainty-option="${intent.certainty}"]`);
+      setStatus(`Diagnosis certainty selected: ${intent.certainty.replace("_", " ").toLowerCase()}. Review remains editable until Add diagnosis.`);
+      return;
+    }
+
+    diagnosisTargetRef.current = null;
+    focusDiagnosis("[data-m6d-diagnosis-submit]");
+    setStatus("Diagnosis draft is ready for review. Press Add diagnosis explicitly to create it.");
+  }
+  function appendDiagnosisDraft(text: string): boolean {
+    const draft = diagnosisDraftRef.current;
+    const targetField = diagnosisTargetRef.current;
+    if (!draft || (targetField !== "title" && targetField !== "note")) return false;
+    const current = draft[targetField];
+    const result = insertTranscript(current, text, current.length);
+    const next = { ...draft, [targetField]: result.text };
+    diagnosisDraftRef.current = next;
+    onDiagnosisDraftChange(next);
+    setStatus(targetField === "title"
+      ? "Inserted into the editable Diagnosis field. Add diagnosis still requires an explicit press."
+      : "Inserted into the optional Diagnosis note. Add diagnosis still requires an explicit press.");
+    return true;
   }
 
   function handOffClinicalAction(text: string) {
@@ -198,6 +294,7 @@ export function M6AVoicePanel({ values, disabled, onChange }: {
     if (intent.type === "RESUME") return resumeSession(true);
     if (intent.type === "END") return endSession();
     if (intent.type === "UNDO") return undoLast();
+    if (isM6DDiagnosisIntent(intent)) return applyDiagnosisIntent(intent);
     if (intent.type !== "NOTE_EDIT") return;
     if (intent.operation === "CLEAR") {
       writeDraft(target, "");
@@ -231,7 +328,7 @@ export function M6AVoicePanel({ values, disabled, onChange }: {
     const local = parseM6DLocalCommand(rawText);
     // A provider-final segment can still grow into ordinary clinical prose.
     // Session controls execute only once the whole utterance is speech-final.
-    if (isM6DStandaloneControlIntent(local)) return;
+    if (isM6DStandaloneControlIntent(local) || isM6DDiagnosisIntent(local)) return;
     if (pausedRef.current) return;
     if (!isM6DNavigationIntent(local)) {
       rollbackPendingNavigation();
@@ -276,6 +373,15 @@ export function M6AVoicePanel({ values, disabled, onChange }: {
       setStatus("Voice session is paused. Speech was not added to the clinical draft.");
       return;
     }
+    if (appendDiagnosisDraft(text)) {
+      if (restart) scheduleRestart();
+      return;
+    }
+    if (diagnosisTargetRef.current === "certainty") {
+      setStatus("Diagnosis certainty expects Provisional, Working, Confirmed, or Ruled out. Nothing was inserted.");
+      if (restart) scheduleRestart();
+      return;
+    }
     const parsedClinical = parseM6BCommand(text);
     if (parsedClinical.type !== "UNKNOWN") {
       const section = navigationSection(parsedClinical);
@@ -315,6 +421,8 @@ export function M6AVoicePanel({ values, disabled, onChange }: {
       clearSilenceTimer();
       rollbackPendingNavigation();
       pendingNavigationRef.current = null;
+      pendingDiagnosisIntentRef.current = null;
+      diagnosisTargetRef.current = null;
       setPreview("");
     },
   });
@@ -361,6 +469,8 @@ export function M6AVoicePanel({ values, disabled, onChange }: {
     clearSilenceTimer();
     rollbackPendingNavigation();
     pendingNavigationRef.current = null;
+    pendingDiagnosisIntentRef.current = null;
+    diagnosisTargetRef.current = null;
     activeRef.current = false;
     pausedRef.current = false;
     setSessionActive(false);

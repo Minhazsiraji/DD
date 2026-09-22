@@ -61,7 +61,7 @@ describe("M6D navigation command consumption", () => {
   it("executes standalone controls only at speech-final, never provider-final", () => {
     const providerFinal = panel.slice(panel.indexOf("function handleProviderFinal"), panel.indexOf("async function handleFinal"));
     const speechFinal = panel.slice(panel.indexOf("async function handleFinal"), panel.indexOf("const dictation = useDictation"));
-    expect(providerFinal).toContain("if (isM6DStandaloneControlIntent(local)) return");
+    expect(providerFinal).toContain("if (isM6DStandaloneControlIntent(local) || isM6DDiagnosisIntent(local)) return");
     expect(providerFinal).not.toContain("applyLocal(local)");
     expect(speechFinal).toContain("applyLocal(local)");
   });

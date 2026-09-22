@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isM6DCommandLikeUtterance, isM6DNavigationIntent, isM6DStandaloneControlIntent, m6dNavigationCommandKey, M6D_TARGETS, nextM6DTarget, parseM6DLocalCommand, resolveM6DNavigationTarget } from "./m6d-intent-router";
+import { isM6DCommandLikeUtterance, isM6DDiagnosisIntent, isM6DNavigationIntent, isM6DStandaloneControlIntent, m6dNavigationCommandKey, M6D_TARGETS, nextM6DTarget, parseM6DLocalCommand, resolveM6DNavigationTarget } from "./m6d-intent-router";
 
 describe("M6D local command router", () => {
   it("keeps the supported clinical-note target order stable", () => {
@@ -133,6 +133,47 @@ describe("M6D local command router", () => {
       expect(parseM6DLocalCommand(said)).toEqual({ type: "NONE" });
     }
   });
+
+  it.each([
+    ["Diagnosis", { type: "DIAGNOSIS_NAVIGATE" }],
+    ["Diagnosis.", { type: "DIAGNOSIS_NAVIGATE" }],
+    ["Diagnoses", { type: "DIAGNOSIS_NAVIGATE" }],
+    ["Diagnoses.", { type: "DIAGNOSIS_NAVIGATE" }],
+    ["Diagnosis field", { type: "DIAGNOSIS_TARGET", target: "title" }],
+    ["Diagnosis field.", { type: "DIAGNOSIS_TARGET", target: "title" }],
+    ["How certain", { type: "DIAGNOSIS_TARGET", target: "certainty" }],
+    ["How certain.", { type: "DIAGNOSIS_TARGET", target: "certainty" }],
+    ["Provisional", { type: "DIAGNOSIS_CERTAINTY", certainty: "PROVISIONAL" }],
+    ["Working.", { type: "DIAGNOSIS_CERTAINTY", certainty: "WORKING" }],
+    ["Confirmed", { type: "DIAGNOSIS_CERTAINTY", certainty: "CONFIRMED" }],
+    ["Ruled out.", { type: "DIAGNOSIS_CERTAINTY", certainty: "RULED_OUT" }],
+    ["Note", { type: "DIAGNOSIS_TARGET", target: "note" }],
+    ["Note.", { type: "DIAGNOSIS_TARGET", target: "note" }],
+    ["Diagnosis note", { type: "DIAGNOSIS_TARGET", target: "note" }],
+    ["Diagnosis note.", { type: "DIAGNOSIS_TARGET", target: "note" }],
+  ] as const)("classifies standalone diagnosis command %s exactly", (said, expected) => {
+    const intent = parseM6DLocalCommand(said);
+    expect(intent).toEqual(expected);
+    expect(isM6DDiagnosisIntent(intent)).toBe(true);
+  });
+
+  it("keeps diagnosis-related clinical prose as ordinary dictation", () => {
+    for (const said of [
+      "The diagnosis is viral fever",
+      "Patient has a previous diagnosis of asthma",
+      "The diagnosis is dengue fever",
+      "Working diagnosis is viral fever",
+      "The diagnosis was confirmed yesterday",
+      "Please note that the patient is improving",
+    ]) {
+      expect(parseM6DLocalCommand(said)).toEqual({ type: "NONE" });
+    }
+  });
+
+  it.each(["Add diagnosis", "Confirm diagnosis", "Save diagnosis"])(
+    "routes %s to review without an add action",
+    (said) => expect(parseM6DLocalCommand(said)).toEqual({ type: "DIAGNOSIS_REVIEW" }),
+  );
 
   it("keeps navigation identity deterministic for consumed-command guarding", () => {
     const history = parseM6DLocalCommand("History.");

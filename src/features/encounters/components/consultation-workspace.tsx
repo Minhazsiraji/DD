@@ -296,8 +296,13 @@ export function ConsultationWorkspace({
           {readOnly ? null : (
             <M6AVoicePanel
               values={s.values}
+              diagnosisDraft={s.editors.diagnosis?.draft ?? null}
               disabled={s.blocked}
               onChange={s.setField}
+              onOpenDiagnosis={() => {
+                if (!s.editors.diagnosis) s.openAdd("diagnosis");
+              }}
+              onDiagnosisDraftChange={(draft) => s.setDraft("diagnosis", draft)}
             />
           )}
 
@@ -321,6 +326,7 @@ export function ConsultationWorkspace({
           />
 
           {visibility.DIAGNOSIS.visible ? (
+            <div id="diagnoses" tabIndex={-1}>
             <FindingList
               kind="diagnosis"
               title="Diagnoses"
@@ -344,6 +350,7 @@ export function ConsultationWorkspace({
               onConfirmRemove={confirmRemoveDiagnosis}
               shownBecauseFilled={visibility.DIAGNOSIS.shownBecauseFilled}
             />
+            </div>
           ) : null}
 
           {visibility.INVESTIGATIONS.visible ? (
