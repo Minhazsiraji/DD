@@ -14,6 +14,7 @@ import {
   X,
 } from "lucide-react";
 import { SectionCard, SectionHeader } from "@/components/common/section-card";
+import { DictateButton } from "@/features/dictation/components/dictate-button";
 import { confirmInvestigationsAction, type InvestigationConfirmationResult } from "../investigation-v1-actions";
 import {
   INVESTIGATION_V1_MAX_NAME,
@@ -437,6 +438,14 @@ export function InvestigationPanel({
                   className="h-11 w-full min-w-0 rounded-xl border border-white/55 bg-white/55 pr-3 pl-10 text-[14px] text-ink outline-none placeholder:text-ink-muted disabled:cursor-not-allowed disabled:opacity-55 focus-visible:focus-ring"
                 />
               </div>
+              <DictateButton
+                fieldLabel="Investigation order"
+                disabled={interactionLocked}
+                value={searchText}
+                caretAt={searchText.length}
+                onInsert={(next) => updateSearchText(next)}
+                className="mt-2"
+              />
 
               {searchText.trim() !== "" ? (
                 <div

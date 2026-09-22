@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import { cn } from "@/lib/utils";
+import { DictateButton } from "@/features/dictation/components/dictate-button";
 import { CERTAINTIES, CERTAINTY_HINT, CERTAINTY_LABEL } from "../list-schema";
 import type { FindingDraft, ListKind } from "../finding-types";
 
@@ -61,6 +62,16 @@ export function FindingForm({
           placeholder={isDiagnosis ? "Dengue fever" : "CBC with platelet count"}
           className="mt-1 h-11 w-full rounded-xl border border-hairline bg-white/90 px-3 text-[15px] text-ink placeholder:text-ink-muted focus-visible:focus-ring disabled:bg-surface-muted"
         />
+        {isDiagnosis ? (
+          <DictateButton
+            fieldLabel="Diagnosis"
+            disabled={busy || blocked}
+            value={value.title}
+            caretAt={value.title.length}
+            onInsert={(next) => onChange({ ...value, title: next })}
+            className="mt-2"
+          />
+        ) : null}
 
         {suggestions.length > 0 && value.title.trim() === "" ? (
           <div className="mt-2">
