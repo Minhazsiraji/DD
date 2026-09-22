@@ -10,10 +10,13 @@ export const M6D_TARGETS: readonly M6DTarget[] = [
   "chiefComplaints", "presentIllness", "examination", "assessment", "advice", "nextVisitNote",
 ];
 
-export type M6DLocalIntent =
+export type M6DNavigationIntent =
   | { type: "NAVIGATE"; target: M6DTarget }
   | { type: "NEXT" }
-  | { type: "PREVIOUS" }
+  | { type: "PREVIOUS" };
+
+export type M6DLocalIntent =
+  | M6DNavigationIntent
   | { type: "UNDO" }
   | { type: "NOTE_EDIT"; operation: "ADD" | "REMOVE" | "REPLACE" | "CLEAR" | "READ"; value?: string; replacement?: string }
   | { type: "NONE" };
@@ -43,6 +46,19 @@ export function isM6DCommandLikeUtterance(text: string): boolean {
 export function nextM6DTarget(current: M6DTarget, direction: 1 | -1): M6DTarget {
   const index = Math.max(0, M6D_TARGETS.indexOf(current));
   return M6D_TARGETS[(index + direction + M6D_TARGETS.length) % M6D_TARGETS.length]!;
+}
+
+export function isM6DNavigationIntent(intent: M6DLocalIntent): intent is M6DNavigationIntent {
+  return intent.type === "NAVIGATE" || intent.type === "NEXT" || intent.type === "PREVIOUS";
+}
+
+export function m6dNavigationCommandKey(intent: M6DNavigationIntent): string {
+  return intent.type === "NAVIGATE" ? `NAVIGATE:${intent.target}` : intent.type;
+}
+
+export function resolveM6DNavigationTarget(intent: M6DNavigationIntent, current: M6DTarget): M6DTarget {
+  if (intent.type === "NAVIGATE") return intent.target;
+  return nextM6DTarget(current, intent.type === "NEXT" ? 1 : -1);
 }
 
 export function parseM6DLocalCommand(text: string): M6DLocalIntent {

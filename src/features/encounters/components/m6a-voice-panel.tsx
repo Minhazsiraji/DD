@@ -6,7 +6,7 @@ import type { DraftKey, DraftValues } from "../schema";
 import { insertTranscript } from "@/features/dictation/dictation";
 import { useDictation } from "@/features/dictation/use-dictation";
 import { LIVE_VOICE_ENABLED, useVoiceLanguage, VoiceLanguageControl } from "@/features/dictation/voice-language";
-import { isM6DCommandLikeUtterance, parseM6DLocalCommand, M6D_TARGETS, nextM6DTarget, type M6DLocalIntent, type M6DTarget } from "@/features/dictation/m6d-intent-router";
+import { isM6DCommandLikeUtterance, isM6DNavigationIntent, m6dNavigationCommandKey, parseM6DLocalCommand, M6D_TARGETS, nextM6DTarget, resolveM6DNavigationTarget, type M6DLocalIntent, type M6DNavigationIntent, type M6DTarget } from "@/features/dictation/m6d-intent-router";
 import { parseM6BCommand, type M6BIntent } from "@/features/dictation/m6b-command-parser";
 
 const LABELS: Record<M6DTarget, string> = {
@@ -19,10 +19,16 @@ const LABELS: Record<M6DTarget, string> = {
 };
 const M6D_CLINICAL_EVENT = "dd:m6d-clinical-command";
 const SILENCE_FINALIZE_MS = 800;
-const FAST_NAVIGATION_STABLE_MS = 160;
+const FAST_NAVIGATION_STABLE_MS = 80;
 const VOICE_RESTART_DELAY_MS = 100;
 
 type LastDraftChange = { key: M6DTarget; before: string; after: string } | null;
+type PendingNavigation = {
+  key: string;
+  target: M6DTarget;
+  previousTarget: M6DTarget;
+  consumed: boolean;
+};
 
 async function normalizeTranscript(transcript: string, language: string) {
   if (!LIVE_VOICE_ENABLED || language !== "bn-BD-mixed") return transcript;
@@ -83,6 +89,7 @@ export function M6AVoicePanel({ values, disabled, onChange }: {
   const fastNavigationTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const latestPreviewRef = React.useRef("");
   const targetRef = React.useRef<M6DTarget>("chiefComplaints");
+  const pendingNavigationRef = React.useRef<PendingNavigation | null>(null);
 
   React.useEffect(() => { activeRef.current = sessionActive; }, [sessionActive]);
   React.useEffect(() => { pausedRef.current = paused; }, [paused]);
@@ -97,6 +104,27 @@ export function M6AVoicePanel({ values, disabled, onChange }: {
     silenceTimer.current = null;
   }
 
+  function rollbackPendingNavigation() {
+    const pending = pendingNavigationRef.current;
+    if (!pending || pending.consumed) return;
+    pendingNavigationRef.current = null;
+    if (targetRef.current === pending.target) navigate(pending.previousTarget);
+  }
+
+  function routePendingNavigation(intent: M6DNavigationIntent, consumed: boolean) {
+    const key = m6dNavigationCommandKey(intent);
+    const existing = pendingNavigationRef.current;
+    if (existing?.key === key) {
+      existing.consumed = existing.consumed || consumed;
+      return;
+    }
+    if (existing && !existing.consumed) rollbackPendingNavigation();
+    const previousTarget = targetRef.current;
+    const nextTarget = resolveM6DNavigationTarget(intent, previousTarget);
+    pendingNavigationRef.current = { key, target: nextTarget, previousTarget, consumed };
+    navigate(nextTarget);
+  }
+
   function previewWithSilenceFinalization(text: string) {
     setPreview(text);
     latestPreviewRef.current = text;
@@ -104,16 +132,26 @@ export function M6AVoicePanel({ values, disabled, onChange }: {
     if (fastNavigationTimer.current) clearTimeout(fastNavigationTimer.current);
     fastNavigationTimer.current = null;
     if (!text.trim()) return;
+
     if (mode === "guided") {
       const candidate = parseM6DLocalCommand(text);
-      if (candidate.type === "NAVIGATE") {
+      const pending = pendingNavigationRef.current;
+      if (pending && !pending.consumed) {
+        if (!isM6DNavigationIntent(candidate) || m6dNavigationCommandKey(candidate) !== pending.key) {
+          rollbackPendingNavigation();
+        }
+      }
+      if (isM6DNavigationIntent(candidate)) {
         const observed = text;
         fastNavigationTimer.current = setTimeout(() => {
           fastNavigationTimer.current = null;
-          if (activeRef.current && !pausedRef.current && latestPreviewRef.current === observed) navigate(candidate.target);
+          if (activeRef.current && !pausedRef.current && latestPreviewRef.current === observed) {
+            routePendingNavigation(candidate, false);
+          }
         }, FAST_NAVIGATION_STABLE_MS);
       }
     }
+
     silenceTimer.current = setTimeout(() => {
       silenceTimer.current = null;
       if (activeRef.current && !pausedRef.current) stopRef.current?.();
@@ -138,7 +176,7 @@ export function M6AVoicePanel({ values, disabled, onChange }: {
     targetRef.current = next;
     setTarget(next);
     setStatus(`Current target: ${LABELS[next]}.`);
-    if (changed) requestAnimationFrame(() => document.getElementById(next)?.scrollIntoView({ behavior: "smooth", block: "center" }));
+    if (changed) requestAnimationFrame(() => document.getElementById(next)?.scrollIntoView({ behavior: "auto", block: "center" }));
   }
 
   function handOffClinicalAction(text: string) {
@@ -180,9 +218,31 @@ export function M6AVoicePanel({ values, disabled, onChange }: {
     }
   }
 
+  function handleProviderFinal(rawText: string) {
+    if (mode !== "guided") return;
+    const local = parseM6DLocalCommand(rawText);
+    if (!isM6DNavigationIntent(local)) {
+      rollbackPendingNavigation();
+      return;
+    }
+    routePendingNavigation(local, true);
+    clearSilenceTimer();
+    if (fastNavigationTimer.current) clearTimeout(fastNavigationTimer.current);
+    fastNavigationTimer.current = null;
+    stopRef.current?.();
+  }
+
   async function handleFinal(rawText: string) {
     clearSilenceTimer();
     setPreview("");
+    const pendingNavigation = pendingNavigationRef.current;
+    const rawFinalLocal = parseM6DLocalCommand(rawText);
+    if (pendingNavigation?.consumed && isM6DNavigationIntent(rawFinalLocal) && m6dNavigationCommandKey(rawFinalLocal) === pendingNavigation.key) {
+      pendingNavigationRef.current = null;
+      scheduleRestart();
+      return;
+    }
+    if (pendingNavigation && !pendingNavigation.consumed) rollbackPendingNavigation();
     const text = await normalizeTranscript(rawText, voiceLanguage.lang);
     if (mode === "ambient") {
       setAmbientDraft((current) => [current.trim(), text.trim()].filter(Boolean).join(" "));
@@ -227,8 +287,14 @@ export function M6AVoicePanel({ values, disabled, onChange }: {
     language: voiceLanguage.providerLanguage,
     providerMode: LIVE_VOICE_ENABLED ? "deepgram" : "mock",
     onPreview: previewWithSilenceFinalization,
+    onProviderFinal: handleProviderFinal,
     onFinal: (text) => void handleFinal(text),
-    onCancel: () => { clearSilenceTimer(); setPreview(""); },
+    onCancel: () => {
+      clearSilenceTimer();
+      rollbackPendingNavigation();
+      pendingNavigationRef.current = null;
+      setPreview("");
+    },
   });
   React.useEffect(() => {
     startRef.current = dictation.start;
@@ -271,6 +337,8 @@ export function M6AVoicePanel({ values, disabled, onChange }: {
 
   function endSession() {
     clearSilenceTimer();
+    rollbackPendingNavigation();
+    pendingNavigationRef.current = null;
     activeRef.current = false;
     pausedRef.current = false;
     setSessionActive(false);

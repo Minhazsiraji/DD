@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isM6DCommandLikeUtterance, M6D_TARGETS, nextM6DTarget, parseM6DLocalCommand } from "./m6d-intent-router";
+import { isM6DCommandLikeUtterance, isM6DNavigationIntent, m6dNavigationCommandKey, M6D_TARGETS, nextM6DTarget, parseM6DLocalCommand, resolveM6DNavigationTarget } from "./m6d-intent-router";
 
 describe("M6D local command router", () => {
   it("keeps the supported clinical-note target order stable", () => {
@@ -25,6 +25,7 @@ describe("M6D local command router", () => {
 
   it("supports next and previous section movement", () => {
     expect(parseM6DLocalCommand("Next").type).toBe("NEXT");
+    expect(parseM6DLocalCommand("Next.").type).toBe("NEXT");
     expect(parseM6DLocalCommand("Previous").type).toBe("PREVIOUS");
     expect(parseM6DLocalCommand("Previous.").type).toBe("PREVIOUS");
     expect(parseM6DLocalCommand("Previous!").type).toBe("PREVIOUS");
@@ -52,8 +53,22 @@ describe("M6D local command router", () => {
     });
   });
 
+  it("keeps navigation identity deterministic for consumed-command guarding", () => {
+    const history = parseM6DLocalCommand("History.");
+    expect(isM6DNavigationIntent(history)).toBe(true);
+    if (isM6DNavigationIntent(history)) {
+      expect(m6dNavigationCommandKey(history)).toBe("NAVIGATE:presentIllness");
+      expect(resolveM6DNavigationTarget(history, "assessment")).toBe("presentIllness");
+    }
+    const next = parseM6DLocalCommand("Next");
+    expect(isM6DNavigationIntent(next)).toBe(true);
+    if (isM6DNavigationIntent(next)) expect(resolveM6DNavigationTarget(next, "presentIllness")).toBe("examination");
+  });
+
   it("leaves ordinary dictation for semantic command interpretation or note insertion", () => {
     expect(parseM6DLocalCommand("Patient has fever for three days with dry cough.")).toEqual({ type: "NONE" });
+    expect(parseM6DLocalCommand("Patient has a history of asthma")).toEqual({ type: "NONE" });
+    expect(parseM6DLocalCommand("Assessment is pending")).toEqual({ type: "NONE" });
     expect(parseM6DLocalCommand("Patient এর তিন দিন ধরে fever আছে।")).toEqual({ type: "NONE" });
   });
 

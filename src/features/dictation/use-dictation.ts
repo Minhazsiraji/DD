@@ -56,6 +56,7 @@ export interface Dictation {
 
 export function useDictation({
   onPreview,
+  onProviderFinal,
   onFinal,
   onCancel,
   language = "en-US",
@@ -63,6 +64,7 @@ export function useDictation({
   providerOverride,
 }: {
   onPreview?: (transcript: string) => void;
+  onProviderFinal?: (transcript: string) => void;
   onFinal?: (transcript: string) => void;
   onCancel?: () => void;
   language?: string;
@@ -82,10 +84,12 @@ export function useDictation({
   const owner = React.useRef(Symbol("voice-dictation-owner")).current;
 
   const onPreviewRef = React.useRef(onPreview);
+  const onProviderFinalRef = React.useRef(onProviderFinal);
   const onFinalRef = React.useRef(onFinal);
   const onCancelRef = React.useRef(onCancel);
   React.useLayoutEffect(() => {
     onPreviewRef.current = onPreview;
+    onProviderFinalRef.current = onProviderFinal;
     onFinalRef.current = onFinal;
     onCancelRef.current = onCancel;
   });
@@ -160,6 +164,7 @@ export function useDictation({
           if (activeRun.current !== runId || ended) return;
           setTranscript(next.text);
           onPreviewRef.current?.(next.text);
+          if (next.isFinal) onProviderFinalRef.current?.(next.text);
         },
         onLatency(next) {
           if (activeRun.current !== runId || ended) return;
