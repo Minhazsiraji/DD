@@ -81,6 +81,8 @@ describe("M6D local command router", () => {
   it("supports next and previous section movement", () => {
     expect(parseM6DLocalCommand("Next").type).toBe("NEXT");
     expect(parseM6DLocalCommand("Next.").type).toBe("NEXT");
+    expect(parseM6DLocalCommand("Next section").type).toBe("NEXT");
+    expect(parseM6DLocalCommand("Next section.").type).toBe("NEXT");
     expect(parseM6DLocalCommand("Previous").type).toBe("PREVIOUS");
     expect(parseM6DLocalCommand("Previous.").type).toBe("PREVIOUS");
     expect(parseM6DLocalCommand("Previous!").type).toBe("PREVIOUS");
@@ -92,7 +94,9 @@ describe("M6D local command router", () => {
 
   it("supports draft-only editing commands", () => {
     expect(parseM6DLocalCommand("Undo last sentence").type).toBe("UNDO");
+    expect(parseM6DLocalCommand("Undo last sentence.").type).toBe("UNDO");
     expect(parseM6DLocalCommand("Clear current section")).toEqual({ type: "NOTE_EDIT", operation: "CLEAR" });
+    expect(parseM6DLocalCommand("Clear current section.")).toEqual({ type: "NOTE_EDIT", operation: "CLEAR" });
     expect(parseM6DLocalCommand("Replace three days with five days")).toEqual({
       type: "NOTE_EDIT",
       operation: "REPLACE",
@@ -101,7 +105,9 @@ describe("M6D local command router", () => {
     });
     expect(parseM6DLocalCommand("Read current section")).toEqual({ type: "NOTE_EDIT", operation: "READ" });
     expect(parseM6DLocalCommand("Remove last sentence").type).toBe("REMOVE_LAST_SENTENCE");
+    expect(parseM6DLocalCommand("Remove last sentence.").type).toBe("REMOVE_LAST_SENTENCE");
     expect(parseM6DLocalCommand("Clear this section.")).toEqual({ type: "NOTE_EDIT", operation: "CLEAR" });
+    expect(parseM6DLocalCommand("Clear this section")).toEqual({ type: "NOTE_EDIT", operation: "CLEAR" });
     expect(parseM6DLocalCommand("Remove vomiting")).toEqual({
       type: "NOTE_EDIT",
       operation: "REMOVE",
@@ -179,7 +185,7 @@ describe("M6D local command router", () => {
 
   it.each([
     "Investigation", "Investigation.", "Investigations", "Investigations.",
-    "Investigation order", "Investigation orders.",
+    "Investigation order", "Investigation order.", "Investigation orders", "Investigation orders.",
   ])("navigates to Investigation orders for standalone %s", (said) => {
     const intent = parseM6DLocalCommand(said);
     expect(intent).toEqual({ type: "INVESTIGATION_NAVIGATE" });
