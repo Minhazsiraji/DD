@@ -6,7 +6,7 @@ import type { DraftKey, DraftValues } from "../schema";
 import { insertTranscript } from "@/features/dictation/dictation";
 import { useDictation } from "@/features/dictation/use-dictation";
 import { LIVE_VOICE_ENABLED, useVoiceLanguage, VoiceLanguageControl } from "@/features/dictation/voice-language";
-import { isM6DCommandLikeUtterance, isM6DNavigationIntent, m6dNavigationCommandKey, parseM6DLocalCommand, parseM6DNavigationSequence, M6D_TARGETS, nextM6DTarget, resolveM6DNavigationTarget, type M6DLocalIntent, type M6DNavigationIntent, type M6DTarget } from "@/features/dictation/m6d-intent-router";
+import { isM6DCommandLikeUtterance, isM6DNavigationIntent, m6dNavigationCommandKey, parseM6DLocalCommand, M6D_TARGETS, nextM6DTarget, resolveM6DNavigationTarget, type M6DLocalIntent, type M6DNavigationIntent, type M6DTarget } from "@/features/dictation/m6d-intent-router";
 import { parseM6BCommand, type M6BIntent } from "@/features/dictation/m6b-command-parser";
 
 const LABELS: Record<M6DTarget, string> = {
@@ -134,7 +134,7 @@ export function M6AVoicePanel({ values, disabled, onChange }: {
     if (!text.trim()) return;
 
     if (mode === "guided") {
-      const candidate = parseM6DNavigationSequence(text) ?? parseM6DLocalCommand(text);
+      const candidate = parseM6DLocalCommand(text);
       const pending = pendingNavigationRef.current;
       if (pending && !pending.consumed) {
         if (!isM6DNavigationIntent(candidate) || m6dNavigationCommandKey(candidate) !== pending.key) {
@@ -147,6 +147,9 @@ export function M6AVoicePanel({ values, disabled, onChange }: {
           fastNavigationTimer.current = null;
           if (activeRef.current && !pausedRef.current && latestPreviewRef.current === observed) {
             routePendingNavigation(candidate, false);
+            // Define the command boundary without stopping the microphone or
+            // WebSocket. The provider flushes and clears exactly this utterance.
+            dictation.commitUtterance();
           }
         }, FAST_NAVIGATION_STABLE_MS);
       }
@@ -178,7 +181,7 @@ export function M6AVoicePanel({ values, disabled, onChange }: {
     targetRef.current = next;
     setTarget(next);
     setStatus(`Current target: ${LABELS[next]}.`);
-    if (changed) requestAnimationFrame(() => document.getElementById(next)?.scrollIntoView({ behavior: "auto", block: "center" }));
+    if (changed) requestAnimationFrame(() => document.getElementById(next)?.scrollIntoView({ behavior: "instant", block: "center" }));
   }
 
   function handOffClinicalAction(text: string) {
@@ -222,12 +225,13 @@ export function M6AVoicePanel({ values, disabled, onChange }: {
 
   function handleProviderFinal(rawText: string) {
     if (mode !== "guided") return;
-    const local = parseM6DNavigationSequence(rawText) ?? parseM6DLocalCommand(rawText);
+    const local = parseM6DLocalCommand(rawText);
     if (!isM6DNavigationIntent(local)) {
       rollbackPendingNavigation();
       return;
     }
     routePendingNavigation(local, true);
+    dictation.commitUtterance();
     clearSilenceTimer();
     if (fastNavigationTimer.current) clearTimeout(fastNavigationTimer.current);
     fastNavigationTimer.current = null;
@@ -237,8 +241,8 @@ export function M6AVoicePanel({ values, disabled, onChange }: {
     clearSilenceTimer();
     setPreview("");
     const pendingNavigation = pendingNavigationRef.current;
-    const rawFinalLocal = parseM6DNavigationSequence(rawText) ?? parseM6DLocalCommand(rawText);
-    if (pendingNavigation?.consumed && isM6DNavigationIntent(rawFinalLocal) && m6dNavigationCommandKey(rawFinalLocal) === pendingNavigation.key) {
+    const rawFinalLocal = parseM6DLocalCommand(rawText);
+    if (pendingNavigation && isM6DNavigationIntent(rawFinalLocal) && m6dNavigationCommandKey(rawFinalLocal) === pendingNavigation.key) {
       pendingNavigationRef.current = null;
       if (restart) scheduleRestart();
       return;
@@ -251,7 +255,7 @@ export function M6AVoicePanel({ values, disabled, onChange }: {
       if (restart) scheduleRestart();
       return;
     }
-    const local = parseM6DNavigationSequence(text) ?? parseM6DLocalCommand(text);
+    const local = parseM6DLocalCommand(text);
     if (local.type !== "NONE") {
       applyLocal(local);
       if (restart) scheduleRestart();
