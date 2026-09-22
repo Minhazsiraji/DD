@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isM6DCommandLikeUtterance, isM6DNavigationIntent, m6dNavigationCommandKey, M6D_TARGETS, nextM6DTarget, parseM6DLocalCommand, resolveM6DNavigationTarget } from "./m6d-intent-router";
+import { isM6DCommandLikeUtterance, isM6DNavigationIntent, m6dNavigationCommandKey, M6D_TARGETS, nextM6DTarget, parseM6DLocalCommand, parseM6DNavigationSequence, resolveM6DNavigationTarget } from "./m6d-intent-router";
 
 describe("M6D local command router", () => {
   it("keeps the supported clinical-note target order stable", () => {
@@ -29,6 +29,19 @@ describe("M6D local command router", () => {
     expect(parseM6DLocalCommand("Follow-up")).toEqual({ type: "NAVIGATE", target: "nextVisitNote" });
     expect(parseM6DLocalCommand("Follow-up.")).toEqual({ type: "NAVIGATE", target: "nextVisitNote" });
     expect(parseM6DLocalCommand("ফলো আপ")).toEqual({ type: "NAVIGATE", target: "nextVisitNote" });
+  });
+
+  it("routes only exact accumulated navigation sequences and keeps prose as dictation", () => {
+    expect(parseM6DNavigationSequence("Chief complaints. == History. == Examination.")).toEqual({
+      type: "NAVIGATE",
+      target: "examination",
+    });
+    expect(parseM6DNavigationSequence("Chief complaints. History.")).toEqual({
+      type: "NAVIGATE",
+      target: "presentIllness",
+    });
+    expect(parseM6DNavigationSequence("Patient's chief complaint is chest pain")).toBeNull();
+    expect(parseM6DNavigationSequence("Chief complaints include fever and cough. History.")).toBeNull();
   });
 
   it("supports next and previous section movement", () => {

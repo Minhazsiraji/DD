@@ -15,13 +15,14 @@ describe("M6D navigation command consumption", () => {
 
   it("marks provider-final navigation consumed without restarting the persistent stream", () => {
     expect(panel).toContain("routePendingNavigation(local, true)");
+    expect(panel).toContain("parseM6DNavigationSequence(rawText) ?? parseM6DLocalCommand(rawText)");
     expect(panel).toContain('continuous: mode === "guided"');
     expect(panel).toContain("onUtteranceEnd: (text) => void handleFinal(text, false)");
     expect(panel.slice(panel.indexOf("function handleProviderFinal"), panel.indexOf("async function handleFinal"))).not.toContain("stopRef.current?.()");
   });
 
   it("suppresses the matching raw final before normalization or note append", () => {
-    const rawGuard = panel.indexOf("const rawFinalLocal = parseM6DLocalCommand(rawText)");
+    const rawGuard = panel.indexOf("const rawFinalLocal = parseM6DNavigationSequence(rawText) ?? parseM6DLocalCommand(rawText)");
     const normalize = panel.indexOf("const text = await normalizeTranscript(rawText, voiceLanguage.lang)");
     const append = panel.indexOf("appendDraft(targetRef.current, text)");
     expect(rawGuard).toBeGreaterThan(-1);

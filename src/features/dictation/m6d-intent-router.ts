@@ -61,6 +61,20 @@ export function resolveM6DNavigationTarget(intent: M6DNavigationIntent, current:
   return nextM6DTarget(current, intent.type === "NEXT" ? 1 : -1);
 }
 
+/**
+ * Deepgram may keep consecutive short navigation commands in one evolving
+ * hypothesis before it marks an acoustic boundary. Accept the tail only when
+ * every clause is itself an exact navigation command; clinical prose therefore
+ * remains dictation.
+ */
+export function parseM6DNavigationSequence(text: string): M6DNavigationIntent | null {
+  const clauses = text.split(/(?:[.!?।]+|={2,})/u).map((part) => part.trim()).filter(Boolean);
+  if (clauses.length === 0) return null;
+  const commands = clauses.map(parseM6DLocalCommand);
+  if (!commands.every(isM6DNavigationIntent)) return null;
+  return commands.at(-1) as M6DNavigationIntent;
+}
+
 export function parseM6DLocalCommand(text: string): M6DLocalIntent {
   const raw = clean(text);
   const value = raw.toLocaleLowerCase("en-US");
