@@ -15,9 +15,15 @@ export type M6DNavigationIntent =
   | { type: "NEXT" }
   | { type: "PREVIOUS" };
 
+export type M6DStandaloneControlIntent =
+  | { type: "PAUSE" }
+  | { type: "RESUME" }
+  | { type: "END" }
+  | { type: "UNDO" };
+
 export type M6DLocalIntent =
   | M6DNavigationIntent
-  | { type: "UNDO" }
+  | M6DStandaloneControlIntent
   | { type: "NOTE_EDIT"; operation: "ADD" | "REMOVE" | "REPLACE" | "CLEAR" | "READ"; value?: string; replacement?: string }
   | { type: "NONE" };
 
@@ -52,6 +58,10 @@ export function isM6DNavigationIntent(intent: M6DLocalIntent): intent is M6DNavi
   return intent.type === "NAVIGATE" || intent.type === "NEXT" || intent.type === "PREVIOUS";
 }
 
+export function isM6DStandaloneControlIntent(intent: M6DLocalIntent): intent is M6DStandaloneControlIntent {
+  return intent.type === "PAUSE" || intent.type === "RESUME" || intent.type === "END" || intent.type === "UNDO";
+}
+
 export function m6dNavigationCommandKey(intent: M6DNavigationIntent): string {
   return intent.type === "NAVIGATE" ? `NAVIGATE:${intent.target}` : intent.type;
 }
@@ -66,6 +76,9 @@ export function parseM6DLocalCommand(text: string): M6DLocalIntent {
   const value = raw.toLocaleLowerCase("en-US");
   if (["next", "next section", "পরের সেকশন", "পরের অংশ"].includes(value)) return { type: "NEXT" };
   if (["previous", "previous section", "আগের সেকশন", "আগের অংশ"].includes(value)) return { type: "PREVIOUS" };
+  if (value === "pause") return { type: "PAUSE" };
+  if (value === "resume") return { type: "RESUME" };
+  if (value === "end") return { type: "END" };
   if (["undo", "undo last sentence", "remove last sentence", "শেষ বাক্য undo", "শেষ বাক্য মুছো"].includes(value)) return { type: "UNDO" };
   if (["clear current section", "clear section", "এই সেকশন clear", "এই অংশ মুছো"].includes(value)) return { type: "NOTE_EDIT", operation: "CLEAR" };
   if (["read current section", "read section", "এই সেকশন পড়ো", "এই অংশ পড়ো"].includes(value)) return { type: "NOTE_EDIT", operation: "READ" };

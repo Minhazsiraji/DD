@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isM6DCommandLikeUtterance, isM6DNavigationIntent, m6dNavigationCommandKey, M6D_TARGETS, nextM6DTarget, parseM6DLocalCommand, resolveM6DNavigationTarget } from "./m6d-intent-router";
+import { isM6DCommandLikeUtterance, isM6DNavigationIntent, isM6DStandaloneControlIntent, m6dNavigationCommandKey, M6D_TARGETS, nextM6DTarget, parseM6DLocalCommand, resolveM6DNavigationTarget } from "./m6d-intent-router";
 
 describe("M6D local command router", () => {
   it("keeps the supported clinical-note target order stable", () => {
@@ -106,6 +106,32 @@ describe("M6D local command router", () => {
       operation: "REMOVE",
       value: "vomiting",
     });
+  });
+
+  it.each([
+    ["Pause", "PAUSE"],
+    ["Pause.", "PAUSE"],
+    ["Resume", "RESUME"],
+    ["Resume.", "RESUME"],
+    ["End", "END"],
+    ["End.", "END"],
+    ["Undo", "UNDO"],
+    ["Undo.", "UNDO"],
+  ] as const)("treats standalone %s as one deterministic control", (said, type) => {
+    const intent = parseM6DLocalCommand(said);
+    expect(intent).toEqual({ type });
+    expect(isM6DStandaloneControlIntent(intent)).toBe(true);
+  });
+
+  it("preserves prose containing short-command words as dictation", () => {
+    for (const said of [
+      "Patient reports symptoms end at night",
+      "Pause in breathing was observed",
+      "Please resume the previous medication after review",
+      "The patient wants to undo the bandage",
+    ]) {
+      expect(parseM6DLocalCommand(said)).toEqual({ type: "NONE" });
+    }
   });
 
   it("keeps navigation identity deterministic for consumed-command guarding", () => {

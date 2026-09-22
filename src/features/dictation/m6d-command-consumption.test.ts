@@ -57,4 +57,33 @@ describe("M6D navigation command consumption", () => {
     expect(panel).toContain('scrollIntoView({ behavior: "instant", block: "center" })');
     expect(panel).not.toContain('scrollIntoView({ behavior: "smooth"');
   });
+
+  it("executes standalone controls only at speech-final, never provider-final", () => {
+    const providerFinal = panel.slice(panel.indexOf("function handleProviderFinal"), panel.indexOf("async function handleFinal"));
+    const speechFinal = panel.slice(panel.indexOf("async function handleFinal"), panel.indexOf("const dictation = useDictation"));
+    expect(providerFinal).toContain("if (isM6DStandaloneControlIntent(local)) return");
+    expect(providerFinal).not.toContain("applyLocal(local)");
+    expect(speechFinal).toContain("applyLocal(local)");
+  });
+
+  it("consumes controls before any clinical-note append", () => {
+    const speechFinal = panel.slice(panel.indexOf("async function handleFinal"), panel.indexOf("const dictation = useDictation"));
+    const apply = speechFinal.indexOf("applyLocal(local)");
+    const append = speechFinal.indexOf("appendDraft(targetRef.current, text)");
+    expect(apply).toBeGreaterThan(-1);
+    expect(append).toBeGreaterThan(apply);
+    expect(speechFinal).toContain('if (local.type !== "NONE")');
+  });
+
+  it("keeps the persistent command listener available for spoken Pause then Resume", () => {
+    expect(panel).toContain('if (intent.type === "PAUSE") return pauseSession(true)');
+    expect(panel).toContain('if (intent.type === "RESUME") return resumeSession(true)');
+    expect(panel).toContain("if (providerBusy && !keepCommandListener) dictation.stop()");
+    expect(panel).toContain("if (!keepCurrentSession) dictation.start()");
+  });
+
+  it("never leaks speech into notes while voice dictation is paused", () => {
+    expect(panel).toContain("if (pausedRef.current)");
+    expect(panel).toContain("Speech was not added to the clinical draft.");
+  });
 });

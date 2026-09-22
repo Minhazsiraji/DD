@@ -6,7 +6,7 @@ import type { DraftKey, DraftValues } from "../schema";
 import { insertTranscript } from "@/features/dictation/dictation";
 import { useDictation } from "@/features/dictation/use-dictation";
 import { LIVE_VOICE_ENABLED, useVoiceLanguage, VoiceLanguageControl } from "@/features/dictation/voice-language";
-import { isM6DCommandLikeUtterance, isM6DNavigationIntent, m6dNavigationCommandKey, parseM6DLocalCommand, M6D_TARGETS, nextM6DTarget, resolveM6DNavigationTarget, type M6DLocalIntent, type M6DNavigationIntent, type M6DTarget } from "@/features/dictation/m6d-intent-router";
+import { isM6DCommandLikeUtterance, isM6DNavigationIntent, isM6DStandaloneControlIntent, m6dNavigationCommandKey, parseM6DLocalCommand, M6D_TARGETS, nextM6DTarget, resolveM6DNavigationTarget, type M6DLocalIntent, type M6DNavigationIntent, type M6DTarget } from "@/features/dictation/m6d-intent-router";
 import { parseM6BCommand, type M6BIntent } from "@/features/dictation/m6b-command-parser";
 
 const LABELS: Record<M6DTarget, string> = {
@@ -194,6 +194,9 @@ export function M6AVoicePanel({ values, disabled, onChange }: {
     if (intent.type === "NAVIGATE") return navigate(intent.target);
     if (intent.type === "NEXT") return navigate(nextM6DTarget(target, 1));
     if (intent.type === "PREVIOUS") return navigate(nextM6DTarget(target, -1));
+    if (intent.type === "PAUSE") return pauseSession(true);
+    if (intent.type === "RESUME") return resumeSession(true);
+    if (intent.type === "END") return endSession();
     if (intent.type === "UNDO") return undoLast();
     if (intent.type !== "NOTE_EDIT") return;
     if (intent.operation === "CLEAR") {
@@ -226,6 +229,10 @@ export function M6AVoicePanel({ values, disabled, onChange }: {
   function handleProviderFinal(rawText: string) {
     if (mode !== "guided") return;
     const local = parseM6DLocalCommand(rawText);
+    // A provider-final segment can still grow into ordinary clinical prose.
+    // Session controls execute only once the whole utterance is speech-final.
+    if (isM6DStandaloneControlIntent(local)) return;
+    if (pausedRef.current) return;
     if (!isM6DNavigationIntent(local)) {
       rollbackPendingNavigation();
       return;
@@ -257,8 +264,16 @@ export function M6AVoicePanel({ values, disabled, onChange }: {
     }
     const local = parseM6DLocalCommand(text);
     if (local.type !== "NONE") {
+      if (pausedRef.current && !isM6DStandaloneControlIntent(local)) {
+        setStatus("Voice session is paused. Say Resume or use the Resume button to continue dictation.");
+        return;
+      }
       applyLocal(local);
       if (restart) scheduleRestart();
+      return;
+    }
+    if (pausedRef.current) {
+      setStatus("Voice session is paused. Speech was not added to the clinical draft.");
       return;
     }
     const parsedClinical = parseM6BCommand(text);
@@ -326,20 +341,20 @@ export function M6AVoicePanel({ values, disabled, onChange }: {
     dictation.start();
   }
 
-  function pauseSession() {
+  function pauseSession(keepCommandListener = false) {
     clearSilenceTimer();
     pausedRef.current = true;
     setPaused(true);
-    setStatus("Voice session paused.");
-    if (providerBusy) dictation.stop();
+    setStatus(keepCommandListener ? "Voice dictation paused. Say Resume to continue." : "Voice session paused.");
+    if (providerBusy && !keepCommandListener) dictation.stop();
   }
 
-  function resumeSession() {
+  function resumeSession(keepCurrentSession = false) {
     if (disabled) return;
     pausedRef.current = false;
     setPaused(false);
     setStatus(`Voice session resumed · target ${LABELS[target]}.`);
-    dictation.start();
+    if (!keepCurrentSession) dictation.start();
   }
 
   function endSession() {
@@ -384,7 +399,7 @@ export function M6AVoicePanel({ values, disabled, onChange }: {
           <VoiceLanguageControl disabled={disabled || providerBusy} />
           <select aria-label="Voice mode" value={mode} disabled={providerBusy} onChange={(e) => setMode(e.target.value as "guided" | "ambient")} className="min-h-11 rounded-xl border border-hairline bg-white px-3 text-[12px] font-semibold text-ink"><option value="guided">Guided Voice</option><option value="ambient">Ambient Consultation</option></select>
           <select aria-label="Current voice target" value={target} disabled={disabled || providerBusy || mode === "ambient"} onChange={(e) => navigate(e.target.value as M6DTarget)} className="min-h-11 min-w-0 rounded-xl border border-hairline bg-white px-3 text-[12px] font-semibold text-ink">{M6D_TARGETS.map((key) => <option key={key} value={key}>{LABELS[key]}</option>)}</select>
-          {!sessionActive ? <button type="button" onClick={startSession} disabled={disabled || !dictation.supported} className="inline-flex min-h-11 items-center gap-1.5 rounded-xl bg-brand px-3 text-[12px] font-semibold text-white disabled:opacity-50"><Play className="size-4" />Start Voice</button> : paused ? <button type="button" onClick={resumeSession} disabled={disabled} className="inline-flex min-h-11 items-center gap-1.5 rounded-xl bg-brand px-3 text-[12px] font-semibold text-white disabled:opacity-50"><Play className="size-4" />Resume</button> : <button type="button" onClick={pauseSession} className="inline-flex min-h-11 items-center gap-1.5 rounded-xl border border-hairline bg-white px-3 text-[12px] font-semibold text-ink"><Pause className="size-4" />Pause</button>}
+          {!sessionActive ? <button type="button" onClick={startSession} disabled={disabled || !dictation.supported} className="inline-flex min-h-11 items-center gap-1.5 rounded-xl bg-brand px-3 text-[12px] font-semibold text-white disabled:opacity-50"><Play className="size-4" />Start Voice</button> : paused ? <button type="button" onClick={() => resumeSession()} disabled={disabled} className="inline-flex min-h-11 items-center gap-1.5 rounded-xl bg-brand px-3 text-[12px] font-semibold text-white disabled:opacity-50"><Play className="size-4" />Resume</button> : <button type="button" onClick={() => pauseSession()} className="inline-flex min-h-11 items-center gap-1.5 rounded-xl border border-hairline bg-white px-3 text-[12px] font-semibold text-ink"><Pause className="size-4" />Pause</button>}
           {sessionActive ? <button type="button" onClick={endSession} className="inline-flex min-h-11 items-center gap-1.5 rounded-xl border border-hairline bg-white px-3 text-[12px] font-semibold text-ink"><Square className="size-3.5 fill-current" />End</button> : null}
           <button type="button" onClick={undoLast} disabled={!lastChange} className="inline-flex min-h-11 items-center gap-1.5 rounded-xl border border-hairline bg-white px-3 text-[12px] font-semibold text-ink disabled:opacity-45"><Undo2 className="size-4" />Undo</button>
         </div>
