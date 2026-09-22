@@ -98,4 +98,9 @@ export class DeepgramTranscriptAssembler {
     if (this.interim && !this.finals.has(this.interim.key)) pieces.push(this.interim.text);
     return joinSegments(pieces);
   }
+
+  reset(): void {
+    this.finals.clear();
+    this.interim = null;
+  }
 }

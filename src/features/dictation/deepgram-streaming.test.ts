@@ -69,6 +69,24 @@ describe("Deepgram Nova-3 selective streaming core", () => {
     expect(assembler.current()).toBe("Napa 500 mg BD 5 days");
   });
 
+  it("resets one completed utterance without leaking it into the next", () => {
+    const assembler = new DeepgramTranscriptAssembler();
+    assembler.apply({
+      type: "Results",
+      start: 0,
+      is_final: true,
+      channel: { alternatives: [{ transcript: "Chief complaints." }] },
+    });
+    assembler.reset();
+    expect(assembler.current()).toBe("");
+    expect(assembler.apply({
+      type: "Results",
+      start: 2,
+      is_final: false,
+      channel: { alternatives: [{ transcript: "History" }] },
+    })?.text).toBe("History");
+  });
+
   it("preserves Bangla punctuation while joining final segments", () => {
     const assembler = new DeepgramTranscriptAssembler();
     assembler.apply({

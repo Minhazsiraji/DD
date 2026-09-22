@@ -57,20 +57,24 @@ export interface Dictation {
 export function useDictation({
   onPreview,
   onProviderFinal,
+  onUtteranceEnd,
   onFinal,
   onCancel,
   language = "en-US",
   providerMode = "deepgram",
   providerOverride,
+  continuous = false,
 }: {
   onPreview?: (transcript: string) => void;
   onProviderFinal?: (transcript: string) => void;
+  onUtteranceEnd?: (transcript: string) => void;
   onFinal?: (transcript: string) => void;
   onCancel?: () => void;
   language?: string;
   providerMode?: DictationProviderMode;
   /** Test-only injection; production UI should select an approved mode. */
   providerOverride?: VoiceTranscriptionProvider;
+  continuous?: boolean;
 } = {}): Dictation {
   const [rawState, setState] = React.useState<DictationState>("ready");
   const [transcript, setTranscript] = React.useState("");
@@ -85,11 +89,13 @@ export function useDictation({
 
   const onPreviewRef = React.useRef(onPreview);
   const onProviderFinalRef = React.useRef(onProviderFinal);
+  const onUtteranceEndRef = React.useRef(onUtteranceEnd);
   const onFinalRef = React.useRef(onFinal);
   const onCancelRef = React.useRef(onCancel);
   React.useLayoutEffect(() => {
     onPreviewRef.current = onPreview;
     onProviderFinalRef.current = onProviderFinal;
+    onUtteranceEndRef.current = onUtteranceEnd;
     onFinalRef.current = onFinal;
     onCancelRef.current = onCancel;
   });
@@ -155,6 +161,7 @@ export function useDictation({
     let current: VoiceTranscriptionSession | null = null;
     current = provider.createSession({
       language,
+      continuous,
       callbacks: {
         onPhase(phase) {
           if (activeRun.current !== runId || ended) return;
@@ -169,6 +176,11 @@ export function useDictation({
         onLatency(next) {
           if (activeRun.current !== runId || ended) return;
           setLatency(next);
+        },
+        onUtteranceEnd(said) {
+          if (activeRun.current !== runId || ended) return;
+          setTranscript("");
+          onUtteranceEndRef.current?.(said);
         },
         onError(code) {
           if (activeRun.current !== runId || ended || code === "aborted") return;
@@ -220,7 +232,7 @@ export function useDictation({
         setState("error");
       }
     }
-  }, [cancelCurrent, language, owner, provider, providerMode, releaseLease]);
+  }, [cancelCurrent, continuous, language, owner, provider, providerMode, releaseLease]);
 
   const stop = React.useCallback(() => {
     if (!session.current) return;

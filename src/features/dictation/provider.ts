@@ -35,6 +35,7 @@ export interface VoiceTranscriptionCallbacks {
   onLatency: (latency: VoiceLatencySnapshot) => void;
   onError: (code: string) => void;
   onEnd: (finalTranscript: string) => void;
+  onUtteranceEnd?: (finalTranscript: string) => void;
   onUsage?: (usage: VoiceStreamUsage) => void;
 }
 
@@ -50,6 +51,7 @@ export interface VoiceTranscriptionProvider {
   isSupported(): boolean;
   createSession(input: {
     language: string;
+    continuous?: boolean;
     callbacks: VoiceTranscriptionCallbacks;
   }): VoiceTranscriptionSession | null;
 }
@@ -135,7 +137,7 @@ const deepgramProvider: VoiceTranscriptionProvider = {
   isSupported() {
     return deepgramStreamingSupported() && preferredRecorderMimeType() !== null;
   },
-  createSession({ language, callbacks }) {
+  createSession({ language, continuous = false, callbacks }) {
     if (!deepgramStreamingSupported()) return null;
     const mimeType = preferredRecorderMimeType();
     if (!mimeType) return null;
@@ -408,6 +410,12 @@ const deepgramProvider: VoiceTranscriptionProvider = {
               emitLatency();
             }
             callbacks.onTranscript(next);
+          }
+          if (continuous && message.speech_final === true) {
+            const utterance = assembler.current().trim();
+            assembler.reset();
+            latestTranscript = "";
+            if (utterance) callbacks.onUtteranceEnd?.(utterance);
           }
 
           if (finalizing && message.from_finalize === true) settle();

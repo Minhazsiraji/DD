@@ -22,7 +22,7 @@ export type M6DLocalIntent =
   | { type: "NONE" };
 
 const SECTION_ALIASES: readonly [M6DTarget, readonly string[]][] = [
-  ["chiefComplaints", ["chief complaint", "chief complaints", "প্রধান অভিযোগ"]],
+  ["chiefComplaints", ["chief complaint", "chief complaints", "cheap complaint", "cheap complaints", "প্রধান অভিযোগ"]],
   ["presentIllness", ["history", "history of present illness", "hpi", "হিস্ট্রি", "ইতিহাস"]],
   ["examination", ["examination", "exam", "পরীক্ষা"]],
   ["assessment", ["assessment", "impression", "অ্যাসেসমেন্ট"]],

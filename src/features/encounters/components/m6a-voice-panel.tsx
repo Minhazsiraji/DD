@@ -152,10 +152,12 @@ export function M6AVoicePanel({ values, disabled, onChange }: {
       }
     }
 
-    silenceTimer.current = setTimeout(() => {
-      silenceTimer.current = null;
-      if (activeRef.current && !pausedRef.current) stopRef.current?.();
-    }, SILENCE_FINALIZE_MS);
+    if (mode !== "guided") {
+      silenceTimer.current = setTimeout(() => {
+        silenceTimer.current = null;
+        if (activeRef.current && !pausedRef.current) stopRef.current?.();
+      }, SILENCE_FINALIZE_MS);
+    }
   }
 
   function writeDraft(key: M6DTarget, next: string) {
@@ -229,17 +231,16 @@ export function M6AVoicePanel({ values, disabled, onChange }: {
     clearSilenceTimer();
     if (fastNavigationTimer.current) clearTimeout(fastNavigationTimer.current);
     fastNavigationTimer.current = null;
-    stopRef.current?.();
   }
 
-  async function handleFinal(rawText: string) {
+  async function handleFinal(rawText: string, restart = true) {
     clearSilenceTimer();
     setPreview("");
     const pendingNavigation = pendingNavigationRef.current;
     const rawFinalLocal = parseM6DLocalCommand(rawText);
     if (pendingNavigation?.consumed && isM6DNavigationIntent(rawFinalLocal) && m6dNavigationCommandKey(rawFinalLocal) === pendingNavigation.key) {
       pendingNavigationRef.current = null;
-      scheduleRestart();
+      if (restart) scheduleRestart();
       return;
     }
     if (pendingNavigation && !pendingNavigation.consumed) rollbackPendingNavigation();
@@ -247,13 +248,13 @@ export function M6AVoicePanel({ values, disabled, onChange }: {
     if (mode === "ambient") {
       setAmbientDraft((current) => [current.trim(), text.trim()].filter(Boolean).join(" "));
       setStatus("Ambient speech prepared for review. No diagnosis, prescription or finalized record was changed.");
-      scheduleRestart();
+      if (restart) scheduleRestart();
       return;
     }
     const local = parseM6DLocalCommand(text);
     if (local.type !== "NONE") {
       applyLocal(local);
-      scheduleRestart();
+      if (restart) scheduleRestart();
       return;
     }
     const parsedClinical = parseM6BCommand(text);
@@ -261,13 +262,13 @@ export function M6AVoicePanel({ values, disabled, onChange }: {
       const section = navigationSection(parsedClinical);
       if (section) navigate(section);
       else handOffClinicalAction(text);
-      scheduleRestart();
+      if (restart) scheduleRestart();
       return;
     }
     if (!isM6DCommandLikeUtterance(text)) {
       appendDraft(targetRef.current, text);
       setStatus(`Inserted into editable ${LABELS[targetRef.current]} draft. Existing autosave/version/conflict protections remain active.`);
-      scheduleRestart();
+      if (restart) scheduleRestart();
       return;
     }
     const interpreted = await interpretCommand(text, voiceLanguage.lang);
@@ -275,19 +276,21 @@ export function M6AVoicePanel({ values, disabled, onChange }: {
       const section = navigationSection(interpreted);
       if (section) navigate(section);
       else handOffClinicalAction(text);
-      scheduleRestart();
+      if (restart) scheduleRestart();
       return;
     }
     appendDraft(targetRef.current, text);
     setStatus(`Inserted into editable ${LABELS[targetRef.current]} draft. Existing autosave/version/conflict protections remain active.`);
-    scheduleRestart();
+    if (restart) scheduleRestart();
   }
 
   const dictation = useDictation({
     language: voiceLanguage.providerLanguage,
     providerMode: LIVE_VOICE_ENABLED ? "deepgram" : "mock",
+    continuous: mode === "guided",
     onPreview: previewWithSilenceFinalization,
     onProviderFinal: handleProviderFinal,
+    onUtteranceEnd: (text) => void handleFinal(text, false),
     onFinal: (text) => void handleFinal(text),
     onCancel: () => {
       clearSilenceTimer();

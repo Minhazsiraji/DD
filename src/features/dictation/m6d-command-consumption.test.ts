@@ -13,9 +13,11 @@ describe("M6D navigation command consumption", () => {
     expect(panel).toContain("onProviderFinal: handleProviderFinal");
   });
 
-  it("marks exact provider-final navigation as consumed and stops immediately", () => {
+  it("marks provider-final navigation consumed without restarting the persistent stream", () => {
     expect(panel).toContain("routePendingNavigation(local, true)");
-    expect(panel).toContain("stopRef.current?.()");
+    expect(panel).toContain('continuous: mode === "guided"');
+    expect(panel).toContain("onUtteranceEnd: (text) => void handleFinal(text, false)");
+    expect(panel.slice(panel.indexOf("function handleProviderFinal"), panel.indexOf("async function handleFinal"))).not.toContain("stopRef.current?.()");
   });
 
   it("suppresses the matching raw final before normalization or note append", () => {
@@ -32,5 +34,11 @@ describe("M6D navigation command consumption", () => {
   it("rolls back provisional navigation when a longer utterance is not a command", () => {
     expect(panel).toContain("rollbackPendingNavigation()");
     expect(panel).toContain("!isM6DNavigationIntent(candidate)");
+  });
+
+  it("keeps guided utterances on one stream and resets provider text at speech boundaries", () => {
+    expect(dictation).toContain("continuous,");
+    expect(dictation).toContain("onUtteranceEndRef.current?.(said)");
+    expect(panel).toContain('if (mode !== "guided")');
   });
 });

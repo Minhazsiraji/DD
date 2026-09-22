@@ -14,6 +14,14 @@ describe("M6D local command router", () => {
   });
 
   it("routes explicit section names without treating them as note text", () => {
+    for (const said of [
+      "Chief complaint",
+      "Chief complaints",
+      "Chief complaints.",
+      "Chief complaints!",
+      "Cheap complaint",
+      "Cheap complaints?",
+    ]) expect(parseM6DLocalCommand(said)).toEqual({ type: "NAVIGATE", target: "chiefComplaints" });
     expect(parseM6DLocalCommand("History")).toEqual({ type: "NAVIGATE", target: "presentIllness" });
     expect(parseM6DLocalCommand("Examination")).toEqual({ type: "NAVIGATE", target: "examination" });
     expect(parseM6DLocalCommand("Assessment")).toEqual({ type: "NAVIGATE", target: "assessment" });
@@ -67,6 +75,8 @@ describe("M6D local command router", () => {
 
   it("leaves ordinary dictation for semantic command interpretation or note insertion", () => {
     expect(parseM6DLocalCommand("Patient has fever for three days with dry cough.")).toEqual({ type: "NONE" });
+    expect(parseM6DLocalCommand("Patient's chief complaint is chest pain")).toEqual({ type: "NONE" });
+    expect(parseM6DLocalCommand("The chief complaints include fever and cough")).toEqual({ type: "NONE" });
     expect(parseM6DLocalCommand("Patient has a history of asthma")).toEqual({ type: "NONE" });
     expect(parseM6DLocalCommand("Assessment is pending")).toEqual({ type: "NONE" });
     expect(parseM6DLocalCommand("Patient এর তিন দিন ধরে fever আছে।")).toEqual({ type: "NONE" });
