@@ -49,6 +49,7 @@ export interface Dictation {
   providerNotice: string;
   latency: VoiceLatencySnapshot;
   start: () => void;
+  commitUtterance: () => void;
   stop: () => void;
   cancel: () => void;
   reset: () => void;
@@ -234,6 +235,10 @@ export function useDictation({
     }
   }, [cancelCurrent, continuous, language, owner, provider, providerMode, releaseLease]);
 
+  const commitUtterance = React.useCallback(() => {
+    session.current?.commitUtterance?.();
+  }, []);
+
   const stop = React.useCallback(() => {
     if (!session.current) return;
     setState("finalizing");
@@ -260,6 +265,7 @@ export function useDictation({
     providerNotice: provider?.privacyNotice ?? "",
     latency,
     start,
+    commitUtterance,
     stop,
     cancel,
     reset,
