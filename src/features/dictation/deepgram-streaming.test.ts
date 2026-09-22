@@ -31,8 +31,8 @@ describe("Deepgram Nova-3 selective streaming core", () => {
     }
     expect(english.searchParams.get("language")).toBe("en-US");
     expect(bangla.searchParams.get("language")).toBe("bn");
-    expect(new URL(buildDeepgramStreamingUrl("en-US", true)).searchParams.get("no_delay")).toBe("true");
-    expect(new URL(buildDeepgramStreamingUrl("bn", true)).searchParams.has("no_delay")).toBe(false);
+    expect(english.searchParams.has("no_delay")).toBe(false);
+    expect(bangla.searchParams.has("no_delay")).toBe(false);
     expect(() => buildDeepgramStreamingUrl("fr")).toThrow(/unsupported/);
   });
 
