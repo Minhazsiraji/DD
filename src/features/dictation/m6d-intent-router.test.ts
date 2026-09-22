@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isM6DCommandLikeUtterance, isM6DNavigationIntent, m6dNavigationCommandKey, M6D_TARGETS, nextM6DTarget, parseM6DLocalCommand, parseM6DNavigationSequence, resolveM6DNavigationTarget } from "./m6d-intent-router";
+import { isM6DCommandLikeUtterance, isM6DNavigationIntent, m6dNavigationCommandKey, M6D_TARGETS, nextM6DTarget, parseM6DLocalCommand, resolveM6DNavigationTarget } from "./m6d-intent-router";
 
 describe("M6D local command router", () => {
   it("keeps the supported clinical-note target order stable", () => {
@@ -31,17 +31,51 @@ describe("M6D local command router", () => {
     expect(parseM6DLocalCommand("ফলো আপ")).toEqual({ type: "NAVIGATE", target: "nextVisitNote" });
   });
 
-  it("routes only exact accumulated navigation sequences and keeps prose as dictation", () => {
-    expect(parseM6DNavigationSequence("Chief complaints. == History. == Examination.")).toEqual({
-      type: "NAVIGATE",
-      target: "examination",
-    });
-    expect(parseM6DNavigationSequence("Chief complaints. History.")).toEqual({
-      type: "NAVIGATE",
-      target: "presentIllness",
-    });
-    expect(parseM6DNavigationSequence("Patient's chief complaint is chest pain")).toBeNull();
-    expect(parseM6DNavigationSequence("Chief complaints include fever and cough. History.")).toBeNull();
+  it("applies each standalone command as one direct forward or backward jump", () => {
+    let target: (typeof M6D_TARGETS)[number] = "chiefComplaints";
+    const sequence = [
+      "History",
+      "Examination",
+      "Assessment",
+      "Advice",
+      "Follow-up",
+      "Chief complaints",
+    ];
+    const observed: string[] = [];
+    for (const said of sequence) {
+      const command = parseM6DLocalCommand(said);
+      expect(isM6DNavigationIntent(command)).toBe(true);
+      if (!isM6DNavigationIntent(command)) continue;
+      target = resolveM6DNavigationTarget(command, target);
+      observed.push(target);
+    }
+    expect(observed).toEqual([
+      "presentIllness",
+      "examination",
+      "assessment",
+      "advice",
+      "nextVisitNote",
+      "chiefComplaints",
+    ]);
+  });
+
+  it("supports direct backward navigation without intermediate targets", () => {
+    for (const [from, said, expected] of [
+      ["nextVisitNote", "Chief complaints", "chiefComplaints"],
+      ["advice", "History", "presentIllness"],
+      ["assessment", "Chief complaints", "chiefComplaints"],
+    ] as const) {
+      const command = parseM6DLocalCommand(said);
+      expect(isM6DNavigationIntent(command)).toBe(true);
+      if (isM6DNavigationIntent(command)) {
+        expect(resolveM6DNavigationTarget(command, from)).toBe(expected);
+      }
+    }
+  });
+
+  it("rejects accumulated command chains instead of replaying stale navigation", () => {
+    expect(parseM6DLocalCommand("Chief complaints. History. Examination.")).toEqual({ type: "NONE" });
+    expect(parseM6DLocalCommand("Follow-up Chief complaints")).toEqual({ type: "NONE" });
   });
 
   it("supports next and previous section movement", () => {
