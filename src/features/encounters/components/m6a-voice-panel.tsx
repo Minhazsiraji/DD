@@ -7,6 +7,7 @@ import type { FindingDraft } from "../finding-types";
 import { insertTranscript } from "@/features/dictation/dictation";
 import { normalizeClinicalNumbers } from "@/features/dictation/normalize";
 import { applyGuidedVoiceFinalToNote } from "@/features/dictation/m6d-guided-note-runtime";
+import { BP_SPLIT_COMPLETION_GRACE_MS, guidedVoiceFinalizationDelay, reduceBloodPressureCapture, type BloodPressureCaptureState } from "@/features/dictation/m6d-bp-stream";
 import { useDictation } from "@/features/dictation/use-dictation";
 import { LIVE_VOICE_ENABLED, useVoiceLanguage, VoiceLanguageControl } from "@/features/dictation/voice-language";
 import { isM6DCommandLikeUtterance, isM6DDiagnosisIntent, isM6DInvestigationIntent, isM6DNavigationIntent, m6dNavigationCommandKey, parseM6DAppendText, parseM6DLocalCommand, type M6DDiagnosisIntent, type M6DInvestigationIntent, type M6DLocalIntent, type M6DNavigationIntent, type M6DTarget } from "@/features/dictation/m6d-intent-router";
@@ -113,6 +114,8 @@ export function M6AVoicePanel({
   const stopRef = React.useRef<(() => void) | null>(null);
   const silenceTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const fastNavigationTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const bloodPressureTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const bloodPressureCaptureRef = React.useRef<BloodPressureCaptureState>({ pending: null });
   const latestPreviewRef = React.useRef("");
   const diagnosisDraftRef = React.useRef<FindingDraft | null>(diagnosisDraft);
   const pendingDiagnosisIntentRef = React.useRef<M6DDiagnosisIntent | null>(null);
@@ -127,6 +130,7 @@ export function M6AVoicePanel({
   React.useEffect(() => () => {
     if (silenceTimer.current) clearTimeout(silenceTimer.current);
     if (fastNavigationTimer.current) clearTimeout(fastNavigationTimer.current);
+    if (bloodPressureTimer.current) clearTimeout(bloodPressureTimer.current);
   }, []);
   React.useLayoutEffect(() => {
     const shell = stickyShellRef.current;
@@ -151,6 +155,11 @@ export function M6AVoicePanel({
   function clearSilenceTimer() {
     if (silenceTimer.current) clearTimeout(silenceTimer.current);
     silenceTimer.current = null;
+  }
+
+  function clearBloodPressureTimer() {
+    if (bloodPressureTimer.current) clearTimeout(bloodPressureTimer.current);
+    bloodPressureTimer.current = null;
   }
 
   function parseCurrentLocalCommand(text: string) {
@@ -243,7 +252,7 @@ export function M6AVoicePanel({
         if (voiceStateRef.current.session !== "idle" && latestPreviewRef.current === observed) {
           dictation.commitUtterance();
         }
-      }, SILENCE_FINALIZE_MS);
+      }, guidedVoiceFinalizationDelay(text, SILENCE_FINALIZE_MS));
       return;
     }
 
@@ -251,6 +260,23 @@ export function M6AVoicePanel({
       silenceTimer.current = null;
       if (voiceStateRef.current.session === "listening") stopRef.current?.();
     }, SILENCE_FINALIZE_MS);
+  }
+
+  async function handleGuidedUtteranceEnd(text: string) {
+    clearBloodPressureTimer();
+    const result = reduceBloodPressureCapture(bloodPressureCaptureRef.current, {
+      type: "provider-utterance",
+      transcript: text,
+    });
+    bloodPressureCaptureRef.current = result.state;
+    for (const transcript of result.commits) await handleFinal(transcript, false);
+    if (!result.held) return;
+    bloodPressureTimer.current = setTimeout(() => {
+      bloodPressureTimer.current = null;
+      const expired = reduceBloodPressureCapture(bloodPressureCaptureRef.current, { type: "grace-expired" });
+      bloodPressureCaptureRef.current = expired.state;
+      for (const transcript of expired.commits) void handleFinal(transcript, false);
+    }, BP_SPLIT_COMPLETION_GRACE_MS);
   }
 
   function writeDraft(key: M6DTarget, next: string) {
@@ -615,10 +641,12 @@ export function M6AVoicePanel({
     continuous: mode === "guided",
     onPreview: previewWithSilenceFinalization,
     onProviderFinal: handleProviderFinal,
-    onUtteranceEnd: (text) => void handleFinal(text, false),
+    onUtteranceEnd: (text) => void handleGuidedUtteranceEnd(text),
     onFinal: (text) => void handleFinal(text),
     onCancel: () => {
       clearSilenceTimer();
+      clearBloodPressureTimer();
+      bloodPressureCaptureRef.current = { pending: null };
       rollbackPendingNavigation();
       commitVoiceState((current) => ({ ...current, pendingNavigation: null }));
       pendingDiagnosisIntentRef.current = null;
@@ -662,6 +690,8 @@ export function M6AVoicePanel({
 
   function endSession() {
     clearSilenceTimer();
+    clearBloodPressureTimer();
+    bloodPressureCaptureRef.current = { pending: null };
     rollbackPendingNavigation();
     pendingDiagnosisIntentRef.current = null;
     pendingReplaceLastRef.current = null;

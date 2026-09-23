@@ -40,6 +40,7 @@ export function buildDeepgramStreamingUrl(language: string): string {
     // Nova-3 keyterm prompting is intentionally limited to the short clinical
     // abbreviation Deepgram has confused with "VP" in live English dictation.
     params.append("keyterm", "BP");
+    params.append("keyterm", "blood pressure");
   }
   return `${DEEPGRAM_STREAM_ENDPOINT}?${params.toString()}`;
 }

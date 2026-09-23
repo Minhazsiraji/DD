@@ -19,7 +19,7 @@ describe("M6D navigation command consumption", () => {
     expect(panel).toContain("const local = parseCurrentLocalCommand(rawText)");
     expect(panel).toContain('continuous: mode === "guided"');
     expect(panel).toContain("dictation.commitUtterance()");
-    expect(panel).toContain("onUtteranceEnd: (text) => void handleFinal(text, false)");
+    expect(panel).toContain("onUtteranceEnd: (text) => void handleGuidedUtteranceEnd(text)");
     expect(panel.slice(panel.indexOf("function handleProviderFinal"), panel.indexOf("async function handleFinal"))).not.toContain("stopRef.current?.()");
   });
 

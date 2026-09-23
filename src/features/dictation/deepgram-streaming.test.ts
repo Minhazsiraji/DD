@@ -33,7 +33,7 @@ describe("Deepgram Nova-3 selective streaming core", () => {
     expect(bangla.searchParams.get("language")).toBe("bn");
     expect(english.searchParams.get("numerals")).toBe("true");
     expect(bangla.searchParams.has("numerals")).toBe(false);
-    expect(english.searchParams.getAll("keyterm")).toEqual(["BP"]);
+    expect(english.searchParams.getAll("keyterm")).toEqual(["BP", "blood pressure"]);
     expect(bangla.searchParams.has("keyterm")).toBe(false);
     expect(english.searchParams.has("no_delay")).toBe(false);
     expect(bangla.searchParams.has("no_delay")).toBe(false);
