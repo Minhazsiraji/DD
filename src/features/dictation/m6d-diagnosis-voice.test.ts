@@ -8,9 +8,12 @@ const form = read("src/features/encounters/components/finding-form.tsx");
 const router = read("src/features/dictation/m6d-intent-router.ts");
 
 describe("M6D complete Diagnoses voice workflow", () => {
-  it("navigates and focuses the existing controlled diagnosis form", () => {
+  it("makes Diagnosis and Diagnoses open and focus the controlled title field", () => {
     expect(workspace).toContain('id="diagnoses"');
-    expect(panel).toContain('focusDiagnosis("#diagnoses")');
+    expect(panel).toContain('return applyDiagnosisIntent({ type: "DIAGNOSIS_TARGET", target: "title" })');
+    expect(panel).toContain("pendingDiagnosisIntentRef.current = intent");
+    expect(panel).toContain("onOpenDiagnosis()");
+    expect(workspace).toContain('if (!s.editors.diagnosis) s.openAdd("diagnosis")');
     expect(panel).toContain('"[data-m6d-diagnosis-title]"');
     expect(panel).toContain('"[data-m6d-diagnosis-certainty]"');
     expect(panel).toContain('"[data-m6d-diagnosis-note]"');
@@ -40,8 +43,26 @@ describe("M6D complete Diagnoses voice workflow", () => {
     const providerFinal = panel.slice(panel.indexOf("function handleProviderFinal"), panel.indexOf("async function handleFinal"));
     const speechFinal = panel.slice(panel.indexOf("async function handleFinal"), panel.indexOf("const dictation = useDictation"));
     expect(providerFinal).toContain("isM6DDiagnosisIntent(local)");
+    expect(providerFinal).toContain("isM6DDiagnosisDirectOpenIntent(local)");
+    expect(providerFinal).toContain("dictation.commitUtterance()");
     expect(providerFinal).not.toContain("applyDiagnosisIntent");
     expect(speechFinal.indexOf("applyLocal(local)")).toBeLessThan(speechFinal.indexOf("appendDiagnosisDraft(text)"));
+  });
+
+  it("uses the same direct-open target for singular, plural and Diagnosis field", () => {
+    expect(router).toContain('if (value === "diagnosis" || value === "diagnoses") return { type: "DIAGNOSIS_NAVIGATE" }');
+    expect(router).toContain('if (value === "diagnosis field") return { type: "DIAGNOSIS_TARGET", target: "title" }');
+    expect(panel).toContain('intent.type === "DIAGNOSIS_NAVIGATE"');
+    expect(panel).toContain('intent.type === "DIAGNOSIS_TARGET" && intent.target === "title"');
+    expect(panel).toContain('diagnosisTargetRef.current = intent.target');
+  });
+
+  it("allows the next ordinary utterance to enter the focused title without submitting", () => {
+    const speechFinal = panel.slice(panel.indexOf("async function handleFinal"), panel.indexOf("const dictation = useDictation"));
+    expect(speechFinal.indexOf("applyLocal(local)")).toBeLessThan(speechFinal.indexOf("appendDiagnosisDraft(text)"));
+    expect(panel).toContain("insertTranscript(current, text, current.length)");
+    expect(panel).toContain("onDiagnosisDraftChange(next)");
+    expect(panel).not.toContain("onSubmit");
   });
 
   it("never submits or creates a diagnosis from voice", () => {

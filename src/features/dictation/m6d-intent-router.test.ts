@@ -170,6 +170,12 @@ describe("M6D local command router", () => {
     expect(isM6DDiagnosisIntent(intent)).toBe(true);
   });
 
+  it("treats provider-normalized singular and spoken plural as the same direct-open command", () => {
+    expect(parseM6DLocalCommand("Diagnosis")).toEqual(parseM6DLocalCommand("Diagnoses"));
+    expect(parseM6DLocalCommand("Diagnosis.")).toEqual(parseM6DLocalCommand("Diagnoses."));
+    expect(parseM6DLocalCommand("Diagnosis field")).toEqual({ type: "DIAGNOSIS_TARGET", target: "title" });
+  });
+
   it("keeps diagnosis-related clinical prose as ordinary dictation", () => {
     for (const said of [
       "The diagnosis is viral fever",
@@ -177,6 +183,8 @@ describe("M6D local command router", () => {
       "The diagnosis is dengue fever",
       "Working diagnosis is viral fever",
       "The diagnosis was confirmed yesterday",
+      "Previous diagnosis was asthma",
+      "The diagnoses include dengue and gastroenteritis",
       "Please note that the patient is improving",
     ]) {
       expect(parseM6DLocalCommand(said)).toEqual({ type: "NONE" });

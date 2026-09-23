@@ -70,6 +70,11 @@ function navigationSection(intent: M6BIntent): M6DTarget | null {
   return map[intent.target] ?? null;
 }
 
+function isM6DDiagnosisDirectOpenIntent(intent: M6DLocalIntent): boolean {
+  return intent.type === "DIAGNOSIS_NAVIGATE" ||
+    (intent.type === "DIAGNOSIS_TARGET" && intent.target === "title");
+}
+
 export function M6AVoicePanel({
   values,
   diagnosisDraft,
@@ -179,12 +184,12 @@ export function M6AVoicePanel({
       const extendedStep = (candidate.type === "NEXT" || candidate.type === "PREVIOUS") && activeExtendedSectionRef.current
         ? resolveM6DExtendedSectionStep(activeExtendedSectionRef.current, candidate.type === "NEXT" ? 1 : -1)
         : null;
-      if (isM6DNavigationIntent(candidate) && !extendedStep) {
+      if ((isM6DNavigationIntent(candidate) && !extendedStep) || isM6DDiagnosisDirectOpenIntent(candidate)) {
         const observed = text;
         fastNavigationTimer.current = setTimeout(() => {
           fastNavigationTimer.current = null;
           if (activeRef.current && !pausedRef.current && latestPreviewRef.current === observed) {
-            routePendingNavigation(candidate, false);
+            if (isM6DNavigationIntent(candidate)) routePendingNavigation(candidate, false);
             // Define the command boundary without stopping the microphone or
             // WebSocket. The provider flushes and clears exactly this utterance.
             dictation.commitUtterance();
@@ -235,12 +240,9 @@ export function M6AVoicePanel({
 
   function applyDiagnosisIntent(intent: M6DDiagnosisIntent) {
     if (intent.type === "DIAGNOSIS_NAVIGATE") {
-      diagnosisTargetRef.current = null;
       investigationTargetRef.current = null;
       activeExtendedSectionRef.current = "diagnoses";
-      focusDiagnosis("#diagnoses");
-      setStatus("Current voice section: Diagnoses. Say Diagnosis field, How certain, or Diagnosis note.");
-      return;
+      return applyDiagnosisIntent({ type: "DIAGNOSIS_TARGET", target: "title" });
     }
 
     const draft = diagnosisDraftRef.current;
@@ -416,6 +418,10 @@ export function M6AVoicePanel({
     const diagnosisEdit = diagnosisTargetRef.current === "title" || diagnosisTargetRef.current === "note";
     if (diagnosisEdit && (local.type === "UNDO" || local.type === "REMOVE_LAST_SENTENCE" ||
       (local.type === "NOTE_EDIT" && local.operation === "CLEAR"))) {
+      dictation.commitUtterance();
+      return;
+    }
+    if (isM6DDiagnosisDirectOpenIntent(local)) {
       dictation.commitUtterance();
       return;
     }
