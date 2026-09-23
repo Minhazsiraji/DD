@@ -86,6 +86,14 @@ function normalizeMeasurement(text: string, cue: string): string {
   });
 }
 
+function normalizeBloodPressureSide(value: string, collapseLeadingEcho: boolean): string | null {
+  if (collapseLeadingEcho) {
+    const echo = value.toLocaleLowerCase("en-US").trim().match(/^([0-9])\s+([0-9]{2,3})$/);
+    if (echo && echo[2].startsWith(echo[1])) return echo[2];
+  }
+  return parseSpokenNumber(value);
+}
+
 /**
  * Converts spoken numbers only when an explicit, allowlisted clinical
  * measurement cue makes the meaning deterministic. It deliberately leaves
@@ -93,15 +101,18 @@ function normalizeMeasurement(text: string, cue: string): string {
  */
 export function normalizeClinicalNumbers(raw: string): string {
   const bloodPressure = new RegExp(
-    `\\b(bp|blood pressure)(\\s+)(${NUMBER_PHRASE})\\s+(?:by|over)\\s+(${NUMBER_PHRASE})`,
+    `\\b(bp|b\\s+p|blood pressure)(\\s+)(${NUMBER_PHRASE})\\s+(?:by|over|slash|/)\\s+(${NUMBER_PHRASE})`,
     "gi",
   );
   let normalized = raw.replace(
     bloodPressure,
     (match, label: string, spacing: string, systolicSpoken: string, diastolicSpoken: string) => {
-      const systolic = parseSpokenNumber(systolicSpoken);
-      const diastolic = parseSpokenNumber(diastolicSpoken);
-      return systolic === null || diastolic === null ? match : `${label}${spacing}${systolic}/${diastolic}`;
+      const systolic = normalizeBloodPressureSide(systolicSpoken, false);
+      const diastolic = normalizeBloodPressureSide(diastolicSpoken, true);
+      const normalizedLabel = /^b\s*p$/i.test(label) ? "BP" : label;
+      return systolic === null || diastolic === null
+        ? match
+        : `${normalizedLabel}${spacing}${systolic}/${diastolic}`;
     },
   );
 
@@ -120,6 +131,10 @@ export function normalizeClinicalNumbers(raw: string): string {
   );
 
   normalized = normalizeMeasurement(normalized, "pulse");
+  normalized = normalized.replace(
+    /\b(pulse)(\s+)(\d+(?:\.\d+)?)\s+slash\s+(minute|minutes|min)\b/gi,
+    "$1$2$3/$4",
+  );
   normalized = normalizeMeasurement(normalized, "temperature");
   normalized = normalizeMeasurement(normalized, "weight");
   return normalized;

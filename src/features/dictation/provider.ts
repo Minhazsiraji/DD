@@ -354,15 +354,86 @@ const deepgramProvider: VoiceTranscriptionProvider = {
       }
     };
 
+    const openProviderSocket = (accessToken: string) => {
+      if (cancelled || terminal) return;
+      socket = new WebSocket(
+        buildDeepgramStreamingUrl(language),
+        deepgramBearerProtocols(accessToken),
+      );
+      connectionTimer = setTimeout(
+        () => fail(qaCode("WS_CONNECTION", "connection-timeout")),
+        DEEPGRAM_CONNECTION_TIMEOUT_MS,
+      );
+
+      socket.onopen = () => {
+        if (cancelled || terminal) return;
+        clearTimer(connectionTimer);
+        connectionTimer = null;
+        latency.providerConnectedMs = elapsed(startedAt);
+        emitLatency();
+        keepAlive = setInterval(() => {
+          if (socket?.readyState === WebSocket.OPEN) {
+            socket.send(JSON.stringify({ type: "KeepAlive" }));
+          }
+        }, 3000);
+        flushPendingAudio();
+        if (stopped) beginFinalize();
+      };
+
+      socket.onmessage = (event) => {
+        if (cancelled || terminal || typeof event.data !== "string") return;
+        let message: { type?: string } & Partial<DeepgramResultsMessage>;
+        try {
+          message = JSON.parse(event.data) as { type?: string } & Partial<DeepgramResultsMessage>;
+        } catch {
+          return;
+        }
+
+        if (message.type !== "Results") return;
+        const next = assembler.apply(message as DeepgramResultsMessage);
+        if (next?.text) {
+          latestTranscript = next.text;
+          if (latency.firstTranscriptMs === undefined) {
+            latency.firstTranscriptMs = elapsed(startedAt);
+            clearTimer(firstTranscriptTimer);
+            firstTranscriptTimer = null;
+            emitLatency();
+          }
+          callbacks.onTranscript(next);
+        }
+        if (
+          continuous &&
+          (message.speech_final === true ||
+            (utteranceBoundaryPending && message.from_finalize === true))
+        ) {
+          const utterance = assembler.current().trim();
+          assembler.reset();
+          utteranceBoundaryPending = false;
+          latestTranscript = "";
+          if (utterance) callbacks.onUtteranceEnd?.(utterance);
+        }
+
+        if (finalizing && message.from_finalize === true) settle();
+      };
+
+      socket.onerror = () => {
+        if (!cancelled && !terminal) fail(qaCode("WS_CONNECTION", "provider-error"));
+      };
+      socket.onclose = () => {
+        if (cancelled || terminal) return;
+        if (finalizing) settle();
+        else fail(qaCode("WS_CONNECTION", "network"));
+      };
+    };
+
     const connect = async () => {
       callbacks.onPhase("connecting");
       startedAt = performance.now();
 
       try {
-        // Start the short-lived grant request immediately so auth/provider cold
-        // start overlaps microphone acquisition instead of running after it.
-        // Audio capture still begins as soon as the microphone is ready and is
-        // buffered until the WebSocket opens, preserving the first spoken words.
+        // Token grant, provider WebSocket setup and microphone acquisition run
+        // as parallel cold-start legs. Whichever side becomes ready first waits
+        // without blocking the other; early audio remains locally buffered.
         tokenController = new AbortController();
         tokenTimer = setTimeout(() => tokenController?.abort(), TOKEN_ROUTE_TIMEOUT_MS);
         const grantPromise = requestDeepgramAccessToken(tokenController.signal).then(
@@ -370,104 +441,42 @@ const deepgramProvider: VoiceTranscriptionProvider = {
           (error: unknown) => ({ ok: false as const, error }),
         );
 
-        stream = await navigator.mediaDevices.getUserMedia({
-          audio: {
-            echoCancellation: true,
-            noiseSuppression: true,
-            autoGainControl: true,
-            channelCount: 1,
-          },
+        const providerConnectionPromise = grantPromise.then((grantResult) => {
+          clearTimer(tokenTimer);
+          tokenTimer = null;
+          tokenController = null;
+          if (!grantResult.ok) return grantResult;
+          qaDiagnostics = grantResult.grant.qaDiagnostics;
+          grantId = grantResult.grant.grantId;
+          openProviderSocket(grantResult.grant.accessToken);
+          return grantResult;
         });
-        if (cancelled || terminal) {
-          releaseTracks();
-          return;
-        }
-        latency.micReadyMs = elapsed(startedAt);
-        emitLatency();
 
-        // Capture immediately. Provider/token/WebSocket startup may take several
-        // seconds on a cold Preview; chunks are buffered locally and flushed as
-        // soon as Deepgram connects, so the doctor's first words are not lost.
-        startRecorder();
-
-        const grantResult = await grantPromise;
-        clearTimer(tokenTimer);
-        tokenTimer = null;
-        tokenController = null;
-        if (!grantResult.ok) throw grantResult.error;
-        const accessToken = grantResult.grant.accessToken;
-        qaDiagnostics = grantResult.grant.qaDiagnostics;
-        grantId = grantResult.grant.grantId;
-        if (cancelled || terminal) return;
-
-        socket = new WebSocket(
-          buildDeepgramStreamingUrl(language),
-          deepgramBearerProtocols(accessToken),
-        );
-        connectionTimer = setTimeout(
-          () => fail(qaCode("WS_CONNECTION", "connection-timeout")),
-          DEEPGRAM_CONNECTION_TIMEOUT_MS,
-        );
-
-        socket.onopen = () => {
-          if (cancelled || terminal) return;
-          clearTimer(connectionTimer);
-          connectionTimer = null;
-          latency.providerConnectedMs = elapsed(startedAt);
-          emitLatency();
-          keepAlive = setInterval(() => {
-            if (socket?.readyState === WebSocket.OPEN) {
-              socket.send(JSON.stringify({ type: "KeepAlive" }));
-            }
-          }, 3000);
-          flushPendingAudio();
-          if (stopped) beginFinalize();
-        };
-
-        socket.onmessage = (event) => {
-          if (cancelled || terminal || typeof event.data !== "string") return;
-          let message: { type?: string } & Partial<DeepgramResultsMessage>;
-          try {
-            message = JSON.parse(event.data) as { type?: string } & Partial<DeepgramResultsMessage>;
-          } catch {
+        const microphonePromise = (async () => {
+          // Audio capture still begins as soon as the microphone is ready;
+          // recorder chunks wait locally if the provider is not open yet.
+          stream = await navigator.mediaDevices.getUserMedia({
+            audio: {
+              echoCancellation: true,
+              noiseSuppression: true,
+              autoGainControl: true,
+              channelCount: 1,
+            },
+          });
+          if (cancelled || terminal) {
+            releaseTracks();
             return;
           }
+          latency.micReadyMs = elapsed(startedAt);
+          emitLatency();
+          startRecorder();
+        })();
 
-          if (message.type !== "Results") return;
-          const next = assembler.apply(message as DeepgramResultsMessage);
-          if (next?.text) {
-            latestTranscript = next.text;
-            if (latency.firstTranscriptMs === undefined) {
-              latency.firstTranscriptMs = elapsed(startedAt);
-              clearTimer(firstTranscriptTimer);
-              firstTranscriptTimer = null;
-              emitLatency();
-            }
-            callbacks.onTranscript(next);
-          }
-          if (
-            continuous &&
-            (message.speech_final === true ||
-              (utteranceBoundaryPending && message.from_finalize === true))
-          ) {
-            const utterance = assembler.current().trim();
-            assembler.reset();
-            utteranceBoundaryPending = false;
-            latestTranscript = "";
-            if (utterance) callbacks.onUtteranceEnd?.(utterance);
-          }
-
-          if (finalizing && message.from_finalize === true) settle();
-        };
-
-        socket.onerror = () => {
-          if (!cancelled && !terminal) fail(qaCode("WS_CONNECTION", "provider-error"));
-        };
-        socket.onclose = () => {
-          if (cancelled || terminal) return;
-          if (finalizing) settle();
-          else fail(qaCode("WS_CONNECTION", "network"));
-        };
+        const [grantResult] = await Promise.all([
+          providerConnectionPromise,
+          microphonePromise,
+        ]);
+        if (!grantResult.ok) throw grantResult.error;
       } catch (error) {
         if (cancelled || terminal) return;
         releaseTracks();
