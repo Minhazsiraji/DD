@@ -1,13 +1,14 @@
 export type M6DTarget =
   | "chiefComplaints"
   | "presentIllness"
+  | "pastHistory"
   | "examination"
   | "assessment"
   | "advice"
   | "nextVisitNote";
 
 export const M6D_TARGETS: readonly M6DTarget[] = [
-  "chiefComplaints", "presentIllness", "examination", "assessment", "advice", "nextVisitNote",
+  "chiefComplaints", "presentIllness", "pastHistory", "examination", "assessment", "advice", "nextVisitNote",
 ];
 
 export type M6DNavigationIntent =
@@ -45,6 +46,7 @@ export type M6DLocalIntent =
 const SECTION_ALIASES: readonly [M6DTarget, readonly string[]][] = [
   ["chiefComplaints", ["chief complaint", "chief complaints", "complaint", "complaints", "cheap complaint", "cheap complaints", "প্রধান অভিযোগ", "মূল অভিযোগ", "অভিযোগ"]],
   ["presentIllness", ["history", "present illness", "history of present illness", "hpi", "হিস্ট্রি", "ইতিহাস", "বর্তমান অসুস্থতার ইতিহাস", "বর্তমান রোগের ইতিহাস"]],
+  ["pastHistory", ["past history", "past medical history", "medical history", "previous illness history", "অতীত ইতিহাস", "পূর্ব ইতিহাস", "আগের রোগের ইতিহাস", "পূর্ববর্তী রোগের ইতিহাস"]],
   ["examination", ["examination", "exam", "physical examination", "clinical examination", "পরীক্ষা", "শারীরিক পরীক্ষা", "ক্লিনিক্যাল পরীক্ষা"]],
   ["assessment", ["assessment", "impression", "clinical impression", "অ্যাসেসমেন্ট", "মূল্যায়ন", "ধারণা"]],
   ["advice", ["advice", "plan", "পরামর্শ", "উপদেশ"]],
@@ -59,9 +61,9 @@ export function isM6DCommandLikeUtterance(text: string): boolean {
   const raw = clean(text);
   if (!raw) return false;
   const value = raw.toLocaleLowerCase("en-US");
-  if (/^(?:please\s+)?(?:add|prescribe|order|open|go\s+to|finali[sz]e|delete|change|edit|modify|bypass|skip)\b/i.test(value)) return true;
+  if (/^(?:please\s+)?(?:add|prescribe|order|open|go\s+to|finali[sz]e|delete|change|edit|modify|replace|remove|clear|read|bypass|skip)\b/i.test(value)) return true;
   if (/(?:^|\s)follow[- ]?up(?:\s|$)/i.test(value)) return true;
-  return /(?:যোগ|দাও|করো|খোলো|যাও|মুছ|পরিবর্তন|প্রেসক্রিপশন)/u.test(raw);
+  return /(?:যোগ|দাও|করো|খোলো|যাও|মুছ|পরিবর্তন|বদল|পড়ো|প্রেসক্রিপশন)/u.test(raw);
 }
 
 export function nextM6DTarget(current: M6DTarget, direction: 1 | -1): M6DTarget {
@@ -173,11 +175,15 @@ export function parseM6DLocalCommand(text: string): M6DLocalIntent {
   if (["clear current section", "clear this section", "clear section", "clear field", "clear this field", "clear note", "এই সেকশন clear", "এই সেকশন মুছো", "এই অংশ মুছো", "এই ঘর খালি করো", "নোট মুছো"].includes(value)) return { type: "NOTE_EDIT", operation: "CLEAR" };
   if (["read current section", "read this section", "read section", "read field", "read note", "এই সেকশন পড়ো", "এই অংশ পড়ো", "এই ঘর পড়ো", "নোট পড়ো"].includes(value)) return { type: "NOTE_EDIT", operation: "READ" };
 
-  let match = raw.match(/^(?:replace|change|correct)\s+(?:the\s+)?(?:last sentence|last line)\s+(?:with|to)\s+(.+)$/i);
+  // Deepgram can occasionally flush the previous sentence and the next short
+  // edit command in the same finalized utterance. Accept a trailing protected
+  // edit only when it begins after a real sentence boundary; do not fuzzy-match
+  // clinical prose in the middle of a sentence.
+  let match = raw.match(/(?:^|[.!?।]\s+)(?:replace|change|correct)\s+(?:the\s+)?(?:last sentence|last line)\s+(?:with|to)\s+(.+)$/i);
   if (match) return { type: "NOTE_EDIT", operation: "REPLACE_LAST", replacement: match[1]!.trim() };
-  match = raw.match(/^(?:শেষ বাক্য|শেষ লাইন)\s+(?:বদলে|পরিবর্তন করে)\s+(.+)$/u);
+  match = raw.match(/(?:^|[.!?।]\s+)(?:শেষ বাক্য|শেষ লাইন)\s+(?:বদলে|পরিবর্তন করে)\s+(.+)$/u);
   if (match) return { type: "NOTE_EDIT", operation: "REPLACE_LAST", replacement: match[1]!.trim() };
-  if (["replace last sentence", "replace last line", "change last sentence", "change last line", "correct last sentence", "correct last line", "শেষ বাক্য বদলাও", "শেষ লাইন বদলাও", "শেষ বাক্য পরিবর্তন করো", "শেষ লাইন পরিবর্তন করো"].includes(value)) {
+  if (["replace last sentence", "replace last line", "replace the last sentence", "replace the last line", "change last sentence", "change last line", "change the last sentence", "change the last line", "correct last sentence", "correct last line", "correct the last sentence", "correct the last line", "শেষ বাক্য বদলাও", "শেষ লাইন বদলাও", "শেষ বাক্য পরিবর্তন করো", "শেষ লাইন পরিবর্তন করো"].includes(value)) {
     return { type: "NOTE_EDIT", operation: "REPLACE_LAST" };
   }
 
