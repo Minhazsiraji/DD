@@ -42,7 +42,18 @@ const FINALIZED_MUTATION = ["change finalized prescription", "edit finalized pre
 const BYPASS = ["bypass confirmation", "skip confirmation", "confirmation বাদ", "confirm ছাড়াই"];
 
 const NAVIGATION: readonly [M6BNavigationTarget, readonly string[]][] = [
-  ["prescription", ["open prescription", "prescription kholo", "prescription খোলো", "প্রেসক্রিপশন খোলো", "প্রেসক্রিপশন খুলে দাও"]],
+  ["prescription", [
+    "prescription",
+    "open prescription",
+    "write prescription",
+    "go to prescription",
+    "start prescription",
+    "prescription kholo",
+    "prescription খোলো",
+    "প্রেসক্রিপশন খোলো",
+    "প্রেসক্রিপশন খুলে দাও",
+    "প্রেসক্রিপশন লিখি",
+  ]],
   ["investigations", ["open investigations", "open investigation", "investigation kholo", "investigation খোলো", "টেস্ট খোলো", "পরীক্ষা খোলো"]],
   ["previous-history", ["open previous history", "previous history", "আগের history", "আগের হিস্ট্রি", "পুরোনো history"]],
   ["chief-complaint", ["go to chief complaint", "chief complaint e jao", "chief complaint এ যাও", "প্রধান অভিযোগে যাও"]],
@@ -134,7 +145,10 @@ export function parseM6BCommand(text: string): M6BIntent {
   }
 
   for (const [target, phrases] of NAVIGATION) {
-    if (hasAny(value, phrases)) return { type: "NAVIGATE", target, rawText: raw };
+    const matches = target === "prescription"
+      ? phrases.some((phrase) => value === phrase)
+      : hasAny(value, phrases);
+    if (matches) return { type: "NAVIGATE", target, rawText: raw };
   }
 
   if (hasAny(value, ["add", "যোগ করো", "add করো", "add koro"])) return medicineProposal(raw, value);

@@ -2,7 +2,7 @@ import "server-only";
 
 import { NextResponse, type NextRequest } from "next/server";
 import { requirePermission } from "@/lib/auth/session";
-import type { M6BIntent, M6BNavigationTarget } from "@/features/dictation/m6b-command-parser";
+import { parseM6BCommand, type M6BIntent, type M6BNavigationTarget } from "@/features/dictation/m6b-command-parser";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -139,6 +139,13 @@ export async function POST(request: NextRequest) {
 
   if (!transcript || transcript.length > MAX_TRANSCRIPT_CHARS) {
     return json({ code: "invalid-transcript" }, 400);
+  }
+
+  // Standalone prescription aliases are deterministic navigation, so keep
+  // them on the existing guarded prescription path without AI interpretation.
+  const deterministic = parseM6BCommand(transcript);
+  if (deterministic.type === "NAVIGATE" && deterministic.target === "prescription") {
+    return json({ intent: deterministic, provider: "deterministic" });
   }
 
   const apiKey = process.env.OPENAI_API_KEY;

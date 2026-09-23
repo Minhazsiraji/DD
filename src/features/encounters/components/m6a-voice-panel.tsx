@@ -5,6 +5,7 @@ import { Mic2, Pause, Play, ShieldAlert, Square, Undo2, Waves } from "lucide-rea
 import type { DraftKey, DraftValues } from "../schema";
 import type { FindingDraft } from "../finding-types";
 import { insertTranscript } from "@/features/dictation/dictation";
+import { normalizeClinicalNumbers } from "@/features/dictation/normalize";
 import { useDictation } from "@/features/dictation/use-dictation";
 import { LIVE_VOICE_ENABLED, useVoiceLanguage, VoiceLanguageControl } from "@/features/dictation/voice-language";
 import { isM6DCommandLikeUtterance, isM6DDiagnosisIntent, isM6DInvestigationIntent, isM6DNavigationIntent, m6dNavigationCommandKey, parseM6DAppendText, parseM6DLocalCommand, type M6DDiagnosisIntent, type M6DInvestigationIntent, type M6DLocalIntent, type M6DNavigationIntent, type M6DTarget } from "@/features/dictation/m6d-intent-router";
@@ -558,7 +559,7 @@ export function M6AVoicePanel({
     // literal word “Add”. This runs only after clinical-action parsing rejected
     // the utterance, so medicine/investigation proposal commands remain safe.
     const appendText = parseM6DAppendText(text);
-    const dictationText = appendText ?? text;
+    const dictationText = normalizeClinicalNumbers(appendText ?? text);
 
     if (destination.kind === "diagnosis" && destination.target === "certainty") {
       setStatus("Diagnosis certainty expects Provisional, Working, Confirmed, or Ruled out. Nothing was inserted.");
