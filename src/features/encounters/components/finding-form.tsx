@@ -5,6 +5,12 @@ import { cn } from "@/lib/utils";
 import { DictateButton } from "@/features/dictation/components/dictate-button";
 import { CERTAINTIES, CERTAINTY_HINT, CERTAINTY_LABEL } from "../list-schema";
 import type { FindingDraft, ListKind } from "../finding-types";
+import {
+  M6D_DIAGNOSIS_NOTE_EXAMPLE,
+  M6D_DIAGNOSIS_TITLE_EXAMPLE,
+  M6D_INVESTIGATION_EXAMPLE,
+  m6dInlinePlaceholder,
+} from "../m6d-inline-examples";
 
 /**
  * The one form used to add a finding and to correct one.
@@ -60,7 +66,10 @@ export function FindingForm({
           disabled={busy}
           autoComplete="off"
           onChange={(e) => onChange({ ...value, title: e.target.value })}
-          placeholder={isDiagnosis ? "Dengue fever" : "CBC with platelet count"}
+          placeholder={m6dInlinePlaceholder(
+            value.title,
+            isDiagnosis ? M6D_DIAGNOSIS_TITLE_EXAMPLE : M6D_INVESTIGATION_EXAMPLE,
+          )}
           className="mt-1 h-11 w-full rounded-xl border border-hairline bg-white/90 px-3 text-[15px] text-ink placeholder:text-ink-muted focus-visible:focus-ring disabled:bg-surface-muted"
         />
         {isDiagnosis ? (
@@ -140,8 +149,10 @@ export function FindingForm({
           value={value.note}
           disabled={busy}
           onChange={(e) => onChange({ ...value, note: e.target.value })}
-          placeholder={isDiagnosis ? "Platelets falling, review tomorrow" : "Fasting sample"
-          }
+          placeholder={m6dInlinePlaceholder(
+            value.note,
+            isDiagnosis ? M6D_DIAGNOSIS_NOTE_EXAMPLE : "e.g. Fasting sample",
+          )}
           className="mt-1 w-full resize-y rounded-xl border border-hairline bg-white/90 px-3 py-2 text-[15px] text-ink placeholder:text-ink-muted focus-visible:focus-ring disabled:bg-surface-muted"
         />
         <p className="mt-1 text-[11px] text-ink-muted">Emptying this removes the note.</p>

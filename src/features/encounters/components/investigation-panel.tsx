@@ -16,6 +16,7 @@ import {
   X,
 } from "lucide-react";
 import { SectionCard, SectionHeader } from "@/components/common/section-card";
+import { M6D_INVESTIGATION_EXAMPLE, m6dInlinePlaceholder } from "../m6d-inline-examples";
 import { DictateButton } from "@/features/dictation/components/dictate-button";
 import { insertTranscript } from "@/features/dictation/dictation";
 import { applyM6DTextEdit } from "@/features/dictation/m6d-voice-state";
@@ -531,7 +532,7 @@ export const InvestigationPanel = React.forwardRef<InvestigationPanelHandle, Inv
                   disabled={interactionLocked}
                   onChange={(event) => updateSearchText(event.target.value)}
                   onKeyDown={handleSearchKeyDown}
-                  placeholder="e.g. CBC or D-dimer"
+                  placeholder={m6dInlinePlaceholder(searchText, M6D_INVESTIGATION_EXAMPLE)}
                   autoComplete="off"
                   aria-autocomplete="list"
                   aria-controls="investigation-search-results"

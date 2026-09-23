@@ -6,6 +6,11 @@ import { DictateButton } from "@/features/dictation/components/dictate-button";
 import { CALENDAR_DATE, type DraftKey, type DraftValues } from "../schema";
 import type { FollowUpShortcut } from "../follow-up-dates";
 import { appendTextSuggestion } from "../text-suggestions";
+import {
+  M6D_FOLLOW_UP_DATE_HELP,
+  M6D_SECTION_EXAMPLES,
+  m6dInlinePlaceholder,
+} from "../m6d-inline-examples";
 
 const NOTE_SUGGESTIONS = ["With reports", "If symptoms persist", "After treatment course"] as const;
 
@@ -87,9 +92,12 @@ export function NextVisitFields({
               value={date}
               onChange={(e) => onChange("nextVisitOn", e.target.value)}
               aria-invalid={badDate ? true : undefined}
-              aria-describedby={badDate ? "nextVisitOn-error" : undefined}
+              aria-describedby={badDate ? "nextVisitOn-help nextVisitOn-error" : "nextVisitOn-help"}
               className="mt-1 h-11 w-full rounded-xl border border-hairline bg-white/90 px-3 text-[15px] tabular-nums text-ink focus-visible:focus-ring disabled:bg-surface-muted disabled:text-ink-secondary"
             />
+            <p id="nextVisitOn-help" className="mt-1 break-words text-[11px] text-ink-muted">
+              {M6D_FOLLOW_UP_DATE_HELP}
+            </p>
             {badDate ? (
               <p id="nextVisitOn-error" role="alert" className="mt-1 text-[12px] text-[#a81c1c]">
                 Choose this date again from the calendar.
@@ -116,7 +124,7 @@ export function NextVisitFields({
               type="text"
               disabled={disabled}
               value={note}
-              placeholder="With reports · if the fever returns · after the course"
+              placeholder={m6dInlinePlaceholder(note, M6D_SECTION_EXAMPLES.nextVisitNote)}
               onChange={(e) => onChange("nextVisitNote", e.target.value)}
               className="mt-1 h-11 w-full rounded-xl border border-hairline bg-white/90 px-3 text-[15px] text-ink placeholder:text-ink-muted focus-visible:focus-ring disabled:bg-surface-muted disabled:text-ink-secondary"
             />

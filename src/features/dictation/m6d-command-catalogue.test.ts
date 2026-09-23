@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { getM6DVoiceHelpExamples, M6D_COMMAND_ALIASES } from "./m6d-command-catalogue";
+import { M6D_COMMAND_ALIASES } from "./m6d-command-catalogue";
 import { parseM6DLocalCommand, type M6DLocalIntent, type M6DTarget } from "./m6d-intent-router";
 
 const parseFor = (text: string, activeTarget?: M6DTarget) => parseM6DLocalCommand(text, { activeTarget });
@@ -93,7 +93,7 @@ describe("M6D contextual Follow-up date contract", () => {
   });
 });
 
-describe("M6D ambiguity protections and contextual help", () => {
+describe("M6D ambiguity protections", () => {
   it.each([
     ["fever for one week", "presentIllness"],
     ["patient will return after two weeks", "presentIllness"],
@@ -103,12 +103,5 @@ describe("M6D ambiguity protections and contextual help", () => {
     ["The diagnosis was confirmed yesterday", undefined],
   ] as const)("keeps clinical prose as dictation: %s", (spoken, activeTarget) => {
     expect(parseFor(spoken, activeTarget)).toEqual({ type: "NONE" });
-  });
-
-  it("changes compact examples with the authoritative target", () => {
-    expect(getM6DVoiceHelpExamples("nextVisitNote").flatMap(([, examples]) => examples)).toContain("2 weeks");
-    expect(getM6DVoiceHelpExamples("diagnoses").flatMap(([, examples]) => examples)).toContain("How certain");
-    expect(getM6DVoiceHelpExamples("investigations").flatMap(([, examples]) => examples)).toContain("CBC and lipid profile");
-    expect(getM6DVoiceHelpExamples("presentIllness").flatMap(([, examples]) => examples)).toContain("Patient has fever for three days");
   });
 });

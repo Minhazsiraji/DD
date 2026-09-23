@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { M6D_SECTION_EXAMPLES } from "./m6d-inline-examples";
 
 /**
  * The consultation draft, as the UI sees it.
@@ -31,7 +32,7 @@ export const SECTIONS: readonly SectionField[] = [
   {
     key: "chiefComplaints",
     label: "Chief complaints",
-    placeholder: "What brought them in, in their words",
+    placeholder: M6D_SECTION_EXAMPLES.chiefComplaints,
     rows: 3,
   },
   /**
@@ -45,37 +46,37 @@ export const SECTIONS: readonly SectionField[] = [
   {
     key: "symptoms",
     label: "Symptoms",
-    placeholder: "Fever, cough, pain — as the patient reports them",
+    placeholder: M6D_SECTION_EXAMPLES.symptoms,
     rows: 3,
   },
   {
     key: "presentIllness",
     label: "History of present illness",
-    placeholder: "Onset, duration, course, associated symptoms",
+    placeholder: M6D_SECTION_EXAMPLES.presentIllness,
     rows: 5,
   },
   {
     key: "pastHistory",
     label: "Past history",
-    placeholder: "Previous illness, surgery, family and personal history",
+    placeholder: M6D_SECTION_EXAMPLES.pastHistory,
     rows: 4,
   },
   {
     key: "examination",
     label: "Examination",
-    placeholder: "General and systemic findings",
+    placeholder: M6D_SECTION_EXAMPLES.examination,
     rows: 5,
   },
   {
     key: "assessment",
     label: "Assessment",
-    placeholder: "Working impression",
+    placeholder: M6D_SECTION_EXAMPLES.assessment,
     rows: 3,
   },
   {
     key: "advice",
     label: "Advice",
-    placeholder: "Instructions, follow-up, red flags to return for",
+    placeholder: M6D_SECTION_EXAMPLES.advice,
     rows: 3,
   },
 ];

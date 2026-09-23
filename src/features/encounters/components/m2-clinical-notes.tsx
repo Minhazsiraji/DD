@@ -7,6 +7,7 @@ import { cn } from "@/lib/utils";
 import { DictateButton } from "@/features/dictation/components/dictate-button";
 import { MODULE_BY_DRAFT_KEY, type VisibilityMap } from "../module-visibility";
 import type { DraftKey, DraftValues, SectionKey } from "../schema";
+import { M6D_SECTION_EXAMPLES, m6dInlinePlaceholder } from "../m6d-inline-examples";
 import {
   COMMON_COMPLAINT_SUGGESTIONS,
   COMMON_SYMPTOM_SUGGESTIONS,
@@ -72,7 +73,7 @@ export function M2ClinicalNotes({
             <ClinicalTextarea
               field="chiefComplaints"
               label="Chief complaints"
-              placeholder="What brought them in, in their words"
+              placeholder={M6D_SECTION_EXAMPLES.chiefComplaints}
               rows={3}
               value={values.chiefComplaints}
               dirty={dirtyKeys.includes("chiefComplaints")}
@@ -99,7 +100,7 @@ export function M2ClinicalNotes({
             <ClinicalTextarea
               field="symptoms"
               label="Symptoms"
-              placeholder="Fever, cough, pain — as the patient reports them"
+              placeholder={M6D_SECTION_EXAMPLES.symptoms}
               rows={3}
               value={values.symptoms}
               dirty={dirtyKeys.includes("symptoms")}
@@ -124,7 +125,7 @@ export function M2ClinicalNotes({
           <ClinicalTextarea
             field="presentIllness"
             label="History of present illness"
-            placeholder="Onset, duration, course, associated symptoms"
+            placeholder={M6D_SECTION_EXAMPLES.presentIllness}
             rows={4}
             value={values.presentIllness}
             dirty={dirtyKeys.includes("presentIllness")}
@@ -164,7 +165,7 @@ export function M2ClinicalNotes({
                 disabled={disabled}
                 value={values.pastHistory}
                 onChange={(e) => onChange("pastHistory", e.target.value)}
-                placeholder="Previous illness, surgery, family and personal history"
+                placeholder={m6dInlinePlaceholder(values.pastHistory, M6D_SECTION_EXAMPLES.pastHistory)}
                 spellCheck={false}
                 className="w-full resize-y rounded-xl border border-hairline bg-white/88 px-3 py-2.5 text-[15px] leading-relaxed text-ink placeholder:text-ink-muted focus-visible:focus-ring disabled:bg-surface-muted"
               />
@@ -184,7 +185,7 @@ export function M2ClinicalNotes({
           <ClinicalTextarea
             field="examination"
             label="Examination"
-            placeholder="General and systemic findings"
+            placeholder={M6D_SECTION_EXAMPLES.examination}
             rows={4}
             value={values.examination}
             dirty={dirtyKeys.includes("examination")}
@@ -199,7 +200,7 @@ export function M2ClinicalNotes({
             <ClinicalTextarea
               field="assessment"
               label="Assessment"
-              placeholder="Working impression"
+              placeholder={M6D_SECTION_EXAMPLES.assessment}
               rows={3}
               value={values.assessment}
               dirty={dirtyKeys.includes("assessment")}
@@ -212,7 +213,7 @@ export function M2ClinicalNotes({
             <ClinicalTextarea
               field="advice"
               label="Advice"
-              placeholder="Instructions and red flags to return for"
+              placeholder={M6D_SECTION_EXAMPLES.advice}
               rows={3}
               value={values.advice}
               dirty={dirtyKeys.includes("advice")}
@@ -284,7 +285,7 @@ function ClinicalTextarea({
         disabled={disabled}
         value={value}
         onChange={(e) => onChange(field, e.target.value)}
-        placeholder={placeholder}
+        placeholder={m6dInlinePlaceholder(value, placeholder)}
         spellCheck={false}
         className={cn(
           "w-full resize-y rounded-xl border bg-white/88 px-3 py-2.5 text-[15px] leading-relaxed text-ink placeholder:text-ink-muted focus-visible:focus-ring disabled:bg-surface-muted disabled:text-ink-secondary",

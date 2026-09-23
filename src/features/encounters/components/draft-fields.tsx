@@ -4,6 +4,7 @@ import * as React from "react";
 import { cn } from "@/lib/utils";
 import { SectionCard, SectionHeader } from "@/components/common/section-card";
 import { SECTIONS, VITALS, type DraftKey, type DraftValues, type VitalKey } from "../schema";
+import { m6dInlinePlaceholder } from "../m6d-inline-examples";
 import { MODULE_BY_DRAFT_KEY, type VisibilityMap } from "../module-visibility";
 
 /**
@@ -92,7 +93,7 @@ export function SectionFields({
                 disabled={disabled}
                 value={values[section.key]}
                 onChange={(e) => onChange(section.key, e.target.value)}
-                placeholder={section.placeholder}
+                placeholder={m6dInlinePlaceholder(values[section.key], section.placeholder)}
                 spellCheck={false}
                 className="w-full resize-y rounded-xl border border-hairline bg-white px-3 py-2.5 text-[15px] leading-relaxed text-ink placeholder:text-ink-muted focus-visible:focus-ring disabled:bg-surface-muted disabled:text-ink-secondary"
               />
