@@ -32,6 +32,10 @@ export function buildDeepgramStreamingUrl(language: string): string {
     punctuate: "true",
     mip_opt_out: "true",
   });
+  // Deepgram's numerals formatter is explicitly supported for en-US. This
+  // keeps clinical quantities such as "twelve point five" as "12.5" without
+  // changing Bengali provider behavior where the feature is not supported.
+  if (language === "en-US") params.set("numerals", "true");
   return `${DEEPGRAM_STREAM_ENDPOINT}?${params.toString()}`;
 }
 
