@@ -54,12 +54,14 @@ async function interpretLiveCommand(transcript: string, language: string): Promi
 
 export function M6BVoiceCommands({
   disabled,
+  continuousOnly = false,
   onNavigate,
   onApplyMedicine,
   onApplyInvestigations,
   onApplyFollowUp,
 }: {
   disabled: boolean;
+  continuousOnly?: boolean;
   onNavigate: (target: M6BNavigationTarget) => void | Promise<void>;
   onApplyMedicine: (intent: Extract<M6BIntent, { type: "PROPOSE_MEDICINE" }>) => void | Promise<void>;
   onApplyInvestigations: (names: string[]) => void;
@@ -187,6 +189,11 @@ export function M6BVoiceCommands({
     (intent.type === "PROPOSE_FOLLOW_UP" && intent.days !== null) ||
     (intent.type === "PROHIBITED_ACTION" && intent.action === "FINALIZE_PRESCRIPTION" && intent.reviewOnly)
   );
+
+  // M6D owns the always-visible continuous Voice Assistant. Keep the older
+  // M6B surface mounted as the protected proposal/review receiver, but do not
+  // show a second idle voice toolbar unless an actual clinical action needs review.
+  if (continuousOnly && !fromContinuousVoice && !active && intent === null && message === null) return null;
 
   return (
     <section data-m6b-voice-commands data-voice-mode={LIVE_VOICE_ENABLED ? "live-ai" : "mock"} className="dd-app-panel min-w-0 rounded-glass p-4 sm:p-5">

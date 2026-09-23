@@ -114,22 +114,34 @@ export function resolvePendingNoteNavigation(
   return resolveM6DNavigationTarget(intent, current.target);
 }
 
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function removeFirstInsensitive(current: string, value: string): string {
+  return current.replace(new RegExp(escapeRegExp(value), "i"), "").replace(/\s{2,}/g, " ").trim();
+}
+
+function replaceFirstInsensitive(current: string, value: string, replacement: string): string {
+  return current.replace(new RegExp(escapeRegExp(value), "i"), replacement);
+}
+
 export function applyM6DTextEdit(current: string, intent: M6DLocalIntent): string | null {
-  if (intent.type === "REMOVE_LAST_SENTENCE") {
-    return removeM6DLastSentence(current);
-  }
+  if (intent.type === "REMOVE_LAST_SENTENCE") return removeM6DLastSentence(current);
   if (intent.type !== "NOTE_EDIT") return null;
   if (intent.operation === "CLEAR") return "";
   if (intent.operation === "ADD" && intent.value) {
     return [current.trimEnd(), intent.value.trim()].filter(Boolean).join(" ");
   }
+  if (intent.operation === "REPLACE_LAST" && intent.replacement) {
+    const withoutLast = removeM6DLastSentence(current);
+    return [withoutLast.trimEnd(), intent.replacement.trim()].filter(Boolean).join(" ");
+  }
   if (intent.operation === "REMOVE" && intent.value) {
-    if (!current.includes(intent.value)) return current;
-    return current.replace(intent.value, "").replace(/\s{2,}/g, " ").trim();
+    return removeFirstInsensitive(current, intent.value);
   }
   if (intent.operation === "REPLACE" && intent.value && intent.replacement) {
-    if (!current.includes(intent.value)) return current;
-    return current.replace(intent.value, intent.replacement);
+    return replaceFirstInsensitive(current, intent.value, intent.replacement);
   }
   return null;
 }

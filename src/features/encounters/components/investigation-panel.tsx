@@ -9,8 +9,10 @@ import {
   Clock3,
   FlaskConical,
   Loader2,
+  Pencil,
   Plus,
   Search,
+  Trash2,
   X,
 } from "lucide-react";
 import { SectionCard, SectionHeader } from "@/components/common/section-card";
@@ -19,6 +21,7 @@ import { insertTranscript } from "@/features/dictation/dictation";
 import { applyM6DTextEdit } from "@/features/dictation/m6d-voice-state";
 import type { M6DLocalIntent } from "@/features/dictation/m6d-intent-router";
 import { confirmInvestigationsAction, type InvestigationConfirmationResult } from "../investigation-v1-actions";
+import { removeInvestigationAction, updateInvestigationAction } from "../list-actions";
 import {
   INVESTIGATION_V1_MAX_NAME,
   INVESTIGATION_V1_MAX_NOTE,
@@ -142,6 +145,9 @@ export const InvestigationPanel = React.forwardRef<InvestigationPanelHandle, Inv
   const [confirmationTone, setConfirmationTone] = React.useState<ConfirmationTone>("idle");
   const [confirmationMessage, setConfirmationMessage] = React.useState<string | null>(null);
   const [stagedEditMessage, setStagedEditMessage] = React.useState<string | null>(null);
+  const [confirmedEditor, setConfirmedEditor] = React.useState<{ id: string; title: string; note: string } | null>(null);
+  const [confirmedRemoveId, setConfirmedRemoveId] = React.useState<string | null>(null);
+  const [confirmedMutationMessage, setConfirmedMutationMessage] = React.useState<string | null>(null);
 
   React.useEffect(() => {
     if (readOnly) return;
@@ -450,6 +456,49 @@ export const InvestigationPanel = React.forwardRef<InvestigationPanelHandle, Inv
     }
   }
 
+  async function saveConfirmedInvestigation() {
+    if (!confirmedEditor || interactionLocked || busy) return;
+    const title = confirmedEditor.title.trim();
+    if (!title) {
+      setConfirmedMutationMessage("Investigation name cannot be blank.");
+      return;
+    }
+    const result = await runList(
+      "investigation",
+      (expectedVersion) => updateInvestigationAction({
+        encounterId,
+        expectedVersion,
+        investigationId: confirmedEditor.id,
+        name: title,
+        note: confirmedEditor.note.trim() === "" ? null : confirmedEditor.note,
+      }),
+      { closeEditorOnSuccess: false },
+    );
+    if (result?.ok) {
+      setConfirmedEditor(null);
+      setConfirmedMutationMessage("Investigation updated for this unfinished consultation. The change was versioned and audited.");
+    }
+  }
+
+  async function removeConfirmedInvestigation(row: FindingRow) {
+    if (interactionLocked || busy) return;
+    if (confirmedRemoveId !== row.id) {
+      setConfirmedRemoveId(row.id);
+      setConfirmedMutationMessage(`Confirm removal of ${row.title} from this unfinished consultation.`);
+      return;
+    }
+    const result = await runList(
+      "investigation",
+      (expectedVersion) => removeInvestigationAction({ encounterId, expectedVersion, rowId: row.id }),
+      { closeEditorOnSuccess: false },
+    );
+    if (result?.ok) {
+      setConfirmedRemoveId(null);
+      setConfirmedEditor((current) => current?.id === row.id ? null : current);
+      setConfirmedMutationMessage(`${row.title} removed from this unfinished consultation. The removal remains in the encounter event/audit trail.`);
+    }
+  }
+
   return (
     <SectionCard className="min-w-0">
       <SectionHeader
@@ -503,7 +552,7 @@ export const InvestigationPanel = React.forwardRef<InvestigationPanelHandle, Inv
                   id="investigation-search-results"
                   role="listbox"
                   aria-label="Investigation search results"
-                  className="dd-material-record dd-record-pearl absolute z-20 mt-2 max-h-72 w-full min-w-0 overflow-y-auto rounded-xl p-1.5 shadow-soft"
+                  className="dd-material-record dd-record-pearl relative z-10 mt-2 max-h-72 w-full min-w-0 overflow-y-auto rounded-xl p-1.5 shadow-soft"
                 >
                   {searchChoices.map((choice, index) => (
                     <button
@@ -774,20 +823,78 @@ export const InvestigationPanel = React.forwardRef<InvestigationPanelHandle, Inv
             <p className="mt-2 text-[13px] text-ink-muted">No confirmed Investigation orders in this consultation.</p>
           ) : (
             <ol className="mt-2 divide-y divide-white/45">
-              {confirmed.map((row) => (
-                <li key={row.id} className="flex min-w-0 items-start gap-3 py-2.5 first:pt-0 last:pb-0">
-                  <span className="mt-0.5 w-5 shrink-0 text-right text-[12px] font-semibold text-ink-muted tabular-nums">{row.position}</span>
-                  <div className="min-w-0 flex-1">
-                    <div className="flex min-w-0 flex-wrap items-center gap-2">
-                      <p className="min-w-0 break-words text-[14px] font-medium text-ink">{row.title}</p>
-                      <span className="rounded-full bg-success-soft px-2 py-0.5 text-[10px] font-semibold text-ink-secondary">Ordered</span>
+              {confirmed.map((row) => {
+                const editing = confirmedEditor?.id === row.id;
+                const confirmingRemove = confirmedRemoveId === row.id;
+                return (
+                  <li key={row.id} className="flex min-w-0 items-start gap-3 py-2.5 first:pt-0 last:pb-0">
+                    <span className="mt-0.5 w-5 shrink-0 text-right text-[12px] font-semibold text-ink-muted tabular-nums">{row.position}</span>
+                    <div className="min-w-0 flex-1">
+                      {editing && confirmedEditor ? (
+                        <div className="space-y-2 rounded-xl border border-white/55 bg-white/35 p-3">
+                          <label className="block text-[12px] font-semibold text-ink-secondary" htmlFor={`confirmed-investigation-title-${row.id}`}>Edit investigation</label>
+                          <input
+                            id={`confirmed-investigation-title-${row.id}`}
+                            value={confirmedEditor.title}
+                            maxLength={INVESTIGATION_V1_MAX_NAME}
+                            onChange={(event) => setConfirmedEditor({ ...confirmedEditor, title: event.target.value })}
+                            disabled={interactionLocked || busy}
+                            className="h-11 w-full rounded-xl border border-white/55 bg-white/55 px-3 text-[14px] text-ink outline-none focus-visible:focus-ring disabled:opacity-55"
+                          />
+                          <label className="block text-[12px] font-semibold text-ink-secondary" htmlFor={`confirmed-investigation-note-${row.id}`}>Optional note</label>
+                          <textarea
+                            id={`confirmed-investigation-note-${row.id}`}
+                            rows={2}
+                            value={confirmedEditor.note}
+                            maxLength={INVESTIGATION_V1_MAX_NOTE}
+                            onChange={(event) => setConfirmedEditor({ ...confirmedEditor, note: event.target.value })}
+                            disabled={interactionLocked || busy}
+                            className="min-h-20 w-full resize-y rounded-xl border border-white/55 bg-white/55 px-3 py-2 text-[13px] text-ink outline-none focus-visible:focus-ring disabled:opacity-55"
+                          />
+                          <div className="flex flex-wrap gap-2">
+                            <button type="button" onClick={() => void saveConfirmedInvestigation()} disabled={interactionLocked || busy || !confirmedEditor.title.trim()} className="dd-primary inline-flex min-h-11 items-center justify-center px-3 text-[12px] font-semibold disabled:opacity-55">Save correction</button>
+                            <button type="button" onClick={() => setConfirmedEditor(null)} disabled={busy} className="dd-secondary inline-flex min-h-11 items-center justify-center px-3 text-[12px] font-semibold disabled:opacity-55">Cancel</button>
+                          </div>
+                        </div>
+                      ) : (
+                        <>
+                          <div className="flex min-w-0 flex-wrap items-center gap-2">
+                            <p className="min-w-0 break-words text-[14px] font-medium text-ink">{row.title}</p>
+                            <span className="rounded-full bg-success-soft px-2 py-0.5 text-[10px] font-semibold text-ink-secondary">Ordered</span>
+                          </div>
+                          {row.note ? <p className="mt-0.5 whitespace-pre-wrap break-words text-[13px] text-ink-secondary">{row.note}</p> : null}
+                          {!readOnly ? (
+                            <div className="mt-2 flex flex-wrap gap-2">
+                              <button
+                                type="button"
+                                onClick={() => { setConfirmedEditor({ id: row.id, title: row.title, note: row.note ?? "" }); setConfirmedRemoveId(null); setConfirmedMutationMessage(null); }}
+                                disabled={interactionLocked || busy}
+                                className="dd-secondary inline-flex min-h-11 items-center justify-center gap-1.5 px-3 text-[12px] font-semibold disabled:opacity-55"
+                              >
+                                <Pencil className="size-3.5" aria-hidden="true" /> Edit
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => void removeConfirmedInvestigation(row)}
+                                disabled={interactionLocked || busy}
+                                className="inline-flex min-h-11 items-center justify-center gap-1.5 rounded-xl px-3 text-[12px] font-semibold text-danger hover:bg-danger-soft disabled:opacity-55 focus-visible:focus-ring"
+                              >
+                                <Trash2 className="size-3.5" aria-hidden="true" /> {confirmingRemove ? "Confirm remove" : "Remove"}
+                              </button>
+                              {confirmingRemove ? (
+                                <button type="button" onClick={() => { setConfirmedRemoveId(null); setConfirmedMutationMessage(null); }} disabled={busy} className="dd-secondary inline-flex min-h-11 items-center justify-center px-3 text-[12px] font-semibold disabled:opacity-55">Keep</button>
+                              ) : null}
+                            </div>
+                          ) : null}
+                        </>
+                      )}
                     </div>
-                    {row.note ? <p className="mt-0.5 whitespace-pre-wrap break-words text-[13px] text-ink-secondary">{row.note}</p> : null}
-                  </div>
-                </li>
-              ))}
+                  </li>
+                );
+              })}
             </ol>
           )}
+          {confirmedMutationMessage ? <p role="status" aria-live="polite" className="mt-2 text-[12px] text-ink-secondary">{confirmedMutationMessage}</p> : null}
         </section>
 
         <section className="min-w-0 border-t border-white/45 pt-4">

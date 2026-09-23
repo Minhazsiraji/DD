@@ -46,12 +46,12 @@ describe("M6D complete Diagnoses voice workflow", () => {
     expect(providerFinal).toContain('if (local.type === "NONE")');
     expect(providerFinal).toContain("dictation.commitUtterance()");
     expect(providerFinal).not.toContain("applyDiagnosisIntent");
-    expect(speechFinal.indexOf("applyLocal(local)")).toBeLessThan(speechFinal.indexOf("appendDiagnosisDraft(text)"));
+    expect(speechFinal.indexOf("applyLocal(local)")).toBeLessThan(speechFinal.indexOf("appendDiagnosisDraft(dictationText)"));
   });
 
   it("uses the same direct-open target for singular, plural and Diagnosis field", () => {
-    expect(router).toContain('if (value === "diagnosis" || value === "diagnoses") return { type: "DIAGNOSIS_NAVIGATE" }');
-    expect(router).toContain('if (value === "diagnosis field") return { type: "DIAGNOSIS_TARGET", target: "title" }');
+    expect(router).toContain('["diagnosis", "diagnoses"');
+    expect(router).toContain('["diagnosis field", "diagnosis name", "diagnosis title"');
     expect(panel).toContain('intent.type === "DIAGNOSIS_NAVIGATE"');
     expect(panel).toContain('intent.type === "DIAGNOSIS_TARGET" && intent.target === "title"');
     expect(panel).toContain('setDestination(destination)');
@@ -60,7 +60,7 @@ describe("M6D complete Diagnoses voice workflow", () => {
 
   it("allows the next ordinary utterance to enter the focused title without submitting", () => {
     const speechFinal = panel.slice(panel.indexOf("async function handleFinal"), panel.indexOf("const dictation = useDictation"));
-    expect(speechFinal.indexOf("applyLocal(local)")).toBeLessThan(speechFinal.indexOf("appendDiagnosisDraft(text)"));
+    expect(speechFinal.indexOf("applyLocal(local)")).toBeLessThan(speechFinal.indexOf("appendDiagnosisDraft(dictationText)"));
     expect(panel).toContain("insertTranscript(current, text, current.length)");
     expect(panel).toContain("onDiagnosisDraftChange(next)");
     expect(panel).not.toContain("onSubmit");

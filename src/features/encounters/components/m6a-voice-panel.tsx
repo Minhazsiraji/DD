@@ -7,7 +7,7 @@ import type { FindingDraft } from "../finding-types";
 import { insertTranscript } from "@/features/dictation/dictation";
 import { useDictation } from "@/features/dictation/use-dictation";
 import { LIVE_VOICE_ENABLED, useVoiceLanguage, VoiceLanguageControl } from "@/features/dictation/voice-language";
-import { isM6DCommandLikeUtterance, isM6DDiagnosisIntent, isM6DInvestigationIntent, isM6DNavigationIntent, m6dNavigationCommandKey, parseM6DLocalCommand, type M6DDiagnosisIntent, type M6DInvestigationIntent, type M6DLocalIntent, type M6DNavigationIntent, type M6DTarget } from "@/features/dictation/m6d-intent-router";
+import { isM6DCommandLikeUtterance, isM6DDiagnosisIntent, isM6DInvestigationIntent, isM6DNavigationIntent, m6dNavigationCommandKey, parseM6DAppendText, parseM6DLocalCommand, type M6DDiagnosisIntent, type M6DInvestigationIntent, type M6DLocalIntent, type M6DNavigationIntent, type M6DTarget } from "@/features/dictation/m6d-intent-router";
 import { applyM6DTextEdit, INITIAL_M6D_VOICE_STATE, M6D_VOICE_SECTION_OPTIONS, m6dCommandPriority, m6dVoiceDestinationForIntent, m6dVoiceDestinationForSection, m6dVoiceFocusSelector, m6dVoiceSection, type M6DPendingNavigation, type M6DVoiceDestination, type M6DVoiceSection, type M6DVoiceState } from "@/features/dictation/m6d-voice-state";
 import { parseM6BCommand, type M6BIntent } from "@/features/dictation/m6b-command-parser";
 import { SectionCard } from "@/components/common/section-card";
@@ -111,6 +111,7 @@ export function M6AVoicePanel({
   const latestPreviewRef = React.useRef("");
   const diagnosisDraftRef = React.useRef<FindingDraft | null>(diagnosisDraft);
   const pendingDiagnosisIntentRef = React.useRef<M6DDiagnosisIntent | null>(null);
+  const pendingReplaceLastRef = React.useRef<M6DVoiceDestination | null>(null);
   const applyDiagnosisIntentRef = React.useRef<(intent: M6DDiagnosisIntent) => void>(() => undefined);
   const stickyShellRef = React.useRef<HTMLDivElement>(null);
 
@@ -159,6 +160,7 @@ export function M6AVoicePanel({
   }
 
   function setDestination(destination: M6DVoiceDestination, message?: string) {
+    pendingReplaceLastRef.current = null;
     commitVoiceState((current) => ({ ...current, destination }));
     if (message) setStatus(message);
   }
@@ -394,6 +396,12 @@ export function M6AVoicePanel({
 
   function applyDestinationEdit(intent: M6DLocalIntent): boolean {
     const destination = voiceStateRef.current.destination;
+    if (intent.type === "NOTE_EDIT" && intent.operation === "REPLACE_LAST" && !intent.replacement) {
+      pendingReplaceLastRef.current = destination;
+      setStatus("Replace last sentence: say the replacement sentence now. Other voice commands remain available.");
+      return true;
+    }
+    pendingReplaceLastRef.current = null;
     if (destination.kind === "diagnosis") return applyDiagnosisEdit(intent as Exclude<M6DLocalIntent, { type: "NONE" }>);
     if (destination.kind === "investigation") {
       const undo = lastChangeRef.current?.kind === "investigation" ? lastChangeRef.current : null;
@@ -497,25 +505,22 @@ export function M6AVoicePanel({
       setStatus("Voice session is paused. Speech was not added to the clinical draft.");
       return;
     }
-    if (appendDiagnosisDraft(text)) {
-      if (restart) scheduleRestart();
-      return;
-    }
-    const destination = voiceStateRef.current.destination;
-    if (destination.kind === "investigation") {
-      const mutation = onAppendInvestigation(text);
-      if (mutation) {
-        recordChange({ kind: "investigation", ...mutation });
-        setStatus("Inserted into the Investigation search field. Nothing was staged or confirmed.");
+
+    if (pendingReplaceLastRef.current) {
+      const replacementIntent: M6DLocalIntent = { type: "NOTE_EDIT", operation: "REPLACE_LAST", replacement: text };
+      pendingReplaceLastRef.current = null;
+      if (applyDestinationEdit(replacementIntent)) {
+        setStatus("Last sentence replaced with the spoken replacement. Review the editable draft before continuing.");
+        if (restart) scheduleRestart();
+        return;
       }
-      if (restart) scheduleRestart();
-      return;
     }
-    if (destination.kind === "diagnosis" && destination.target === "certainty") {
-      setStatus("Diagnosis certainty expects Provisional, Working, Confirmed, or Ruled out. Nothing was inserted.");
-      if (restart) scheduleRestart();
-      return;
-    }
+
+    const destination = voiceStateRef.current.destination;
+
+    // Clinical action safety wins before target-specific dictation. This keeps
+    // phrases such as “Add CBC” or “Add Napa…” in the protected proposal flow
+    // even while Diagnosis or Investigation fields are focused.
     const parsedClinical = parseM6BCommand(text);
     if (parsedClinical.type !== "UNKNOWN") {
       const section = navigationSection(parsedClinical);
@@ -524,13 +529,44 @@ export function M6AVoicePanel({
       if (restart) scheduleRestart();
       return;
     }
-    if (!isM6DCommandLikeUtterance(text)) {
+
+    // For ordinary note-edit speech, “Add …” means append the content, not the
+    // literal word “Add”. This runs only after clinical-action parsing rejected
+    // the utterance, so medicine/investigation proposal commands remain safe.
+    const appendText = parseM6DAppendText(text);
+    const dictationText = appendText ?? text;
+
+    if (destination.kind === "diagnosis" && destination.target === "certainty") {
+      setStatus("Diagnosis certainty expects Provisional, Working, Confirmed, or Ruled out. Nothing was inserted.");
+      if (restart) scheduleRestart();
+      return;
+    }
+
+    if (destination.kind === "diagnosis") {
+      if (appendDiagnosisDraft(dictationText)) {
+        if (restart) scheduleRestart();
+        return;
+      }
+    }
+
+    if (destination.kind === "investigation") {
+      const mutation = onAppendInvestigation(dictationText);
+      if (mutation) {
+        recordChange({ kind: "investigation", ...mutation });
+        setStatus("Inserted into the Investigation search field. Nothing was staged or confirmed.");
+      }
+      if (restart) scheduleRestart();
+      return;
+    }
+
+    if (!isM6DCommandLikeUtterance(text) || appendText !== null) {
       if (destination.kind !== "note") return;
-      appendDraft(destination.target, text);
+      appendDraft(destination.target, dictationText);
       setStatus(`Inserted into editable ${LABELS[destination.target]} draft. Existing autosave/version/conflict protections remain active.`);
       if (restart) scheduleRestart();
       return;
     }
+
     const interpreted = await interpretCommand(text, voiceLanguage.lang);
     if (interpreted && interpreted.type !== "UNKNOWN") {
       const section = navigationSection(interpreted);
@@ -558,6 +594,7 @@ export function M6AVoicePanel({
       rollbackPendingNavigation();
       commitVoiceState((current) => ({ ...current, pendingNavigation: null }));
       pendingDiagnosisIntentRef.current = null;
+      pendingReplaceLastRef.current = null;
       setPreview("");
     },
   });
@@ -599,6 +636,7 @@ export function M6AVoicePanel({
     clearSilenceTimer();
     rollbackPendingNavigation();
     pendingDiagnosisIntentRef.current = null;
+    pendingReplaceLastRef.current = null;
     commitVoiceState((current) => ({ ...current, session: "idle", pendingNavigation: null }));
     setPreview("");
     dictation.cancel();

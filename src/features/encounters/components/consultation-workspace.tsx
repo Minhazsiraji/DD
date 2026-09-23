@@ -316,6 +316,7 @@ export function ConsultationWorkspace({
 
           {readOnly ? null : (
             <M6BVoiceCommands
+              continuousOnly
               disabled={s.blocked || investigationUnknown !== null}
               onNavigate={handleM6BNavigation}
               onApplyMedicine={(intent) => openRx(false, intent)}

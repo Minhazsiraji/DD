@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isM6DCommandLikeUtterance, isM6DDiagnosisIntent, isM6DInvestigationIntent, isM6DNavigationIntent, isM6DStandaloneControlIntent, m6dNavigationCommandKey, M6D_TARGETS, nextM6DTarget, parseM6DLocalCommand, removeM6DLastSentence, resolveM6DExtendedSectionStep, resolveM6DNavigationTarget } from "./m6d-intent-router";
+import { isM6DCommandLikeUtterance, isM6DDiagnosisIntent, isM6DInvestigationIntent, isM6DNavigationIntent, isM6DStandaloneControlIntent, m6dNavigationCommandKey, M6D_TARGETS, nextM6DTarget, parseM6DAppendText, parseM6DLocalCommand, removeM6DLastSentence, resolveM6DExtendedSectionStep, resolveM6DNavigationTarget } from "./m6d-intent-router";
 
 describe("M6D local command router", () => {
   it("keeps the supported clinical-note target order stable", () => {
@@ -241,6 +241,38 @@ describe("M6D local command router", () => {
     expect(parseM6DLocalCommand("Patient has a history of asthma")).toEqual({ type: "NONE" });
     expect(parseM6DLocalCommand("Assessment is pending")).toEqual({ type: "NONE" });
     expect(parseM6DLocalCommand("Patient এর তিন দিন ধরে fever আছে।")).toEqual({ type: "NONE" });
+  });
+
+  it("supports protected English and Bangla command aliases without broad fuzzy matching", () => {
+    expect(parseM6DLocalCommand("Stop")).toEqual({ type: "END" });
+    expect(parseM6DLocalCommand("বন্ধ করো")).toEqual({ type: "END" });
+    expect(parseM6DLocalCommand("Continue")).toEqual({ type: "RESUME" });
+    expect(parseM6DLocalCommand("চালিয়ে যাও")).toEqual({ type: "RESUME" });
+    expect(parseM6DLocalCommand("Remove last line")).toEqual({ type: "REMOVE_LAST_SENTENCE" });
+    expect(parseM6DLocalCommand("শেষ লাইন মুছো")).toEqual({ type: "REMOVE_LAST_SENTENCE" });
+    expect(parseM6DLocalCommand("Go to physical examination")).toEqual({ type: "NAVIGATE", target: "examination" });
+    expect(parseM6DLocalCommand("পরবর্তী ভিজিট")).toEqual({ type: "NAVIGATE", target: "nextVisitNote" });
+    expect(parseM6DLocalCommand("রোগ নির্ণয়")).toEqual({ type: "DIAGNOSIS_NAVIGATE" });
+    expect(parseM6DLocalCommand("নোট সেকশন")).toEqual({ type: "DIAGNOSIS_TARGET", target: "note" });
+    expect(parseM6DLocalCommand("টেস্ট অর্ডার")).toEqual({ type: "INVESTIGATION_NAVIGATE" });
+  });
+
+  it("parses robust replace/remove edits in English and Bangla", () => {
+    expect(parseM6DLocalCommand("Replace headache with body ache")).toEqual({ type: "NOTE_EDIT", operation: "REPLACE", value: "headache", replacement: "body ache" });
+    expect(parseM6DLocalCommand("Change headache to body ache")).toEqual({ type: "NOTE_EDIT", operation: "REPLACE", value: "headache", replacement: "body ache" });
+    expect(parseM6DLocalCommand("Replace last line with No chest pain")).toEqual({ type: "NOTE_EDIT", operation: "REPLACE_LAST", replacement: "No chest pain" });
+    expect(parseM6DLocalCommand("Replace last line")).toEqual({ type: "NOTE_EDIT", operation: "REPLACE_LAST" });
+    expect(parseM6DLocalCommand("শেষ বাক্য বদলে বুক ব্যথা নেই")).toEqual({ type: "NOTE_EDIT", operation: "REPLACE_LAST", replacement: "বুক ব্যথা নেই" });
+    expect(parseM6DLocalCommand("শেষ বাক্য বদলাও")).toEqual({ type: "NOTE_EDIT", operation: "REPLACE_LAST" });
+    expect(parseM6DLocalCommand("Delete headache")).toEqual({ type: "NOTE_EDIT", operation: "REMOVE", value: "headache" });
+    expect(parseM6DLocalCommand("মাথাব্যথা বাদ দাও")).toEqual({ type: "NOTE_EDIT", operation: "REMOVE", value: "মাথাব্যথা" });
+  });
+
+  it("strips Add only for ordinary append text after clinical-action parsing", () => {
+    expect(parseM6DAppendText("Add no chest pain")).toBe("no chest pain");
+    expect(parseM6DAppendText("Append no vomiting")).toBe("no vomiting");
+    expect(parseM6DAppendText("যোগ করো শ্বাসকষ্ট নেই")).toBe("শ্বাসকষ্ট নেই");
+    expect(parseM6DAppendText("Patient has fever")).toBeNull();
   });
 
   it("sends only command-like unknown utterances to semantic interpretation", () => {

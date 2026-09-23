@@ -51,7 +51,9 @@ describe("M6D authoritative voice destination", () => {
 
   it("preserves the protected edit-command semantics for every text destination", () => {
     expect(applyM6DTextEdit("Fever. Cough.", parseM6DLocalCommand("Remove last sentence"))).toBe("Fever.");
-    expect(applyM6DTextEdit("Fever and cough", parseM6DLocalCommand("Replace cough with rash"))).toBe("Fever and rash");
+    expect(applyM6DTextEdit("Fever and Cough", parseM6DLocalCommand("Replace cough with rash"))).toBe("Fever and rash");
+    expect(applyM6DTextEdit("Fever. Cough.", parseM6DLocalCommand("Replace last line with No chest pain"))).toBe("Fever. No chest pain");
+    expect(applyM6DTextEdit("Fever and Headache", parseM6DLocalCommand("Delete headache"))).toBe("Fever and");
     expect(applyM6DTextEdit("Fever", parseM6DLocalCommand("Clear this section"))).toBe("");
   });
 });

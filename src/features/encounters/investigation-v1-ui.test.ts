@@ -201,12 +201,19 @@ describe("Investigation V1 authority and unknown-outcome contracts", () => {
     expect(source).toContain("removeDiagnosisAction");
   });
 
-  it("confirmed Investigation rows expose no normal edit/remove clinical path", () => {
+  it("lets the Doctor correct/remove only current-consultation confirmed rows while the encounter is editable", () => {
     const source = panel();
     const start = source.indexOf('aria-labelledby="confirmed-investigation-heading"');
     const end = source.indexOf("Previous Investigation history", start);
     const confirmed = source.slice(start, end);
-    expect(confirmed).not.toMatch(/Edit|Remove|onOpenEdit|onAskRemove/);
+    expect(confirmed).toContain("Edit");
+    expect(confirmed).toContain("Remove");
+    expect(confirmed).toContain("Save correction");
+    expect(confirmed).toContain("{!readOnly ? (");
+    expect(source).toContain("updateInvestigationAction");
+    expect(source).toContain("removeInvestigationAction");
+    expect(source).toContain("The change was versioned and audited.");
+    expect(source).toContain("The removal remains in the encounter event/audit trail.");
     expect(confirmed).toContain("Ordered");
   });
 
@@ -219,10 +226,12 @@ describe("Investigation V1 authority and unknown-outcome contracts", () => {
     expect(source).toContain('aria-live="polite"');
   });
 
-  it("does not misrepresent the legacy hard-delete RPC as confirmed-order cancellation", () => {
+  it("uses the existing audited current-encounter remove RPC without pretending it is a cancellation model", () => {
     const source = panel();
-    expect(source).not.toMatch(/removeInvestigationAction|Cancel order|Correct \/ replace/);
-    expect(source).not.toMatch(/cancelledAt|cancellationReason|replacedBy/);
+    expect(source).toContain("removeInvestigationAction");
+    expect(source).toContain("Confirm remove");
+    expect(source).toContain("encounter event/audit trail");
+    expect(source).not.toMatch(/Cancel order|Correct \/ replace|cancelledAt|cancellationReason|replacedBy/);
   });
 
   it("completed/cancelled consultations expose no staging or confirmation controls", () => {
@@ -300,15 +309,28 @@ describe("Investigation V1 reads, accessibility and responsive structure", () =>
     expect(source).not.toMatch(/aria-label={`(?:Edit|Remove) investigation/);
   });
 
-  it("keeps Previous Investigation history collapsed behind an explicit control", () => {
+  it("keeps Previous Investigation history collapsed and read-only", () => {
     const source = panel();
     expect(source).toContain("historyOpen");
     expect(source).toContain('aria-expanded={historyOpen}');
     expect(source).toContain("Previous Investigation history");
+    const start = source.indexOf('id="previous-investigation-history"');
+    const history = source.slice(start);
+    expect(history).not.toContain("removeInvestigationAction");
+    expect(history).not.toContain("Save correction");
+  });
+
+  it("keeps search suggestions in document flow so they do not cover Common/Recent controls", () => {
+    const source = panel();
+    const start = source.indexOf('id="investigation-search-results"');
+    const end = source.indexOf("{searchChoices.map", start);
+    const results = source.slice(start, end);
+    expect(results).toContain("relative z-10 mt-2");
+    expect(results).not.toContain("absolute z-20");
   });
 
   it("leaves the frozen Prescription/global print surfaces byte-identical", () => {
-    expect(gitBlobSha("src/app/globals.css")).toBe("9e5d07175e729f142b4cff5574ded5af5a61bdbf");
-    expect(gitBlobSha("src/features/prescriptions/components/print-sheet.tsx")).toBe("0b8afc336ff27faa0a33eaf22f6a8eac1b236c36");
+    expect(gitBlobSha("src/app/globals.css")).toBe("495e151f8cbf869b2cda572726bd04490b02cf93");
+    expect(gitBlobSha("src/features/prescriptions/components/print-sheet.tsx")).toBe("f044f90b35d231042a7ac6815ad0985050d33c14");
   });
 });

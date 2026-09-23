@@ -48,4 +48,11 @@ describe("M6D consultation card and sticky navigation contract", () => {
     expect(source).toContain("Voice settings");
     expect(source).not.toMatch(/w-\[(?:[4-9]\d\d|\d{4,})px\]/);
   });
+
+  it("keeps the legacy M6B proposal receiver mounted but hides its idle duplicate toolbar", () => {
+    const commands = read("src/features/dictation/components/m6b-voice-commands.tsx");
+    expect(workspace()).toContain("continuousOnly");
+    expect(commands).toContain("if (continuousOnly && !fromContinuousVoice && !active && intent === null && message === null) return null");
+    expect(commands).toContain("window.addEventListener(M6D_CLINICAL_EVENT, receive)");
+  });
 });

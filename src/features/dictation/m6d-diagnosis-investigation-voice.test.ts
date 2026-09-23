@@ -9,7 +9,7 @@ const investigations = read("src/features/encounters/components/investigation-pa
 describe("M6D diagnosis editing and Investigation navigation", () => {
   it("dispatches deterministic diagnosis edits before all target append paths", () => {
     const finalHandler = panel.slice(panel.indexOf("async function handleFinal"), panel.indexOf("const dictation = useDictation"));
-    expect(finalHandler.indexOf("applyLocal(local)")).toBeLessThan(finalHandler.indexOf("appendDiagnosisDraft(text)"));
+    expect(finalHandler.indexOf("applyLocal(local)")).toBeLessThan(finalHandler.indexOf("appendDiagnosisDraft(dictationText)"));
     expect(finalHandler.indexOf("applyLocal(local)")).toBeLessThan(finalHandler.indexOf('destination.kind === "investigation"'));
     expect(panel).toContain('if (priority === "edit" && applyDestinationEdit(intent)) return;');
     expect(panel).toContain("lastChangeRef.current");

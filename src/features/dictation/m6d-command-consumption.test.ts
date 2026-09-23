@@ -98,4 +98,11 @@ describe("M6D navigation command consumption", () => {
     expect(panel).toContain('voiceStateRef.current.session === "paused"');
     expect(panel).toContain("Speech was not added to the clinical draft.");
   });
+
+  it("supports a two-step Replace last line command without inserting the command text", () => {
+    expect(panel).toContain("pendingReplaceLastRef");
+    expect(panel).toContain('intent.operation === "REPLACE_LAST" && !intent.replacement');
+    expect(panel).toContain("say the replacement sentence now");
+    expect(panel).toContain('operation: "REPLACE_LAST", replacement: text');
+  });
 });
