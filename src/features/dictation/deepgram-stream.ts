@@ -35,7 +35,12 @@ export function buildDeepgramStreamingUrl(language: string): string {
   // Deepgram's numerals formatter is explicitly supported for en-US. This
   // keeps clinical quantities such as "twelve point five" as "12.5" without
   // changing Bengali provider behavior where the feature is not supported.
-  if (language === "en-US") params.set("numerals", "true");
+  if (language === "en-US") {
+    params.set("numerals", "true");
+    // Nova-3 keyterm prompting is intentionally limited to the short clinical
+    // abbreviation Deepgram has confused with "VP" in live English dictation.
+    params.append("keyterm", "BP");
+  }
   return `${DEEPGRAM_STREAM_ENDPOINT}?${params.toString()}`;
 }
 

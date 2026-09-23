@@ -9,6 +9,14 @@ describe("M6D deterministic clinical-number normalization", () => {
     ["BP hundred eighteen by eighty", "BP 118/80"],
     ["BP hundred 18 by 80", "BP 118/80"],
     ["B p 118 by 8 80", "BP 118/80"],
+    ["B p hundred 18 80", "BP 118/80"],
+    ["BP hundred 18 80", "BP 118/80"],
+    ["BP hundred 20 80", "BP 120/80"],
+    ["BP hundred 10 slash 80", "BP 110/80"],
+    ["BP 118 80", "BP 118/80"],
+    ["BP 118 by 80", "BP 118/80"],
+    ["BP 118 over 80", "BP 118/80"],
+    ["BP 118 slash 80", "BP 118/80"],
     ["b p 180 slash 80", "BP 180/80"],
     ["blood pressure 120 by 80", "blood pressure 120/80"],
     ["BP 120 over 80", "BP 120/80"],
@@ -28,6 +36,11 @@ describe("M6D deterministic clinical-number normalization", () => {
     "patient took one tablet twice",
     "family history for twenty years",
     "one hundred eighteen by eighty",
+    "Patient took 1 tablet 2 times",
+    "Fever for 18 days",
+    "VP was documented previously",
+    "Vitamin B 12 80",
+    "Patient lost 10 8 kilograms",
   ])("leaves ordinary or unlabelled prose unchanged: %s", (spoken) => {
     expect(normalizeClinicalNumbers(spoken)).toBe(spoken);
   });

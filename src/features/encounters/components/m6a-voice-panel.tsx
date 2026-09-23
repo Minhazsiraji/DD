@@ -6,6 +6,7 @@ import type { DraftKey, DraftValues } from "../schema";
 import type { FindingDraft } from "../finding-types";
 import { insertTranscript } from "@/features/dictation/dictation";
 import { normalizeClinicalNumbers } from "@/features/dictation/normalize";
+import { applyGuidedVoiceFinalToNote } from "@/features/dictation/m6d-guided-note-runtime";
 import { useDictation } from "@/features/dictation/use-dictation";
 import { LIVE_VOICE_ENABLED, useVoiceLanguage, VoiceLanguageControl } from "@/features/dictation/voice-language";
 import { isM6DCommandLikeUtterance, isM6DDiagnosisIntent, isM6DInvestigationIntent, isM6DNavigationIntent, m6dNavigationCommandKey, parseM6DAppendText, parseM6DLocalCommand, type M6DDiagnosisIntent, type M6DInvestigationIntent, type M6DLocalIntent, type M6DNavigationIntent, type M6DTarget } from "@/features/dictation/m6d-intent-router";
@@ -586,7 +587,9 @@ export function M6AVoicePanel({
 
     if (!isM6DCommandLikeUtterance(text) || appendText !== null) {
       if (destination.kind !== "note") return;
-      appendDraft(destination.target, dictationText);
+      const current = valuesRef.current[destination.target] ?? "";
+      const result = applyGuidedVoiceFinalToNote(current, appendText ?? text);
+      writeDraft(destination.target, result.value);
       setStatus(`Inserted into editable ${LABELS[destination.target]} draft. Existing autosave/version/conflict protections remain active.`);
       if (restart) scheduleRestart();
       return;

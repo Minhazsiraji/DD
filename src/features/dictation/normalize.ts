@@ -94,6 +94,40 @@ function normalizeBloodPressureSide(value: string, collapseLeadingEcho: boolean)
   return parseSpokenNumber(value);
 }
 
+function normalizedBloodPressureLabel(label: string): string {
+  return /^blood\s+pressure$/i.test(label) ? label : "BP";
+}
+
+function recoverSeparatorlessBloodPressure(value: string): { systolic: string; diastolic: string } | null {
+  const tokens = value.trim().split(/\s+/).filter(Boolean);
+  if (tokens.length < 2) return null;
+
+  const candidates: Array<{ systolic: string; diastolic: string; split: number }> = [];
+  for (let split = 1; split < tokens.length; split += 1) {
+    const systolic = parseSpokenNumber(tokens.slice(0, split).join(" "));
+    const diastolic = parseSpokenNumber(tokens.slice(split).join(" "));
+    if (systolic === null || diastolic === null) continue;
+    const systolicValue = Number(systolic);
+    const diastolicValue = Number(diastolic);
+    if (
+      !Number.isInteger(systolicValue) ||
+      !Number.isInteger(diastolicValue) ||
+      systolicValue < 60 ||
+      systolicValue > 300 ||
+      diastolicValue < 30 ||
+      diastolicValue > 200 ||
+      systolicValue - diastolicValue < 10
+    ) continue;
+    candidates.push({ systolic, diastolic, split });
+  }
+
+  if (candidates.length === 0) return null;
+  // Prefer the longest valid systolic phrase. This deterministically interprets
+  // provider forms such as "hundred 18 80" as 118/80, never 100/98.
+  const recovered = candidates.sort((left, right) => right.split - left.split)[0];
+  return { systolic: recovered.systolic, diastolic: recovered.diastolic };
+}
+
 /**
  * Converts spoken numbers only when an explicit, allowlisted clinical
  * measurement cue makes the meaning deterministic. It deliberately leaves
@@ -109,10 +143,26 @@ export function normalizeClinicalNumbers(raw: string): string {
     (match, label: string, spacing: string, systolicSpoken: string, diastolicSpoken: string) => {
       const systolic = normalizeBloodPressureSide(systolicSpoken, false);
       const diastolic = normalizeBloodPressureSide(diastolicSpoken, true);
-      const normalizedLabel = /^b\s*p$/i.test(label) ? "BP" : label;
+      const normalizedLabel = normalizedBloodPressureLabel(label);
       return systolic === null || diastolic === null
         ? match
         : `${normalizedLabel}${spacing}${systolic}/${diastolic}`;
+    },
+  );
+
+  // Deepgram can omit the spoken separator entirely. Recover it only when the
+  // whole utterance is a BP-labelled, plausible two-part integer measurement.
+  // Adjacent numbers in ordinary clinical prose are deliberately untouched.
+  const separatorlessBloodPressure = new RegExp(
+    `^(\\s*)(bp|b\\s+p|blood pressure)(\\s+)(${NUMBER_PHRASE})([.!?]?)\\s*$`,
+    "i",
+  );
+  normalized = normalized.replace(
+    separatorlessBloodPressure,
+    (match, leading: string, label: string, spacing: string, value: string, punctuation: string) => {
+      const recovered = recoverSeparatorlessBloodPressure(value);
+      if (!recovered) return match;
+      return `${leading}${normalizedBloodPressureLabel(label)}${spacing}${recovered.systolic}/${recovered.diastolic}${punctuation}`;
     },
   );
 
