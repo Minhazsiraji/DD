@@ -40,6 +40,7 @@ export type M6DLocalIntent =
   | M6DStandaloneControlIntent
   | M6DDiagnosisIntent
   | M6DInvestigationIntent
+  | { type: "FOLLOW_UP_DATE"; amount: number; unit: "days" | "months" }
   | { type: "NOTE_EDIT"; operation: "ADD" | "REMOVE" | "REPLACE" | "REPLACE_LAST" | "CLEAR" | "READ"; value?: string; replacement?: string }
   | { type: "NONE" };
 
@@ -102,13 +103,16 @@ export function removeM6DLastSentence(text: string): string {
   const trimmed = text.trimEnd();
   if (!trimmed) return "";
   const withoutTrailingStop = trimmed.replace(/[.!?।]+$/u, "").trimEnd();
-  const boundary = Math.max(
+  const punctuationBoundary = Math.max(
     withoutTrailingStop.lastIndexOf("."),
     withoutTrailingStop.lastIndexOf("!"),
     withoutTrailingStop.lastIndexOf("?"),
     withoutTrailingStop.lastIndexOf("।"),
   );
-  return boundary < 0 ? "" : withoutTrailingStop.slice(0, boundary + 1).trimEnd();
+  const lineBoundary = withoutTrailingStop.lastIndexOf("\n");
+  const boundary = Math.max(punctuationBoundary, lineBoundary);
+  if (boundary < 0) return "";
+  return withoutTrailingStop.slice(0, boundary === lineBoundary ? boundary : boundary + 1).trimEnd();
 }
 
 export function m6dNavigationCommandKey(intent: M6DNavigationIntent): string {
@@ -123,6 +127,18 @@ export function resolveM6DNavigationTarget(intent: M6DNavigationIntent, current:
 function sectionFromAlias(value: string): M6DTarget | null {
   for (const [target, aliases] of SECTION_ALIASES) if (aliases.includes(value)) return target;
   return null;
+}
+
+function parseRelativeAmount(raw: string): number | null {
+  const normalized = raw.toLocaleLowerCase("en-US").trim();
+  const asciiDigits = normalized.replace(/[০-৯]/g, (digit) => String("০১২৩৪৫৬৭৮৯".indexOf(digit)));
+  if (/^\d{1,3}$/.test(asciiDigits)) return Number(asciiDigits);
+  const words: Record<string, number> = {
+    one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10,
+    eleven: 11, twelve: 12, thirteen: 13, fourteen: 14, fifteen: 15, twenty: 20, thirty: 30,
+    "এক": 1, "একটি": 1, "দুই": 2, "দুটি": 2, "তিন": 3, "চার": 4, "পাঁচ": 5, "ছয়": 6, "ছয়": 6, "সাত": 7, "আট": 8, "নয়": 9, "নয়": 9, "দশ": 10, "চৌদ্দ": 14, "ত্রিশ": 30,
+  };
+  return words[normalized] ?? null;
 }
 
 function stripNavigationPrefix(value: string): string {
@@ -172,6 +188,26 @@ export function parseM6DLocalCommand(text: string): M6DLocalIntent {
   if (["investigation", "investigations", "investigation order", "investigation orders", "test", "tests", "test order", "test orders", "ইনভেস্টিগেশন", "ইনভেস্টিগেশন অর্ডার", "ইনভেস্টিগেশন অর্ডার্স", "পরীক্ষার অর্ডার", "টেস্ট", "টেস্ট অর্ডার"].includes(value)) return { type: "INVESTIGATION_NAVIGATE" };
   if (["investigation field", "investigation search", "test field", "test search", "ইনভেস্টিগেশন ফিল্ড", "ইনভেস্টিগেশন সার্চ", "টেস্ট ফিল্ড", "টেস্ট সার্চ"].includes(value)) return { type: "INVESTIGATION_TARGET", target: "field" };
 
+  let relative = raw.match(/^(?:set\s+)?(?:next visit|follow[- ]?up)(?:\s+date)?\s+(?:after|in)\s+([\w-]+)\s+(day|days|week|weeks|month|months)$/i);
+  if (relative) {
+    const amount = parseRelativeAmount(relative[1]!);
+    if (amount && amount > 0) {
+      const unit = relative[2]!.toLowerCase();
+      return unit.startsWith("month")
+        ? { type: "FOLLOW_UP_DATE", amount, unit: "months" }
+        : { type: "FOLLOW_UP_DATE", amount: unit.startsWith("week") ? amount * 7 : amount, unit: "days" };
+    }
+  }
+  relative = raw.match(/^(?:পরবর্তী ভিজিট|ফলো ?আপ|ফলোআপ)\s+([\p{L}\d০-৯]+)\s*(দিন|সপ্তাহ|মাস)\s*(?:পরে|পর)?$/u);
+  if (relative) {
+    const amount = parseRelativeAmount(relative[1]!);
+    if (amount && amount > 0) {
+      return relative[2] === "মাস"
+        ? { type: "FOLLOW_UP_DATE", amount, unit: "months" }
+        : { type: "FOLLOW_UP_DATE", amount: relative[2] === "সপ্তাহ" ? amount * 7 : amount, unit: "days" };
+    }
+  }
+
   if (["clear current section", "clear this section", "clear section", "clear field", "clear this field", "clear note", "এই সেকশন clear", "এই সেকশন মুছো", "এই অংশ মুছো", "এই ঘর খালি করো", "নোট মুছো"].includes(value)) return { type: "NOTE_EDIT", operation: "CLEAR" };
   if (["read current section", "read this section", "read section", "read field", "read note", "এই সেকশন পড়ো", "এই অংশ পড়ো", "এই ঘর পড়ো", "নোট পড়ো"].includes(value)) return { type: "NOTE_EDIT", operation: "READ" };
 
@@ -179,7 +215,7 @@ export function parseM6DLocalCommand(text: string): M6DLocalIntent {
   // edit command in the same finalized utterance. Accept a trailing protected
   // edit only when it begins after a real sentence boundary; do not fuzzy-match
   // clinical prose in the middle of a sentence.
-  let match = raw.match(/(?:^|[.!?।]\s+)(?:replace|change|correct)\s+(?:the\s+)?(?:last sentence|last line)\s+(?:with|to)\s+(.+)$/i);
+  let match = raw.match(/(?:^|[.!?।]\s+)(?:replace|change|correct)\s+(?:the\s+)?(?:last sentence|last line)\s+(?:with|to|by)\s+(.+)$/i);
   if (match) return { type: "NOTE_EDIT", operation: "REPLACE_LAST", replacement: match[1]!.trim() };
   match = raw.match(/(?:^|[.!?।]\s+)(?:শেষ বাক্য|শেষ লাইন)\s+(?:বদলে|পরিবর্তন করে)\s+(.+)$/u);
   if (match) return { type: "NOTE_EDIT", operation: "REPLACE_LAST", replacement: match[1]!.trim() };
@@ -187,7 +223,7 @@ export function parseM6DLocalCommand(text: string): M6DLocalIntent {
     return { type: "NOTE_EDIT", operation: "REPLACE_LAST" };
   }
 
-  match = raw.match(/^(?:replace|change|correct)\s+(.+?)\s+(?:with|to)\s+(.+)$/i);
+  match = raw.match(/^(?:replace|change|correct)\s+(.+?)\s+(?:with|to|by)\s+(.+)$/i);
   if (match) return { type: "NOTE_EDIT", operation: "REPLACE", value: match[1]!.trim(), replacement: match[2]!.trim() };
   match = raw.match(/^(.+?)\s+(?:এর বদলে|বদলে|পরিবর্তন করে)\s+(.+)$/u);
   if (match) return { type: "NOTE_EDIT", operation: "REPLACE", value: match[1]!.trim(), replacement: match[2]!.trim() };

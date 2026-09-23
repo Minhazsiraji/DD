@@ -6,6 +6,7 @@ describe("M6D local command router", () => {
     expect(M6D_TARGETS).toEqual([
       "chiefComplaints",
       "presentIllness",
+      "pastHistory",
       "examination",
       "assessment",
       "advice",
@@ -23,6 +24,8 @@ describe("M6D local command router", () => {
       "Cheap complaints?",
     ]) expect(parseM6DLocalCommand(said)).toEqual({ type: "NAVIGATE", target: "chiefComplaints" });
     expect(parseM6DLocalCommand("History")).toEqual({ type: "NAVIGATE", target: "presentIllness" });
+    expect(parseM6DLocalCommand("Past history")).toEqual({ type: "NAVIGATE", target: "pastHistory" });
+    expect(parseM6DLocalCommand("পূর্ব ইতিহাস")).toEqual({ type: "NAVIGATE", target: "pastHistory" });
     expect(parseM6DLocalCommand("Examination")).toEqual({ type: "NAVIGATE", target: "examination" });
     expect(parseM6DLocalCommand("Assessment")).toEqual({ type: "NAVIGATE", target: "assessment" });
     expect(parseM6DLocalCommand("Advice")).toEqual({ type: "NAVIGATE", target: "advice" });
@@ -88,7 +91,8 @@ describe("M6D local command router", () => {
     expect(parseM6DLocalCommand("Previous!").type).toBe("PREVIOUS");
     expect(parseM6DLocalCommand("Previous?").type).toBe("PREVIOUS");
     expect(parseM6DLocalCommand("Previous section").type).toBe("PREVIOUS");
-    expect(nextM6DTarget("presentIllness", 1)).toBe("examination");
+    expect(nextM6DTarget("presentIllness", 1)).toBe("pastHistory");
+    expect(nextM6DTarget("pastHistory", 1)).toBe("examination");
     expect(nextM6DTarget("presentIllness", -1)).toBe("chiefComplaints");
   });
 
@@ -119,6 +123,7 @@ describe("M6D local command router", () => {
     expect(removeM6DLastSentence("Dengue fever. Platelets falling, review tomorrow.")).toBe("Dengue fever.");
     expect(removeM6DLastSentence("Single diagnosis phrase")).toBe("");
     expect(removeM6DLastSentence("First। Second।")).toBe("First।");
+    expect(removeM6DLastSentence("No sugar.\nDrink water.\nLiter a day")).toBe("No sugar.\nDrink water.");
   });
 
   it.each([
@@ -231,7 +236,7 @@ describe("M6D local command router", () => {
     }
     const next = parseM6DLocalCommand("Next");
     expect(isM6DNavigationIntent(next)).toBe(true);
-    if (isM6DNavigationIntent(next)) expect(resolveM6DNavigationTarget(next, "presentIllness")).toBe("examination");
+    if (isM6DNavigationIntent(next)) expect(resolveM6DNavigationTarget(next, "presentIllness")).toBe("pastHistory");
   });
 
   it("leaves ordinary dictation for semantic command interpretation or note insertion", () => {
@@ -266,6 +271,14 @@ describe("M6D local command router", () => {
     expect(parseM6DLocalCommand("শেষ বাক্য বদলাও")).toEqual({ type: "NOTE_EDIT", operation: "REPLACE_LAST" });
     expect(parseM6DLocalCommand("Delete headache")).toEqual({ type: "NOTE_EDIT", operation: "REMOVE", value: "headache" });
     expect(parseM6DLocalCommand("মাথাব্যথা বাদ দাও")).toEqual({ type: "NOTE_EDIT", operation: "REMOVE", value: "মাথাব্যথা" });
+  });
+
+  it("sets relative follow-up dates without turning them into note text", () => {
+    expect(parseM6DLocalCommand("Next visit after 3 days")).toEqual({ type: "FOLLOW_UP_DATE", amount: 3, unit: "days" });
+    expect(parseM6DLocalCommand("Follow up after seven days")).toEqual({ type: "FOLLOW_UP_DATE", amount: 7, unit: "days" });
+    expect(parseM6DLocalCommand("Next visit in one month")).toEqual({ type: "FOLLOW_UP_DATE", amount: 1, unit: "months" });
+    expect(parseM6DLocalCommand("পরবর্তী ভিজিট ৩ দিন পরে")).toEqual({ type: "FOLLOW_UP_DATE", amount: 3, unit: "days" });
+    expect(parseM6DLocalCommand("ফলো আপ এক মাস পরে")).toEqual({ type: "FOLLOW_UP_DATE", amount: 1, unit: "months" });
   });
 
   it("strips Add only for ordinary append text after clinical-action parsing", () => {

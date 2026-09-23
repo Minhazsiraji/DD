@@ -97,7 +97,7 @@ export type M6DCommandPriority = "session" | "edit" | "navigation" | "certainty"
 
 export function m6dCommandPriority(intent: M6DLocalIntent): M6DCommandPriority {
   if (["PAUSE", "RESUME", "END", "UNDO"].includes(intent.type)) return "session";
-  if (intent.type === "REMOVE_LAST_SENTENCE" || intent.type === "NOTE_EDIT") return "edit";
+  if (intent.type === "REMOVE_LAST_SENTENCE" || intent.type === "NOTE_EDIT" || intent.type === "FOLLOW_UP_DATE") return "edit";
   if (isM6DNavigationIntent(intent) ||
     (isM6DDiagnosisIntent(intent) && intent.type !== "DIAGNOSIS_CERTAINTY" && intent.type !== "DIAGNOSIS_REVIEW") ||
     isM6DInvestigationIntent(intent)) return "navigation";
@@ -136,7 +136,8 @@ export function applyM6DTextEdit(current: string, intent: M6DLocalIntent): strin
   }
   if (intent.operation === "REPLACE_LAST" && intent.replacement) {
     const withoutLast = removeM6DLastSentence(current);
-    return [withoutLast.trimEnd(), intent.replacement.trim()].filter(Boolean).join(" ");
+    const separator = current.includes("\n") ? "\n" : " ";
+    return [withoutLast.trimEnd(), intent.replacement.trim()].filter(Boolean).join(separator);
   }
   if (intent.operation === "REMOVE" && intent.value) {
     return removeFirstInsensitive(current, intent.value);

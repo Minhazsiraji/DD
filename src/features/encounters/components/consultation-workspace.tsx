@@ -15,7 +15,7 @@ import { NextVisitFields } from "./next-visit-fields";
 import { InvestigationPanel, type InvestigationPanelHandle } from "./investigation-panel";
 import { resolveVisibility } from "../module-visibility";
 import type { RxModuleSetting } from "@/features/doctor/rx-modules";
-import { addCalendarDays, type FollowUpShortcut } from "../follow-up-dates";
+import { addCalendarDays, addCalendarMonths, type FollowUpShortcut } from "../follow-up-dates";
 import { ConflictPanel } from "./conflict-panel";
 import { FindingConflictPanel } from "./finding-conflict-panel";
 import { SaveBar } from "./save-bar";
@@ -174,6 +174,16 @@ export function ConsultationWorkspace({
     setStagedInvestigations(rows);
   }
 
+  function applyM6DRelativeFollowUp(amount: number, unit: "days" | "months") {
+    const tomorrow = followUpShortcuts.find((item) => item.label === "Tomorrow");
+    const today = tomorrow ? addCalendarDays(tomorrow.date, -1) : null;
+    if (!today) return false;
+    const date = unit === "months" ? addCalendarMonths(today, amount) : addCalendarDays(today, amount);
+    if (!date) return false;
+    s.setField("nextVisitOn", date);
+    return true;
+  }
+
   function applyM6BFollowUp(days: number) {
     const exactShortcut = days === 1 ? "Tomorrow" : days === 3 ? "3 days" : days === 7 ? "1 week" : days === 14 ? "2 weeks" : null;
     const shortcut = exactShortcut ? followUpShortcuts.find((item) => item.label === exactShortcut) : null;
@@ -311,6 +321,7 @@ export function ConsultationWorkspace({
               onFocusInvestigation={() => investigationPanelRef.current?.focusVoiceField()}
               onAppendInvestigation={(text) => investigationPanelRef.current?.appendVoiceText(text) ?? null}
               onEditInvestigation={(intent, undo) => investigationPanelRef.current?.editVoiceField(intent, undo) ?? { handled: false, mutation: null, message: "" }}
+              onSetFollowUpDate={applyM6DRelativeFollowUp}
             />
           )}
 

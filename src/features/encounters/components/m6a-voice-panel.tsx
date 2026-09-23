@@ -15,6 +15,7 @@ import { SectionCard } from "@/components/common/section-card";
 const LABELS: Record<M6DTarget, string> = {
   chiefComplaints: "Chief complaint",
   presentIllness: "History",
+  pastHistory: "Past history",
   examination: "Examination",
   assessment: "Assessment",
   advice: "Advice",
@@ -83,6 +84,7 @@ export function M6AVoicePanel({
   onFocusInvestigation,
   onAppendInvestigation,
   onEditInvestigation,
+  onSetFollowUpDate,
 }: {
   values: DraftValues;
   diagnosisDraft: FindingDraft | null;
@@ -93,6 +95,7 @@ export function M6AVoicePanel({
   onFocusInvestigation: () => void;
   onAppendInvestigation: (text: string) => { before: string; after: string } | null;
   onEditInvestigation: (intent: M6DLocalIntent, undo: { before: string; after: string } | null) => { handled: boolean; mutation: { before: string; after: string } | null; message: string };
+  onSetFollowUpDate: (amount: number, unit: "days" | "months") => boolean;
 }) {
   const voiceLanguage = useVoiceLanguage();
   const [voiceState, setVoiceState] = React.useState<M6DVoiceState>(INITIAL_M6D_VOICE_STATE);
@@ -258,6 +261,10 @@ export function M6AVoicePanel({
   function focusDestination(destination: M6DVoiceDestination) {
     requestAnimationFrame(() => {
       const element = document.querySelector(m6dVoiceFocusSelector(destination));
+      if (destination.kind === "note" && destination.target === "pastHistory") {
+        const details = element?.closest("details");
+        if (details instanceof HTMLDetailsElement) details.open = true;
+      }
       element?.closest("[data-m6d-section]")?.scrollIntoView({ behavior: "instant", block: "start" });
       if (element instanceof HTMLElement) element.focus({ preventScroll: true });
     });
@@ -433,6 +440,16 @@ export function M6AVoicePanel({
   }
 
   function applyLocal(intent: Exclude<M6DLocalIntent, { type: "NONE" }>) {
+    if (intent.type === "FOLLOW_UP_DATE") {
+      const applied = onSetFollowUpDate(intent.amount, intent.unit);
+      if (applied) {
+        navigate("nextVisitNote");
+        setStatus(`Follow-up date updated to ${intent.amount} ${intent.unit === "days" ? "day(s)" : "month(s)"} from today. Review remains editable.`);
+      } else {
+        setStatus("Follow-up date could not be calculated. Nothing was changed.");
+      }
+      return;
+    }
     const priority = m6dCommandPriority(intent);
     if (priority === "session") {
       if (intent.type === "PAUSE") return pauseSession(true);

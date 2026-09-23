@@ -26,7 +26,7 @@ function createHarness(): Harness {
   return {
     destination: INITIAL_M6D_VOICE_STATE.destination,
     session: "listening",
-    notes: { chiefComplaints: "", presentIllness: "", examination: "", assessment: "", advice: "", nextVisitNote: "" },
+    notes: { chiefComplaints: "", presentIllness: "", pastHistory: "", examination: "", assessment: "", advice: "", nextVisitNote: "" },
     diagnosis: { title: "", note: "", certainty: "PROVISIONAL" },
     investigation: "",
     mutation: null,

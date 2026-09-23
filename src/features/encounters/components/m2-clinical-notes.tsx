@@ -16,6 +16,7 @@ import {
 const VOICE_SECTION_KEYS = new Set<SectionKey>([
   "chiefComplaints",
   "presentIllness",
+  "pastHistory",
   "examination",
   "assessment",
   "advice",
@@ -135,7 +136,9 @@ export function M2ClinicalNotes({
 
         {visible("pastHistory") ? (
           <details
+            data-m6d-section
             className="dd-material-record dd-record-pearl rounded-2xl"
+            style={{ scrollMarginTop: "var(--m6d-voice-sticky-offset)" }}
             open={historyOpen || undefined}
           >
             <summary className="flex min-h-11 cursor-pointer items-center px-3 text-[13px] font-semibold text-ink focus-visible:focus-ring">
@@ -150,6 +153,9 @@ export function M2ClinicalNotes({
             </summary>
             <div className="border-t border-white/45 p-3">
               {becauseFilled("pastHistory") ? <FilledNotice /> : null}
+              <div className="mb-1.5 flex min-h-11 items-center justify-end">
+                <DictateButton fieldLabel="Past history" disabled={disabled} value={values.pastHistory} onInsert={(next) => onChange("pastHistory", next)} />
+              </div>
               <label htmlFor="pastHistory" className="sr-only">Past history</label>
               <textarea
                 id="pastHistory"
