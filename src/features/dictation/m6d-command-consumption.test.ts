@@ -48,6 +48,17 @@ describe("M6D navigation command consumption", () => {
     expect(panel).toContain("dictation.commitUtterance()");
   });
 
+  it("commits ordinary guided dictation after stable silence without closing the persistent session", () => {
+    const preview = panel.slice(
+      panel.indexOf("function previewWithSilenceFinalization"),
+      panel.indexOf("function writeDraft"),
+    );
+    expect(preview).toContain('if (mode === "guided")');
+    expect(preview).toContain("latestPreviewRef.current === observed");
+    expect(preview).toContain('voiceStateRef.current.session !== "idle"');
+    expect(preview).toContain("dictation.commitUtterance()");
+  });
+
   it("never treats accumulated command history as a navigation sequence", () => {
     expect(panel).not.toContain("parseM6DNavigationSequence");
     expect(panel).toContain("parseM6DLocalCommand(text)");

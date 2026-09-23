@@ -217,12 +217,26 @@ export function M6AVoicePanel({
       }
     }
 
-    if (mode !== "guided") {
+    if (mode === "guided") {
+      const observed = text;
       silenceTimer.current = setTimeout(() => {
         silenceTimer.current = null;
-        if (voiceStateRef.current.session === "listening") stopRef.current?.();
+        // Guided Voice keeps one provider session open. Force an utterance
+        // boundary after stable silence so ordinary dictation is committed to
+        // the current destination instead of remaining indefinitely in
+        // "Hearing". This also clears ignored speech while paused so Resume
+        // starts from a clean provider buffer.
+        if (voiceStateRef.current.session !== "idle" && latestPreviewRef.current === observed) {
+          dictation.commitUtterance();
+        }
       }, SILENCE_FINALIZE_MS);
+      return;
     }
+
+    silenceTimer.current = setTimeout(() => {
+      silenceTimer.current = null;
+      if (voiceStateRef.current.session === "listening") stopRef.current?.();
+    }, SILENCE_FINALIZE_MS);
   }
 
   function writeDraft(key: M6DTarget, next: string) {
