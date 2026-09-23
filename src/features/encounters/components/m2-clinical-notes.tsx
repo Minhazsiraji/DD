@@ -246,9 +246,15 @@ function ClinicalTextarea({
 }) {
   const voiceEnabled = VOICE_SECTION_KEYS.has(field);
   return (
-    <div className="min-w-0">
+    <div
+      id={field}
+      tabIndex={-1}
+      data-m6d-section
+      className="min-w-0"
+      style={{ scrollMarginTop: "var(--m6d-voice-sticky-offset)" }}
+    >
       <div className="mb-1.5 flex min-h-11 flex-wrap items-center gap-2">
-        <label htmlFor={field} className="text-[13px] font-semibold text-ink">{label}</label>
+        <label htmlFor={`${field}-input`} className="text-[13px] font-semibold text-ink">{label}</label>
         {dirty ? (
           <span className="rounded-full bg-warning-soft px-2 py-0.5 text-[10px] font-semibold text-warning">
             Pending
@@ -266,7 +272,7 @@ function ClinicalTextarea({
       </div>
       {shownBecauseFilled ? <FilledNotice /> : null}
       <textarea
-        id={field}
+        id={`${field}-input`}
         name={field}
         rows={rows}
         disabled={disabled}

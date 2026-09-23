@@ -6,6 +6,7 @@ import { severityIcon } from "@/components/common/status-badge";
 import type { Severity } from "@/mocks/types";
 import type { PatientDetail } from "@/features/patients/queries";
 import { BLOOD_GROUP_LABEL } from "@/features/patients/schema";
+import { SectionCard } from "@/components/common/section-card";
 
 const SEVERITIES = new Set(["none", "caution", "serious", "critical"]);
 
@@ -22,8 +23,7 @@ function toSeverity(value: string): Severity {
 }
 
 /**
- * Who this consultation is about — pinned to the top of the screen for its
- * whole duration.
+ * Who this consultation is about.
  *
  * This is a major DD glass container, not a flat admin card. The shared
  * `dd-profile-summary` primitive owns the one backdrop blur; semantic allergy
@@ -37,10 +37,14 @@ export const ConsultationIdentity = React.memo(function ConsultationIdentity({
   patient,
   locationName,
   className,
+  action,
+  consultationCard = false,
 }: {
   patient: PatientDetail;
   locationName: string;
   className?: string;
+  action?: React.ReactNode;
+  consultationCard?: boolean;
 }) {
   const allergies = patient.allergies;
   const alerts = patient.alerts.filter((a) => {
@@ -48,16 +52,19 @@ export const ConsultationIdentity = React.memo(function ConsultationIdentity({
     return s === "serious" || s === "critical";
   });
   const flagged = allergies.length > 0 || alerts.length > 0;
+  const Container: React.ElementType = consultationCard ? SectionCard : "div";
 
   return (
-    <div
+    <Container
       className={cn(
-        "dd-material-clinical dd-profile-summary rounded-glass overflow-hidden border-l-4",
+        consultationCard
+          ? "overflow-hidden border-l-4"
+          : "dd-material-clinical dd-profile-summary rounded-glass overflow-hidden border-l-4",
         flagged ? "border-l-danger" : "border-l-brand",
         className,
       )}
     >
-      <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 px-4 pt-3">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2 px-4 pt-3 sm:px-5">
         <h1 className="text-base font-semibold text-ink sm:text-lg">{patient.fullName}</h1>
         <span className="text-sm text-ink-secondary tabular-nums">
           {formatAgeSex(patient.ageYears, patient.sex, patient.dobPrecision)}
@@ -67,10 +74,11 @@ export const ConsultationIdentity = React.memo(function ConsultationIdentity({
           <MapPin className="size-3.5" aria-hidden="true" />
           {locationName}
         </span>
+        {action ? <div className="w-full sm:ml-auto sm:w-auto">{action}</div> : null}
       </div>
 
       {/* The highest-value line on the screen. Never collapsed, never truncated. */}
-      <div className="px-4 pt-2 pb-3">
+      <div className="px-4 pt-2 pb-3 sm:px-5">
         {allergies.length > 0 ? (
           <p className="flex items-start gap-2 rounded-lg bg-danger-soft px-2.5 py-2 text-[13px] font-semibold text-[#a81c1c]">
             <TriangleAlert className="mt-px size-4 shrink-0" aria-hidden="true" />
@@ -118,6 +126,6 @@ export const ConsultationIdentity = React.memo(function ConsultationIdentity({
           ))}
         </ul>
       ) : null}
-    </div>
+    </Container>
   );
 });

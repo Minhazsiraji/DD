@@ -131,6 +131,7 @@ export const InvestigationPanel = React.forwardRef<InvestigationPanelHandle, Inv
   const [historyOpen, setHistoryOpen] = React.useState(false);
   const [confirmationTone, setConfirmationTone] = React.useState<ConfirmationTone>("idle");
   const [confirmationMessage, setConfirmationMessage] = React.useState<string | null>(null);
+  const [stagedEditMessage, setStagedEditMessage] = React.useState<string | null>(null);
 
   React.useEffect(() => {
     if (readOnly) return;
@@ -190,7 +191,7 @@ export const InvestigationPanel = React.forwardRef<InvestigationPanelHandle, Inv
 
   React.useImperativeHandle(ref, () => ({
     focusVoiceField() {
-      searchInputRef.current?.scrollIntoView({ behavior: "instant", block: "center" });
+      searchInputRef.current?.closest("[data-m6d-section]")?.scrollIntoView({ behavior: "instant", block: "start" });
       searchInputRef.current?.focus({ preventScroll: true });
     },
     appendVoiceText(text: string) {
@@ -239,8 +240,10 @@ export const InvestigationPanel = React.forwardRef<InvestigationPanelHandle, Inv
 
   function removeRow(localId: string) {
     if (interactionLocked) return;
+    const removed = staged.find((row) => row.localId === localId);
     onStagedChange(removeStagedInvestigation(staged, localId));
     setDuplicateWarning(null);
+    setStagedEditMessage(`${removed?.name.trim() || "Investigation"} removed from staging. Nothing was confirmed or deleted from clinical history.`);
     if (noteEditorId === localId) setNoteEditorId(null);
   }
 
@@ -587,7 +590,7 @@ export const InvestigationPanel = React.forwardRef<InvestigationPanelHandle, Inv
                 <h3 id="investigation-staged-heading" className="text-[14px] font-semibold text-ink">Staged for confirmation</h3>
                 <p className="mt-0.5 text-[12px] text-ink-muted">Local only until you confirm the complete staged list.</p>
               </div>
-              <span className="rounded-full bg-white/45 px-2.5 py-1 text-[12px] font-semibold text-ink-secondary tabular-nums">
+              <span aria-live="polite" className="rounded-full bg-white/45 px-2.5 py-1 text-[12px] font-semibold text-ink-secondary tabular-nums">
                 {staged.length}
               </span>
             </div>
@@ -607,7 +610,7 @@ export const InvestigationPanel = React.forwardRef<InvestigationPanelHandle, Inv
                           {index + 1}
                         </span>
                         <div className="min-w-0 flex-1">
-                          <label htmlFor={`staged-investigation-${row.localId}`} className="sr-only">Investigation name</label>
+                          <label htmlFor={`staged-investigation-${row.localId}`} className="mb-1 block text-[12px] font-semibold text-ink-secondary">Edit investigation</label>
                           <input
                             id={`staged-investigation-${row.localId}`}
                             type="text"
@@ -615,6 +618,7 @@ export const InvestigationPanel = React.forwardRef<InvestigationPanelHandle, Inv
                             maxLength={INVESTIGATION_V1_MAX_NAME}
                             disabled={interactionLocked}
                             onChange={(event) => updateRow(row.localId, { name: event.target.value })}
+                            onBlur={() => setStagedEditMessage("Staged investigation updated locally. Nothing was confirmed.")}
                             className="h-11 w-full min-w-0 rounded-xl border border-white/55 bg-white/55 px-3 text-[14px] font-medium text-ink outline-none disabled:opacity-55 focus-visible:focus-ring"
                           />
 
@@ -630,6 +634,7 @@ export const InvestigationPanel = React.forwardRef<InvestigationPanelHandle, Inv
                                 maxLength={INVESTIGATION_V1_MAX_NOTE}
                                 disabled={interactionLocked}
                                 onChange={(event) => updateRow(row.localId, { note: event.target.value })}
+                                onBlur={() => setStagedEditMessage("Staged investigation note updated locally. Nothing was confirmed.")}
                                 onKeyDown={(event) => {
                                   if (event.key === "Escape") setNoteEditorId(null);
                                 }}
@@ -669,6 +674,8 @@ export const InvestigationPanel = React.forwardRef<InvestigationPanelHandle, Inv
                 })}
               </ol>
             )}
+
+            {stagedEditMessage ? <p role="status" aria-live="polite" className="mt-2 text-[12px] text-ink-secondary">{stagedEditMessage}</p> : null}
 
             {actionError ? (
               <p role="alert" className="mt-3 flex min-w-0 items-start gap-2 rounded-xl bg-danger-soft px-3 py-2.5 text-[13px] font-medium text-[#a81c1c]">

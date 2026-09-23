@@ -30,7 +30,12 @@ export function NextVisitFields({
   const badDate = date !== "" && !CALENDAR_DATE.test(date);
 
   return (
-    <SectionCard>
+    <SectionCard
+      id="nextVisitNote"
+      tabIndex={-1}
+      data-m6d-section
+      style={{ scrollMarginTop: "var(--m6d-voice-sticky-offset)" }}
+    >
       <SectionHeader
         title="Follow-up"
         action={
@@ -94,7 +99,7 @@ export function NextVisitFields({
 
           <div className="min-w-0 flex-1">
             <div className="flex min-h-11 flex-wrap items-center gap-2">
-              <label htmlFor="nextVisitNote" className="text-[12px] font-medium text-ink-secondary">
+              <label htmlFor="nextVisitNote-input" className="text-[12px] font-medium text-ink-secondary">
                 Note
               </label>
               <DictateButton
@@ -106,7 +111,7 @@ export function NextVisitFields({
               />
             </div>
             <input
-              id="nextVisitNote"
+              id="nextVisitNote-input"
               name="nextVisitNote"
               type="text"
               disabled={disabled}

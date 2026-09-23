@@ -54,7 +54,7 @@ describe("M6D navigation command consumption", () => {
   });
 
   it("scrolls directly to the one selected target without animated stepping", () => {
-    expect(panel).toContain('scrollIntoView({ behavior: "instant", block: "center" })');
+    expect(panel).toContain('scrollIntoView({ behavior: "instant", block: "start" })');
     expect(panel).not.toContain('scrollIntoView({ behavior: "smooth"');
   });
 

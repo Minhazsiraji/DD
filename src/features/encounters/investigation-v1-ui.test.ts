@@ -210,6 +210,21 @@ describe("Investigation V1 authority and unknown-outcome contracts", () => {
     expect(confirmed).toContain("Ordered");
   });
 
+  it("makes staged wording editable and removal explicitly local-only", () => {
+    const source = panel();
+    expect(source).toContain("Edit investigation");
+    expect(source).toContain("updateRow(row.localId, { name: event.target.value })");
+    expect(source).toContain("Remove staged");
+    expect(source).toContain("removed from staging. Nothing was confirmed or deleted from clinical history.");
+    expect(source).toContain('aria-live="polite"');
+  });
+
+  it("does not misrepresent the legacy hard-delete RPC as confirmed-order cancellation", () => {
+    const source = panel();
+    expect(source).not.toMatch(/removeInvestigationAction|Cancel order|Correct \/ replace/);
+    expect(source).not.toMatch(/cancelledAt|cancellationReason|replacedBy/);
+  });
+
   it("completed/cancelled consultations expose no staging or confirmation controls", () => {
     const source = panel();
     expect(source).toContain("{readOnly ? null : (");

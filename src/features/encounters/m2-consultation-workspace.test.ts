@@ -112,11 +112,13 @@ describe("M2 low-typing and clinical boundaries", () => {
 });
 
 describe("M2 identity, finish and prescription handoff", () => {
-  it("keeps patient identity and allergy safety pinned during consultation", () => {
+  it("keeps patient identity and allergy safety contained above consultation controls", () => {
     const workspace = read("src/features/encounters/components/consultation-workspace.tsx");
     const identity = read("src/features/encounters/components/consultation-identity.tsx");
-    expect(workspace).toMatch(/sticky top-0/);
+    const voice = read("src/features/encounters/components/m6a-voice-panel.tsx");
     expect(workspace).toContain("<ConsultationIdentity");
+    expect(workspace).toContain("consultationCard");
+    expect(voice).toContain('className="sticky top-2');
     expect(identity).toContain("patient.patientNumber");
     expect(identity).toContain("Allergy:");
     expect(identity).toContain("No known drug allergies recorded");

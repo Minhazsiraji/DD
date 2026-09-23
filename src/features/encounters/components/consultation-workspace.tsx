@@ -141,7 +141,7 @@ export function ConsultationWorkspace({
 
   function scrollTo(id: string) {
     const element = document.getElementById(id);
-    element?.scrollIntoView({ behavior: "smooth", block: "center" });
+    element?.scrollIntoView({ behavior: "instant", block: "start" });
     if (element instanceof HTMLElement) element.focus({ preventScroll: true });
   }
 
@@ -188,7 +188,11 @@ export function ConsultationWorkspace({
   }
 
   return (
-    <div className="pb-2">
+    <div
+      data-consultation-workspace
+      className="pb-2"
+      style={{ "--m6d-voice-sticky-offset": "12rem" } as React.CSSProperties}
+    >
       <UnsavedGuard dirty={(s.anythingUnsaved || stagedInvestigations.length > 0) && !readOnly} />
       {readOnly ? null : (
         <ConsultationAutosave
@@ -201,13 +205,13 @@ export function ConsultationWorkspace({
         />
       )}
 
-      <div className="sticky top-0 z-30 -mx-4 bg-background/72 px-4 pt-1 pb-3 backdrop-blur-md sm:-mx-6 sm:px-6">
-        <ConsultationIdentity patient={consultation.patient} locationName={locationName} />
-        {readOnly ? null : (
-          <div className="mt-2 flex justify-end">
-            <FastEntry visibility={visibility} blocked={s.blocked} />
-          </div>
-        )}
+      <div className="mb-4">
+        <ConsultationIdentity
+          patient={consultation.patient}
+          locationName={locationName}
+          consultationCard
+          action={readOnly ? null : <FastEntry visibility={visibility} blocked={s.blocked} />}
+        />
       </div>
 
       {readOnly ? (
@@ -329,7 +333,12 @@ export function ConsultationWorkspace({
           />
 
           {visibility.DIAGNOSIS.visible ? (
-            <div id="diagnoses" tabIndex={-1}>
+            <div
+              id="diagnoses"
+              tabIndex={-1}
+              data-m6d-section
+              style={{ scrollMarginTop: "var(--m6d-voice-sticky-offset)" }}
+            >
             <FindingList
               kind="diagnosis"
               title="Diagnoses"
@@ -357,7 +366,12 @@ export function ConsultationWorkspace({
           ) : null}
 
           {visibility.INVESTIGATIONS.visible ? (
-            <div id="m6b-investigations" tabIndex={-1}>
+            <div
+              id="m6b-investigations"
+              tabIndex={-1}
+              data-m6d-section
+              style={{ scrollMarginTop: "var(--m6d-voice-sticky-offset)" }}
+            >
             <InvestigationPanel
               ref={investigationPanelRef}
               title="Investigation orders"
