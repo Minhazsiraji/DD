@@ -39,6 +39,7 @@ export const INITIAL_M6D_VOICE_STATE: M6DVoiceState = {
 export const M6D_VOICE_SECTION_OPTIONS: readonly M6DVoiceSection[] = [
   "chiefComplaints",
   "presentIllness",
+  "pastHistory",
   "examination",
   "assessment",
   "advice",
