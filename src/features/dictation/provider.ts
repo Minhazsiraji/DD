@@ -152,6 +152,7 @@ const deepgramProvider: VoiceTranscriptionProvider = {
     let firstTranscriptTimer: ReturnType<typeof setTimeout> | null = null;
     let finalizeTimer: ReturnType<typeof setTimeout> | null = null;
     let tokenController: AbortController | null = null;
+    let tokenTimer: ReturnType<typeof setTimeout> | null = null;
     let cancelled = false;
     let terminal = false;
     let stopped = false;
@@ -201,6 +202,8 @@ const deepgramProvider: VoiceTranscriptionProvider = {
     const cleanup = () => {
       tokenController?.abort();
       tokenController = null;
+      clearTimer(tokenTimer);
+      tokenTimer = null;
       clearTimer(connectionTimer);
       clearTimer(firstTranscriptTimer);
       clearTimer(finalizeTimer);
@@ -356,6 +359,17 @@ const deepgramProvider: VoiceTranscriptionProvider = {
       startedAt = performance.now();
 
       try {
+        // Start the short-lived grant request immediately so auth/provider cold
+        // start overlaps microphone acquisition instead of running after it.
+        // Audio capture still begins as soon as the microphone is ready and is
+        // buffered until the WebSocket opens, preserving the first spoken words.
+        tokenController = new AbortController();
+        tokenTimer = setTimeout(() => tokenController?.abort(), TOKEN_ROUTE_TIMEOUT_MS);
+        const grantPromise = requestDeepgramAccessToken(tokenController.signal).then(
+          (grant) => ({ ok: true as const, grant }),
+          (error: unknown) => ({ ok: false as const, error }),
+        );
+
         stream = await navigator.mediaDevices.getUserMedia({
           audio: {
             echoCancellation: true,
@@ -376,18 +390,14 @@ const deepgramProvider: VoiceTranscriptionProvider = {
         // soon as Deepgram connects, so the doctor's first words are not lost.
         startRecorder();
 
-        tokenController = new AbortController();
-        const tokenTimeout = setTimeout(() => tokenController?.abort(), TOKEN_ROUTE_TIMEOUT_MS);
-        let accessToken: string;
-        try {
-          const grant = await requestDeepgramAccessToken(tokenController.signal);
-          accessToken = grant.accessToken;
-          qaDiagnostics = grant.qaDiagnostics;
-          grantId = grant.grantId;
-        } finally {
-          clearTimeout(tokenTimeout);
-        }
+        const grantResult = await grantPromise;
+        clearTimer(tokenTimer);
+        tokenTimer = null;
         tokenController = null;
+        if (!grantResult.ok) throw grantResult.error;
+        const accessToken = grantResult.grant.accessToken;
+        qaDiagnostics = grantResult.grant.qaDiagnostics;
+        grantId = grantResult.grant.grantId;
         if (cancelled || terminal) return;
 
         socket = new WebSocket(

@@ -41,6 +41,15 @@ describe("Deepgram selective reconciliation security locks", () => {
     expect(provider).not.toContain("START_CORRECTION");
   });
 
+  it("overlaps temporary grant startup with microphone acquisition", () => {
+    const provider = source("./provider.ts");
+    const grantStart = provider.indexOf("const grantPromise = requestDeepgramAccessToken");
+    const micAwait = provider.indexOf("stream = await navigator.mediaDevices.getUserMedia");
+    expect(grantStart).toBeGreaterThan(-1);
+    expect(micAwait).toBeGreaterThan(grantStart);
+    expect(provider).toContain("Audio capture still begins as soon as the microphone is ready");
+  });
+
   it("has exactly one approved STT provider", () => {
     const provider = source("./provider.ts");
     const language = source("./voice-language.tsx");
