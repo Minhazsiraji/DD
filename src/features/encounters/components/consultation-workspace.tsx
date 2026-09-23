@@ -309,7 +309,8 @@ export function ConsultationWorkspace({
               }}
               onDiagnosisDraftChange={(draft) => s.setDraft("diagnosis", draft)}
               onFocusInvestigation={() => investigationPanelRef.current?.focusVoiceField()}
-              onAppendInvestigation={(text) => investigationPanelRef.current?.appendVoiceText(text) ?? false}
+              onAppendInvestigation={(text) => investigationPanelRef.current?.appendVoiceText(text) ?? null}
+              onEditInvestigation={(intent, undo) => investigationPanelRef.current?.editVoiceField(intent, undo) ?? { handled: false, mutation: null, message: "" }}
             />
           )}
 

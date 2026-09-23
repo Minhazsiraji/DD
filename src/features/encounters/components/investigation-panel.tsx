@@ -16,6 +16,8 @@ import {
 import { SectionCard, SectionHeader } from "@/components/common/section-card";
 import { DictateButton } from "@/features/dictation/components/dictate-button";
 import { insertTranscript } from "@/features/dictation/dictation";
+import { applyM6DTextEdit } from "@/features/dictation/m6d-voice-state";
+import type { M6DLocalIntent } from "@/features/dictation/m6d-intent-router";
 import { confirmInvestigationsAction, type InvestigationConfirmationResult } from "../investigation-v1-actions";
 import {
   INVESTIGATION_V1_MAX_NAME,
@@ -68,7 +70,15 @@ interface InvestigationPanelProps {
 
 export interface InvestigationPanelHandle {
   focusVoiceField: () => void;
-  appendVoiceText: (text: string) => boolean;
+  appendVoiceText: (text: string) => VoiceFieldMutation | null;
+  editVoiceField: (intent: M6DLocalIntent, undo: VoiceFieldMutation | null) => VoiceFieldEditResult;
+}
+
+export interface VoiceFieldMutation { before: string; after: string }
+export interface VoiceFieldEditResult {
+  handled: boolean;
+  mutation: VoiceFieldMutation | null;
+  message: string;
 }
 
 type ReadState = "loading" | "ready" | "unavailable";
@@ -195,12 +205,31 @@ export const InvestigationPanel = React.forwardRef<InvestigationPanelHandle, Inv
       searchInputRef.current?.focus({ preventScroll: true });
     },
     appendVoiceText(text: string) {
-      if (interactionLocked) return false;
-      setSearchText((current) => insertTranscript(current, text, current.length).text);
+      if (interactionLocked) return null;
+      const after = insertTranscript(searchText, text, searchText.length).text;
+      const mutation = { before: searchText, after };
+      setSearchText(after);
       setHighlighted(0);
-      return true;
+      return mutation;
     },
-  }), [interactionLocked]);
+    editVoiceField(intent, undo) {
+      if (interactionLocked) return { handled: true, mutation: null, message: "Investigation search is unavailable." };
+      if (intent.type === "UNDO") {
+        if (!undo || searchText !== undo.after) {
+          return { handled: true, mutation: null, message: "Nothing to undo in Investigation search." };
+        }
+        setSearchText(undo.before);
+        setHighlighted(0);
+        return { handled: true, mutation: null, message: "Last voice change undone in Investigation search." };
+      }
+      const after = applyM6DTextEdit(searchText, intent);
+      if (after === null) return { handled: false, mutation: null, message: "" };
+      const mutation = after === searchText ? null : { before: searchText, after };
+      if (mutation) setSearchText(after);
+      setHighlighted(0);
+      return { handled: true, mutation, message: mutation ? "Investigation search updated." : "Investigation search was unchanged." };
+    },
+  }), [interactionLocked, searchText]);
 
   function updateSearchText(value: string) {
     setSearchText(value);

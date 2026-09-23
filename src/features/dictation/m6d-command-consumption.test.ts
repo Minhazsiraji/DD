@@ -26,12 +26,12 @@ describe("M6D navigation command consumption", () => {
   it("suppresses the matching raw final before normalization or note append", () => {
     const rawGuard = panel.indexOf("const rawFinalLocal = parseM6DLocalCommand(rawText)");
     const normalize = panel.indexOf("const text = await normalizeTranscript(rawText, voiceLanguage.lang)");
-    const append = panel.indexOf("appendDraft(targetRef.current, text)");
+    const append = panel.indexOf("appendDraft(destination.target, text)");
     expect(rawGuard).toBeGreaterThan(-1);
     expect(normalize).toBeGreaterThan(rawGuard);
     expect(append).toBeGreaterThan(normalize);
     expect(panel).toContain("pendingNavigation && isM6DNavigationIntent(rawFinalLocal)");
-    expect(panel).toContain("pendingNavigationRef.current = null");
+    expect(panel).toContain("pendingNavigation: null");
   });
 
   it("rolls back provisional navigation when a longer utterance is not a command", () => {
@@ -58,10 +58,11 @@ describe("M6D navigation command consumption", () => {
     expect(panel).not.toContain('scrollIntoView({ behavior: "smooth"');
   });
 
-  it("executes standalone controls only at speech-final, never provider-final", () => {
+  it("uses provider-final only to close standalone command boundaries", () => {
     const providerFinal = panel.slice(panel.indexOf("function handleProviderFinal"), panel.indexOf("async function handleFinal"));
     const speechFinal = panel.slice(panel.indexOf("async function handleFinal"), panel.indexOf("const dictation = useDictation"));
-    expect(providerFinal).toContain("if (isM6DStandaloneControlIntent(local) || isM6DDiagnosisIntent(local)) return");
+    expect(providerFinal).toContain('if (local.type === "NONE")');
+    expect(providerFinal).toContain("dictation.commitUtterance()");
     expect(providerFinal).not.toContain("applyLocal(local)");
     expect(speechFinal).toContain("applyLocal(local)");
   });
@@ -69,7 +70,7 @@ describe("M6D navigation command consumption", () => {
   it("consumes controls before any clinical-note append", () => {
     const speechFinal = panel.slice(panel.indexOf("async function handleFinal"), panel.indexOf("const dictation = useDictation"));
     const apply = speechFinal.indexOf("applyLocal(local)");
-    const append = speechFinal.indexOf("appendDraft(targetRef.current, text)");
+    const append = speechFinal.indexOf("appendDraft(destination.target, text)");
     expect(apply).toBeGreaterThan(-1);
     expect(append).toBeGreaterThan(apply);
     expect(speechFinal).toContain('if (local.type !== "NONE")');
@@ -83,7 +84,7 @@ describe("M6D navigation command consumption", () => {
   });
 
   it("never leaks speech into notes while voice dictation is paused", () => {
-    expect(panel).toContain("if (pausedRef.current)");
+    expect(panel).toContain('voiceStateRef.current.session === "paused"');
     expect(panel).toContain("Speech was not added to the clinical draft.");
   });
 });

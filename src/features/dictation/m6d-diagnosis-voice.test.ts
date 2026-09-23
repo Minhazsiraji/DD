@@ -6,6 +6,7 @@ const panel = read("src/features/encounters/components/m6a-voice-panel.tsx");
 const workspace = read("src/features/encounters/components/consultation-workspace.tsx");
 const form = read("src/features/encounters/components/finding-form.tsx");
 const router = read("src/features/dictation/m6d-intent-router.ts");
+const voiceState = read("src/features/dictation/m6d-voice-state.ts");
 
 describe("M6D complete Diagnoses voice workflow", () => {
   it("makes Diagnosis and Diagnoses open and focus the controlled title field", () => {
@@ -14,9 +15,9 @@ describe("M6D complete Diagnoses voice workflow", () => {
     expect(panel).toContain("pendingDiagnosisIntentRef.current = intent");
     expect(panel).toContain("onOpenDiagnosis()");
     expect(workspace).toContain('if (!s.editors.diagnosis) s.openAdd("diagnosis")');
-    expect(panel).toContain('"[data-m6d-diagnosis-title]"');
-    expect(panel).toContain('"[data-m6d-diagnosis-certainty]"');
-    expect(panel).toContain('"[data-m6d-diagnosis-note]"');
+    expect(voiceState).toContain('"[data-m6d-diagnosis-title]"');
+    expect(voiceState).toContain('"[data-m6d-diagnosis-certainty]"');
+    expect(voiceState).toContain('"[data-m6d-diagnosis-note]"');
     expect(form).toContain("data-m6d-diagnosis-title");
     expect(form).toContain("data-m6d-diagnosis-note");
   });
@@ -42,8 +43,7 @@ describe("M6D complete Diagnoses voice workflow", () => {
   it("consumes diagnosis controls once at speech-final and never appends their text", () => {
     const providerFinal = panel.slice(panel.indexOf("function handleProviderFinal"), panel.indexOf("async function handleFinal"));
     const speechFinal = panel.slice(panel.indexOf("async function handleFinal"), panel.indexOf("const dictation = useDictation"));
-    expect(providerFinal).toContain("isM6DDiagnosisIntent(local)");
-    expect(providerFinal).toContain("isM6DDiagnosisDirectOpenIntent(local)");
+    expect(providerFinal).toContain('if (local.type === "NONE")');
     expect(providerFinal).toContain("dictation.commitUtterance()");
     expect(providerFinal).not.toContain("applyDiagnosisIntent");
     expect(speechFinal.indexOf("applyLocal(local)")).toBeLessThan(speechFinal.indexOf("appendDiagnosisDraft(text)"));
@@ -54,7 +54,8 @@ describe("M6D complete Diagnoses voice workflow", () => {
     expect(router).toContain('if (value === "diagnosis field") return { type: "DIAGNOSIS_TARGET", target: "title" }');
     expect(panel).toContain('intent.type === "DIAGNOSIS_NAVIGATE"');
     expect(panel).toContain('intent.type === "DIAGNOSIS_TARGET" && intent.target === "title"');
-    expect(panel).toContain('diagnosisTargetRef.current = intent.target');
+    expect(panel).toContain('setDestination(destination)');
+    expect(panel).toContain('destination.kind === "diagnosis"');
   });
 
   it("allows the next ordinary utterance to enter the focused title without submitting", () => {
@@ -69,7 +70,7 @@ describe("M6D complete Diagnoses voice workflow", () => {
     expect(panel).not.toContain("onSubmit");
     expect(panel).not.toContain("submitDiagnosisEditor");
     expect(panel).not.toContain("addDiagnosisAction");
-    expect(panel).toContain('focusDiagnosis("[data-m6d-diagnosis-submit]")');
+    expect(panel).toContain('document.querySelector("[data-m6d-diagnosis-submit]")');
     expect(panel).toContain("Press Add diagnosis explicitly to create it.");
     expect(form).toContain('type="submit"');
   });
