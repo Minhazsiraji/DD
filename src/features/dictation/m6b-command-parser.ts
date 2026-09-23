@@ -19,11 +19,16 @@ export type M6BIntent =
   | { type: "UNKNOWN"; rawText: string };
 
 function clean(text: string) {
-  return text.normalize("NFC").trim().replace(/[।!?]+$/g, "").replace(/\s+/g, " ");
+  return text.normalize("NFC").trim().replace(/[.।!?]+$/g, "").replace(/\s+/g, " ");
+}
+
+function normalizeBanglaDigits(text: string) {
+  const bangla = "০১২৩৪৫৬৭৮৯";
+  return text.replace(/[০-৯]/g, (digit) => String(bangla.indexOf(digit)));
 }
 
 function lower(text: string) {
-  return clean(text).toLocaleLowerCase("en-US");
+  return normalizeBanglaDigits(clean(text)).toLocaleLowerCase("en-US");
 }
 
 function hasAny(value: string, phrases: readonly string[]) {
@@ -45,7 +50,7 @@ const NAVIGATION: readonly [M6BNavigationTarget, readonly string[]][] = [
   ["examination", ["go to examination", "examination e jao", "examination এ যাও", "পরীক্ষা অংশে যাও"]],
   ["assessment", ["go to assessment", "assessment e jao", "assessment এ যাও", "অ্যাসেসমেন্টে যাও"]],
   ["advice", ["go to advice", "advice e jao", "advice এ যাও", "পরামর্শে যাও"]],
-  ["follow-up", ["go to follow-up", "go to follow up", "follow up e jao", "follow-up এ যাও", "ফলো আপে যাও"]],
+  ["follow-up", ["go to follow-up", "go to follow up", "go to next visit", "follow up e jao", "follow-up এ যাও", "ফলো আপে যাও", "পরবর্তী ভিজিটে যাও"]],
 ];
 
 const INVESTIGATION_NAMES: readonly [string, readonly string[]][] = [
@@ -61,13 +66,24 @@ function extractInvestigations(value: string): string[] {
 }
 
 function parseDays(value: string): number | null {
-  const digit = value.match(/\b(\d{1,3})\s*(?:day|days|দিন)\b/i);
-  if (digit) return Number(digit[1]);
+  const dayDigit = value.match(/\b(\d{1,3})\s*(?:day|days|দিন)\b/i);
+  if (dayDigit) return Number(dayDigit[1]);
+  const weekDigit = value.match(/\b(\d{1,2})\s*(?:week|weeks|সপ্তাহ)\b/i);
+  if (weekDigit) return Number(weekDigit[1]) * 7;
+  const monthDigit = value.match(/\b(\d{1,2})\s*(?:month|months|মাস)\b/i);
+  if (monthDigit) return Number(monthDigit[1]) * 30;
   const words: readonly [number, readonly string[]][] = [
-    [1, ["one day", "এক দিন", "একদিন"]], [3, ["three days", "তিন দিন", "tin din"]],
-    [7, ["seven days", "সাত দিন", "sat din", "one week", "1 week", "এক সপ্তাহ"]],
-    [14, ["fourteen days", "চৌদ্দ দিন", "two weeks", "2 weeks", "দুই সপ্তাহ"]],
-    [30, ["thirty days", "ত্রিশ দিন", "one month", "1 month", "এক মাস"]],
+    [1, ["one day", "এক দিন", "একদিন"]],
+    [2, ["two days", "দুই দিন", "দুইদিন"]],
+    [3, ["three days", "তিন দিন", "tin din"]],
+    [5, ["five days", "পাঁচ দিন"]],
+    [7, ["seven days", "সাত দিন", "sat din", "one week", "এক সপ্তাহ"]],
+    [10, ["ten days", "দশ দিন"]],
+    [14, ["fourteen days", "চৌদ্দ দিন", "two weeks", "দুই সপ্তাহ"]],
+    [21, ["twenty one days", "twenty-one days", "three weeks", "তিন সপ্তাহ"]],
+    [30, ["thirty days", "ত্রিশ দিন", "one month", "এক মাস"]],
+    [60, ["sixty days", "two months", "দুই মাস"]],
+    [90, ["ninety days", "three months", "তিন মাস"]],
   ];
   return words.find(([, aliases]) => hasAny(value, aliases))?.[0] ?? null;
 }
@@ -103,7 +119,10 @@ export function parseM6BCommand(text: string): M6BIntent {
   if (hasAny(value, FINALIZED_MUTATION)) return { type: "PROHIBITED_ACTION", rawText: raw, action: "FINALIZED_MUTATION", reviewOnly: false };
   if (hasAny(value, BYPASS)) return { type: "PROHIBITED_ACTION", rawText: raw, action: "BYPASS_CONFIRMATION", reviewOnly: false };
 
-  const followUpCue = hasAny(value, ["follow-up", "follow up", "ফলো আপ", "followup"]);
+  const followUpCue = hasAny(value, [
+    "follow-up", "follow up", "followup", "next visit", "next appointment", "review after",
+    "ফলো আপ", "ফলোআপ", "পরবর্তী ভিজিট", "পরের ভিজিট", "পরবর্তী সাক্ষাৎ",
+  ]);
   if (followUpCue && !hasAny(value, ["go to", "e jao", "এ যাও", "যাও", "খোলো"])) {
     const days = parseDays(value);
     return { type: "PROPOSE_FOLLOW_UP", rawText: raw, days, uncertainties: days ? [] : ["Follow-up interval is not explicit."] };
