@@ -16,7 +16,7 @@ describe("M6D navigation command consumption", () => {
 
   it("marks provider-final navigation consumed without restarting the persistent stream", () => {
     expect(panel).toContain("routePendingNavigation(local, true)");
-    expect(panel).toContain("const local = parseM6DLocalCommand(rawText)");
+    expect(panel).toContain("const local = parseCurrentLocalCommand(rawText)");
     expect(panel).toContain('continuous: mode === "guided"');
     expect(panel).toContain("dictation.commitUtterance()");
     expect(panel).toContain("onUtteranceEnd: (text) => void handleFinal(text, false)");
@@ -24,7 +24,7 @@ describe("M6D navigation command consumption", () => {
   });
 
   it("suppresses the matching raw final before normalization or note append", () => {
-    const rawGuard = panel.indexOf("const rawFinalLocal = parseM6DLocalCommand(rawText)");
+    const rawGuard = panel.indexOf("const rawFinalLocal = parseCurrentLocalCommand(rawText)");
     const normalize = panel.indexOf("const text = await normalizeTranscript(rawText, voiceLanguage.lang)");
     const append = panel.indexOf("appendDraft(destination.target, text)");
     expect(rawGuard).toBeGreaterThan(-1);
@@ -61,7 +61,8 @@ describe("M6D navigation command consumption", () => {
 
   it("never treats accumulated command history as a navigation sequence", () => {
     expect(panel).not.toContain("parseM6DNavigationSequence");
-    expect(panel).toContain("parseM6DLocalCommand(text)");
+    expect(panel).toContain("parseCurrentLocalCommand(text)");
+    expect(panel).toContain("activeTarget: destination.kind === \"note\" ? destination.target : undefined");
   });
 
   it("scrolls directly to the one selected target without animated stepping", () => {

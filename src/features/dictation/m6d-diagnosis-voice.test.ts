@@ -6,6 +6,7 @@ const panel = read("src/features/encounters/components/m6a-voice-panel.tsx");
 const workspace = read("src/features/encounters/components/consultation-workspace.tsx");
 const form = read("src/features/encounters/components/finding-form.tsx");
 const router = read("src/features/dictation/m6d-intent-router.ts");
+const catalogue = read("src/features/dictation/m6d-command-catalogue.ts");
 const voiceState = read("src/features/dictation/m6d-voice-state.ts");
 
 describe("M6D complete Diagnoses voice workflow", () => {
@@ -50,8 +51,8 @@ describe("M6D complete Diagnoses voice workflow", () => {
   });
 
   it("uses the same direct-open target for singular, plural and Diagnosis field", () => {
-    expect(router).toContain('["diagnosis", "diagnoses"');
-    expect(router).toContain('["diagnosis field", "diagnosis name", "diagnosis title"');
+    expect(catalogue).toContain('"diagnosis", "diagnoses"');
+    expect(catalogue).toContain('"diagnosis field", "diagnosis name", "diagnosis title"');
     expect(panel).toContain('intent.type === "DIAGNOSIS_NAVIGATE"');
     expect(panel).toContain('intent.type === "DIAGNOSIS_TARGET" && intent.target === "title"');
     expect(panel).toContain('setDestination(destination)');

@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { Mic2, Pause, Play, ShieldAlert, Square, Undo2, Waves } from "lucide-react";
+import { CircleHelp, Mic2, Pause, Play, ShieldAlert, Square, Undo2, Waves } from "lucide-react";
 import type { DraftKey, DraftValues } from "../schema";
 import type { FindingDraft } from "../finding-types";
 import { insertTranscript } from "@/features/dictation/dictation";
@@ -11,6 +11,7 @@ import { isM6DCommandLikeUtterance, isM6DDiagnosisIntent, isM6DInvestigationInte
 import { applyM6DTextEdit, INITIAL_M6D_VOICE_STATE, M6D_VOICE_SECTION_OPTIONS, m6dCommandPriority, m6dVoiceDestinationForIntent, m6dVoiceDestinationForSection, m6dVoiceFocusSelector, m6dVoiceSection, type M6DPendingNavigation, type M6DVoiceDestination, type M6DVoiceSection, type M6DVoiceState } from "@/features/dictation/m6d-voice-state";
 import { parseM6BCommand, type M6BIntent } from "@/features/dictation/m6b-command-parser";
 import { SectionCard } from "@/components/common/section-card";
+import { getM6DVoiceHelpExamples } from "@/features/dictation/m6d-command-catalogue";
 
 const LABELS: Record<M6DTarget, string> = {
   chiefComplaints: "Chief complaint",
@@ -121,6 +122,7 @@ export function M6AVoicePanel({
   const sessionActive = voiceState.session !== "idle";
   const paused = voiceState.session === "paused";
   const currentSection = m6dVoiceSection(voiceState.destination);
+  const voiceHelp = getM6DVoiceHelpExamples(currentSection);
   React.useEffect(() => { valuesRef.current = values; }, [values]);
   React.useEffect(() => () => {
     if (silenceTimer.current) clearTimeout(silenceTimer.current);
@@ -149,6 +151,13 @@ export function M6AVoicePanel({
   function clearSilenceTimer() {
     if (silenceTimer.current) clearTimeout(silenceTimer.current);
     silenceTimer.current = null;
+  }
+
+  function parseCurrentLocalCommand(text: string) {
+    const destination = voiceStateRef.current.destination;
+    return parseM6DLocalCommand(text, {
+      activeTarget: destination.kind === "note" ? destination.target : undefined,
+    });
   }
 
   function commitVoiceState(update: (current: M6DVoiceState) => M6DVoiceState) {
@@ -200,7 +209,7 @@ export function M6AVoicePanel({
     if (!text.trim()) return;
 
     if (mode === "guided") {
-      const candidate = parseM6DLocalCommand(text);
+      const candidate = parseCurrentLocalCommand(text);
       const pending = voiceStateRef.current.pendingNavigation;
       if (pending && !pending.consumed) {
         if (!isM6DNavigationIntent(candidate) || m6dNavigationCommandKey(candidate) !== pending.key) {
@@ -473,7 +482,7 @@ export function M6AVoicePanel({
 
   function handleProviderFinal(rawText: string) {
     if (mode !== "guided") return;
-    const local = parseM6DLocalCommand(rawText);
+    const local = parseCurrentLocalCommand(rawText);
     if (local.type === "NONE") {
       rollbackPendingNavigation();
       return;
@@ -493,7 +502,7 @@ export function M6AVoicePanel({
     clearSilenceTimer();
     setPreview("");
     const pendingNavigation = voiceStateRef.current.pendingNavigation;
-    const rawFinalLocal = parseM6DLocalCommand(rawText);
+    const rawFinalLocal = parseCurrentLocalCommand(rawText);
     if (pendingNavigation && isM6DNavigationIntent(rawFinalLocal) && m6dNavigationCommandKey(rawFinalLocal) === pendingNavigation.key) {
       commitVoiceState((current) => ({ ...current, pendingNavigation: null }));
       if (restart) scheduleRestart();
@@ -507,7 +516,7 @@ export function M6AVoicePanel({
       if (restart) scheduleRestart();
       return;
     }
-    const local = parseM6DLocalCommand(text);
+    const local = parseCurrentLocalCommand(text);
     if (local.type !== "NONE") {
       const mayRunPaused = local.type === "RESUME" || local.type === "END" || local.type === "UNDO";
       if (voiceStateRef.current.session === "paused" && !mayRunPaused) {
@@ -689,7 +698,7 @@ export function M6AVoicePanel({
           <div className="flex flex-wrap items-center gap-2"><Mic2 className="size-4 text-brand" aria-hidden="true" /><h2 className="text-[14px] font-semibold text-ink">Voice Assistant</h2><span className="rounded-full bg-brand/10 px-2 py-0.5 text-[10px] font-semibold text-brand">M6D</span>{sessionActive && !paused ? <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-[#a81c1c]"><span className="size-2 animate-pulse rounded-full bg-[#a81c1c]" />Listening</span> : null}</div>
           <p className="mt-1 hidden text-[11px] text-ink-muted sm:block">Notes may enter editable draft fields directly. Clinical actions still require proposal review and explicit Apply.</p>
         </div>
-        <div className="flex min-w-0 flex-wrap items-center gap-2">
+        <div className="relative flex min-w-0 flex-wrap items-center gap-2">
           <div className="hidden sm:contents">
             <VoiceLanguageControl disabled={disabled || providerBusy} />
             <select aria-label="Voice mode" value={mode} disabled={providerBusy} onChange={(e) => setMode(e.target.value as "guided" | "ambient")} className="min-h-11 rounded-xl border border-hairline bg-white px-3 text-[12px] font-semibold text-ink"><option value="guided">Guided Voice</option><option value="ambient">Ambient Consultation</option></select>
@@ -703,6 +712,25 @@ export function M6AVoicePanel({
           {!sessionActive ? <button type="button" onClick={startSession} disabled={disabled || !dictation.supported} className="inline-flex min-h-11 items-center gap-1.5 rounded-xl bg-brand px-3 text-[12px] font-semibold text-white disabled:opacity-50"><Play className="size-4" />Start Voice</button> : paused ? <button type="button" onClick={() => resumeSession()} disabled={disabled} className="inline-flex min-h-11 items-center gap-1.5 rounded-xl bg-brand px-3 text-[12px] font-semibold text-white disabled:opacity-50"><Play className="size-4" />Resume</button> : <button type="button" onClick={() => pauseSession()} className="inline-flex min-h-11 items-center gap-1.5 rounded-xl border border-hairline bg-white px-3 text-[12px] font-semibold text-ink"><Pause className="size-4" />Pause</button>}
           {sessionActive ? <button type="button" onClick={endSession} className="inline-flex min-h-11 items-center gap-1.5 rounded-xl border border-hairline bg-white px-3 text-[12px] font-semibold text-ink"><Square className="size-3.5 fill-current" />End</button> : null}
           <button type="button" onClick={() => applyLocal({ type: "UNDO" })} disabled={!lastChange} className="inline-flex min-h-11 items-center gap-1.5 rounded-xl border border-hairline bg-white px-3 text-[12px] font-semibold text-ink disabled:opacity-45"><Undo2 className="size-4" />Undo</button>
+          <details className="group min-w-0">
+            <summary className="inline-flex min-h-11 cursor-pointer list-none items-center gap-1.5 rounded-xl border border-hairline bg-white px-3 text-[12px] font-semibold text-ink focus-visible:focus-ring [&::-webkit-details-marker]:hidden">
+              <CircleHelp className="size-4 text-brand" aria-hidden="true" />What can I say?
+            </summary>
+            <div className="mt-2 max-w-full rounded-xl border border-hairline bg-white p-3 text-[11px] text-ink-secondary shadow-sm sm:absolute sm:right-4 sm:z-50 sm:w-[24rem]" data-m6d-voice-help>
+              <p className="font-semibold text-ink">Target: {SECTION_LABELS[currentSection]}</p>
+              <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                {voiceHelp.map(([category, examples]) => (
+                  <div key={category} className="min-w-0">
+                    <p className="font-semibold text-brand">{category}</p>
+                    <ul className="mt-1 space-y-0.5">
+                      {examples.map((example) => <li key={example} className="break-words">“{example}”</li>)}
+                    </ul>
+                  </div>
+                ))}
+              </div>
+              <p className="mt-2 text-[10px] text-ink-muted">Commands work only as standalone utterances. Clinical prose stays dictation.</p>
+            </div>
+          </details>
         </div>
       </div>
       <details className="mt-2 sm:hidden">

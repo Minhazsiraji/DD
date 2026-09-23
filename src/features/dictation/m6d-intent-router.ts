@@ -1,3 +1,5 @@
+import { M6D_COMMAND_ALIASES, M6D_SECTION_ALIASES } from "./m6d-command-catalogue";
+
 export type M6DTarget =
   | "chiefComplaints"
   | "presentIllness"
@@ -44,15 +46,11 @@ export type M6DLocalIntent =
   | { type: "NOTE_EDIT"; operation: "ADD" | "REMOVE" | "REPLACE" | "REPLACE_LAST" | "CLEAR" | "READ"; value?: string; replacement?: string }
   | { type: "NONE" };
 
-const SECTION_ALIASES: readonly [M6DTarget, readonly string[]][] = [
-  ["chiefComplaints", ["chief complaint", "chief complaints", "complaint", "complaints", "cheap complaint", "cheap complaints", "প্রধান অভিযোগ", "মূল অভিযোগ", "অভিযোগ"]],
-  ["presentIllness", ["history", "present illness", "history of present illness", "hpi", "হিস্ট্রি", "ইতিহাস", "বর্তমান অসুস্থতার ইতিহাস", "বর্তমান রোগের ইতিহাস"]],
-  ["pastHistory", ["past history", "past medical history", "medical history", "previous illness history", "অতীত ইতিহাস", "পূর্ব ইতিহাস", "আগের রোগের ইতিহাস", "পূর্ববর্তী রোগের ইতিহাস"]],
-  ["examination", ["examination", "exam", "physical examination", "clinical examination", "পরীক্ষা", "শারীরিক পরীক্ষা", "ক্লিনিক্যাল পরীক্ষা"]],
-  ["assessment", ["assessment", "impression", "clinical impression", "অ্যাসেসমেন্ট", "মূল্যায়ন", "ধারণা"]],
-  ["advice", ["advice", "plan", "পরামর্শ", "উপদেশ"]],
-  ["nextVisitNote", ["follow up", "follow-up", "followup", "follow up note", "next visit", "next visit note", "ফলো আপ", "ফলোআপ", "পরবর্তী ভিজিট", "পরবর্তী সাক্ষাৎ"]],
-];
+const SECTION_ALIASES = Object.entries(M6D_SECTION_ALIASES) as [M6DTarget, readonly string[]][];
+
+export interface M6DCommandContext {
+  activeTarget?: M6DTarget;
+}
 
 function clean(text: string) {
   return text.normalize("NFC").trim().replace(/[.।!?]+$/g, "").replace(/\s+/g, " ");
@@ -129,6 +127,10 @@ function sectionFromAlias(value: string): M6DTarget | null {
   return null;
 }
 
+function isAlias(value: string, aliases: readonly string[]): boolean {
+  return aliases.includes(value);
+}
+
 function parseRelativeAmount(raw: string): number | null {
   const normalized = raw.toLocaleLowerCase("en-US").trim();
   const asciiDigits = normalized.replace(/[০-৯]/g, (digit) => String("০১২৩৪৫৬৭৮৯".indexOf(digit)));
@@ -136,6 +138,7 @@ function parseRelativeAmount(raw: string): number | null {
   const words: Record<string, number> = {
     one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10,
     eleven: 11, twelve: 12, thirteen: 13, fourteen: 14, fifteen: 15, twenty: 20, thirty: 30,
+    ek: 1, dui: 2, tin: 3,
     "এক": 1, "একটি": 1, "দুই": 2, "দুটি": 2, "তিন": 3, "চার": 4, "পাঁচ": 5, "ছয়": 6, "ছয়": 6, "সাত": 7, "আট": 8, "নয়": 9, "নয়": 9, "দশ": 10, "চৌদ্দ": 14, "ত্রিশ": 30,
   };
   return words[normalized] ?? null;
@@ -146,6 +149,55 @@ function stripNavigationPrefix(value: string): string {
     .replace(/^(?:go to|open|show|move to|switch to)\s+/i, "")
     .replace(/^(?:যাও|খোলো|দেখাও|যান|খুলুন)\s+/u, "")
     .trim();
+}
+
+function relativeDate(amount: number, unit: string): M6DLocalIntent {
+  return unit === "month" || unit === "months" || unit === "মাস"
+    ? { type: "FOLLOW_UP_DATE", amount, unit: "months" }
+    : { type: "FOLLOW_UP_DATE", amount: unit === "week" || unit === "weeks" || unit === "সপ্তাহ" ? amount * 7 : amount, unit: "days" };
+}
+
+function parseFollowUpDate(raw: string, activeTarget?: M6DTarget): M6DLocalIntent | null {
+  const explicitEnglish = raw.match(/^(?:set\s+)?(?:review|next visit|next appointment|follow[- ]?up)(?:\s+date)?\s+(?:after|in)\s+([\w-]+)\s+(day|days|week|weeks|month|months)$/i);
+  if (explicitEnglish) {
+    const amount = parseRelativeAmount(explicitEnglish[1]!);
+    return amount && amount > 0 ? relativeDate(amount, explicitEnglish[2]!.toLowerCase()) : null;
+  }
+
+  const explicitBangla = raw.match(/^(?:পরবর্তী ভিজিট|ফলো ?আপ|ফলোআপ)\s+([\p{L}\p{M}\d০-৯]+)\s*(দিন|সপ্তাহ|মাস)\s*(?:পরে|পর)?$/u);
+  if (explicitBangla) {
+    const amount = parseRelativeAmount(explicitBangla[1]!);
+    return amount && amount > 0 ? relativeDate(amount, explicitBangla[2]!) : null;
+  }
+
+  const explicitBanglish = raw.match(/^(?:follow[- ]?up|next visit|next appointment)\s+([\w-]+)\s+(day|days|week|weeks|month|months|din)\s+(?:por|pore)$/i);
+  if (explicitBanglish) {
+    const amount = parseRelativeAmount(explicitBanglish[1]!);
+    return amount && amount > 0 ? relativeDate(amount, explicitBanglish[2]!.toLowerCase()) : null;
+  }
+
+  if (activeTarget !== "nextVisitNote") return null;
+  const contextual = raw.toLocaleLowerCase("en-US");
+  if (["tomorrow", "আগামীকাল", "kal"].includes(contextual)) return { type: "FOLLOW_UP_DATE", amount: 1, unit: "days" };
+
+  const englishInterval = contextual.match(/^(?:(?:after|in)\s+)?([\w-]+)\s+(day|days|week|weeks|month|months)$/i);
+  if (englishInterval) {
+    const amount = parseRelativeAmount(englishInterval[1]!);
+    return amount && amount > 0 ? relativeDate(amount, englishInterval[2]!) : null;
+  }
+
+  const banglaInterval = contextual.match(/^([\p{L}\p{M}\d০-৯]+)\s*(দিন|সপ্তাহ|মাস)\s*(?:পরে|পর)$/u);
+  if (banglaInterval) {
+    const amount = parseRelativeAmount(banglaInterval[1]!);
+    return amount && amount > 0 ? relativeDate(amount, banglaInterval[2]!) : null;
+  }
+
+  const banglishInterval = contextual.match(/^([\w-]+)\s+(din|day|days|week|weeks|month|months)\s+(?:por|pore)$/i);
+  if (banglishInterval) {
+    const amount = parseRelativeAmount(banglishInterval[1]!);
+    return amount && amount > 0 ? relativeDate(amount, banglishInterval[2]!) : null;
+  }
+  return null;
 }
 
 export function parseM6DAppendText(text: string): string | null {
@@ -162,54 +214,37 @@ export function parseM6DAppendText(text: string): string | null {
   return null;
 }
 
-export function parseM6DLocalCommand(text: string): M6DLocalIntent {
+export function parseM6DLocalCommand(text: string, context: M6DCommandContext = {}): M6DLocalIntent {
   const raw = clean(text);
   const value = raw.toLocaleLowerCase("en-US");
 
-  if (["next", "next section", "next field", "পরের সেকশন", "পরের অংশ", "পরের ঘর"].includes(value)) return { type: "NEXT" };
-  if (["previous", "previous section", "previous field", "back", "আগের সেকশন", "আগের অংশ", "আগের ঘর", "পেছনে যাও"].includes(value)) return { type: "PREVIOUS" };
+  if (isAlias(value, M6D_COMMAND_ALIASES.next)) return { type: "NEXT" };
+  if (isAlias(value, M6D_COMMAND_ALIASES.previous)) return { type: "PREVIOUS" };
 
-  if (["pause", "pause voice", "hold", "পজ", "বিরতি", "একটু থামো", "একটু থামুন"].includes(value)) return { type: "PAUSE" };
-  if (["resume", "continue", "continue voice", "resume voice", "চালিয়ে যাও", "চালিয়ে যাও", "আবার শুরু", "আবার শুরু করো", "চালু করো"].includes(value)) return { type: "RESUME" };
-  if (["end", "stop", "stop voice", "stop listening", "end voice", "শেষ", "শেষ করো", "বন্ধ করো", "ভয়েস বন্ধ করো", "ভয়েস বন্ধ করো"].includes(value)) return { type: "END" };
-  if (["undo", "undo last", "undo last sentence", "go back last change", "বাতিল", "শেষটা ফেরত", "শেষ পরিবর্তন বাতিল", "শেষ বাক্য undo"].includes(value)) return { type: "UNDO" };
-  if (["remove last sentence", "remove last line", "delete last sentence", "delete last line", "erase last sentence", "erase last line", "শেষ বাক্য মুছো", "শেষ লাইন মুছো", "শেষ কথাটা মুছো", "শেষ বাক্য বাদ দাও"].includes(value)) return { type: "REMOVE_LAST_SENTENCE" };
+  if (isAlias(value, M6D_COMMAND_ALIASES.pause)) return { type: "PAUSE" };
+  if (isAlias(value, M6D_COMMAND_ALIASES.resume)) return { type: "RESUME" };
+  if (isAlias(value, M6D_COMMAND_ALIASES.end)) return { type: "END" };
+  if (isAlias(value, M6D_COMMAND_ALIASES.undo)) return { type: "UNDO" };
+  if (isAlias(value, M6D_COMMAND_ALIASES.removeLastSentence)) return { type: "REMOVE_LAST_SENTENCE" };
 
-  if (["diagnosis", "diagnoses", "ডায়াগনোসিস", "ডায়াগনোসিস", "রোগ নির্ণয়", "রোগ নির্ণয়", "নির্ণয়", "নির্ণয়"].includes(value)) return { type: "DIAGNOSIS_NAVIGATE" };
-  if (["diagnosis field", "diagnosis name", "diagnosis title", "ডায়াগনোসিস ফিল্ড", "ডায়াগনোসিস ফিল্ড", "রোগ নির্ণয়ের ঘর", "রোগ নির্ণয়ের ঘর"].includes(value)) return { type: "DIAGNOSIS_TARGET", target: "title" };
-  if (["how certain", "certainty", "certainty level", "how sure", "কতটা নিশ্চিত", "নিশ্চিততা", "নিশ্চিততার মাত্রা"].includes(value)) return { type: "DIAGNOSIS_TARGET", target: "certainty" };
-  if (["note", "note field", "note section", "diagnosis note", "diagnosis notes", "নোট", "নোট ফিল্ড", "নোট সেকশন", "ডায়াগনোসিস নোট", "ডায়াগনোসিস নোট"].includes(value)) return { type: "DIAGNOSIS_TARGET", target: "note" };
-  if (["provisional", "সম্ভাব্য", "প্রভিশনাল"].includes(value)) return { type: "DIAGNOSIS_CERTAINTY", certainty: "PROVISIONAL" };
-  if (["working", "working diagnosis", "ওয়ার্কিং", "ওয়ার্কিং", "কার্যকর ধারণা"].includes(value)) return { type: "DIAGNOSIS_CERTAINTY", certainty: "WORKING" };
-  if (["confirmed", "confirm", "নিশ্চিত", "কনফার্মড"].includes(value)) return { type: "DIAGNOSIS_CERTAINTY", certainty: "CONFIRMED" };
-  if (["ruled out", "rooted out", "excluded", "বাদ", "বাতিল", "রুলড আউট"].includes(value)) return { type: "DIAGNOSIS_CERTAINTY", certainty: "RULED_OUT" };
-  if (["save diagnosis", "confirm diagnosis", "add diagnosis", "ডায়াগনোসিস সেভ", "রোগ নির্ণয় যোগ করো"].includes(value)) return { type: "DIAGNOSIS_REVIEW" };
+  if (isAlias(value, M6D_COMMAND_ALIASES.diagnosisNavigate)) return { type: "DIAGNOSIS_NAVIGATE" };
+  if (isAlias(value, M6D_COMMAND_ALIASES.diagnosisTitle)) return { type: "DIAGNOSIS_TARGET", target: "title" };
+  if (isAlias(value, M6D_COMMAND_ALIASES.diagnosisCertainty)) return { type: "DIAGNOSIS_TARGET", target: "certainty" };
+  if (isAlias(value, M6D_COMMAND_ALIASES.diagnosisNote)) return { type: "DIAGNOSIS_TARGET", target: "note" };
+  if (isAlias(value, M6D_COMMAND_ALIASES.provisional)) return { type: "DIAGNOSIS_CERTAINTY", certainty: "PROVISIONAL" };
+  if (isAlias(value, M6D_COMMAND_ALIASES.working)) return { type: "DIAGNOSIS_CERTAINTY", certainty: "WORKING" };
+  if (isAlias(value, M6D_COMMAND_ALIASES.confirmed)) return { type: "DIAGNOSIS_CERTAINTY", certainty: "CONFIRMED" };
+  if (isAlias(value, M6D_COMMAND_ALIASES.ruledOut)) return { type: "DIAGNOSIS_CERTAINTY", certainty: "RULED_OUT" };
+  if (isAlias(value, M6D_COMMAND_ALIASES.diagnosisReview)) return { type: "DIAGNOSIS_REVIEW" };
 
-  if (["investigation", "investigations", "investigation order", "investigation orders", "test", "tests", "test order", "test orders", "ইনভেস্টিগেশন", "ইনভেস্টিগেশন অর্ডার", "ইনভেস্টিগেশন অর্ডার্স", "পরীক্ষার অর্ডার", "টেস্ট", "টেস্ট অর্ডার"].includes(value)) return { type: "INVESTIGATION_NAVIGATE" };
-  if (["investigation field", "investigation search", "test field", "test search", "ইনভেস্টিগেশন ফিল্ড", "ইনভেস্টিগেশন সার্চ", "টেস্ট ফিল্ড", "টেস্ট সার্চ"].includes(value)) return { type: "INVESTIGATION_TARGET", target: "field" };
+  if (isAlias(value, M6D_COMMAND_ALIASES.investigationNavigate)) return { type: "INVESTIGATION_NAVIGATE" };
+  if (isAlias(value, M6D_COMMAND_ALIASES.investigationField)) return { type: "INVESTIGATION_TARGET", target: "field" };
 
-  let relative = raw.match(/^(?:set\s+)?(?:next visit|follow[- ]?up)(?:\s+date)?\s+(?:after|in)\s+([\w-]+)\s+(day|days|week|weeks|month|months)$/i);
-  if (relative) {
-    const amount = parseRelativeAmount(relative[1]!);
-    if (amount && amount > 0) {
-      const unit = relative[2]!.toLowerCase();
-      return unit.startsWith("month")
-        ? { type: "FOLLOW_UP_DATE", amount, unit: "months" }
-        : { type: "FOLLOW_UP_DATE", amount: unit.startsWith("week") ? amount * 7 : amount, unit: "days" };
-    }
-  }
-  relative = raw.match(/^(?:পরবর্তী ভিজিট|ফলো ?আপ|ফলোআপ)\s+([\p{L}\d০-৯]+)\s*(দিন|সপ্তাহ|মাস)\s*(?:পরে|পর)?$/u);
-  if (relative) {
-    const amount = parseRelativeAmount(relative[1]!);
-    if (amount && amount > 0) {
-      return relative[2] === "মাস"
-        ? { type: "FOLLOW_UP_DATE", amount, unit: "months" }
-        : { type: "FOLLOW_UP_DATE", amount: relative[2] === "সপ্তাহ" ? amount * 7 : amount, unit: "days" };
-    }
-  }
+  const followUpDate = parseFollowUpDate(raw, context.activeTarget);
+  if (followUpDate) return followUpDate;
 
-  if (["clear current section", "clear this section", "clear section", "clear field", "clear this field", "clear note", "এই সেকশন clear", "এই সেকশন মুছো", "এই অংশ মুছো", "এই ঘর খালি করো", "নোট মুছো"].includes(value)) return { type: "NOTE_EDIT", operation: "CLEAR" };
-  if (["read current section", "read this section", "read section", "read field", "read note", "এই সেকশন পড়ো", "এই অংশ পড়ো", "এই ঘর পড়ো", "নোট পড়ো"].includes(value)) return { type: "NOTE_EDIT", operation: "READ" };
+  if (isAlias(value, M6D_COMMAND_ALIASES.clear)) return { type: "NOTE_EDIT", operation: "CLEAR" };
+  if (isAlias(value, M6D_COMMAND_ALIASES.read)) return { type: "NOTE_EDIT", operation: "READ" };
 
   // Deepgram can occasionally flush the previous sentence and the next short
   // edit command in the same finalized utterance. Accept a trailing protected
@@ -226,6 +261,8 @@ export function parseM6DLocalCommand(text: string): M6DLocalIntent {
   match = raw.match(/^(?:replace|change|correct)\s+(.+?)\s+(?:with|to|by)\s+(.+)$/i);
   if (match) return { type: "NOTE_EDIT", operation: "REPLACE", value: match[1]!.trim(), replacement: match[2]!.trim() };
   match = raw.match(/^(.+?)\s+(?:এর বদলে|বদলে|পরিবর্তন করে)\s+(.+)$/u);
+  if (match) return { type: "NOTE_EDIT", operation: "REPLACE", value: match[1]!.trim(), replacement: match[2]!.trim() };
+  match = raw.match(/^(.+?)\s+(?:change kore|er jaygay)\s+(.+)$/i);
   if (match) return { type: "NOTE_EDIT", operation: "REPLACE", value: match[1]!.trim(), replacement: match[2]!.trim() };
 
   match = raw.match(/^(?:remove|delete|erase)\s+(.+)$/i);
