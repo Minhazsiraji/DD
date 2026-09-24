@@ -19,6 +19,7 @@ import {
 } from "../errors";
 import type { PrescriptionDetail } from "../queries";
 import { emptyMedicine } from "../schema";
+import { M6EPrescriptionVoicePanel } from "./m6e-prescription-voice-panel";
 import { MedicineForm } from "./medicine-form";
 import { MedicineList } from "./medicine-list";
 import { PrescriptionReuse } from "./prescription-reuse";
@@ -87,6 +88,8 @@ export function PrescriptionComposer({
         to give — this is the screen where getting that wrong does the damage.
       */}
       <ConsultationIdentity patient={prescription.patient} locationName={locationName} />
+
+      {!readOnly ? <M6EPrescriptionVoicePanel disabled={rx.blocked} /> : null}
 
       {readOnly ? (
         <p
