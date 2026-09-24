@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { Mic2, ShieldAlert, Square, Waves } from "lucide-react";
+import { Mic2, Pause, Play, ShieldAlert, Square, Waves } from "lucide-react";
 import { SectionCard, SectionHeader } from "@/components/common/section-card";
 import { useDictation } from "@/features/dictation/use-dictation";
 import {
@@ -9,6 +9,7 @@ import {
   useVoiceLanguage,
   VoiceLanguageControl,
 } from "@/features/dictation/voice-language";
+import { parseM6EVoiceSessionControl } from "../m6e-prescription-voice-contract";
 
 const M6E_NORMALIZE_TIMEOUT_MS = 9_000;
 const M6E_TRANSIENT_NORMALIZE_STATUSES = new Set([502, 503, 504]);
@@ -106,6 +107,11 @@ export function isTrailingPreviewForStableUtterance(preview: string, stable: str
   return commonPrefix / shorter >= 0.8;
 }
 
+export function isDuplicateM6ESessionFinal(finalText: string, lastUtteranceText: string | null) {
+  return Boolean(finalText.trim() && lastUtteranceText &&
+    comparableProviderText(finalText) === comparableProviderText(lastUtteranceText));
+}
+
 export interface M6EHearingSequencer {
   beginSession: () => void;
   invalidateSession: () => void;
@@ -155,23 +161,28 @@ export function createM6EHearingSequencer({
   };
 }
 
-/** Prescription voice remains transport-only here; all clinical actions are delegated upward. */
-export type M6EStableTranscriptHandler = (text: string) => string | Promise<string>;
-
+/**
+ * Route-local Prescription voice shell. The existing M6 `useDictation` hook
+ * remains the sole owner of microphone/provider lifecycle and active lease.
+ * Only a completed, current, normalized stable utterance reaches the additive
+ * Prescription controller supplied by the composer.
+ */
 export function M6EPrescriptionVoicePanel({
   disabled,
+  target,
   onStableTranscript,
-  contextLabel,
 }: {
   disabled: boolean;
-  onStableTranscript?: M6EStableTranscriptHandler;
-  contextLabel?: string;
+  target: string;
+  onStableTranscript: (text: string) => Promise<string>;
 }) {
   const voiceLanguage = useVoiceLanguage();
   const [preview, setPreview] = React.useState("");
   const [status, setStatus] = React.useState(
     "Prescription context ready. Start Voice when you want to use the assistant.",
   );
+  const [paused, setPaused] = React.useState(false);
+  const lastUtteranceRaw = React.useRef<string | null>(null);
   const onStableTranscriptRef = React.useRef(onStableTranscript);
   React.useLayoutEffect(() => {
     onStableTranscriptRef.current = onStableTranscript;
@@ -192,17 +203,34 @@ export function M6EPrescriptionVoicePanel({
     [hearingSequencer],
   );
 
-  async function showStableHearing(text: string, sessionEnded = false, runAction = true) {
+  async function showStableHearing(text: string, sessionEnded = false) {
     if (!text.trim()) return;
-    setStatus(sessionEnded ? "Voice session ended." : "Speech heard. Processing Prescription voice intent…");
     const stable = await hearingSequencer.onStable(text, voiceLanguage.lang);
     if (!stable) return;
-    if (!sessionEnded && runAction && onStableTranscriptRef.current) {
-      const message = await onStableTranscriptRef.current(stable);
-      if (message) setStatus(message);
+
+    const control = parseM6EVoiceSessionControl(stable);
+    if (control === "PAUSE") {
+      setPaused(true);
+      setStatus("Prescription Voice paused. Say Resume or use the Resume button; ordinary speech cannot change staged state while paused.");
       return;
     }
-    if (sessionEnded) setStatus("Voice session ended. Final speech was not auto-applied.");
+    if (control === "RESUME") {
+      setPaused(false);
+      setStatus("Prescription Voice resumed.");
+      return;
+    }
+    if (control === "END") {
+      setStatus("Ending Prescription voice session…");
+      dictation.stop();
+      return;
+    }
+    if (paused) {
+      setStatus("Prescription Voice is paused. Nothing changed. Say Resume to continue.");
+      return;
+    }
+
+    const result = await onStableTranscriptRef.current(stable);
+    setStatus(sessionEnded ? `Voice session ended. ${result}` : result);
   }
 
   const dictation = useDictation({
@@ -213,20 +241,26 @@ export function M6EPrescriptionVoicePanel({
       hearingSequencer.onPreview(text);
     },
     onUtteranceEnd: (text) => {
-      void showStableHearing(text, false, true);
+      lastUtteranceRaw.current = text;
+      void showStableHearing(text);
     },
     onFinal: (text) => {
+      const duplicate = isDuplicateM6ESessionFinal(text, lastUtteranceRaw.current);
       hearingSequencer.invalidateSession();
-      if (text.trim()) {
-        void showStableHearing(text, true, false);
+      if (text.trim() && !duplicate) {
+        void showStableHearing(text, true);
       } else {
         setStatus("Voice session ended.");
       }
+      lastUtteranceRaw.current = null;
+      setPaused(false);
     },
     onCancel: () => {
       hearingSequencer.invalidateSession();
       setPreview("");
-      setStatus("Voice session ended. No clinical field was changed.");
+      setPaused(false);
+      lastUtteranceRaw.current = null;
+      setStatus("Voice session ended. No pending Prescription voice action was applied.");
     },
   });
 
@@ -236,9 +270,9 @@ export function M6EPrescriptionVoicePanel({
     if (disabled || active) return;
     hearingSequencer.beginSession();
     setPreview("");
-    setStatus(
-      "Listening in Prescription context. Speech may stage/edit draft work and control safe workflow actions; Finalize is never voice-executed.",
-    );
+    setPaused(false);
+    lastUtteranceRaw.current = null;
+    setStatus("Listening in Prescription context. Clinical writes still require the existing explicit Doctor confirmation controls.");
     dictation.start();
   }
 
@@ -247,6 +281,12 @@ export function M6EPrescriptionVoicePanel({
     hearingSequencer.invalidateSession();
     setStatus("Ending Prescription voice session…");
     dictation.stop();
+  }
+
+  function togglePause() {
+    if (!active) return;
+    setPaused((current) => !current);
+    setStatus(paused ? "Prescription Voice resumed." : "Prescription Voice paused. Ordinary speech cannot change staged state.");
   }
 
   return (
@@ -260,7 +300,7 @@ export function M6EPrescriptionVoicePanel({
         icon={<Mic2 className="size-4" />}
         action={
           <span className="rounded-full bg-surface-muted px-2.5 py-1 text-[10px] font-semibold text-ink-secondary">
-            Prescription · M6E
+            {target}
           </span>
         }
       />
@@ -270,14 +310,24 @@ export function M6EPrescriptionVoicePanel({
           <VoiceLanguageControl disabled={disabled || active} />
 
           {active ? (
-            <button
-              type="button"
-              onClick={end}
-              className="inline-flex min-h-11 w-full shrink-0 items-center justify-center gap-1.5 rounded-xl bg-[#a81c1c] px-4 text-[13px] font-semibold text-white focus-visible:focus-ring sm:w-auto"
-            >
-              <Square className="size-3.5 fill-current" aria-hidden="true" />
-              End Voice
-            </button>
+            <div className="flex min-w-0 flex-col gap-2 sm:flex-row">
+              <button
+                type="button"
+                onClick={togglePause}
+                className="inline-flex min-h-11 w-full shrink-0 items-center justify-center gap-1.5 rounded-xl border border-hairline bg-white px-4 text-[13px] font-semibold text-ink focus-visible:focus-ring sm:w-auto"
+              >
+                {paused ? <Play className="size-3.5" aria-hidden="true" /> : <Pause className="size-3.5" aria-hidden="true" />}
+                {paused ? "Resume" : "Pause"}
+              </button>
+              <button
+                type="button"
+                onClick={end}
+                className="inline-flex min-h-11 w-full shrink-0 items-center justify-center gap-1.5 rounded-xl bg-[#a81c1c] px-4 text-[13px] font-semibold text-white focus-visible:focus-ring sm:w-auto"
+              >
+                <Square className="size-3.5 fill-current" aria-hidden="true" />
+                End Voice
+              </button>
+            </div>
           ) : (
             <button
               type="button"
@@ -290,12 +340,6 @@ export function M6EPrescriptionVoicePanel({
             </button>
           )}
         </div>
-
-        {contextLabel ? (
-          <p className="min-w-0 break-words text-[11px] font-medium text-ink-muted">
-            Voice target: <span className="font-semibold text-ink-secondary">{contextLabel}</span>
-          </p>
-        ) : null}
 
         {preview ? (
           <p role="status" className="min-w-0 break-words rounded-xl bg-surface-muted px-3 py-2 text-[12px] text-ink-secondary">
@@ -320,7 +364,8 @@ export function M6EPrescriptionVoicePanel({
         <p className="flex min-w-0 items-start gap-1.5 break-words text-[10px] text-ink-muted">
           <ShieldAlert className="mt-px size-3.5 shrink-0" aria-hidden="true" />
           <span>
-            Medicine speech edits staged draft state first. Autopilot Apply stays explicit. Voice can open Review, but can never Finalize or sign a prescription.
+            Voice may stage editable medicine/proposal changes and navigate to Review. Add, Save,
+            Apply, removal confirmation, and Finalize remain explicit Doctor-controlled boundaries.
           </span>
         </p>
       </div>

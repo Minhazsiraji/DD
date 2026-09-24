@@ -37,14 +37,15 @@ describe("M6E-A prescription voice shell", () => {
   });
 
   it("mounts only for an editable prescription and never auto-starts on render", () => {
-    expect(composerSource).toContain("!readOnly ? <M6EPrescriptionVoicePanel");
-    expect(composerSource).toContain("onStableTranscript={m6eVoice.handleStableTranscript}");
+    expect(composerSource).toContain("!readOnly ? (");
+    expect(composerSource).toContain("<M6EPrescriptionVoicePanel");
+    expect(composerSource).toContain("onStableTranscript={prescriptionVoice.handleStableTranscript}");
     expect(voiceSource).toContain("onClick={start}");
     expect(voiceSource.match(/dictation\.start\(\);/g)).toHaveLength(1);
     expect(voiceSource).not.toMatch(/useEffect[\s\S]{0,300}dictation\.start/);
   });
 
-  it("keeps M6E-A speech preview-only with no clinical, Autopilot, Review, or Finalize mutation path", () => {
+  it("keeps the transport shell free of direct clinical/server mutation imports", () => {
     for (const forbidden of [
       "addMedicineAction",
       "updateMedicineAction",
@@ -59,7 +60,7 @@ describe("M6E-A prescription voice shell", () => {
     }
     expect(voiceSource).not.toContain("router.push");
     expect(voiceSource).not.toContain("/review");
-    expect(voiceSource).toContain("No clinical field was changed");
+    expect(voiceSource).toContain("onStableTranscriptRef.current(stable)");
   });
 
   it("inherits the existing single-owner lease and unmount abort cleanup", () => {
@@ -292,7 +293,7 @@ describe("M6E-A1/A2 mixed Hearing normalization runtime", () => {
     expect(endBlock).toContain("hearingSequencer.invalidateSession();");
   });
 
-  it("keeps normalization display-only with zero clinical/action imports", () => {
+  it("keeps normalization authoritative before the additive controller callback", () => {
     expect(voiceSource).toContain('request("/api/voice/normalize"');
     expect(voiceSource).toContain("M6E_TRANSIENT_NORMALIZE_STATUSES");
     for (const forbidden of [
@@ -304,9 +305,11 @@ describe("M6E-A1/A2 mixed Hearing normalization runtime", () => {
       "applyAutopilotProposalToDraftAction",
       "finalizePrescriptionAction",
       "openPrescriptionAction",
-      "router.push",
-      "/review",
+      "router.push", "/review",
     ]) expect(voiceSource).not.toContain(forbidden);
+    expect(voiceSource.indexOf("await hearingSequencer.onStable")).toBeLessThan(
+      voiceSource.indexOf("onStableTranscriptRef.current(stable)"),
+    );
   });
 });
 

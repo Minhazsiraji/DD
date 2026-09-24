@@ -3,22 +3,10 @@ import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
 const root = process.cwd();
-const controller = readFileSync(
-  resolve(root, "src/features/prescriptions/use-m6e-prescription-voice.ts"),
-  "utf8",
-);
-const composer = readFileSync(
-  resolve(root, "src/features/prescriptions/components/prescription-composer.tsx"),
-  "utf8",
-);
-const autopilot = readFileSync(
-  resolve(root, "src/features/autopilot/components/m6c2-autopilot-panel.tsx"),
-  "utf8",
-);
-const panel = readFileSync(
-  resolve(root, "src/features/prescriptions/components/m6e-prescription-voice-panel.tsx"),
-  "utf8",
-);
+const controller = readFileSync(resolve(root, "src/features/prescriptions/use-m6e-prescription-voice.ts"), "utf8");
+const composer = readFileSync(resolve(root, "src/features/prescriptions/components/prescription-composer.tsx"), "utf8");
+const autopilot = readFileSync(resolve(root, "src/features/autopilot/components/m6c2-autopilot-panel.tsx"), "utf8");
+const panel = readFileSync(resolve(root, "src/features/prescriptions/components/m6e-prescription-voice-panel.tsx"), "utf8");
 
 describe("M6E complete Prescription safety integration", () => {
   it("keeps medicine voice edits staged and never directly submits or removes a saved row", () => {

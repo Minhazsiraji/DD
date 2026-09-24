@@ -104,6 +104,7 @@ export function MedicineForm({
         {field.multiline ? (
           <textarea
             id={`${id}-${field.key}`}
+            data-medicine-field={field.key}
             rows={2}
             value={value[field.key]}
             disabled={busy}
@@ -114,6 +115,7 @@ export function MedicineForm({
         ) : (
           <input
             id={`${id}-${field.key}`}
+            data-medicine-field={field.key}
             type="text"
             autoComplete="off"
             value={value[field.key]}
@@ -195,6 +197,7 @@ export function MedicineForm({
 
   return (
     <form
+      data-medicine-form
       onSubmit={(event) => {
         event.preventDefault();
         if (canSubmit) onSubmit();

@@ -3,7 +3,10 @@ import type { MedicineDraft, MedicineField } from "./schema";
 export type M6EVoiceMedicineField = MedicineField;
 
 export type M6EPrescriptionVoiceIntent =
+  | { type: "TARGET_MEDICINES" }
   | { type: "OPEN_ADD" }
+  | { type: "TARGET_MEDICINE"; index: number }
+  | { type: "READ_MEDICINE" }
   | { type: "EDIT_MEDICINE"; index: number }
   | { type: "NEXT_MEDICINE" }
   | { type: "PREVIOUS_MEDICINE" }
@@ -16,7 +19,15 @@ export type M6EPrescriptionVoiceIntent =
   | { type: "REPLACE_FIELD"; from: string; to: string }
   | { type: "SET_FIELD"; field: M6EVoiceMedicineField; value: string }
   | { type: "STAGE_MEDICINE"; patch: Partial<MedicineDraft>; rawText: string }
+  | { type: "TARGET_AUTOPILOT" }
   | { type: "GENERATE_AUTOPILOT" }
+  | { type: "READ_AUTOPILOT" }
+  | { type: "NEXT_AUTOPILOT_ITEM" }
+  | { type: "PREVIOUS_AUTOPILOT_ITEM" }
+  | { type: "SELECT_AUTOPILOT_MEDICINE"; index: number }
+  | { type: "DESELECT_AUTOPILOT_MEDICINE"; index: number }
+  | { type: "EDIT_AUTOPILOT_MEDICINE"; index: number }
+  | { type: "REMOVE_AUTOPILOT_MEDICINE"; index: number }
   | { type: "DISCARD_AUTOPILOT" }
   | { type: "APPLY_AUTOPILOT" }
   | { type: "REVIEW_PRESCRIPTION" }
@@ -26,7 +37,10 @@ export type M6EPrescriptionVoiceIntent =
 export interface M6EVoiceParseContext {
   editorOpen: boolean;
   fieldTarget: M6EVoiceMedicineField | null;
+  autopilotProposalActive?: boolean;
 }
+
+export type M6EVoiceSessionControl = "PAUSE" | "RESUME" | "END";
 
 const BN_DIGITS = "০১২৩৪৫৬৭৮৯";
 
@@ -44,6 +58,18 @@ function normalized(text: string) {
 
 function exact(value: string, phrases: readonly string[]) {
   return phrases.includes(value);
+}
+
+const PAUSE = ["pause", "pause voice", "পজ", "বিরতি", "একটু থামো", "pause koro"];
+const RESUME = ["resume", "resume voice", "continue voice", "চালিয়ে যাও", "চালিয়ে যাও", "resume koro"];
+const END = ["end", "end voice", "stop voice", "stop listening", "শেষ", "শেষ করো", "voice bondho koro"];
+
+export function parseM6EVoiceSessionControl(text: string): M6EVoiceSessionControl | null {
+  const value = normalized(text);
+  if (exact(value, PAUSE)) return "PAUSE";
+  if (exact(value, RESUME)) return "RESUME";
+  if (exact(value, END)) return "END";
+  return null;
 }
 
 const SMALL_NUMBERS: Readonly<Record<string, number>> = {
@@ -114,7 +140,7 @@ function fieldFromExact(value: string): M6EVoiceMedicineField | null {
 }
 
 const UNIT_ALIAS: Readonly<Record<string, string>> = {
-  mg: "mg", mcg: "mcg", g: "g", gram: "g", grams: "g", iu: "IU", unit: "unit", units: "units",
+  mg: "mg", mcg: "mcg", microgram: "mcg", micrograms: "mcg", g: "g", gram: "g", grams: "g", iu: "IU", unit: "unit", units: "units",
   "এমজি": "mg", "এম জি": "mg", "মিলিগ্রাম": "mg", "এমসিজি": "mcg", "এম সি জি": "mcg", "গ্রাম": "g",
 };
 
@@ -152,7 +178,7 @@ export function parseStructuredMedicineSpeech(rawText: string): Partial<Medicine
   const value = normalized(text);
   const patch: Partial<MedicineDraft> = {};
 
-  const strengthMatch = value.match(new RegExp(`(${NUMBER_PHRASE})\\s*(mg|mcg|g|gram|grams|iu|unit|units|এমজি|এম জি|মিলিগ্রাম|এমসিজি|এম সি জি|গ্রাম)(?=\\s|$|,|;)`, "iu"));
+  const strengthMatch = value.match(new RegExp(`(${NUMBER_PHRASE})\\s*(mg|mcg|microgram|micrograms|g|gram|grams|iu|unit|units|এমজি|এম জি|মিলিগ্রাম|এমসিজি|এম সি জি|গ্রাম)(?=\\s|$|,|;)`, "iu"));
   if (strengthMatch) {
     const amount = parseBoundedNumber(strengthMatch[1]!);
     const unit = UNIT_ALIAS[normalized(strengthMatch[2]!)] ?? strengthMatch[2]!;
@@ -167,6 +193,13 @@ export function parseStructuredMedicineSpeech(rawText: string): Partial<Medicine
     const formKey = normalized(doseMatch[2]!).replace(/s$/u, "");
     if (FORM_ALIAS[formKey]) patch.dosageForm = FORM_ALIAS[formKey];
   }
+  const halfDose = value.match(/(?:half|অর্ধেক)\s*(tablet|tab|capsule|cap|ট্যাবলেট|ক্যাপসুল)(?=\s|$|,|;)/iu);
+  if (!doseMatch && halfDose) {
+    const unit = DOSE_UNIT_ALIAS[normalized(halfDose[1]!)] ?? halfDose[1]!;
+    patch.doseText = `Half ${unit}`;
+    const formKey = normalized(halfDose[1]!).replace(/s$/u, "");
+    if (FORM_ALIAS[formKey]) patch.dosageForm = FORM_ALIAS[formKey];
+  }
 
   const scheduleCode = value.match(/\b\d\s*\+\s*\d\s*\+\s*\d(?:\s*\+\s*\d)?\b/u);
   if (scheduleCode) patch.scheduleText = scheduleCode[0]!.replace(/\s+/gu, "");
@@ -174,6 +207,8 @@ export function parseStructuredMedicineSpeech(rawText: string): Partial<Medicine
   else if (/(?:twice daily|two times daily|2 times daily|দিনে দুইবার|দিনে 2 বার)/iu.test(value)) patch.scheduleText = "Twice daily";
   else if (/(?:three times daily|3 times daily|দিনে তিনবার|দিনে 3 বার)/iu.test(value)) patch.scheduleText = "Three times daily";
   else if (/(?:four times daily|4 times daily|দিনে চারবার|দিনে 4 বার)/iu.test(value)) patch.scheduleText = "Four times daily";
+  else if (/(?:^|\s)(?:morning and night|morning & night|সকাল রাতে|সকাল ও রাতে)(?:\s|$)/iu.test(value)) patch.scheduleText = "Morning and night";
+  else if (/(?:^|\s)(?:morning|সকাল)(?:\s|$)/iu.test(value)) patch.scheduleText = "Morning";
   else {
     const everyHours = value.match(/every\s+(\d{1,2})\s+hours?/iu);
     if (everyHours) patch.scheduleText = `Every ${everyHours[1]} hours`;
@@ -206,11 +241,15 @@ export function parseStructuredMedicineSpeech(rawText: string): Partial<Medicine
     if (FORM_ALIAS[key]) patch.dosageForm = FORM_ALIAS[key];
   }
 
-  const markerIndex = firstMatchIndex([strengthMatch, doseMatch, scheduleCode, durationMatch, formMatch]);
+  const markerIndex = firstMatchIndex([strengthMatch, doseMatch, halfDose, scheduleCode, durationMatch, formMatch]);
   let nameCandidate = markerIndex === null ? text : text.slice(0, markerIndex).trim();
   nameCandidate = nameCandidate.replace(/^(?:tablet|tab|capsule|cap|syrup|মেডিসিন|ওষুধ)\.?\s+/iu, "").replace(/[,:;-]+$/u, "").trim();
   if (nameCandidate && (markerIndex !== null || staged.explicit)) patch.displayName = nameCandidate;
 
+  const deterministicMedicineShape = staged.explicit || Boolean(
+    strengthMatch || doseMatch || halfDose || scheduleCode || patch.scheduleText || formMatch,
+  );
+  if (!deterministicMedicineShape) return null;
   return Object.keys(patch).length > 0 ? patch : null;
 }
 
@@ -220,12 +259,18 @@ const FINALIZE = [
 ];
 const REVIEW = ["review prescription", "prescription review", "open prescription review", "go to review", "প্রেসক্রিপশন রিভিউ", "review prescription koro"];
 const GENERATE = ["generate with autopilot", "generate autopilot", "autopilot generate", "autopilot দিয়ে generate", "autopilot দিয়ে generate", "অটোপাইলট জেনারেট করো"];
+const TARGET_AUTOPILOT = ["autopilot", "autopilot proposal", "অটোপাইলট", "অটোপাইলট প্রপোজাল"];
+const READ_AUTOPILOT = ["read proposal", "read autopilot proposal", "proposal poro", "প্রপোজাল পড়ো", "প্রপোজাল পড়ো"];
+const NEXT_AUTOPILOT = ["next proposal item", "next autopilot item", "পরের প্রপোজাল আইটেম"];
+const PREVIOUS_AUTOPILOT = ["previous proposal item", "previous autopilot item", "আগের প্রপোজাল আইটেম"];
 const DISCARD = ["discard proposal", "discard autopilot", "autopilot discard", "discard", "প্রপোজাল বাতিল", "proposal bad dao"];
 const APPLY = ["apply selected", "apply proposal", "apply to draft", "autopilot apply", "apply autopilot", "প্রপোজাল apply করো", "proposal apply koro"];
 const OPEN_ADD = ["add medicine", "add a medicine", "new medicine", "medicine add", "medicine add koro", "মেডিসিন add করো", "মেডিসিন যোগ করো", "ওষুধ যোগ করো"];
-const NEXT = ["next medicine", "go to next medicine", "পরের medicine", "পরের মেডিসিন", "next medicine e jao"];
-const PREVIOUS = ["previous medicine", "go to previous medicine", "আগের medicine", "আগের মেডিসিন", "previous medicine e jao"];
+const TARGET_MEDICINES = ["medicines", "go to medicines", "open medicines", "medicine list", "ওষুধ", "ওষুধে যাও", "মেডিসিনে যাও"];
+const NEXT = ["next medicine", "go to next medicine", "পরের medicine", "পরের মেডিসিন", "পরের ওষুধ", "next medicine e jao"];
+const PREVIOUS = ["previous medicine", "go to previous medicine", "আগের medicine", "আগের মেডিসিন", "আগের ওষুধ", "previous medicine e jao"];
 const CLEAR_FORM = ["clear medicine form", "clear current medicine", "medicine form clear koro", "মেডিসিন ফর্ম clear করো", "ওষুধ ফর্ম পরিষ্কার করো"];
+const READ_MEDICINE = ["read medicine", "read current medicine", "medicine poro", "ওষুধ পড়ো", "ওষুধ পড়ো"];
 const CANCEL = ["cancel medicine", "cancel medicine edit", "close medicine form", "medicine cancel koro", "মেডিসিন cancel করো"];
 const UNDO = ["undo", "undo medicine", "medicine undo", "আনডু", "undo koro"];
 
@@ -235,20 +280,44 @@ export function parseM6EPrescriptionVoice(text: string, context: M6EVoiceParseCo
   if (!raw) return { type: "UNKNOWN", rawText: raw };
 
   if (exact(value, FINALIZE)) return { type: "PROHIBITED_FINALIZE" };
-  if (exact(value, REVIEW)) return { type: "REVIEW_PRESCRIPTION" };
+  if (exact(value, TARGET_MEDICINES)) return { type: "TARGET_MEDICINES" };
+  if (exact(value, TARGET_AUTOPILOT)) return { type: "TARGET_AUTOPILOT" };
   if (exact(value, GENERATE)) return { type: "GENERATE_AUTOPILOT" };
+  if (exact(value, READ_AUTOPILOT)) return { type: "READ_AUTOPILOT" };
+  if (exact(value, NEXT_AUTOPILOT)) return { type: "NEXT_AUTOPILOT_ITEM" };
+  if (exact(value, PREVIOUS_AUTOPILOT)) return { type: "PREVIOUS_AUTOPILOT_ITEM" };
   if (exact(value, DISCARD)) return { type: "DISCARD_AUTOPILOT" };
   if (exact(value, APPLY)) return { type: "APPLY_AUTOPILOT" };
+  if (exact(value, REVIEW)) return { type: "REVIEW_PRESCRIPTION" };
   if (exact(value, OPEN_ADD)) return { type: "OPEN_ADD" };
   if (exact(value, NEXT)) return { type: "NEXT_MEDICINE" };
   if (exact(value, PREVIOUS)) return { type: "PREVIOUS_MEDICINE" };
+  if (exact(value, READ_MEDICINE)) return { type: "READ_MEDICINE" };
   if (exact(value, CLEAR_FORM)) return { type: "CLEAR_FORM" };
   if (exact(value, CANCEL)) return { type: "CANCEL_EDITOR" };
   if (exact(value, UNDO)) return { type: "UNDO" };
+  if (exact(value, ["clear", "clear koro", "পরিষ্কার করো"])) {
+    return context.fieldTarget
+      ? { type: "CLEAR_FIELD", field: context.fieldTarget }
+      : { type: "CLEAR_FORM" };
+  }
 
   const index = medicineIndex(value);
-  if (index !== null && /(?:edit|এডিট|সম্পাদনা)/iu.test(value)) return { type: "EDIT_MEDICINE", index };
-  if (index !== null && /(?:remove|delete|বাদ|মুছ)/iu.test(value)) return { type: "REQUEST_REMOVE", index };
+  if (index !== null && /^(?:select|সিলেক্ট)\s+/iu.test(value)) return { type: "SELECT_AUTOPILOT_MEDICINE", index };
+  if (index !== null && /^(?:deselect|unselect|ডিসিলেক্ট)\s+/iu.test(value)) return { type: "DESELECT_AUTOPILOT_MEDICINE", index };
+  if (index !== null && /(?:edit|এডিট|সম্পাদনা)/iu.test(value)) {
+    return context.autopilotProposalActive
+      ? { type: "EDIT_AUTOPILOT_MEDICINE", index }
+      : { type: "EDIT_MEDICINE", index };
+  }
+  if (index !== null && /(?:remove|delete|বাদ|মুছ)/iu.test(value)) {
+    return context.autopilotProposalActive
+      ? { type: "REMOVE_AUTOPILOT_MEDICINE", index }
+      : { type: "REQUEST_REMOVE", index };
+  }
+  if (index !== null && new RegExp(`^(?:medicine|med|মেডিসিন|ওষুধ)\\s*${INDEX_WORD}$`, "iu").test(value)) {
+    return { type: "TARGET_MEDICINE", index };
+  }
 
   for (const [field, aliases] of FIELD_ALIASES) {
     for (const alias of aliases) {
@@ -261,6 +330,22 @@ export function parseM6EPrescriptionVoice(text: string, context: M6EVoiceParseCo
 
   const replace = raw.match(/^replace\s+(.+?)\s+(?:with|by)\s+(.+)$/iu) ?? raw.match(/^(.+?)\s+replace\s+(?:kore|করে)\s+(.+)$/iu);
   if (replace) return { type: "REPLACE_FIELD", from: replace[1]!.trim(), to: replace[2]!.trim() };
+
+  if (context.editorOpen) {
+    const directField = raw.match(/^(?:change\s+)?(strength|dose|frequency|schedule|duration|route|instruction|instructions)\s+(?:to\s+)?(.+)$/iu);
+    if (directField) {
+      const field = fieldFromExact(directField[1]!);
+      if (field) {
+        const spokenValue = directField[2]!.trim();
+        const structuredValue = parseStructuredMedicineSpeech(`Add medicine VoiceTarget ${spokenValue}`)?.[field];
+        return { type: "SET_FIELD", field, value: typeof structuredValue === "string" ? structuredValue : spokenValue };
+      }
+    }
+    if (/^(?:after food|before food|with food|empty stomach|at bedtime|খাবারের পরে|খাবারের আগে|খাবারের সাথে|খালি পেটে)$/iu.test(raw)) {
+      const patch = parseStructuredMedicineSpeech(`Add medicine VoiceTarget ${raw}`);
+      if (patch?.foodRelation) return { type: "SET_FIELD", field: "foodRelation", value: patch.foodRelation };
+    }
+  }
 
   if (context.editorOpen && context.fieldTarget) {
     return { type: "SET_FIELD", field: context.fieldTarget, value: raw };

@@ -19,16 +19,13 @@ import {
 } from "../errors";
 import type { PrescriptionDetail } from "../queries";
 import { emptyMedicine } from "../schema";
-import { useM6EPrescriptionVoiceController } from "../use-m6e-prescription-voice";
 import { M6EPrescriptionVoicePanel } from "./m6e-prescription-voice-panel";
+import { useM6EPrescriptionVoiceController } from "../use-m6e-prescription-voice";
 import { MedicineForm } from "./medicine-form";
 import { MedicineList } from "./medicine-list";
 import { PrescriptionReuse } from "./prescription-reuse";
 import { SignedMedicineHistory } from "./signed-medicine-history";
-import {
-  M6C2AutopilotPanel,
-  type M6C2AutopilotVoiceHandle,
-} from "@/features/autopilot/components/m6c2-autopilot-panel";
+import { M6C2AutopilotPanel, type M6C2AutopilotVoiceHandle } from "@/features/autopilot/components/m6c2-autopilot-panel";
 
 /**
  * The prescription composer — a DRAFT workflow.
@@ -65,8 +62,8 @@ export function PrescriptionComposer({
   const panel = recoveryPanel(rx.state);
   const acceleratorDisabled = rx.blocked || rx.editor !== null;
   const m6bProposalApplied = React.useRef(false);
-  const autopilotVoiceRef = React.useRef<M6C2AutopilotVoiceHandle>(null);
-  const m6eVoice = useM6EPrescriptionVoiceController({
+  const autopilotVoiceRef = React.useRef<M6C2AutopilotVoiceHandle | null>(null);
+  const prescriptionVoice = useM6EPrescriptionVoiceController({
     prescriptionId: prescription.id,
     readOnly,
     rx,
@@ -100,11 +97,13 @@ export function PrescriptionComposer({
       */}
       <ConsultationIdentity patient={prescription.patient} locationName={locationName} />
 
-      {!readOnly ? <M6EPrescriptionVoicePanel
+      {!readOnly ? (
+        <M6EPrescriptionVoicePanel
           disabled={rx.blocked}
-          contextLabel={m6eVoice.contextLabel}
-          onStableTranscript={m6eVoice.handleStableTranscript}
-        /> : null}
+          target={prescriptionVoice.contextLabel}
+          onStableTranscript={prescriptionVoice.handleStableTranscript}
+        />
+      ) : null}
 
       {readOnly ? (
         <p
@@ -221,7 +220,7 @@ export function PrescriptionComposer({
         </div>
       ) : null}
 
-      <SectionCard>
+      <SectionCard data-m6e-medicines>
         <SectionHeader
           title="Medicines"
           icon={<Pill className="size-4" />}

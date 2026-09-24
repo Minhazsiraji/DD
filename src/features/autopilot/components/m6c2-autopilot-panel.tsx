@@ -8,26 +8,38 @@ import { generateAutopilotPrescriptionProposalAction } from "../server";
 import { applyAutopilotProposalToDraftAction } from "../apply-server";
 import { AUTOPILOT_REVIEW_LABEL, incompleteMedicineReason } from "../apply";
 import type { AutopilotPrescription } from "../contracts";
+import { proposalWithSelectedMedicines, selectionAfterMedicineRemoval } from "../m6e-voice-adapter";
 
 export interface M6C2AutopilotVoiceHandle {
+  hasProposal: () => boolean;
+  target: () => string;
   generate: () => Promise<string>;
+  read: () => string;
+  next: () => string;
+  previous: () => string;
+  selectMedicine: (index: number) => string;
+  deselectMedicine: (index: number) => string;
+  editMedicine: (index: number) => string;
+  removeMedicine: (index: number) => string;
   discard: () => string;
   apply: () => Promise<string>;
 }
 
-export const M6C2AutopilotPanel = React.forwardRef<M6C2AutopilotVoiceHandle, {
+interface M6C2AutopilotPanelProps {
   encounterId: string;
   encounterVersion: number;
   prescriptionId: string;
   prescriptionVersion: number;
   disabled: boolean;
-}>(function M6C2AutopilotPanel({
+}
+
+export const M6C2AutopilotPanel = React.forwardRef<M6C2AutopilotVoiceHandle, M6C2AutopilotPanelProps>(function M6C2AutopilotPanel({
   encounterId,
   encounterVersion,
   prescriptionId,
   prescriptionVersion,
   disabled,
-}, ref) {
+}, voiceRef) {
   const router = useRouter();
   const [proposal, setProposal] = React.useState<AutopilotPrescription | null>(null);
   const [busy, setBusy] = React.useState<"generate" | "apply" | null>(null);
@@ -35,10 +47,15 @@ export const M6C2AutopilotPanel = React.forwardRef<M6C2AutopilotVoiceHandle, {
   const [error, setError] = React.useState<string | null>(null);
   const [replaceFollowUp, setReplaceFollowUp] = React.useState(false);
   const [acknowledgeUncertainties, setAcknowledgeUncertainties] = React.useState(false);
+  const [selectedMedicines, setSelectedMedicines] = React.useState<Set<number>>(() => new Set());
+  const [voiceCursor, setVoiceCursor] = React.useState<number | null>(null);
+  const busyRef = React.useRef<"generate" | "apply" | null>(null);
+  const applyKeyRef = React.useRef<string | null>(null);
 
   async function generate(): Promise<string> {
-    if (disabled || busy !== null) return "Autopilot is busy or unavailable. Nothing changed.";
+    if (disabled || busyRef.current) return "Autopilot is currently unavailable. Nothing changed.";
     if (proposal) return "An Autopilot proposal is already open. Review, Apply, or Discard it first.";
+    busyRef.current = "generate";
     setBusy("generate");
     setError(null);
     setMessage(null);
@@ -49,29 +66,36 @@ export const M6C2AutopilotPanel = React.forwardRef<M6C2AutopilotVoiceHandle, {
       expectedPrescriptionVersion: prescriptionVersion,
     });
     setBusy(null);
+    busyRef.current = null;
     if (!result.ok) {
       setProposal(null);
       setError(result.message);
       return result.message;
     }
     setProposal(result.proposal);
-    return "Autopilot proposal generated. Review and edit it before Apply.";
+    setSelectedMedicines(new Set(result.proposal.medicines.map((_, index) => index)));
+    setVoiceCursor(result.proposal.medicines.length > 0 ? 0 : null);
+    applyKeyRef.current = crypto.randomUUID();
+    return "Autopilot proposal generated. Review and edit it before explicit Apply selected.";
   }
 
   async function apply(): Promise<string> {
-    if (!proposal) return "No Autopilot proposal is available to Apply.";
-    if (disabled || busy !== null) return "Autopilot is busy or unavailable. Nothing changed.";
-    if (unresolved) return "Resolve the proposal's incomplete or uncertain items before Apply.";
+    if (!proposal) return "There is no Autopilot proposal to apply.";
+    if (disabled || unresolved) return "Resolve incomplete or uncertain proposal items before Apply.";
+    if (busyRef.current) return "Autopilot is already processing this request.";
+    busyRef.current = "apply";
     setBusy("apply");
     setError(null);
     setMessage(null);
+    const selectedProposal = proposalWithSelectedMedicines(proposal, selectedMedicines);
     const result = await applyAutopilotProposalToDraftAction({
-      proposal,
-      applyKey: crypto.randomUUID(),
+      proposal: selectedProposal,
+      applyKey: applyKeyRef.current ?? (applyKeyRef.current = crypto.randomUUID()),
       replaceFollowUp,
       acknowledgeUncertainties,
     });
     setBusy(null);
+    busyRef.current = null;
     if (!result.ok) {
       setError(result.message);
       return result.message;
@@ -79,30 +103,97 @@ export const M6C2AutopilotPanel = React.forwardRef<M6C2AutopilotVoiceHandle, {
     setProposal(null);
     setReplaceFollowUp(false);
     setAcknowledgeUncertainties(false);
-    const successMessage = result.alreadyApplied ? "This proposal was already applied." : "Applied to the editable draft. Existing Review is still required.";
-    setMessage(successMessage);
+    setSelectedMedicines(new Set());
+    setVoiceCursor(null);
+    setMessage(result.alreadyApplied ? "This proposal was already applied." : "Applied to the editable draft. Existing review is still required.");
     router.refresh();
-    return successMessage;
-  }
-
-  function discard(): string {
-    if (busy !== null) return "Autopilot is busy. Nothing changed.";
-    if (!proposal) return "No Autopilot proposal is available to Discard.";
-    setProposal(null);
-    setError(null);
-    setMessage("Autopilot proposal discarded. No proposal was applied.");
-    setReplaceFollowUp(false);
-    setAcknowledgeUncertainties(false);
-    return "Autopilot proposal discarded. No proposal was applied.";
+    return result.alreadyApplied
+      ? "This proposal was already applied; no duplicate write occurred."
+      : "Selected proposal content was applied once to the editable draft. Prescription Review is still required.";
   }
   const unresolved = proposal ? (
-    proposal.medicines.some((row) => Boolean(incompleteMedicineReason(row))) ||
+    proposal.medicines.some((row, index) => selectedMedicines.has(index) && Boolean(incompleteMedicineReason(row))) ||
     proposal.investigations.some((row) => row.needsReview.length > 0 || !row.name) ||
     proposal.followUp.needsReview.length > 0 ||
     (proposal.uncertainties.length > 0 && !acknowledgeUncertainties)
   ) : false;
 
-  React.useImperativeHandle(ref, () => ({ generate, discard, apply }));
+  function discard(): string {
+    if (!proposal) return "There is no Autopilot proposal to discard.";
+    if (busyRef.current) return "Autopilot is currently processing. Nothing changed.";
+    setProposal(null);
+    setError(null);
+    setReplaceFollowUp(false);
+    setAcknowledgeUncertainties(false);
+    setSelectedMedicines(new Set());
+    setVoiceCursor(null);
+    applyKeyRef.current = null;
+    return "Autopilot proposal discarded. No prescription draft content was written.";
+  }
+
+  function focusProposalMedicine(index: number): boolean {
+    if (!proposal?.medicines[index]) return false;
+    setVoiceCursor(index);
+    window.requestAnimationFrame(() => {
+      const row = document.querySelector<HTMLElement>(`[data-autopilot-medicine-index="${index}"]`);
+      row?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+      row?.querySelector<HTMLInputElement>("input[type='text']")?.focus();
+    });
+    return true;
+  }
+
+  function removeProposalMedicine(index: number): string {
+    if (!proposal?.medicines[index]) return `Proposal medicine ${index + 1} does not exist. Nothing changed.`;
+    setProposal({ ...proposal, medicines: proposal.medicines.filter((_, rowIndex) => rowIndex !== index) });
+    setSelectedMedicines((current) => selectionAfterMedicineRemoval(current, index));
+    setVoiceCursor(null);
+    return `Proposal medicine ${index + 1} removed from the proposal only. Nothing was written to the prescription draft.`;
+  }
+
+  React.useImperativeHandle(voiceRef, () => ({
+    hasProposal: () => proposal !== null,
+    target: () => {
+      document.querySelector<HTMLElement>("[data-m6c2-autopilot]")?.scrollIntoView({ block: "start", behavior: "smooth" });
+      return proposal ? "Voice target is Prescription · Autopilot proposal." : "Voice target is Prescription · Autopilot.";
+    },
+    generate,
+    read: () => proposal
+      ? `Autopilot proposal has ${proposal.medicines.length} medicines, ${proposal.investigations.length} investigations, ${proposal.advice.length} advice items, ${proposal.warnings.length} warnings, and ${proposal.uncertainties.length} uncertainties.`
+      : "There is no Autopilot proposal to read.",
+    next: () => {
+      if (!proposal?.medicines.length) return "There are no proposal medicines to navigate.";
+      const next = (voiceCursor ?? -1) + 1;
+      return focusProposalMedicine(next) ? `Proposal medicine ${next + 1} selected.` : "Already at the last proposal medicine.";
+    },
+    previous: () => {
+      if (!proposal?.medicines.length) return "There are no proposal medicines to navigate.";
+      const previous = (voiceCursor ?? proposal.medicines.length) - 1;
+      return focusProposalMedicine(previous) ? `Proposal medicine ${previous + 1} selected.` : "Already at the first proposal medicine.";
+    },
+    selectMedicine: (index) => {
+      const zeroIndex = index - 1;
+      if (!proposal?.medicines[zeroIndex]) return `Proposal medicine ${index} does not exist. Nothing changed.`;
+      setSelectedMedicines((current) => new Set(current).add(zeroIndex));
+      focusProposalMedicine(zeroIndex);
+      return `Proposal medicine ${index} selected for explicit Apply.`;
+    },
+    deselectMedicine: (index) => {
+      const zeroIndex = index - 1;
+      if (!proposal?.medicines[zeroIndex]) return `Proposal medicine ${index} does not exist. Nothing changed.`;
+      setSelectedMedicines((current) => {
+        const next = new Set(current);
+        next.delete(zeroIndex);
+        return next;
+      });
+      return `Proposal medicine ${index} deselected. It will not be applied.`;
+    },
+    editMedicine: (index) => focusProposalMedicine(index - 1)
+      ? `Proposal medicine ${index} is focused for editing. Changes remain proposal-only until Apply.`
+      : `Proposal medicine ${index} does not exist. Nothing changed.`,
+    removeMedicine: (index) => removeProposalMedicine(index - 1),
+    discard,
+    apply,
+  }));
 
   return (
     <SectionCard className="min-w-0 overflow-hidden" data-m6c2-autopilot data-ai-mode="mock">
@@ -125,7 +216,13 @@ export const M6C2AutopilotPanel = React.forwardRef<M6C2AutopilotVoiceHandle, {
 
         {proposal ? (
           <div className="min-w-0 space-y-4" data-m6c2-proposal-review>
-            <ProposalMedicines proposal={proposal} onChange={setProposal} />
+            <ProposalMedicines
+              proposal={proposal}
+              selected={selectedMedicines}
+              onSelectionChange={setSelectedMedicines}
+              onChange={setProposal}
+              onRemove={(index) => { removeProposalMedicine(index); }}
+            />
             <ProposalInvestigations proposal={proposal} onChange={setProposal} />
             <ProposalAdvice proposal={proposal} onChange={setProposal} />
             <ProposalFollowUp proposal={proposal} onChange={setProposal} replaceFollowUp={replaceFollowUp} onReplaceFollowUp={setReplaceFollowUp} />
@@ -142,7 +239,7 @@ export const M6C2AutopilotPanel = React.forwardRef<M6C2AutopilotVoiceHandle, {
                 {busy === "apply" ? <Loader2 className="size-4 animate-spin" /> : <Check className="size-4" />}
                 Apply to Draft
               </button>
-              <button type="button" onClick={() => { void discard(); }} disabled={busy !== null}
+              <button type="button" onClick={() => { discard(); }} disabled={busy !== null}
                 className="inline-flex min-h-11 items-center gap-2 rounded-xl border border-hairline bg-white px-4 text-[13px] font-semibold text-ink disabled:opacity-50">
                 <Trash2 className="size-4" /> Discard
               </button>
@@ -157,11 +254,24 @@ export const M6C2AutopilotPanel = React.forwardRef<M6C2AutopilotVoiceHandle, {
 });
 M6C2AutopilotPanel.displayName = "M6C2AutopilotPanel";
 
-function ProposalMedicines({ proposal, onChange }: { proposal: AutopilotPrescription; onChange: (value: AutopilotPrescription) => void }) {
+function ProposalMedicines({ proposal, selected, onSelectionChange, onChange, onRemove }: {
+  proposal: AutopilotPrescription;
+  selected: Set<number>;
+  onSelectionChange: (value: Set<number>) => void;
+  onChange: (value: AutopilotPrescription) => void;
+  onRemove: (index: number) => void;
+}) {
   const update = (index: number, patch: Partial<AutopilotPrescription["medicines"][number]>) => onChange({ ...proposal, medicines: proposal.medicines.map((row, i) => i === index ? { ...row, ...patch } : row) });
-  const remove = (index: number) => onChange({ ...proposal, medicines: proposal.medicines.filter((_, i) => i !== index) });
   return <ReviewSection title="Medicines">
-    {proposal.medicines.length === 0 ? <Empty /> : proposal.medicines.map((row, index) => <div key={`${row.displayName ?? "medicine"}-${index}`} className="min-w-0 rounded-xl border border-hairline p-3">
+    {proposal.medicines.length === 0 ? <Empty /> : proposal.medicines.map((row, index) => <div key={`${row.displayName ?? "medicine"}-${index}`} data-autopilot-medicine-index={index} className="min-w-0 rounded-xl border border-hairline p-3">
+      <label className="mb-2 flex min-h-11 items-center gap-2 text-[12px] font-semibold text-ink-secondary">
+        <input type="checkbox" checked={selected.has(index)} onChange={(event) => {
+          const next = new Set(selected);
+          if (event.target.checked) next.add(index); else next.delete(index);
+          onSelectionChange(next);
+        }} />
+        Include medicine {index + 1} in Apply
+      </label>
       <div className="grid min-w-0 gap-2 sm:grid-cols-2">
         <Field label="Medicine" value={row.displayName ?? ""} onChange={(v) => update(index, { displayName: v || null })} />
         <Field label="Dose" value={row.doseText ?? ""} onChange={(v) => update(index, { doseText: v || null })} />
@@ -175,7 +285,7 @@ function ProposalMedicines({ proposal, onChange }: { proposal: AutopilotPrescrip
         <button type="button" onClick={() => update(index, { needsReview: [] })} className="mt-2 min-h-11 rounded-xl border border-hairline bg-white px-3 font-semibold text-ink">Mark medicine resolved</button>
       </div> : null}
       {incompleteMedicineReason(row) && row.needsReview.length === 0 ? <p className="mt-2 text-[11px] font-medium text-warning">{incompleteMedicineReason(row)}</p> : null}
-      <button type="button" onClick={() => remove(index)} className="mt-2 min-h-11 rounded-xl px-3 text-[12px] font-semibold text-[#a81c1c]">Remove medicine</button>
+      <button type="button" onClick={() => onRemove(index)} className="mt-2 min-h-11 rounded-xl px-3 text-[12px] font-semibold text-[#a81c1c]">Remove medicine</button>
     </div>)}
   </ReviewSection>;
 }
