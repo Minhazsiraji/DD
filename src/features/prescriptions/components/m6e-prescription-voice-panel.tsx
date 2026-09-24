@@ -9,6 +9,7 @@ import {
   useVoiceLanguage,
   VoiceLanguageControl,
 } from "@/features/dictation/voice-language";
+import { restoreM6EMixedContractTerms } from "../m6e-mixed-restoration";
 import { parseM6EVoiceSessionControl } from "../m6e-prescription-voice-contract";
 
 const M6E_NORMALIZE_TIMEOUT_MS = 9_000;
@@ -63,10 +64,13 @@ export async function normalizeM6EHearing(
   if (language !== "bn-BD-mixed") return transcript;
 
   const first = await requestMixedNormalization(transcript, language, request);
-  if (!first.retryable || !isCurrent()) return first.transcript;
+  if (!first.retryable || !isCurrent()) {
+    return restoreM6EMixedContractTerms(first.transcript);
+  }
 
   const second = await requestMixedNormalization(transcript, language, request);
-  return isCurrent() ? second.transcript : transcript;
+  const authoritative = isCurrent() ? second.transcript : transcript;
+  return restoreM6EMixedContractTerms(authoritative);
 }
 
 export async function resolveM6EStableHearing(
@@ -108,8 +112,11 @@ export function isTrailingPreviewForStableUtterance(preview: string, stable: str
 }
 
 export function isDuplicateM6ESessionFinal(finalText: string, lastUtteranceText: string | null) {
-  return Boolean(finalText.trim() && lastUtteranceText &&
-    comparableProviderText(finalText) === comparableProviderText(lastUtteranceText));
+  return Boolean(
+    finalText.trim() &&
+      lastUtteranceText &&
+      comparableProviderText(finalText) === comparableProviderText(lastUtteranceText),
+  );
 }
 
 export interface M6EHearingSequencer {
@@ -161,19 +168,27 @@ export function createM6EHearingSequencer({
   };
 }
 
+type VoiceTargetOption = { value: string; label: string };
+
 /**
  * Route-local Prescription voice shell. The existing M6 `useDictation` hook
  * remains the sole owner of microphone/provider lifecycle and active lease.
- * Only a completed, current, normalized stable utterance reaches the additive
- * Prescription controller supplied by the composer.
+ * The exact final normalized Hearing transcript is the transcript passed to the
+ * Prescription controller, so display and command parsing cannot diverge.
  */
 export function M6EPrescriptionVoicePanel({
   disabled,
   target,
+  targetValue,
+  targetOptions,
+  onTargetChange,
   onStableTranscript,
 }: {
   disabled: boolean;
   target: string;
+  targetValue: string;
+  targetOptions: readonly VoiceTargetOption[];
+  onTargetChange: (value: string) => void;
   onStableTranscript: (text: string) => Promise<string>;
 }) {
   const voiceLanguage = useVoiceLanguage();
@@ -184,9 +199,11 @@ export function M6EPrescriptionVoicePanel({
   const [paused, setPaused] = React.useState(false);
   const lastUtteranceRaw = React.useRef<string | null>(null);
   const onStableTranscriptRef = React.useRef(onStableTranscript);
+
   React.useLayoutEffect(() => {
     onStableTranscriptRef.current = onStableTranscript;
   });
+
   const hearingSequencer = React.useMemo(
     () => createM6EHearingSequencer({ display: setPreview }),
     [],
@@ -211,7 +228,9 @@ export function M6EPrescriptionVoicePanel({
     const control = parseM6EVoiceSessionControl(stable);
     if (control === "PAUSE") {
       setPaused(true);
-      setStatus("Prescription Voice paused. Say Resume or use the Resume button; ordinary speech cannot change staged state while paused.");
+      setStatus(
+        "Prescription Voice paused. Say Resume or use the Resume button; ordinary speech cannot change staged state while paused.",
+      );
       return;
     }
     if (control === "RESUME") {
@@ -272,7 +291,9 @@ export function M6EPrescriptionVoicePanel({
     setPreview("");
     setPaused(false);
     lastUtteranceRaw.current = null;
-    setStatus("Listening in Prescription context. Clinical writes still require the existing explicit Doctor confirmation controls.");
+    setStatus(
+      "Listening in Prescription context. Clinical writes still require the existing explicit Doctor confirmation controls.",
+    );
     dictation.start();
   }
 
@@ -286,89 +307,129 @@ export function M6EPrescriptionVoicePanel({
   function togglePause() {
     if (!active) return;
     setPaused((current) => !current);
-    setStatus(paused ? "Prescription Voice resumed." : "Prescription Voice paused. Ordinary speech cannot change staged state.");
+    setStatus(
+      paused
+        ? "Prescription Voice resumed."
+        : "Prescription Voice paused. Ordinary speech cannot change staged state.",
+    );
   }
 
   return (
-    <SectionCard
-      className="min-w-0 overflow-hidden"
-      data-m6e-prescription-voice
-      data-voice-mode={LIVE_VOICE_ENABLED ? "live" : "mock"}
-    >
-      <SectionHeader
-        title="Voice Assistant"
-        icon={<Mic2 className="size-4" />}
-        action={
-          <span className="rounded-full bg-surface-muted px-2.5 py-1 text-[10px] font-semibold text-ink-secondary">
-            {target}
-          </span>
-        }
-      />
+    <div className="sticky top-2 z-40 min-w-0" data-m6e-voice-sticky>
+      <SectionCard
+        className="min-w-0 overflow-hidden"
+        data-m6e-prescription-voice
+        data-voice-mode={LIVE_VOICE_ENABLED ? "live" : "mock"}
+      >
+        <SectionHeader
+          title="Voice Assistant"
+          icon={<Mic2 className="size-4" />}
+          action={
+            <span className="max-w-[14rem] truncate rounded-full bg-surface-muted px-2.5 py-1 text-[10px] font-semibold text-ink-secondary">
+              {target}
+            </span>
+          }
+        />
 
-      <div className="min-w-0 space-y-3 p-4 sm:p-5">
-        <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <VoiceLanguageControl disabled={disabled || active} />
+        <div className="max-h-[42vh] min-w-0 overflow-x-hidden overflow-y-auto sm:max-h-none sm:overflow-visible">
+          <div className="min-w-0 space-y-3 p-4 sm:p-5">
+            <div className="grid min-w-0 gap-2 sm:grid-cols-2 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] lg:items-end">
+              <label className="min-w-0 text-[11px] font-semibold text-ink-secondary">
+                Current voice target
+                <select
+                  aria-label="Current voice target"
+                  value={targetValue}
+                  disabled={disabled}
+                  onChange={(event) => onTargetChange(event.target.value)}
+                  className="mt-1 min-h-11 w-full min-w-0 max-w-full rounded-xl border border-hairline bg-white px-3 text-[12px] font-semibold text-ink focus-visible:focus-ring disabled:opacity-55"
+                >
+                  {targetOptions.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
 
-          {active ? (
-            <div className="flex min-w-0 flex-col gap-2 sm:flex-row">
-              <button
-                type="button"
-                onClick={togglePause}
-                className="inline-flex min-h-11 w-full shrink-0 items-center justify-center gap-1.5 rounded-xl border border-hairline bg-white px-4 text-[13px] font-semibold text-ink focus-visible:focus-ring sm:w-auto"
-              >
-                {paused ? <Play className="size-3.5" aria-hidden="true" /> : <Pause className="size-3.5" aria-hidden="true" />}
-                {paused ? "Resume" : "Pause"}
-              </button>
-              <button
-                type="button"
-                onClick={end}
-                className="inline-flex min-h-11 w-full shrink-0 items-center justify-center gap-1.5 rounded-xl bg-[#a81c1c] px-4 text-[13px] font-semibold text-white focus-visible:focus-ring sm:w-auto"
-              >
-                <Square className="size-3.5 fill-current" aria-hidden="true" />
-                End Voice
-              </button>
+              <VoiceLanguageControl disabled={disabled || active} />
+
+              {active ? (
+                <div className="flex min-w-0 flex-col gap-2 sm:flex-row lg:justify-end">
+                  <button
+                    type="button"
+                    onClick={togglePause}
+                    className="inline-flex min-h-11 w-full shrink-0 items-center justify-center gap-1.5 rounded-xl border border-hairline bg-white px-4 text-[13px] font-semibold text-ink focus-visible:focus-ring sm:w-auto"
+                  >
+                    {paused ? (
+                      <Play className="size-3.5" aria-hidden="true" />
+                    ) : (
+                      <Pause className="size-3.5" aria-hidden="true" />
+                    )}
+                    {paused ? "Resume" : "Pause"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={end}
+                    className="inline-flex min-h-11 w-full shrink-0 items-center justify-center gap-1.5 rounded-xl bg-[#a81c1c] px-4 text-[13px] font-semibold text-white focus-visible:focus-ring sm:w-auto"
+                  >
+                    <Square className="size-3.5 fill-current" aria-hidden="true" />
+                    End Voice
+                  </button>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={start}
+                  disabled={disabled || !dictation.supported}
+                  className="dd-primary inline-flex min-h-11 w-full shrink-0 items-center justify-center gap-1.5 px-4 text-[13px] font-semibold disabled:cursor-not-allowed disabled:opacity-55 focus-visible:focus-ring sm:w-auto lg:justify-self-end"
+                >
+                  <Waves className="size-4" aria-hidden="true" />
+                  Start Voice
+                </button>
+              )}
             </div>
-          ) : (
-            <button
-              type="button"
-              onClick={start}
-              disabled={disabled || !dictation.supported}
-              className="dd-primary inline-flex min-h-11 w-full shrink-0 items-center justify-center gap-1.5 px-4 text-[13px] font-semibold disabled:cursor-not-allowed disabled:opacity-55 focus-visible:focus-ring sm:w-auto"
+
+            {preview ? (
+              <p
+                role="status"
+                className="min-w-0 break-words rounded-xl bg-surface-muted px-3 py-2 text-[12px] text-ink-secondary"
+              >
+                <strong className="font-semibold text-ink">Hearing:</strong> {preview}
+              </p>
+            ) : null}
+
+            {dictation.error ? (
+              <p
+                role="alert"
+                className="min-w-0 break-words rounded-xl bg-danger-soft px-3 py-2 text-[12px] font-medium text-[#a81c1c]"
+              >
+                {dictation.error}
+              </p>
+            ) : null}
+
+            <p
+              role="status"
+              aria-live="polite"
+              className="min-w-0 break-words text-[12px] font-medium text-ink-secondary"
             >
-              <Waves className="size-4" aria-hidden="true" />
-              Start Voice
-            </button>
-          )}
+              {status}
+            </p>
+
+            <p className="min-w-0 break-words text-[10px] text-ink-muted">
+              {dictation.providerNotice}
+            </p>
+
+            <p className="flex min-w-0 items-start gap-1.5 break-words text-[10px] text-ink-muted">
+              <ShieldAlert className="mt-px size-3.5 shrink-0" aria-hidden="true" />
+              <span>
+                Voice may stage editable medicine/proposal changes and navigate to Review. Add,
+                Save, Apply, removal confirmation, and Finalize remain explicit Doctor-controlled
+                boundaries.
+              </span>
+            </p>
+          </div>
         </div>
-
-        {preview ? (
-          <p role="status" className="min-w-0 break-words rounded-xl bg-surface-muted px-3 py-2 text-[12px] text-ink-secondary">
-            <strong className="font-semibold text-ink">Hearing:</strong> {preview}
-          </p>
-        ) : null}
-
-        {dictation.error ? (
-          <p role="alert" className="min-w-0 break-words rounded-xl bg-danger-soft px-3 py-2 text-[12px] font-medium text-[#a81c1c]">
-            {dictation.error}
-          </p>
-        ) : null}
-
-        <p role="status" aria-live="polite" className="min-w-0 break-words text-[12px] font-medium text-ink-secondary">
-          {status}
-        </p>
-
-        <p className="min-w-0 break-words text-[10px] text-ink-muted">
-          {dictation.providerNotice}
-        </p>
-
-        <p className="flex min-w-0 items-start gap-1.5 break-words text-[10px] text-ink-muted">
-          <ShieldAlert className="mt-px size-3.5 shrink-0" aria-hidden="true" />
-          <span>
-            Voice may stage editable medicine/proposal changes and navigate to Review. Add, Save,
-            Apply, removal confirmation, and Finalize remain explicit Doctor-controlled boundaries.
-          </span>
-        </p>
-      </div>
-    </SectionCard>
+      </SectionCard>
+    </div>
   );
 }
