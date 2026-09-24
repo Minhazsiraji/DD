@@ -213,6 +213,14 @@ export function M6EPrescriptionVoicePanel({
     hearingSequencer.invalidateSession();
   }, [hearingSequencer, voiceLanguage.lang]);
 
+  React.useLayoutEffect(() => {
+    if (targetValue.startsWith("FIELD:")) return;
+    const activeElement = document.activeElement;
+    if (activeElement instanceof HTMLElement && activeElement.dataset.medicineField) {
+      activeElement.blur();
+    }
+  }, [targetValue]);
+
   React.useEffect(
     () => () => {
       hearingSequencer.invalidateSession();
