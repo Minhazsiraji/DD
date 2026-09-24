@@ -84,6 +84,28 @@ export async function resolveM6EStableHearing(
   return currentGeneration() === generation ? normalized : null;
 }
 
+function comparableProviderText(text: string) {
+  return text
+    .normalize("NFC")
+    .toLocaleLowerCase("en-US")
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+export function isTrailingPreviewForStableUtterance(preview: string, stable: string) {
+  const next = comparableProviderText(preview);
+  const completed = comparableProviderText(stable);
+  if (!next || !completed) return false;
+  if (next === completed || next.startsWith(completed) || completed.startsWith(next)) return true;
+
+  const shorter = Math.min(next.length, completed.length);
+  if (shorter < 8) return false;
+  let commonPrefix = 0;
+  while (commonPrefix < shorter && next[commonPrefix] === completed[commonPrefix]) commonPrefix += 1;
+  return commonPrefix / shorter >= 0.8;
+}
+
 export interface M6EHearingSequencer {
   beginSession: () => void;
   invalidateSession: () => void;
@@ -100,26 +122,34 @@ export function createM6EHearingSequencer({
 }): M6EHearingSequencer {
   let sessionEpoch = 0;
   let stableSequence = 0;
+  let lockedStableRaw: string | null = null;
 
   function invalidateSession() {
     sessionEpoch += 1;
     stableSequence = 0;
+    lockedStableRaw = null;
   }
 
   return {
     beginSession: invalidateSession,
     invalidateSession,
     onPreview(text) {
-      if (text) display(text);
+      if (!text) return;
+      if (lockedStableRaw && isTrailingPreviewForStableUtterance(text, lockedStableRaw)) return;
+      lockedStableRaw = null;
+      display(text);
     },
     async onStable(text, language) {
       if (!text.trim()) return;
       const epoch = sessionEpoch;
       const sequence = ++stableSequence;
       const isCurrent = () => sessionEpoch === epoch && stableSequence === sequence;
+      lockedStableRaw = null;
       display(text);
       const normalized = await normalizeM6EHearing(text, language, request, isCurrent);
-      if (isCurrent()) display(normalized);
+      if (!isCurrent()) return;
+      display(normalized);
+      if (language === "bn-BD-mixed" && normalized !== text) lockedStableRaw = text;
     },
   };
 }
@@ -154,9 +184,13 @@ export function M6EPrescriptionVoicePanel({ disabled }: { disabled: boolean }) {
     [hearingSequencer],
   );
 
-  async function showStableHearing(text: string) {
+  async function showStableHearing(text: string, sessionEnded = false) {
     if (!text.trim()) return;
-    setStatus("Speech heard in Prescription context. No clinical field was changed.");
+    setStatus(
+      sessionEnded
+        ? "Voice session ended. Final speech was not written to the prescription."
+        : "Speech heard in Prescription context. No clinical field was changed.",
+    );
     await hearingSequencer.onStable(text, voiceLanguage.lang);
   }
 
@@ -172,11 +206,11 @@ export function M6EPrescriptionVoicePanel({ disabled }: { disabled: boolean }) {
     },
     onFinal: (text) => {
       hearingSequencer.invalidateSession();
-      setStatus(
-        text.trim()
-          ? "Voice session ended. Final speech was not written to the prescription."
-          : "Voice session ended.",
-      );
+      if (text.trim()) {
+        void showStableHearing(text, true);
+      } else {
+        setStatus("Voice session ended.");
+      }
     },
     onCancel: () => {
       hearingSequencer.invalidateSession();
