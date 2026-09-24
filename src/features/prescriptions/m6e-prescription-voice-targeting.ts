@@ -193,5 +193,12 @@ export function parseM6EPrescriptionVoiceTargeting(
       value: canonicalizeM6ETargetedFieldValue(base.field, base.value),
     };
   }
+  if (base.type === "REPLACE_FIELD" && context.fieldTarget) {
+    return {
+      ...base,
+      from: canonicalizeM6ETargetedFieldValue(context.fieldTarget, base.from),
+      to: canonicalizeM6ETargetedFieldValue(context.fieldTarget, base.to),
+    };
+  }
   return base;
 }
