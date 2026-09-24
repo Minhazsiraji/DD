@@ -115,8 +115,6 @@ function mapIntent(rawText: string, parsed: OpenAICommand): M6BIntent {
 }
 
 export async function POST(request: NextRequest) {
-  if (!isPreviewLike()) return json({ code: "preview-only" }, 404);
-
   try {
     await requirePermission("update", "encounter");
   } catch {
@@ -147,6 +145,10 @@ export async function POST(request: NextRequest) {
   if (deterministic.type === "NAVIGATE" && deterministic.target === "prescription") {
     return json({ intent: deterministic, provider: "deterministic" });
   }
+
+  // Production allows only this already-validated deterministic navigation.
+  // All AI-dependent command interpretation remains Preview/development only.
+  if (!isPreviewLike()) return json({ code: "preview-only" }, 404);
 
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) return json({ code: "openai-unavailable" }, 503);
