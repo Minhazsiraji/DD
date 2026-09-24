@@ -1,3 +1,5 @@
+import { BENGALI_CLINICAL_NUMBER_WORDS, parseBengaliClinicalNumber } from "./bengali-clinical-number";
+
 export interface NormalizedTranscript {
   raw: string;
   normalized: string;
@@ -39,6 +41,12 @@ const TENS: Readonly<Record<string, number>> = {
 
 const NUMBER_ATOM = "(?:\\d+(?:\\.\\d+)?|zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred|point)(?![A-Za-z])";
 const NUMBER_PHRASE = `${NUMBER_ATOM}(?:[ -]+(?:and[ -]+)?${NUMBER_ATOM})*`;
+const BENGALI_NUMBER_ATOM = `(?:[০-৯]+(?:\\.[০-৯]+)?|${BENGALI_CLINICAL_NUMBER_WORDS
+  .toSorted((left, right) => right.length - left.length)
+  .map((word) => word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
+  .join("|")}|দুইশ(?:ো)?|তিনশ(?:ো)?|দশমিক)`;
+const LOCAL_NUMBER_ATOM = `(?:${NUMBER_ATOM}|${BENGALI_NUMBER_ATOM})`;
+const LOCAL_NUMBER_PHRASE = `${LOCAL_NUMBER_ATOM}(?:[ -]+(?:and[ -]+)?${LOCAL_NUMBER_ATOM})*`;
 
 function parseSpokenNumber(value: string): string | null {
   const parts = value.toLocaleLowerCase("en-US").replace(/-/g, " ").split(/\s+point\s+/);
@@ -82,6 +90,18 @@ function normalizeMeasurement(text: string, cue: string): string {
   const pattern = new RegExp(`\\b(${cue})(\\s+)(${NUMBER_PHRASE})`, "gi");
   return text.replace(pattern, (match, label: string, spacing: string, spoken: string) => {
     const number = parseSpokenNumber(spoken);
+    return number === null ? match : `${label}${spacing}${number}`;
+  });
+}
+
+function parseLocalizedClinicalNumber(value: string): string | null {
+  return parseSpokenNumber(value) ?? parseBengaliClinicalNumber(value);
+}
+
+function normalizeLocalizedMeasurement(text: string, asciiCue: string, bengaliCue: string): string {
+  const pattern = new RegExp(`((?:\\b(?:${asciiCue})|(?:${bengaliCue})))(\\s+)(${LOCAL_NUMBER_PHRASE})`, "giu");
+  return text.replace(pattern, (match, label: string, spacing: string, spoken: string) => {
+    const number = parseLocalizedClinicalNumber(spoken);
     return number === null ? match : `${label}${spacing}${number}`;
   });
 }
@@ -187,6 +207,37 @@ export function normalizeClinicalNumbers(raw: string): string {
   );
   normalized = normalizeMeasurement(normalized, "temperature");
   normalized = normalizeMeasurement(normalized, "weight");
+
+  const localizedBloodPressure = new RegExp(
+    `(?:\\b(?:bp|b\\s+p|blood pressure)|(?:বিপি|ব্লাড প্রেসার))(\\s+)(${LOCAL_NUMBER_PHRASE})\\s+(?:by|over|slash|বাই|স্ল্যাশ|/)\\s+(${LOCAL_NUMBER_PHRASE})`,
+    "giu",
+  );
+  normalized = normalized.replace(
+    localizedBloodPressure,
+    (match, spacing: string, systolicSpoken: string, diastolicSpoken: string) => {
+      const systolic = parseLocalizedClinicalNumber(systolicSpoken);
+      const diastolic = parseLocalizedClinicalNumber(diastolicSpoken);
+      return systolic === null || diastolic === null ? match : `BP${spacing}${systolic}/${diastolic}`;
+    },
+  );
+
+  const localizedOxygen = new RegExp(
+    `(?:\\b(?:spo2|sp\\s*o2|oxygen saturation)|অক্সিজেন স্যাচুরেশন)(\\s+)(${LOCAL_NUMBER_PHRASE})(\\s*(?:percent|per cent|পারসেন্ট|%))?`,
+    "giu",
+  );
+  normalized = normalized.replace(
+    localizedOxygen,
+    (match, spacing: string, spoken: string, unit: string | undefined) => {
+      const number = parseLocalizedClinicalNumber(spoken);
+      return number === null ? match : `SpO2${spacing}${number}${unit ? "%" : ""}`;
+    },
+  );
+
+  normalized = normalizeLocalizedMeasurement(normalized, "pulse|hr|heart rate", "পালস|হার্ট রেট");
+  normalized = normalizeLocalizedMeasurement(normalized, "temperature|temp", "তাপমাত্রা");
+  normalized = normalizeLocalizedMeasurement(normalized, "weight", "ওজন");
+  normalized = normalizeLocalizedMeasurement(normalized, "height", "উচ্চতা");
+  normalized = normalizeLocalizedMeasurement(normalized, "respiratory rate|resp rate|rr", "শ্বাসের হার|রেসপিরেটরি রেট");
   return normalized;
 }
 

@@ -1,4 +1,5 @@
 import { M6D_COMMAND_ALIASES, M6D_SECTION_ALIASES } from "./m6d-command-catalogue";
+import { parseBengaliClinicalNumber } from "./bengali-clinical-number";
 
 export type M6DTarget =
   | "chiefComplaints"
@@ -141,7 +142,8 @@ function parseRelativeAmount(raw: string): number | null {
     ek: 1, dui: 2, tin: 3,
     "এক": 1, "একটি": 1, "দুই": 2, "দুটি": 2, "তিন": 3, "চার": 4, "পাঁচ": 5, "ছয়": 6, "ছয়": 6, "সাত": 7, "আট": 8, "নয়": 9, "নয়": 9, "দশ": 10, "চৌদ্দ": 14, "ত্রিশ": 30,
   };
-  return words[normalized] ?? null;
+  const bengali = parseBengaliClinicalNumber(normalized);
+  return words[normalized] ?? (bengali === null ? null : Number(bengali));
 }
 
 function stripNavigationPrefix(value: string): string {
@@ -179,6 +181,12 @@ function parseFollowUpDate(raw: string, activeTarget?: M6DTarget): M6DLocalInten
   if (activeTarget !== "nextVisitNote") return null;
   const contextual = raw.toLocaleLowerCase("en-US");
   if (["tomorrow", "আগামীকাল", "kal"].includes(contextual)) return { type: "FOLLOW_UP_DATE", amount: 1, unit: "days" };
+
+  const mixedInterval = contextual.match(/^(.+?)\s+(দিন|day|days|সপ্তাহ|week|weeks|মাস|month|months)\s+(?:পরে|পর|pore|por)$/iu);
+  if (mixedInterval) {
+    const amount = parseRelativeAmount(mixedInterval[1]!);
+    return amount && amount > 0 ? relativeDate(amount, mixedInterval[2]!.toLowerCase()) : null;
+  }
 
   const englishInterval = contextual.match(/^(?:(?:after|in)\s+)?([\w-]+)\s+(day|days|week|weeks|month|months)$/i);
   if (englishInterval) {
@@ -262,7 +270,7 @@ export function parseM6DLocalCommand(text: string, context: M6DCommandContext = 
   if (match) return { type: "NOTE_EDIT", operation: "REPLACE", value: match[1]!.trim(), replacement: match[2]!.trim() };
   match = raw.match(/^(.+?)\s+(?:এর বদলে|বদলে|পরিবর্তন করে)\s+(.+)$/u);
   if (match) return { type: "NOTE_EDIT", operation: "REPLACE", value: match[1]!.trim(), replacement: match[2]!.trim() };
-  match = raw.match(/^(.+?)\s+(?:change kore|er jaygay)\s+(.+)$/i);
+  match = raw.match(/^(.+?)\s+(?:change kore|replace kore|er jaygay)\s+(.+)$/i);
   if (match) return { type: "NOTE_EDIT", operation: "REPLACE", value: match[1]!.trim(), replacement: match[2]!.trim() };
 
   match = raw.match(/^(?:remove|delete|erase)\s+(.+)$/i);

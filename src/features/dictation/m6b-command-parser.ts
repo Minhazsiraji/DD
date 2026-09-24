@@ -66,10 +66,16 @@ const NAVIGATION: readonly [M6BNavigationTarget, readonly string[]][] = [
 
 const INVESTIGATION_NAMES: readonly [string, readonly string[]][] = [
   ["CBC", ["cbc", "সি বি সি", "সিবিসি"]],
+  ["Urine R/M/E", ["urine r/m/e", "urine rme", "urine routine microscopy", "ইউরিন আর এম ই"]],
   ["Serum Creatinine", ["serum creatinine", "creatinine", "ক্রিয়েটিনিন", "ক্রিয়েটিনিন"]],
-  ["HbA1c", ["hba1c", "hb a1c"]],
-  ["TSH", ["tsh"]],
+  ["Blood Glucose", ["blood glucose", "blood sugar", "ব্লাড গ্লুকোজ", "ব্লাড সুগার"]],
+  ["HbA1c", ["hba1c", "hb a1c", "এইচ বি এ ওয়ান সি", "এইচ বি এ ওয়ান সি"]],
+  ["Lipid Profile", ["lipid profile", "লিপিড প্রোফাইল"]],
+  ["TSH", ["tsh", "টি এস এইচ"]],
+  ["LFT", ["lft", "এল এফ টি"]],
+  ["Chest X-ray", ["chest x-ray", "chest x ray", "বুকের এক্সরে", "চেস্ট এক্সরে"]],
   ["ECG", ["ecg", "ইসিজি"]],
+  ["Ultrasonography", ["ultrasonography", "ultrasound", "আল্ট্রাসনোগ্রাফি", "আল্ট্রাসাউন্ড"]],
 ];
 
 function extractInvestigations(value: string): string[] {
@@ -130,10 +136,7 @@ export function parseM6BCommand(text: string): M6BIntent {
   if (hasAny(value, FINALIZED_MUTATION)) return { type: "PROHIBITED_ACTION", rawText: raw, action: "FINALIZED_MUTATION", reviewOnly: false };
   if (hasAny(value, BYPASS)) return { type: "PROHIBITED_ACTION", rawText: raw, action: "BYPASS_CONFIRMATION", reviewOnly: false };
 
-  const followUpCue = hasAny(value, [
-    "follow-up", "follow up", "followup", "next visit", "next appointment", "review after",
-    "ফলো আপ", "ফলোআপ", "পরবর্তী ভিজিট", "পরের ভিজিট", "পরবর্তী সাক্ষাৎ",
-  ]);
+  const followUpCue = /^(?:follow[- ]?up|followup|next visit|next appointment|review after|ফলো ?আপ|পরবর্তী ভিজিট|পরের ভিজিট|পরবর্তী সাক্ষাৎ)(?:\s|$)/iu.test(value);
   if (followUpCue && !hasAny(value, ["go to", "e jao", "এ যাও", "যাও", "খোলো"])) {
     const days = parseDays(value);
     return { type: "PROPOSE_FOLLOW_UP", rawText: raw, days, uncertainties: days ? [] : ["Follow-up interval is not explicit."] };

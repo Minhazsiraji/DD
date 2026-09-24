@@ -12,27 +12,27 @@ export const M6D_COMMAND_ALIASES = {
     "undo", "undo last", "undo last sentence", "undo last change", "cancel last change", "go back last change", "বাতিল", "আগেরটা বাতিল", "শেষটা ফেরত", "শেষ পরিবর্তন বাতিল", "শেষ বাক্য undo", "last change undo koro",
   ],
   removeLastSentence: [
-    "remove last sentence", "delete last sentence", "remove last line", "delete last line", "erase last sentence", "erase last line", "শেষ বাক্য মুছো", "শেষ লাইন মুছো", "শেষ কথাটা মুছো", "শেষ বাক্য বাদ দাও", "last sentence delete koro",
+    "remove last sentence", "delete last sentence", "remove last line", "delete last line", "erase last sentence", "erase last line", "শেষ বাক্য মুছো", "শেষ লাইন মুছো", "শেষ কথাটা মুছো", "শেষ বাক্য বাদ দাও", "last sentence delete koro", "last line remove koro",
   ],
   clear: [
-    "clear current section", "clear this section", "clear section", "clear field", "clear this field", "clear note", "এই সেকশন clear", "এই সেকশন মুছো", "এই অংশ মুছো", "এই ঘর খালি করো", "নোট মুছো", "field clear koro",
+    "clear current section", "clear this section", "clear section", "clear field", "clear this field", "clear note", "এই সেকশন clear", "এই সেকশন মুছো", "এই অংশ মুছো", "এই ঘর খালি করো", "নোট মুছো", "field clear koro", "section clear koro",
   ],
   read: [
-    "read current section", "read this section", "read section", "read field", "read note", "এই সেকশন পড়ো", "এই অংশ পড়ো", "এই ঘর পড়ো", "নোট পড়ো",
+    "read current section", "read this section", "read section", "read field", "read note", "এই সেকশন পড়ো", "এই অংশ পড়ো", "এই ঘর পড়ো", "নোট পড়ো", "current section poro",
   ],
-  next: ["next", "next section", "next field", "পরের সেকশন", "পরের অংশ", "পরের ঘর"],
-  previous: ["previous", "previous section", "previous field", "back", "আগের সেকশন", "আগের অংশ", "আগের ঘর", "পেছনে যাও"],
+  next: ["next", "next section", "next field", "পরের সেকশন", "পরের অংশ", "পরের ঘর", "next e jao"],
+  previous: ["previous", "previous section", "previous field", "back", "আগের সেকশন", "আগের অংশ", "আগের ঘর", "পেছনে যাও", "previous e jao"],
   diagnosisNavigate: [
-    "diagnosis", "diagnoses", "ডায়াগনোসিস", "ডায়াগনোসিস", "রোগ নির্ণয়", "রোগ নির্ণয়", "নির্ণয়", "নির্ণয়", "diagnosis e jao",
+    "diagnosis", "diagnoses", "ডায়াগনোসিস", "ডায়াগনোসিস", "রোগ নির্ণয়", "রোগ নির্ণয়", "নির্ণয়", "নির্ণয়", "diagnosis e jao", "রোগ নির্ণয়ে যাও", "রোগ নির্ণয়ে যাও",
   ],
   diagnosisTitle: [
-    "diagnosis field", "diagnosis name", "diagnosis title", "ডায়াগনোসিস ফিল্ড", "ডায়াগনোসিস ফিল্ড", "রোগ নির্ণয়ের ঘর", "রোগ নির্ণয়ের ঘর",
+    "diagnosis field", "diagnosis name", "diagnosis title", "ডায়াগনোসিস ফিল্ড", "ডায়াগনোসিস ফিল্ড", "রোগ নির্ণয়ের ঘর", "রোগ নির্ণয়ের ঘর", "diagnosis title e jao",
   ],
   diagnosisCertainty: [
-    "how certain", "certainty", "certainty level", "how sure", "কতটা নিশ্চিত", "নিশ্চিততা", "নিশ্চিততার মাত্রা",
+    "how certain", "certainty", "certainty level", "how sure", "কতটা নিশ্চিত", "নিশ্চিততা", "নিশ্চিততার মাত্রা", "certainty te jao",
   ],
   diagnosisNote: [
-    "note", "note field", "note section", "diagnosis note", "diagnosis notes", "diagnosis comments", "নোট", "নোট ফিল্ড", "নোট সেকশন", "ডায়াগনোসিস নোট", "ডায়াগনোসিস নোট", "diagnosis note e jao",
+    "note", "note field", "note section", "diagnosis note", "diagnosis notes", "diagnosis comments", "নোট", "নোট ফিল্ড", "নোট সেকশন", "ডায়াগনোসিস নোট", "ডায়াগনোসিস নোট", "diagnosis note e jao", "diagnosis note kholo",
   ],
   provisional: ["provisional", "সম্ভাব্য", "প্রভিশনাল"],
   working: ["working", "working diagnosis", "ওয়ার্কিং", "ওয়ার্কিং", "কার্যকর ধারণা"],
@@ -40,10 +40,10 @@ export const M6D_COMMAND_ALIASES = {
   ruledOut: ["ruled out", "rule out", "rooted out", "excluded", "বাদ", "বাতিল", "রুলড আউট"],
   diagnosisReview: ["save diagnosis", "confirm diagnosis", "add diagnosis", "ডায়াগনোসিস সেভ", "রোগ নির্ণয় যোগ করো"],
   investigationNavigate: [
-    "investigation", "investigations", "investigation order", "investigation orders", "test", "tests", "test order", "test orders", "ইনভেস্টিগেশন", "ইনভেস্টিগেশন অর্ডার", "ইনভেস্টিগেশন অর্ডার্স", "পরীক্ষার অর্ডার", "টেস্ট", "টেস্ট অর্ডার", "investigation e jao",
+    "investigation", "investigations", "investigation order", "investigation orders", "test", "tests", "test order", "test orders", "ইনভেস্টিগেশন", "ইনভেস্টিগেশন অর্ডার", "ইনভেস্টিগেশন অর্ডার্স", "পরীক্ষার অর্ডার", "টেস্ট", "টেস্ট অর্ডার", "investigation e jao", "টেস্ট অর্ডারে যাও",
   ],
   investigationField: [
-    "investigation field", "investigation search", "search investigation", "test field", "test search", "ইনভেস্টিগেশন ফিল্ড", "ইনভেস্টিগেশন সার্চ", "টেস্ট ফিল্ড", "টেস্ট সার্চ",
+    "investigation field", "investigation search", "search investigation", "test field", "test search", "ইনভেস্টিগেশন ফিল্ড", "ইনভেস্টিগেশন সার্চ", "টেস্ট ফিল্ড", "টেস্ট সার্চ", "investigation field e jao", "test search e jao",
   ],
 } as const;
 
@@ -52,19 +52,19 @@ export const M6D_SECTION_ALIASES = {
     "chief complaint", "chief complaints", "complaint", "complaints", "cheap complaint", "cheap complaints", "প্রধান অভিযোগ", "মূল অভিযোগ", "অভিযোগ", "chief complaint e jao",
   ],
   presentIllness: [
-    "history", "present illness", "history of present illness", "hpi", "হিস্ট্রি", "ইতিহাস", "বর্তমান অসুস্থতার ইতিহাস", "বর্তমান রোগের ইতিহাস", "history e jao",
+    "history", "present illness", "history of present illness", "hpi", "হিস্ট্রি", "ইতিহাস", "বর্তমান অসুস্থতার ইতিহাস", "বর্তমান রোগের ইতিহাস", "history e jao", "হিস্ট্রিতে যাও",
   ],
   pastHistory: [
-    "past history", "past medical history", "previous medical history", "medical history", "previous illness history", "অতীত ইতিহাস", "পূর্ব ইতিহাস", "আগের রোগের ইতিহাস", "পূর্ববর্তী রোগের ইতিহাস", "past history e jao",
+    "past history", "past medical history", "previous medical history", "medical history", "previous illness history", "অতীত ইতিহাস", "পূর্ব ইতিহাস", "আগের রোগের ইতিহাস", "পূর্ববর্তী রোগের ইতিহাস", "past history e jao", "পূর্ব ইতিহাসে যাও",
   ],
   examination: [
-    "examination", "exam", "physical examination", "clinical examination", "পরীক্ষা", "শারীরিক পরীক্ষা", "ক্লিনিক্যাল পরীক্ষা", "examination e jao",
+    "examination", "exam", "physical examination", "clinical examination", "পরীক্ষা", "শারীরিক পরীক্ষা", "ক্লিনিক্যাল পরীক্ষা", "examination e jao", "শারীরিক পরীক্ষায় যাও", "শারীরিক পরীক্ষায় যাও",
   ],
   assessment: [
-    "assessment", "impression", "clinical impression", "অ্যাসেসমেন্ট", "মূল্যায়ন", "মূল্যায়ন", "ধারণা", "assessment e jao",
+    "assessment", "impression", "clinical impression", "অ্যাসেসমেন্ট", "মূল্যায়ন", "মূল্যায়ন", "ধারণা", "assessment e jao", "মূল্যায়নে যাও", "মূল্যায়নে যাও",
   ],
   advice: [
-    "advice", "plan", "treatment advice", "পরামর্শ", "উপদেশ", "advice e jao",
+    "advice", "plan", "treatment advice", "পরামর্শ", "উপদেশ", "advice e jao", "পরামর্শে যাও",
   ],
   nextVisitNote: [
     "follow up", "follow-up", "followup", "follow up note", "next visit", "next visit note", "next appointment", "review", "review visit", "ফলো আপ", "ফলোআপ", "পরবর্তী ভিজিট", "পরবর্তী সাক্ষাৎ", "follow up e jao",
