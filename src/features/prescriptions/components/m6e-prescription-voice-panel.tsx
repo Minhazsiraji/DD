@@ -10,6 +10,53 @@ import {
   VoiceLanguageControl,
 } from "@/features/dictation/voice-language";
 
+const M6E_NORMALIZE_TIMEOUT_MS = 9_000;
+
+type NormalizeRequest = (
+  input: string,
+  init: RequestInit,
+) => Promise<{ ok: boolean; json: () => Promise<unknown> }>;
+
+const defaultNormalizeRequest: NormalizeRequest = (input, init) => fetch(input, init);
+
+export async function normalizeM6EHearing(
+  transcript: string,
+  language: string,
+  request: NormalizeRequest = defaultNormalizeRequest,
+): Promise<string> {
+  if (language !== "bn-BD-mixed") return transcript;
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), M6E_NORMALIZE_TIMEOUT_MS);
+  try {
+    const response = await request("/api/voice/normalize", {
+      method: "POST",
+      cache: "no-store",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      signal: controller.signal,
+      body: JSON.stringify({ transcript, language }),
+    });
+    const payload = (await response.json().catch(() => ({}))) as { transcript?: unknown };
+    const normalized = typeof payload.transcript === "string" ? payload.transcript.trim() : "";
+    return response.ok && normalized ? normalized : transcript;
+  } catch {
+    return transcript;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+export async function resolveM6EStableHearing(
+  transcript: string,
+  language: string,
+  generation: number,
+  currentGeneration: () => number,
+  request: NormalizeRequest = defaultNormalizeRequest,
+): Promise<string | null> {
+  const normalized = await normalizeM6EHearing(transcript, language, request);
+  return currentGeneration() === generation ? normalized : null;
+}
+
 /**
  * M6E-A only: route-local Prescription voice shell.
  *
@@ -24,27 +71,59 @@ export function M6EPrescriptionVoicePanel({ disabled }: { disabled: boolean }) {
   const [status, setStatus] = React.useState(
     "Prescription context ready. Start Voice when you want to use the assistant.",
   );
+  const hearingGenerationRef = React.useRef(0);
+  const mountedRef = React.useRef(true);
+  const hearingLanguageRef = React.useRef(voiceLanguage.lang);
+  hearingLanguageRef.current = voiceLanguage.lang;
+
+  React.useEffect(() => {
+    hearingGenerationRef.current += 1;
+  }, [voiceLanguage.lang]);
+
+  React.useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      hearingGenerationRef.current += 1;
+    };
+  }, []);
+
+  async function showStableHearing(text: string, sessionEnded = false) {
+    if (!text.trim()) return;
+    const generation = ++hearingGenerationRef.current;
+    setPreview(text);
+    setStatus(
+      sessionEnded
+        ? "Voice session ended. Final speech was not written to the prescription."
+        : "Speech heard in Prescription context. No clinical field was changed.",
+    );
+    const language = voiceLanguage.lang;
+    const normalized = await resolveM6EStableHearing(
+      text,
+      language,
+      generation,
+      () => hearingGenerationRef.current,
+    );
+    if (!mountedRef.current || hearingLanguageRef.current !== language || normalized === null) return;
+    setPreview(normalized);
+  }
 
   const dictation = useDictation({
     language: voiceLanguage.providerLanguage,
     providerMode: LIVE_VOICE_ENABLED ? "deepgram" : "mock",
     continuous: true,
-    onPreview: setPreview,
+    onPreview: (text) => {
+      hearingGenerationRef.current += 1;
+      setPreview(text);
+    },
     onUtteranceEnd: (text) => {
-      if (text.trim()) {
-        setStatus("Speech heard in Prescription context. No clinical field was changed.");
-      }
-      setPreview("");
+      void showStableHearing(text);
     },
     onFinal: (text) => {
-      if (text.trim()) {
-        setStatus("Voice session ended. Final speech was not written to the prescription.");
-      } else {
-        setStatus("Voice session ended.");
-      }
-      setPreview("");
+      void showStableHearing(text, true);
     },
     onCancel: () => {
+      hearingGenerationRef.current += 1;
       setPreview("");
       setStatus("Voice session ended. No clinical field was changed.");
     },
@@ -54,6 +133,7 @@ export function M6EPrescriptionVoicePanel({ disabled }: { disabled: boolean }) {
 
   function start() {
     if (disabled || active) return;
+    hearingGenerationRef.current += 1;
     setPreview("");
     setStatus(
       "Listening in Prescription context. M6E-A is preview-only; speech cannot add, edit, remove, apply, review, or finalize anything.",
@@ -63,6 +143,7 @@ export function M6EPrescriptionVoicePanel({ disabled }: { disabled: boolean }) {
 
   function end() {
     if (!active) return;
+    hearingGenerationRef.current += 1;
     setStatus("Ending Prescription voice session…");
     dictation.stop();
   }
