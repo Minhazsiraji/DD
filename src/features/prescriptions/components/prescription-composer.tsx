@@ -19,12 +19,16 @@ import {
 } from "../errors";
 import type { PrescriptionDetail } from "../queries";
 import { emptyMedicine } from "../schema";
+import { useM6EPrescriptionVoiceController } from "../use-m6e-prescription-voice";
 import { M6EPrescriptionVoicePanel } from "./m6e-prescription-voice-panel";
 import { MedicineForm } from "./medicine-form";
 import { MedicineList } from "./medicine-list";
 import { PrescriptionReuse } from "./prescription-reuse";
 import { SignedMedicineHistory } from "./signed-medicine-history";
-import { M6C2AutopilotPanel } from "@/features/autopilot/components/m6c2-autopilot-panel";
+import {
+  M6C2AutopilotPanel,
+  type M6C2AutopilotVoiceHandle,
+} from "@/features/autopilot/components/m6c2-autopilot-panel";
 
 /**
  * The prescription composer — a DRAFT workflow.
@@ -61,6 +65,13 @@ export function PrescriptionComposer({
   const panel = recoveryPanel(rx.state);
   const acceleratorDisabled = rx.blocked || rx.editor !== null;
   const m6bProposalApplied = React.useRef(false);
+  const autopilotVoiceRef = React.useRef<M6C2AutopilotVoiceHandle>(null);
+  const m6eVoice = useM6EPrescriptionVoiceController({
+    prescriptionId: prescription.id,
+    readOnly,
+    rx,
+    autopilotVoiceRef,
+  });
 
   React.useEffect(() => {
     if (readOnly || !m6bMedicine || m6bProposalApplied.current || rx.editor !== null) return;
@@ -89,7 +100,11 @@ export function PrescriptionComposer({
       */}
       <ConsultationIdentity patient={prescription.patient} locationName={locationName} />
 
-      {!readOnly ? <M6EPrescriptionVoicePanel disabled={rx.blocked} /> : null}
+      {!readOnly ? <M6EPrescriptionVoicePanel
+          disabled={rx.blocked}
+          contextLabel={m6eVoice.contextLabel}
+          onStableTranscript={m6eVoice.handleStableTranscript}
+        /> : null}
 
       {readOnly ? (
         <p
@@ -165,6 +180,7 @@ export function PrescriptionComposer({
 
       {!readOnly && encounterVersion !== null ? (
         <M6C2AutopilotPanel
+          ref={autopilotVoiceRef}
           encounterId={prescription.encounterId}
           encounterVersion={encounterVersion}
           prescriptionId={prescription.id}

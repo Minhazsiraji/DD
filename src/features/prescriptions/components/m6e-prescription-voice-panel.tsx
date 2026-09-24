@@ -110,7 +110,7 @@ export interface M6EHearingSequencer {
   beginSession: () => void;
   invalidateSession: () => void;
   onPreview: (text: string) => void;
-  onStable: (text: string, language: string) => Promise<void>;
+  onStable: (text: string, language: string) => Promise<string | null>;
 }
 
 export function createM6EHearingSequencer({
@@ -140,34 +140,42 @@ export function createM6EHearingSequencer({
       display(text);
     },
     async onStable(text, language) {
-      if (!text.trim()) return;
+      if (!text.trim()) return null;
       const epoch = sessionEpoch;
       const sequence = ++stableSequence;
       const isCurrent = () => sessionEpoch === epoch && stableSequence === sequence;
       lockedStableRaw = null;
       display(text);
       const normalized = await normalizeM6EHearing(text, language, request, isCurrent);
-      if (!isCurrent()) return;
+      if (!isCurrent()) return null;
       display(normalized);
       if (language === "bn-BD-mixed" && normalized !== text) lockedStableRaw = text;
+      return normalized;
     },
   };
 }
 
-/**
- * M6E-A only: route-local Prescription voice shell.
- *
- * This component deliberately has no prescription mutation, Autopilot, Review,
- * or Finalize dependency. Speech is preview-only in this phase. The existing
- * M6 `useDictation` hook remains the sole owner of microphone/provider session
- * lifecycle, including its global active-voice lease and unmount cleanup.
- */
-export function M6EPrescriptionVoicePanel({ disabled }: { disabled: boolean }) {
+/** Prescription voice remains transport-only here; all clinical actions are delegated upward. */
+export type M6EStableTranscriptHandler = (text: string) => string | Promise<string>;
+
+export function M6EPrescriptionVoicePanel({
+  disabled,
+  onStableTranscript,
+  contextLabel,
+}: {
+  disabled: boolean;
+  onStableTranscript?: M6EStableTranscriptHandler;
+  contextLabel?: string;
+}) {
   const voiceLanguage = useVoiceLanguage();
   const [preview, setPreview] = React.useState("");
   const [status, setStatus] = React.useState(
     "Prescription context ready. Start Voice when you want to use the assistant.",
   );
+  const onStableTranscriptRef = React.useRef(onStableTranscript);
+  React.useLayoutEffect(() => {
+    onStableTranscriptRef.current = onStableTranscript;
+  });
   const hearingSequencer = React.useMemo(
     () => createM6EHearingSequencer({ display: setPreview }),
     [],
@@ -184,14 +192,17 @@ export function M6EPrescriptionVoicePanel({ disabled }: { disabled: boolean }) {
     [hearingSequencer],
   );
 
-  async function showStableHearing(text: string, sessionEnded = false) {
+  async function showStableHearing(text: string, sessionEnded = false, runAction = true) {
     if (!text.trim()) return;
-    setStatus(
-      sessionEnded
-        ? "Voice session ended. Final speech was not written to the prescription."
-        : "Speech heard in Prescription context. No clinical field was changed.",
-    );
-    await hearingSequencer.onStable(text, voiceLanguage.lang);
+    setStatus(sessionEnded ? "Voice session ended." : "Speech heard. Processing Prescription voice intent…");
+    const stable = await hearingSequencer.onStable(text, voiceLanguage.lang);
+    if (!stable) return;
+    if (!sessionEnded && runAction && onStableTranscriptRef.current) {
+      const message = await onStableTranscriptRef.current(stable);
+      if (message) setStatus(message);
+      return;
+    }
+    if (sessionEnded) setStatus("Voice session ended. Final speech was not auto-applied.");
   }
 
   const dictation = useDictation({
@@ -202,12 +213,12 @@ export function M6EPrescriptionVoicePanel({ disabled }: { disabled: boolean }) {
       hearingSequencer.onPreview(text);
     },
     onUtteranceEnd: (text) => {
-      void showStableHearing(text);
+      void showStableHearing(text, false, true);
     },
     onFinal: (text) => {
       hearingSequencer.invalidateSession();
       if (text.trim()) {
-        void showStableHearing(text, true);
+        void showStableHearing(text, true, false);
       } else {
         setStatus("Voice session ended.");
       }
@@ -226,7 +237,7 @@ export function M6EPrescriptionVoicePanel({ disabled }: { disabled: boolean }) {
     hearingSequencer.beginSession();
     setPreview("");
     setStatus(
-      "Listening in Prescription context. M6E-A is preview-only; speech cannot add, edit, remove, apply, review, or finalize anything.",
+      "Listening in Prescription context. Speech may stage/edit draft work and control safe workflow actions; Finalize is never voice-executed.",
     );
     dictation.start();
   }
@@ -249,7 +260,7 @@ export function M6EPrescriptionVoicePanel({ disabled }: { disabled: boolean }) {
         icon={<Mic2 className="size-4" />}
         action={
           <span className="rounded-full bg-surface-muted px-2.5 py-1 text-[10px] font-semibold text-ink-secondary">
-            Prescription · M6E-A
+            Prescription · M6E
           </span>
         }
       />
@@ -280,6 +291,12 @@ export function M6EPrescriptionVoicePanel({ disabled }: { disabled: boolean }) {
           )}
         </div>
 
+        {contextLabel ? (
+          <p className="min-w-0 break-words text-[11px] font-medium text-ink-muted">
+            Voice target: <span className="font-semibold text-ink-secondary">{contextLabel}</span>
+          </p>
+        ) : null}
+
         {preview ? (
           <p role="status" className="min-w-0 break-words rounded-xl bg-surface-muted px-3 py-2 text-[12px] text-ink-secondary">
             <strong className="font-semibold text-ink">Hearing:</strong> {preview}
@@ -303,8 +320,7 @@ export function M6EPrescriptionVoicePanel({ disabled }: { disabled: boolean }) {
         <p className="flex min-w-0 items-start gap-1.5 break-words text-[10px] text-ink-muted">
           <ShieldAlert className="mt-px size-3.5 shrink-0" aria-hidden="true" />
           <span>
-            M6E-A is transport integration only. Speech is not connected to medicine mutations,
-            Autopilot, Review, or Finalize.
+            Medicine speech edits staged draft state first. Autopilot Apply stays explicit. Voice can open Review, but can never Finalize or sign a prescription.
           </span>
         </p>
       </div>

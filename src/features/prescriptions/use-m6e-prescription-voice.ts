@@ -84,8 +84,9 @@ export function useM6EPrescriptionVoiceController({
       case "PREVIOUS_MEDICINE": {
         if (rx.items.length === 0) return "There are no saved medicines to navigate.";
         if (rx.editor && rx.dirty) return "Finish or cancel the current unsaved medicine before moving to another medicine.";
-        const current = rx.editor?.mode === "edit"
-          ? rx.items.findIndex((row) => row.id === rx.editor?.row.id)
+        const editingId = rx.editor?.mode === "edit" ? rx.editor.row.id : null;
+        const current = editingId
+          ? rx.items.findIndex((row) => row.id === editingId)
           : voiceCursor ?? (intent.type === "NEXT_MEDICINE" ? -1 : rx.items.length);
         const next = intent.type === "NEXT_MEDICINE" ? current + 1 : current - 1;
         if (next < 0 || next >= rx.items.length) {

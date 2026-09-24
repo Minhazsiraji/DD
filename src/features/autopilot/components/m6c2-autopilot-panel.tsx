@@ -9,19 +9,25 @@ import { applyAutopilotProposalToDraftAction } from "../apply-server";
 import { AUTOPILOT_REVIEW_LABEL, incompleteMedicineReason } from "../apply";
 import type { AutopilotPrescription } from "../contracts";
 
-export function M6C2AutopilotPanel({
-  encounterId,
-  encounterVersion,
-  prescriptionId,
-  prescriptionVersion,
-  disabled,
-}: {
+export interface M6C2AutopilotVoiceHandle {
+  generate: () => Promise<string>;
+  discard: () => string;
+  apply: () => Promise<string>;
+}
+
+export const M6C2AutopilotPanel = React.forwardRef<M6C2AutopilotVoiceHandle, {
   encounterId: string;
   encounterVersion: number;
   prescriptionId: string;
   prescriptionVersion: number;
   disabled: boolean;
-}) {
+}>(function M6C2AutopilotPanel({
+  encounterId,
+  encounterVersion,
+  prescriptionId,
+  prescriptionVersion,
+  disabled,
+}, ref) {
   const router = useRouter();
   const [proposal, setProposal] = React.useState<AutopilotPrescription | null>(null);
   const [busy, setBusy] = React.useState<"generate" | "apply" | null>(null);
@@ -30,7 +36,9 @@ export function M6C2AutopilotPanel({
   const [replaceFollowUp, setReplaceFollowUp] = React.useState(false);
   const [acknowledgeUncertainties, setAcknowledgeUncertainties] = React.useState(false);
 
-  async function generate() {
+  async function generate(): Promise<string> {
+    if (disabled || busy !== null) return "Autopilot is busy or unavailable. Nothing changed.";
+    if (proposal) return "An Autopilot proposal is already open. Review, Apply, or Discard it first.";
     setBusy("generate");
     setError(null);
     setMessage(null);
@@ -44,13 +52,16 @@ export function M6C2AutopilotPanel({
     if (!result.ok) {
       setProposal(null);
       setError(result.message);
-      return;
+      return result.message;
     }
     setProposal(result.proposal);
+    return "Autopilot proposal generated. Review and edit it before Apply.";
   }
 
-  async function apply() {
-    if (!proposal) return;
+  async function apply(): Promise<string> {
+    if (!proposal) return "No Autopilot proposal is available to Apply.";
+    if (disabled || busy !== null) return "Autopilot is busy or unavailable. Nothing changed.";
+    if (unresolved) return "Resolve the proposal's incomplete or uncertain items before Apply.";
     setBusy("apply");
     setError(null);
     setMessage(null);
@@ -63,13 +74,26 @@ export function M6C2AutopilotPanel({
     setBusy(null);
     if (!result.ok) {
       setError(result.message);
-      return;
+      return result.message;
     }
     setProposal(null);
     setReplaceFollowUp(false);
     setAcknowledgeUncertainties(false);
-    setMessage(result.alreadyApplied ? "This proposal was already applied." : "Applied to the editable draft. Existing review is still required.");
+    const successMessage = result.alreadyApplied ? "This proposal was already applied." : "Applied to the editable draft. Existing Review is still required.";
+    setMessage(successMessage);
     router.refresh();
+    return successMessage;
+  }
+
+  function discard(): string {
+    if (busy !== null) return "Autopilot is busy. Nothing changed.";
+    if (!proposal) return "No Autopilot proposal is available to Discard.";
+    setProposal(null);
+    setError(null);
+    setMessage("Autopilot proposal discarded. No proposal was applied.");
+    setReplaceFollowUp(false);
+    setAcknowledgeUncertainties(false);
+    return "Autopilot proposal discarded. No proposal was applied.";
   }
   const unresolved = proposal ? (
     proposal.medicines.some((row) => Boolean(incompleteMedicineReason(row))) ||
@@ -77,6 +101,8 @@ export function M6C2AutopilotPanel({
     proposal.followUp.needsReview.length > 0 ||
     (proposal.uncertainties.length > 0 && !acknowledgeUncertainties)
   ) : false;
+
+  React.useImperativeHandle(ref, () => ({ generate, discard, apply }));
 
   return (
     <SectionCard className="min-w-0 overflow-hidden" data-m6c2-autopilot data-ai-mode="mock">
@@ -116,7 +142,7 @@ export function M6C2AutopilotPanel({
                 {busy === "apply" ? <Loader2 className="size-4 animate-spin" /> : <Check className="size-4" />}
                 Apply to Draft
               </button>
-              <button type="button" onClick={() => { setProposal(null); setError(null); setReplaceFollowUp(false); setAcknowledgeUncertainties(false); }} disabled={busy !== null}
+              <button type="button" onClick={() => { void discard(); }} disabled={busy !== null}
                 className="inline-flex min-h-11 items-center gap-2 rounded-xl border border-hairline bg-white px-4 text-[13px] font-semibold text-ink disabled:opacity-50">
                 <Trash2 className="size-4" /> Discard
               </button>
@@ -128,7 +154,8 @@ export function M6C2AutopilotPanel({
       </div>
     </SectionCard>
   );
-}
+});
+M6C2AutopilotPanel.displayName = "M6C2AutopilotPanel";
 
 function ProposalMedicines({ proposal, onChange }: { proposal: AutopilotPrescription; onChange: (value: AutopilotPrescription) => void }) {
   const update = (index: number, patch: Partial<AutopilotPrescription["medicines"][number]>) => onChange({ ...proposal, medicines: proposal.medicines.map((row, i) => i === index ? { ...row, ...patch } : row) });

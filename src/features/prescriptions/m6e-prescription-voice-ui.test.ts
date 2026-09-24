@@ -37,7 +37,8 @@ describe("M6E-A prescription voice shell", () => {
   });
 
   it("mounts only for an editable prescription and never auto-starts on render", () => {
-    expect(composerSource).toContain("!readOnly ? <M6EPrescriptionVoicePanel disabled={rx.blocked} /> : null");
+    expect(composerSource).toContain("!readOnly ? <M6EPrescriptionVoicePanel");
+    expect(composerSource).toContain("onStableTranscript={m6eVoice.handleStableTranscript}");
     expect(voiceSource).toContain("onClick={start}");
     expect(voiceSource.match(/dictation\.start\(\);/g)).toHaveLength(1);
     expect(voiceSource).not.toMatch(/useEffect[\s\S]{0,300}dictation\.start/);
