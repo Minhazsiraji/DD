@@ -2,7 +2,11 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { NextRequest } from "next/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { normalizeM6EHearing, resolveM6EStableHearing } from "./components/m6e-prescription-voice-panel";
+import {
+  createM6EHearingSequencer,
+  normalizeM6EHearing,
+  resolveM6EStableHearing,
+} from "./components/m6e-prescription-voice-panel";
 
 const requirePermission = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/auth/session", () => ({ requirePermission }));
@@ -71,83 +75,225 @@ describe("M6E-A prescription voice shell", () => {
   });
 });
 
+describe("M6E-A1/A2 mixed Hearing normalization runtime", () => {
+  type Result = { ok: boolean; status?: number; json: () => Promise<unknown> };
 
-describe("M6E-A1 mixed Hearing normalization", () => {
+  function deferredRequest() {
+    const pending: Array<(value: Result) => void> = [];
+    const request = vi.fn(() => new Promise<Result>((resolvePending) => pending.push(resolvePending)));
+    return { request, pending };
+  }
+
   it("keeps English and Bangla provider-faithful without normalize calls", async () => {
-    const request = vi.fn(async () => ({ ok: true, json: async () => ({ transcript: "unused" }) }));
-    await expect(normalizeM6EHearing("Patient has fever", "en-US", request)).resolves.toBe("Patient has fever");
-    await expect(normalizeM6EHearing("\u09b0\u09cb\u0997\u09c0\u09b0 \u099c\u09cd\u09ac\u09b0", "bn-BD", request)).resolves.toBe("\u09b0\u09cb\u0997\u09c0\u09b0 \u099c\u09cd\u09ac\u09b0");
+    const shown: string[] = [];
+    const request = vi.fn(async () => ({ ok: true, status: 200, json: async () => ({ transcript: "unused" }) }));
+    const hearing = createM6EHearingSequencer({ display: (text) => shown.push(text), request });
+
+    hearing.beginSession();
+    await hearing.onStable("Patient has fever", "en-US");
+    expect(shown.at(-1)).toBe("Patient has fever");
+    await hearing.onStable("রোগীর জ্বর", "bn-BD");
+    expect(shown.at(-1)).toBe("রোগীর জ্বর");
     expect(request).not.toHaveBeenCalled();
   });
 
-  it("normalizes mixed mode exactly once and sends the mixed language contract", async () => {
+  it("normalizes one current mixed stable utterance exactly once with the mixed-language contract", async () => {
     let body: unknown;
-    const request = vi.fn(async (_input: string, init: RequestInit) => {
+    const shown: string[] = [];
+    const request = vi.fn(async (input: string, init: RequestInit) => {
+      expect(input).toBe("/api/voice/normalize");
       body = JSON.parse(String(init.body));
-      return { ok: true, json: async () => ({ transcript: "Patient fever and CBC" }) };
+      return { ok: true, status: 200, json: async () => ({ transcript: "Patient fever and CBC" }) };
     });
-    await expect(normalizeM6EHearing("raw mixed transcript", "bn-BD-mixed", request)).resolves.toBe("Patient fever and CBC");
+    const hearing = createM6EHearingSequencer({ display: (text) => shown.push(text), request });
+
+    hearing.beginSession();
+    await hearing.onStable("raw mixed transcript", "bn-BD-mixed");
+
     expect(request).toHaveBeenCalledTimes(1);
-    expect(request).toHaveBeenCalledWith("/api/voice/normalize", expect.objectContaining({ method: "POST" }));
     expect(body).toEqual({ transcript: "raw mixed transcript", language: "bn-BD-mixed" });
+    expect(shown.at(-1)).toBe("Patient fever and CBC");
   });
 
-  it("falls back to the original provider transcript on failure, non-200, or empty output", async () => {
+  it("CASE 1: trailing preview from the same utterance cannot discard successful mixed normalization", async () => {
+    const raw = "পেশেন্টের ফিভার আছে, সিবিসি করতে হবে";
+    const normalized = "Patient-এর fever আছে, CBC করতে হবে";
+    const shown: string[] = [];
+    const { request, pending } = deferredRequest();
+    const hearing = createM6EHearingSequencer({ display: (text) => shown.push(text), request });
+
+    hearing.beginSession();
+    hearing.onPreview(raw);
+    const stable = hearing.onStable(raw, "bn-BD-mixed");
+    hearing.onPreview(`${raw} `);
+    pending[0]?.({ ok: true, status: 200, json: async () => ({ transcript: normalized }) });
+    await stable;
+
+    expect(request).toHaveBeenCalledTimes(1);
+    expect(shown.at(-1)).toBe(normalized);
+  });
+
+  it("CASE 2: empty trailing preview does not blank or invalidate stable normalization", async () => {
+    const raw = "প্রেসক্রিপশন এ পেশেন্ট এখন স্টেবল";
+    const normalized = "Prescription এ patient এখন stable";
+    const shown: string[] = [];
+    const { request, pending } = deferredRequest();
+    const hearing = createM6EHearingSequencer({ display: (text) => shown.push(text), request });
+
+    hearing.beginSession();
+    const stable = hearing.onStable(raw, "bn-BD-mixed");
+    hearing.onPreview("");
+    expect(shown.at(-1)).toBe(raw);
+    pending[0]?.({ ok: true, status: 200, json: async () => ({ transcript: normalized }) });
+    await stable;
+
+    expect(shown.at(-1)).toBe(normalized);
+  });
+
+  it("CASE 3: a genuinely newer stable utterance invalidates the older normalization result", async () => {
+    const shown: string[] = [];
+    const { request, pending } = deferredRequest();
+    const hearing = createM6EHearingSequencer({ display: (text) => shown.push(text), request });
+
+    hearing.beginSession();
+    const first = hearing.onStable("পেশেন্টের ফিভার", "bn-BD-mixed");
+    const second = hearing.onStable("ফলো আপ দুই সপ্তাহ পরে", "bn-BD-mixed");
+    pending[0]?.({ ok: true, status: 200, json: async () => ({ transcript: "Patient-এর fever" }) });
+    await first;
+    expect(shown.at(-1)).toBe("ফলো আপ দুই সপ্তাহ পরে");
+    pending[1]?.({ ok: true, status: 200, json: async () => ({ transcript: "follow-up দুই সপ্তাহ পরে" }) });
+    await second;
+
+    expect(shown.at(-1)).toBe("follow-up দুই সপ্তাহ পরে");
+  });
+
+  it("CASE 4: End Voice invalidates pending normalization so old text cannot resurrect", async () => {
+    const shown: string[] = [];
+    const { request, pending } = deferredRequest();
+    const hearing = createM6EHearingSequencer({ display: (text) => shown.push(text), request });
+
+    hearing.beginSession();
+    const stable = hearing.onStable("পেশেন্ট এখন স্টেবল", "bn-BD-mixed");
+    hearing.invalidateSession();
+    pending[0]?.({ ok: true, status: 200, json: async () => ({ transcript: "patient এখন stable" }) });
+    await stable;
+
+    expect(shown).not.toContain("patient এখন stable");
+    expect(shown.at(-1)).toBe("পেশেন্ট এখন স্টেবল");
+  });
+
+  it("CASE 5: language change invalidates pending mixed normalization", async () => {
+    const shown: string[] = [];
+    const { request, pending } = deferredRequest();
+    const hearing = createM6EHearingSequencer({ display: (text) => shown.push(text), request });
+
+    hearing.beginSession();
+    const stable = hearing.onStable("পেশেন্টের ফিভার", "bn-BD-mixed");
+    hearing.invalidateSession();
+    pending[0]?.({ ok: true, status: 200, json: async () => ({ transcript: "Patient-এর fever" }) });
+    await stable;
+
+    expect(shown).not.toContain("Patient-এর fever");
+  });
+
+  it("retries one transient 502 exactly once with the same transcript, language, and display authority", async () => {
+    const raw = "প্রেসক্রিপশন এ পেশেন্ট এখন স্টেবল";
+    const normalized = "Prescription এ patient এখন stable";
+    const shown: string[] = [];
+    const bodies: unknown[] = [];
+    const request = vi.fn(async (input: string, init: RequestInit) => {
+      expect(input).toBe("/api/voice/normalize");
+      bodies.push(JSON.parse(String(init.body)));
+      if (bodies.length === 1) {
+        return { ok: false, status: 502, json: async () => ({ code: "openai-provider-error" }) };
+      }
+      return { ok: true, status: 200, json: async () => ({ transcript: normalized }) };
+    });
+    const hearing = createM6EHearingSequencer({ display: (text) => shown.push(text), request });
+
+    hearing.beginSession();
+    await hearing.onStable(raw, "bn-BD-mixed");
+
+    expect(request).toHaveBeenCalledTimes(2);
+    expect(bodies).toEqual([
+      { transcript: raw, language: "bn-BD-mixed" },
+      { transcript: raw, language: "bn-BD-mixed" },
+    ]);
+    expect(shown.at(-1)).toBe(normalized);
+  });
+
+  it("does not retry unauthorized, forbidden, or invalid-request responses", async () => {
+    for (const status of [400, 401, 403]) {
+      const request = vi.fn(async () => ({ ok: false, status, json: async () => ({ code: "rejected" }) }));
+      await expect(normalizeM6EHearing("raw mixed", "bn-BD-mixed", request)).resolves.toBe("raw mixed");
+      expect(request).toHaveBeenCalledTimes(1);
+    }
+  });
+
+  it("does not retry a transient response once the stable utterance became stale", async () => {
+    let current = true;
+    const request = vi.fn(async () => {
+      current = false;
+      return { ok: false, status: 502, json: async () => ({ code: "provider-error" }) };
+    });
+
+    await expect(
+      normalizeM6EHearing("raw mixed", "bn-BD-mixed", request, () => current),
+    ).resolves.toBe("raw mixed");
+    expect(request).toHaveBeenCalledTimes(1);
+  });
+
+  it("falls back to raw Hearing on non-transient failure, empty output, or timeout", async () => {
     const raw = "raw provider transcript";
-    const networkFailure = vi.fn(async () => { throw new Error("network"); });
-    const non200 = vi.fn(async () => ({ ok: false, json: async () => ({ code: "provider-error" }) }));
-    const empty = vi.fn(async () => ({ ok: true, json: async () => ({ transcript: "   " }) }));
-    await expect(normalizeM6EHearing(raw, "bn-BD-mixed", networkFailure)).resolves.toBe(raw);
-    await expect(normalizeM6EHearing(raw, "bn-BD-mixed", non200)).resolves.toBe(raw);
+    const nonTransient = vi.fn(async () => ({ ok: false, status: 400, json: async () => ({ code: "invalid-request" }) }));
+    const empty = vi.fn(async () => ({ ok: true, status: 200, json: async () => ({ transcript: "   " }) }));
+    await expect(normalizeM6EHearing(raw, "bn-BD-mixed", nonTransient)).resolves.toBe(raw);
     await expect(normalizeM6EHearing(raw, "bn-BD-mixed", empty)).resolves.toBe(raw);
-  });
 
-  it("falls back to raw Hearing when the normalize request times out", async () => {
     vi.useFakeTimers();
     try {
-      const request = vi.fn((_input: string, init: RequestInit) => new Promise<{ ok: boolean; json: () => Promise<unknown> }>((_resolve, reject) => {
-        init.signal?.addEventListener("abort", () => reject(new Error("aborted")), { once: true });
-      }));
-      const pending = normalizeM6EHearing("raw timeout transcript", "bn-BD-mixed", request);
+      const timeoutRequest = vi.fn((input: string, init: RequestInit) => {
+        expect(input).toBe("/api/voice/normalize");
+        return new Promise<Result>((resolvePending, reject) => {
+          void resolvePending;
+          init.signal?.addEventListener("abort", () => reject(new Error("aborted")), { once: true });
+        });
+      });
+      const pending = normalizeM6EHearing(raw, "bn-BD-mixed", timeoutRequest);
       await vi.advanceTimersByTimeAsync(9_000);
-      await expect(pending).resolves.toBe("raw timeout transcript");
+      await expect(pending).resolves.toBe(raw);
+      expect(timeoutRequest).toHaveBeenCalledTimes(1);
     } finally {
       vi.useRealTimers();
     }
   });
 
-  it("drops an older async normalization result after a newer utterance generation begins", async () => {
-    type Result = { ok: boolean; json: () => Promise<unknown> };
+  it("preserves the previous stale-generation helper contract", async () => {
     let release: ((value: Result) => void) | undefined;
-    const request = vi.fn(() => new Promise<Result>((resolve) => { release = resolve; }));
+    const request = vi.fn(() => new Promise<Result>((resolvePending) => { release = resolvePending; }));
     let generation = 1;
     const pending = resolveM6EStableHearing("old raw", "bn-BD-mixed", 1, () => generation, request);
     generation = 2;
-    release?.({ ok: true, json: async () => ({ transcript: "stale normalized" }) });
+    release?.({ ok: true, status: 200, json: async () => ({ transcript: "stale normalized" }) });
     await expect(pending).resolves.toBeNull();
   });
 
-  it("shows raw interim immediately, replaces only stable current Hearing, and invalidates on end/unmount", () => {
-    const stableStart = voiceSource.indexOf("async function showStableHearing");
-    const stableEnd = voiceSource.indexOf("const dictation = useDictation", stableStart);
-    const stable = voiceSource.slice(stableStart, stableEnd);
-    expect(voiceSource).toContain("onPreview: (text) => {");
-    expect(voiceSource).toContain("hearingGenerationRef.current += 1;\n      setPreview(text);");
-    expect(stable.indexOf("setPreview(text);")).toBeLessThan(stable.indexOf("await resolveM6EStableHearing"));
-    expect(stable.indexOf("setPreview(normalized);")).toBeGreaterThan(stable.indexOf("await resolveM6EStableHearing"));
-    expect(voiceSource).toContain("onUtteranceEnd: (text) => {\n      void showStableHearing(text);");
-    expect(voiceSource).toContain("onFinal: (text) => {\n      void showStableHearing(text, true);");
-    expect(voiceSource).toContain("mountedRef.current = false;\n      hearingGenerationRef.current += 1;");
-    expect(voiceSource).toContain("React.useLayoutEffect(() => {\n    hearingGenerationRef.current += 1;\n  }, [voiceLanguage.lang]);");
-    expect(voiceSource).toContain("onCancel: () => {\n      hearingGenerationRef.current += 1;");
+  it("wires previews without authority invalidation and invalidates on language/end/cancel/unmount", () => {
+    expect(voiceSource).toContain("hearingSequencer.onPreview(text);");
+    expect(voiceSource).not.toContain("hearingGenerationRef");
+    expect(voiceSource).toContain("await hearingSequencer.onStable(text, voiceLanguage.lang);");
+    expect(voiceSource).toContain("hearingSequencer.beginSession();");
+    expect(voiceSource).toContain("React.useLayoutEffect(() => {\n    hearingSequencer.invalidateSession();");
+    expect(voiceSource).toContain("onCancel: () => {\n      hearingSequencer.invalidateSession();");
+    expect(voiceSource).toContain("() => () => {\n      hearingSequencer.invalidateSession();");
     const endStart = voiceSource.indexOf("function end()");
     const endBlock = voiceSource.slice(endStart, voiceSource.indexOf("return (", endStart));
-    expect(endBlock).toContain("hearingGenerationRef.current += 1;");
+    expect(endBlock).toContain("hearingSequencer.invalidateSession();");
   });
 
   it("keeps normalization display-only with zero clinical/action imports", () => {
     expect(voiceSource).toContain('request("/api/voice/normalize"');
-    expect(voiceSource.match(/normalizeM6EHearing\(/g)).toHaveLength(2);
+    expect(voiceSource).toContain("M6E_TRANSIENT_NORMALIZE_STATUSES");
     for (const forbidden of [
       "addMedicineAction",
       "updateMedicineAction",
@@ -162,7 +308,6 @@ describe("M6E-A1 mixed Hearing normalization", () => {
     ]) expect(voiceSource).not.toContain(forbidden);
   });
 });
-
 
 describe("existing /api/voice/normalize mixed-language route", () => {
   const origin = "http://localhost:3200";
@@ -191,9 +336,9 @@ describe("existing /api/voice/normalize mixed-language route", () => {
     const provider = vi.fn();
     vi.stubGlobal("fetch", provider);
     const english = await normalizeVoicePost(request("Patient has fever", "en-US"));
-    const bangla = await normalizeVoicePost(request("\u09b0\u09cb\u0997\u09c0\u09b0 \u099c\u09cd\u09ac\u09b0", "bn-BD"));
+    const bangla = await normalizeVoicePost(request("রোগীর জ্বর", "bn-BD"));
     await expect(english.json()).resolves.toMatchObject({ transcript: "Patient has fever", provider: "identity" });
-    await expect(bangla.json()).resolves.toMatchObject({ transcript: "\u09b0\u09cb\u0997\u09c0\u09b0 \u099c\u09cd\u09ac\u09b0", provider: "identity" });
+    await expect(bangla.json()).resolves.toMatchObject({ transcript: "রোগীর জ্বর", provider: "identity" });
     expect(provider).not.toHaveBeenCalled();
   });
 
