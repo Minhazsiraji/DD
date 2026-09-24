@@ -101,6 +101,9 @@ export function PrescriptionComposer({
         <M6EPrescriptionVoicePanel
           disabled={rx.blocked}
           target={prescriptionVoice.contextLabel}
+          targetValue={prescriptionVoice.currentTarget}
+          targetOptions={prescriptionVoice.targetOptions}
+          onTargetChange={prescriptionVoice.selectTarget}
           onStableTranscript={prescriptionVoice.handleStableTranscript}
         />
       ) : null}
