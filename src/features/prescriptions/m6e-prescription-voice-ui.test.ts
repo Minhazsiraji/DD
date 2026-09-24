@@ -138,9 +138,7 @@ describe("M6E-A1 mixed Hearing normalization", () => {
     expect(voiceSource).toContain("onUtteranceEnd: (text) => {\n      void showStableHearing(text);");
     expect(voiceSource).toContain("onFinal: (text) => {\n      void showStableHearing(text, true);");
     expect(voiceSource).toContain("mountedRef.current = false;\n      hearingGenerationRef.current += 1;");
-    expect(voiceSource).toContain("}, [voiceLanguage.lang]);");
-    expect(voiceSource).toContain("hearingLanguageRef.current = voiceLanguage.lang;");
-    expect(stable).toContain("hearingLanguageRef.current !== language");
+    expect(voiceSource).toContain("React.useLayoutEffect(() => {\n    hearingGenerationRef.current += 1;\n  }, [voiceLanguage.lang]);");
     expect(voiceSource).toContain("onCancel: () => {\n      hearingGenerationRef.current += 1;");
     const endStart = voiceSource.indexOf("function end()");
     const endBlock = voiceSource.slice(endStart, voiceSource.indexOf("return (", endStart));

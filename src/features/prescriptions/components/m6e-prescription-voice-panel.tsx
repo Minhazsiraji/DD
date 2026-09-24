@@ -73,10 +73,7 @@ export function M6EPrescriptionVoicePanel({ disabled }: { disabled: boolean }) {
   );
   const hearingGenerationRef = React.useRef(0);
   const mountedRef = React.useRef(true);
-  const hearingLanguageRef = React.useRef(voiceLanguage.lang);
-  hearingLanguageRef.current = voiceLanguage.lang;
-
-  React.useEffect(() => {
+  React.useLayoutEffect(() => {
     hearingGenerationRef.current += 1;
   }, [voiceLanguage.lang]);
 
@@ -104,7 +101,7 @@ export function M6EPrescriptionVoicePanel({ disabled }: { disabled: boolean }) {
       generation,
       () => hearingGenerationRef.current,
     );
-    if (!mountedRef.current || hearingLanguageRef.current !== language || normalized === null) return;
+    if (!mountedRef.current || normalized === null) return;
     setPreview(normalized);
   }
 
