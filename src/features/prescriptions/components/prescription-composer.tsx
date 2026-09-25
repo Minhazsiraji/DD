@@ -222,7 +222,7 @@ export function PrescriptionComposer({
             <div data-m3-prescription-accelerators className="space-y-2 rounded-2xl border border-hairline bg-white/35 p-2.5 sm:p-3">
               <div className="px-1">
                 <p className="text-[12px] font-semibold text-ink">Medicine shortcuts</p>
-                <p className="mt-0.5 text-[11px] text-ink-muted">Use your signed medicine history or this patientâ€™s previous finalized prescription. Nothing is added without the existing explicit action.</p>
+                <p className="mt-0.5 text-[11px] text-ink-muted">Use your signed medicine history or this patient&apos;s previous finalized prescription. Nothing is added without the existing explicit action.</p>
               </div>
 
               <SignedMedicineHistory

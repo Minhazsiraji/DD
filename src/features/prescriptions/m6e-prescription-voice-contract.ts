@@ -309,7 +309,7 @@ const NEXT = ["next medicine", "go to next medicine", "পরের medicine", "
 const PREVIOUS = ["previous medicine", "go to previous medicine", "আগের medicine", "আগের মেডিসিন", "আগের ওষুধ", "previous medicine e jao"];
 const CLEAR_FORM = ["clear medicine form", "clear current medicine", "medicine form clear koro", "মেডিসিন ফর্ম clear করো", "ওষুধ ফর্ম পরিষ্কার করো"];
 const READ_MEDICINE = ["read medicine", "read current medicine", "medicine poro", "ওষুধ পড়ো", "ওষুধ পড়ো"];
-const CANCEL = ["cancel", "cancel medicine", "cancel medicine edit", "close form", "close medicine form", "medicine cancel koro", "à¦®à§‡à¦¡à¦¿à¦¸à¦¿à¦¨ cancel à¦•à¦°à§‹", "à¦¬à¦¾à¦¤à¦¿à¦²", "à¦¬à¦¾à¦¤à¦¿à¦² à¦•à¦°à§‹"];
+const CANCEL = ["cancel", "cancel medicine", "cancel medicine edit", "close form", "close medicine form", "medicine cancel koro", "\u09ae\u09c7\u09a1\u09bf\u09b8\u09bf\u09a8 cancel \u0995\u09b0\u09cb", "\u09ac\u09be\u09a4\u09bf\u09b2", "\u09ac\u09be\u09a4\u09bf\u09b2 \u0995\u09b0\u09cb"];
 const UNDO = ["undo", "undo medicine", "medicine undo", "আনডু", "undo koro"];
 
 const CLEAR_CURRENT_SECTION = ["clear this section", "clear current section", "clear this field", "clear current field"];
