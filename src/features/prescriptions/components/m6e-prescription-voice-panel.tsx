@@ -184,6 +184,8 @@ export function M6EPrescriptionVoicePanel({
   targetOptions,
   onTargetChange,
   onStableTranscript,
+  medicineMatches,
+  medicineLookupPending,
 }: {
   disabled: boolean;
   target: string;
@@ -191,6 +193,8 @@ export function M6EPrescriptionVoicePanel({
   targetOptions: readonly VoiceTargetOption[];
   onTargetChange: (value: string) => void;
   onStableTranscript: (text: string) => Promise<string>;
+  medicineMatches: readonly { key: string; label: string; source: "favorite" | "mine" | "catalogue" }[];
+  medicineLookupPending: boolean;
 }) {
   const voiceLanguage = useVoiceLanguage();
   const [preview, setPreview] = React.useState("");
@@ -427,6 +431,28 @@ export function M6EPrescriptionVoicePanel({
               >
                 <strong className="font-semibold text-ink">Hearing:</strong> {preview}
               </p>
+            ) : null}
+
+            {medicineLookupPending ? (
+              <p className="rounded-xl bg-surface-muted px-3 py-2 text-[12px] text-ink-secondary">
+                Searching My Medicines and the medicine catalogue…
+              </p>
+            ) : medicineMatches.length > 0 ? (
+              <div className="rounded-xl border border-hairline bg-white/55 px-3 py-2" data-m6e-medicine-matches>
+                <p className="text-[11px] font-semibold text-ink">Medicine matches</p>
+                <ol className="mt-1 space-y-1 text-[11px] text-ink-secondary">
+                  {medicineMatches.map((match, index) => (
+                    <li key={match.key} className="break-words">
+                      <strong className="font-semibold text-ink">{index + 1}.</strong>{" "}
+                      {match.label}{" "}
+                      <span className="text-ink-muted">
+                        ({match.source === "favorite" ? "Favorite" : match.source === "mine" ? "My Medicines" : "Catalogue"})
+                      </span>
+                    </li>
+                  ))}
+                </ol>
+                <p className="mt-1 text-[10px] text-ink-muted">Say “Use medicine 1” (or another result number) to load it into the staged form.</p>
+              </div>
             ) : null}
 
             {dictation.error ? (

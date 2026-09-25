@@ -1,6 +1,7 @@
 import type { MedicineDraft, MedicineField } from "./schema";
 
 export type M6EVoiceMedicineField = MedicineField;
+export type M6EMedicineLookupScope = "all" | "favorites" | "mine" | "catalogue";
 
 export type M6EPrescriptionVoiceIntent =
   | { type: "TARGET_MEDICINES" }
@@ -16,6 +17,9 @@ export type M6EPrescriptionVoiceIntent =
   | { type: "CLEAR_FORM" }
   | { type: "UNDO" }
   | { type: "CANCEL_EDITOR" }
+  | { type: "REMOVE_LAST_LINE" }
+  | { type: "SEARCH_MEDICINE"; scope: M6EMedicineLookupScope; query: string }
+  | { type: "USE_MEDICINE_MATCH"; index: number }
   | { type: "REPLACE_FIELD"; from: string; to: string }
   | { type: "SET_FIELD"; field: M6EVoiceMedicineField; value: string }
   | { type: "STAGE_MEDICINE"; patch: Partial<MedicineDraft>; rawText: string }
@@ -160,6 +164,33 @@ const FORM_ALIAS: Readonly<Record<string, string>> = {
 
 const NUMBER_PHRASE = "(?:\\d+(?:\\.\\d+)?|(?:one|two|three|four|five|six|seven|eight|nine) hundred(?: (?:one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty))?|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|এক|একটি|একটা|দুই|দুটি|তিন|চার|পাঁচ|ছয়|ছয়|সাত|আট|নয়|নয়|দশ|এগারো|বারো|তেরো|চৌদ্দ|পনেরো|ষোলো|সতেরো|আঠারো|উনিশ|বিশ|একশ|একশো|দুইশ|দুইশো|তিনশ|তিনশো|চারশ|চারশো|পাঁচশ|পাঁচশো|ছয়শ|ছয়শ|ছয়শো|ছয়শো|সাতশ|সাতশো|আটশ|আটশো|নয়শ|নয়শ|নয়শো|নয়শো)";
 
+const SCHEDULE_BINARY_WORD: Readonly<Record<string, string>> = {
+  "0": "0", zero: "0", "শূন্য": "0",
+  "1": "1", one: "1", "এক": "1", "একটি": "1", "একটা": "1",
+};
+
+export function canonicalizeM6EScheduleSpeech(rawText: string): string | null {
+  const value = normalized(rawText)
+    .replace(/^(?:schedule|frequency|সিডিউল|ফ্রিকোয়েন্সি|ফ্রিকোয়েন্সি)\s+(?:to\s+)?/iu, "")
+    .trim();
+
+  const explicit = value.match(/(?:^|\s)(0|1|zero|one|শূন্য|এক|একটি|একটা)\s*(?:\+|plus)\s*(0|1|zero|one|শূন্য|এক|একটি|একটা)\s*(?:\+|plus)\s*(0|1|zero|one|শূন্য|এক|একটি|একটা)(?:\s*(?:\+|plus)\s*(0|1|zero|one|শূন্য|এক|একটি|একটা))?(?:\s|$)/iu);
+  if (explicit) {
+    const parts = explicit.slice(1).filter(Boolean).map((token) => SCHEDULE_BINARY_WORD[normalized(token!)]);
+    if ((parts.length === 3 || parts.length === 4) && parts.every(Boolean)) return parts.join("+");
+  }
+
+  const spaced = value.match(/^(?:0|1)\s+(?:0|1)\s+(?:0|1)(?:\s+(?:0|1))?$/u);
+  if (spaced) return spaced[0].split(/\s+/u).join("+");
+
+  if (/^(?:morning only|সকালে শুধু|শুধু সকাল)$/iu.test(value)) return "1+0+0";
+  if (/^(?:night only|at night only|রাতে শুধু|শুধু রাত)$/iu.test(value)) return "0+0+1";
+  if (/^(?:noon only|midday only|afternoon only|দুপুরে শুধু|শুধু দুপুর)$/iu.test(value)) return "0+1+0";
+  if (/^(?:morning and night|morning & night|সকাল ও রাত|সকাল রাতে)$/iu.test(value)) return "1+0+1";
+  if (/^(?:morning noon night|morning afternoon night|সকাল দুপুর রাত)$/iu.test(value)) return "1+1+1";
+  return null;
+}
+
 function firstMatchIndex(matches: Array<RegExpMatchArray | null>) {
   const indexes = matches.flatMap((match) => typeof match?.index === "number" ? [match.index] : []);
   return indexes.length ? Math.min(...indexes) : null;
@@ -202,11 +233,13 @@ export function parseStructuredMedicineSpeech(rawText: string): Partial<Medicine
   }
 
   const scheduleCode = value.match(/\b\d\s*\+\s*\d\s*\+\s*\d(?:\s*\+\s*\d)?\b/u);
+  const spokenSchedule = canonicalizeM6EScheduleSpeech(value);
   if (scheduleCode) patch.scheduleText = scheduleCode[0]!.replace(/\s+/gu, "");
-  else if (/(?:once daily|once a day|one time daily|দিনে একবার|দিনে 1 বার)/iu.test(value)) patch.scheduleText = "Once daily";
-  else if (/(?:twice daily|two times daily|2 times daily|দিনে দুইবার|দিনে 2 বার)/iu.test(value)) patch.scheduleText = "Twice daily";
-  else if (/(?:three times daily|3 times daily|দিনে তিনবার|দিনে 3 বার)/iu.test(value)) patch.scheduleText = "Three times daily";
-  else if (/(?:four times daily|4 times daily|দিনে চারবার|দিনে 4 বার)/iu.test(value)) patch.scheduleText = "Four times daily";
+  else if (spokenSchedule) patch.scheduleText = spokenSchedule;
+  else if (/(?:once daily|once a day|one time daily|daily one time|দিনে একবার|দিনে 1 বার)/iu.test(value)) patch.scheduleText = "Once daily";
+  else if (/(?:twice daily|two times daily|2 times daily|daily two times?|daily 2 times?|two times? a day|2 times? a day|দিনে দুইবার|দিনে 2 বার)/iu.test(value)) patch.scheduleText = "Twice daily";
+  else if (/(?:three times daily|3 times daily|daily three times?|daily 3 times?|three times? a day|3 times? a day|দিনে তিনবার|দিনে 3 বার)/iu.test(value)) patch.scheduleText = "Three times daily";
+  else if (/(?:four times daily|4 times daily|daily four times?|daily 4 times?|four times? a day|4 times? a day|দিনে চারবার|দিনে 4 বার)/iu.test(value)) patch.scheduleText = "Four times daily";
   else if (/(?:^|\s)(?:morning and night|morning & night|সকাল রাতে|সকাল ও রাতে)(?:\s|$)/iu.test(value)) patch.scheduleText = "Morning and night";
   else if (/(?:^|\s)(?:morning|সকাল)(?:\s|$)/iu.test(value)) patch.scheduleText = "Morning";
   else {
@@ -257,7 +290,7 @@ const FINALIZE = [
   "finalize prescription", "finalise prescription", "sign prescription", "complete prescription", "prescription finalize",
   "prescription sign", "প্রেসক্রিপশন ফাইনাল", "প্রেসক্রিপশন সাইন", "প্রেসক্রিপশন complete", "final prescription koro",
 ];
-const REVIEW = ["review prescription", "prescription review", "open prescription review", "go to review", "প্রেসক্রিপশন রিভিউ", "review prescription koro"];
+const REVIEW = ["review prescription", "prescription review", "preview prescription", "prescription preview", "open prescription review", "go to review", "প্রেসক্রিপশন রিভিউ", "review prescription koro"];
 const GENERATE = ["generate with autopilot", "generate autopilot", "autopilot generate", "autopilot দিয়ে generate", "autopilot দিয়ে generate", "অটোপাইলট জেনারেট করো"];
 const TARGET_AUTOPILOT = ["autopilot", "autopilot proposal", "অটোপাইলট", "অটোপাইলট প্রপোজাল"];
 const READ_AUTOPILOT = ["read proposal", "read autopilot proposal", "proposal poro", "প্রপোজাল পড়ো", "প্রপোজাল পড়ো"];
@@ -274,12 +307,51 @@ const READ_MEDICINE = ["read medicine", "read current medicine", "medicine poro"
 const CANCEL = ["cancel medicine", "cancel medicine edit", "close medicine form", "medicine cancel koro", "মেডিসিন cancel করো"];
 const UNDO = ["undo", "undo medicine", "medicine undo", "আনডু", "undo koro"];
 
+const CLEAR_CURRENT_SECTION = ["clear this section", "clear current section", "clear this field", "clear current field"];
+const REMOVE_LAST_LINE = ["remove last line", "delete last line", "last line remove", "শেষ লাইন মুছো", "শেষ লাইন বাদ দাও"];
+
+function lookupIntent(raw: string, value: string): M6EPrescriptionVoiceIntent | null {
+  const useMatch = value.match(new RegExp(`^(?:use|choose)\\s+(?:medicine\\s+)?(?:result\\s+|match\\s+)?(${INDEX_WORD})$`, "iu"));
+  if (useMatch) {
+    const index = parseBoundedNumber(useMatch[1]!);
+    if (index && Number.isInteger(index) && index >= 1 && index <= 20) return { type: "USE_MEDICINE_MATCH", index };
+  }
+
+  if (/^(?:show|list)\s+(?:my\s+)?(?:favorite|favourite)\s+medicines?$/iu.test(value)) {
+    return { type: "SEARCH_MEDICINE", scope: "favorites", query: "" };
+  }
+  if (/^(?:show|list)\s+my\s+medicines?$/iu.test(value)) {
+    return { type: "SEARCH_MEDICINE", scope: "mine", query: "" };
+  }
+
+  const scoped = raw.match(/^(?:search|find|lookup)\s+(favorites?|favourites?|my medicines?|catalogue|catalog|database)\s+(?:medicine\s+)?(.+)$/iu);
+  if (scoped) {
+    const token = normalized(scoped[1]!);
+    const scope: M6EMedicineLookupScope = /favou?rites?/u.test(token) ? "favorites"
+      : token.startsWith("my medicine") ? "mine"
+      : "catalogue";
+    return { type: "SEARCH_MEDICINE", scope, query: scoped[2]!.trim() };
+  }
+
+  const general = raw.match(/^(?:search|find|lookup)\s+(?:medicine|medicines)\s+(.+)$/iu);
+  if (general) return { type: "SEARCH_MEDICINE", scope: "all", query: general[1]!.trim() };
+  return null;
+}
+
 export function parseM6EPrescriptionVoice(text: string, context: M6EVoiceParseContext): M6EPrescriptionVoiceIntent {
   const raw = clean(text);
   const value = normalized(raw);
   if (!raw) return { type: "UNKNOWN", rawText: raw };
 
   if (exact(value, FINALIZE)) return { type: "PROHIBITED_FINALIZE" };
+  const medicineLookup = lookupIntent(raw, value);
+  if (medicineLookup) return medicineLookup;
+  if (exact(value, CLEAR_CURRENT_SECTION)) {
+    return context.fieldTarget
+      ? { type: "CLEAR_FIELD", field: context.fieldTarget }
+      : { type: "UNKNOWN", rawText: raw };
+  }
+  if (exact(value, REMOVE_LAST_LINE)) return { type: "REMOVE_LAST_LINE" };
   if (exact(value, TARGET_MEDICINES)) return { type: "TARGET_MEDICINES" };
   if (exact(value, TARGET_AUTOPILOT)) return { type: "TARGET_AUTOPILOT" };
   if (exact(value, GENERATE)) return { type: "GENERATE_AUTOPILOT" };

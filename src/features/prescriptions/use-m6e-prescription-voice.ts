@@ -14,9 +14,16 @@ import {
   type M6EVoiceDestination,
   type M6EVoiceTargetOption,
 } from "./m6e-prescription-voice-targeting";
-import type { M6EVoiceMedicineField } from "./m6e-prescription-voice-contract";
+import type { M6EMedicineLookupScope, M6EVoiceMedicineField } from "./m6e-prescription-voice-contract";
 
 const FIELD_SET = new Set<string>(M6E_VOICE_FIELD_ORDER);
+
+export interface M6EVoiceMedicineMatch {
+  key: string;
+  label: string;
+  source: "favorite" | "mine" | "catalogue";
+  draft: MedicineDraft;
+}
 
 function medicineIndexForEditor(
   editor: ReturnType<typeof usePrescription>["editor"],
@@ -49,6 +56,9 @@ export function useM6EPrescriptionVoiceController({
   });
   const destinationRef = React.useRef<M6EVoiceDestination>(destination);
   const voiceUndo = React.useRef<MedicineDraft | null>(null);
+  const [medicineMatches, setMedicineMatches] = React.useState<M6EVoiceMedicineMatch[]>([]);
+  const [medicineLookupPending, setMedicineLookupPending] = React.useState(false);
+  const medicineLookupGeneration = React.useRef(0);
 
   function commitDestination(next: M6EVoiceDestination) {
     destinationRef.current = next;
@@ -229,6 +239,64 @@ export function useM6EPrescriptionVoiceController({
     rx.setDraft(next);
   }
 
+  async function searchMedicineMatches(scope: M6EMedicineLookupScope, query: string): Promise<string> {
+    const generation = ++medicineLookupGeneration.current;
+    setMedicineLookupPending(true);
+    try {
+      const params = new URLSearchParams({ scope });
+      if (query.trim()) params.set("q", query.trim());
+      const response = await fetch(`/api/m6e-medicine-lookup?${params.toString()}`, {
+        cache: "no-store",
+        headers: { Accept: "application/json" },
+      });
+      if (!response.ok) throw new Error("lookup-failed");
+      const body = await response.json() as { matches?: M6EVoiceMedicineMatch[] };
+      if (medicineLookupGeneration.current !== generation) return "A newer medicine search replaced this one.";
+      const matches = Array.isArray(body.matches) ? body.matches.slice(0, 6) : [];
+      setMedicineMatches(matches);
+      if (matches.length === 0) return "No exact medicine match was found. Nothing changed.";
+      const summary = matches.map((match, index) => `${index + 1}. ${match.label}`).join("; ");
+      return `Found ${matches.length} medicine match${matches.length === 1 ? "" : "es"}: ${summary}. Say Use medicine 1, Use medicine 2, and so on.`;
+    } catch {
+      if (medicineLookupGeneration.current === generation) setMedicineMatches([]);
+      return "Medicine lookup is unavailable right now. Nothing changed; you can still type the medicine manually.";
+    } finally {
+      if (medicineLookupGeneration.current === generation) setMedicineLookupPending(false);
+    }
+  }
+
+  function stageMedicineMatch(index: number): string {
+    const match = medicineMatches[index - 1];
+    if (!match) return `Medicine search result ${index} is not available. Search medicines first.`;
+    if (rx.blocked) return "Prescription editing is currently blocked. Nothing changed.";
+    if (rx.editor?.mode === "edit") return "Finish or cancel the saved-medicine edit before loading a medicine search result.";
+    if (rx.editor && rx.dirty) return "Finish or cancel the current unsaved medicine before loading a medicine search result.";
+    if (!rx.editor) rx.openAdd();
+    voiceUndo.current = rx.editor ? { ...rx.draft } : null;
+    rx.setDraft({ ...match.draft });
+    commitDestination({ kind: "MEDICINE_FORM", medicineIndex: null });
+    scrollMedicineForm();
+    setMedicineMatches([]);
+    const source = match.source === "favorite" ? "Favorites" : match.source === "mine" ? "My Medicines" : "the shared catalogue";
+    return `${match.label} loaded from ${source} into the staged medicine form. Review it and use the visible Add medicine button to save it.`;
+  }
+
+  function removeLastLineFromCurrentField(): string {
+    const current = destinationRef.current;
+    if (!rx.editor || current.kind !== "MEDICINE_FIELD" || rx.blocked) {
+      return "Choose an editable medicine field before Remove last line. Nothing changed.";
+    }
+    const field = current.field;
+    const value = rx.draft[field];
+    if (!value.trim()) return `${M6E_VOICE_FIELD_LABELS[field]} is already empty.`;
+    const lines = value.split(/\r?\n/u);
+    while (lines.length > 0 && !lines.at(-1)?.trim()) lines.pop();
+    lines.pop();
+    stageVoiceDraft({ ...rx.draft, [field]: lines.join("\n") });
+    focusMedicineField(field);
+    return `${M6E_VOICE_FIELD_LABELS[field]} last line removed in the staged form only.`;
+  }
+
   function moveField(direction: 1 | -1): string {
     if (!rx.editor) return "Open Add medicine or Edit medicine before using Next field or Previous field.";
     const current = destinationRef.current;
@@ -287,9 +355,15 @@ export function useM6EPrescriptionVoiceController({
         return moveSection();
       case "TARGET_MEDICINES":
         return targetMedicines();
+      case "SEARCH_MEDICINE":
+        return await searchMedicineMatches(intent.scope, intent.query);
+      case "USE_MEDICINE_MATCH":
+        return stageMedicineMatch(intent.index);
+      case "REMOVE_LAST_LINE":
+        return removeLastLineFromCurrentField();
       case "OPEN_ADD": {
         if (rx.blocked) return "Prescription editing is currently blocked. Nothing changed.";
-        if (rx.editor) return "A medicine form is already open. Finish or cancel it first.";
+        if (rx.editor) return "A medicine form is already open. Voice cannot save it; use the visible Add medicine/Save changes button or say Cancel medicine.";
         rx.openAdd();
         commitDestination({ kind: "MEDICINE_FIELD", medicineIndex: null, field: "displayName" });
         voiceUndo.current = null;
@@ -463,5 +537,7 @@ export function useM6EPrescriptionVoiceController({
     targetOptions,
     selectTarget,
     handleStableTranscript,
+    medicineMatches,
+    medicineLookupPending,
   };
 }

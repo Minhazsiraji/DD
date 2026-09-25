@@ -1,5 +1,6 @@
 import { MEDICINE_FIELDS, type MedicineField } from "./schema";
 import {
+  canonicalizeM6EScheduleSpeech,
   parseM6EPrescriptionVoice,
   parseStructuredMedicineSpeech,
   type M6EPrescriptionVoiceIntent,
@@ -141,6 +142,10 @@ const STRUCTURED_TARGET_FIELDS = new Set<M6EVoiceMedicineField>([
 
 export function canonicalizeM6ETargetedFieldValue(field: M6EVoiceMedicineField, spoken: string): string {
   if (!STRUCTURED_TARGET_FIELDS.has(field)) return spoken;
+  if (field === "scheduleText") {
+    const schedule = canonicalizeM6EScheduleSpeech(spoken);
+    if (schedule) return schedule;
+  }
   const patch = parseStructuredMedicineSpeech(`Add medicine VoiceTarget ${spoken}`);
   const structured = patch?.[field];
   return typeof structured === "string" && structured.trim() ? structured : spoken;
