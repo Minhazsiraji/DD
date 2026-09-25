@@ -336,6 +336,31 @@ export function useM6EPrescriptionVoiceController({
       : targetAutopilot();
   }
 
+  function openPreviousPrescriptionReuse(): string {
+    if (rx.editor || rx.dirty) return "Finish or cancel the open medicine form before reusing a previous prescription.";
+    if (rx.confirmingRemoval) return "Resolve the pending medicine removal before reusing a previous prescription.";
+
+    const openPanel = document.querySelector<HTMLElement>("[data-m3-prescription-reuse-panel]");
+    if (openPanel) {
+      openPanel.scrollIntoView({ block: "center", behavior: "smooth" });
+      return "Previous prescription history is already open. Choose the signed prescription and medicines you want to reuse; nothing is copied automatically.";
+    }
+
+    const trigger = document.querySelector<HTMLButtonElement>("[data-m3-prescription-reuse-trigger]");
+    if (!trigger || trigger.disabled) {
+      return "Previous prescription reuse is not available in this prescription context. Nothing changed.";
+    }
+
+    trigger.click();
+    window.requestAnimationFrame(() => {
+      document.querySelector<HTMLElement>("[data-m3-prescription-reuse-panel]")?.scrollIntoView({
+        block: "center",
+        behavior: "smooth",
+      });
+    });
+    return "Opening previous prescription history. Nothing will be copied until you explicitly choose and confirm the existing reuse action.";
+  }
+
   async function handleStableTranscript(text: string): Promise<string> {
     const current = destinationRef.current;
     const fieldTarget = current.kind === "MEDICINE_FIELD" ? current.field : null;
@@ -517,6 +542,8 @@ export function useM6EPrescriptionVoiceController({
         return autopilotVoiceRef.current
           ? await autopilotVoiceRef.current.apply()
           : "Autopilot is not available in this prescription context.";
+      case "OPEN_REUSE_HISTORY":
+        return openPreviousPrescriptionReuse();
       case "REVIEW_PRESCRIPTION": {
         if (rx.editor || rx.dirty) return "Finish or cancel the open medicine form before Review.";
         if (rx.confirmingRemoval) return "Resolve the pending medicine removal before Review.";

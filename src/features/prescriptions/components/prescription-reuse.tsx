@@ -133,6 +133,7 @@ export function PrescriptionReuse({
   if (!open) {
     return (
       <button
+        data-m3-prescription-reuse-trigger
         type="button"
         disabled={disabled}
         onClick={() => void loadSources()}
@@ -145,7 +146,7 @@ export function PrescriptionReuse({
   }
 
   return (
-    <section className="dd-material-panel dd-panel-pearl dd-panel-rim rounded-glass p-4" aria-label="Reuse previous prescription">
+    <section data-m3-prescription-reuse-panel className="dd-material-panel dd-panel-pearl dd-panel-rim rounded-glass p-4" aria-label="Reuse previous prescription">
       <div className="flex items-start justify-between gap-3">
         <div>
           <h3 className="text-[14px] font-semibold text-ink">Reuse signed prescription history</h3>

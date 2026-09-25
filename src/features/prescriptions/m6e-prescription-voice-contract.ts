@@ -34,6 +34,7 @@ export type M6EPrescriptionVoiceIntent =
   | { type: "REMOVE_AUTOPILOT_MEDICINE"; index: number }
   | { type: "DISCARD_AUTOPILOT" }
   | { type: "APPLY_AUTOPILOT" }
+  | { type: "OPEN_REUSE_HISTORY" }
   | { type: "REVIEW_PRESCRIPTION" }
   | { type: "PROHIBITED_FINALIZE" }
   | { type: "UNKNOWN"; rawText: string };
@@ -290,7 +291,8 @@ const FINALIZE = [
   "finalize prescription", "finalise prescription", "sign prescription", "complete prescription", "prescription finalize",
   "prescription sign", "প্রেসক্রিপশন ফাইনাল", "প্রেসক্রিপশন সাইন", "প্রেসক্রিপশন complete", "final prescription koro",
 ];
-const REVIEW = ["review prescription", "prescription review", "preview prescription", "prescription preview", "open prescription review", "go to review", "প্রেসক্রিপশন রিভিউ", "review prescription koro"];
+const REUSE_HISTORY = ["reuse previous prescription", "reuse previous prescriptions", "reuse prescription", "open previous prescription", "open previous prescriptions", "previous prescription", "previous prescriptions", "আগের প্রেসক্রিপশন", "আগের প্রেসক্রিপশন ব্যবহার করো", "আগের প্রেসক্রিপশন রিইউজ করো", "previous prescription kholo", "previous prescription reuse koro"];
+const REVIEW = ["review prescription", "prescription review", "preview prescription", "prescription preview", "open prescription review", "go to review", "প্রেসক্রিপশন রিভিউ", "প্রেসক্রিপশন প্রিভিউ", "প্রিভিউ প্রেসক্রিপশন", "review prescription koro", "preview prescription koro"];
 const GENERATE = ["generate with autopilot", "generate autopilot", "autopilot generate", "autopilot দিয়ে generate", "autopilot দিয়ে generate", "অটোপাইলট জেনারেট করো"];
 const TARGET_AUTOPILOT = ["autopilot", "autopilot proposal", "অটোপাইলট", "অটোপাইলট প্রপোজাল"];
 const READ_AUTOPILOT = ["read proposal", "read autopilot proposal", "proposal poro", "প্রপোজাল পড়ো", "প্রপোজাল পড়ো"];
@@ -360,6 +362,8 @@ export function parseM6EPrescriptionVoice(text: string, context: M6EVoiceParseCo
   if (exact(value, PREVIOUS_AUTOPILOT)) return { type: "PREVIOUS_AUTOPILOT_ITEM" };
   if (exact(value, DISCARD)) return { type: "DISCARD_AUTOPILOT" };
   if (exact(value, APPLY)) return { type: "APPLY_AUTOPILOT" };
+  if (exact(value, REUSE_HISTORY)) return { type: "OPEN_REUSE_HISTORY" };
+  if (exact(value, REUSE_HISTORY)) return { type: "OPEN_REUSE_HISTORY" };
   if (exact(value, REVIEW)) return { type: "REVIEW_PRESCRIPTION" };
   if (exact(value, OPEN_ADD)) return { type: "OPEN_ADD" };
   if (exact(value, NEXT)) return { type: "NEXT_MEDICINE" };
