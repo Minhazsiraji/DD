@@ -286,8 +286,8 @@ describe("M6E-A1/A2 mixed Hearing normalization runtime", () => {
     expect(voiceSource).toContain("await hearingSequencer.onStable(text, voiceLanguage.lang);");
     expect(voiceSource).toContain("hearingSequencer.beginSession();");
     expect(voiceSource).toContain("React.useLayoutEffect(() => {\n    hearingSequencer.invalidateSession();");
-    expect(voiceSource).toContain("onCancel: () => {\n      hearingSequencer.invalidateSession();");
-    expect(voiceSource).toContain("() => () => {\n      hearingSequencer.invalidateSession();");
+    expect(voiceSource).toContain("onCancel: () => {\n      clearSilenceTimer();\n      hearingSequencer.invalidateSession();");
+    expect(voiceSource).toContain("() => () => {\n      clearSilenceTimer();\n      hearingSequencer.invalidateSession();");
     const endStart = voiceSource.indexOf("function end()");
     const endBlock = voiceSource.slice(endStart, voiceSource.indexOf("return (", endStart));
     expect(endBlock).toContain("hearingSequencer.invalidateSession();");

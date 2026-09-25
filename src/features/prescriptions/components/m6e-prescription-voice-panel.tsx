@@ -13,6 +13,7 @@ import { restoreM6EMixedContractTerms } from "../m6e-mixed-restoration";
 import { parseM6EVoiceSessionControl } from "../m6e-prescription-voice-contract";
 
 const M6E_NORMALIZE_TIMEOUT_MS = 9_000;
+const M6E_SILENCE_FINALIZE_MS = 800;
 const M6E_TRANSIENT_NORMALIZE_STATUSES = new Set([502, 503, 504]);
 
 type NormalizeResponse = {
@@ -198,6 +199,8 @@ export function M6EPrescriptionVoicePanel({
   );
   const [paused, setPaused] = React.useState(false);
   const lastUtteranceRaw = React.useRef<string | null>(null);
+  const latestPreviewRef = React.useRef("");
+  const silenceTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const onStableTranscriptRef = React.useRef(onStableTranscript);
 
   React.useLayoutEffect(() => {
@@ -221,8 +224,14 @@ export function M6EPrescriptionVoicePanel({
     }
   }, [targetValue]);
 
+  function clearSilenceTimer() {
+    if (silenceTimer.current) clearTimeout(silenceTimer.current);
+    silenceTimer.current = null;
+  }
+
   React.useEffect(
     () => () => {
+      clearSilenceTimer();
       hearingSequencer.invalidateSession();
     },
     [hearingSequencer],
@@ -266,12 +275,22 @@ export function M6EPrescriptionVoicePanel({
     continuous: true,
     onPreview: (text) => {
       hearingSequencer.onPreview(text);
+      latestPreviewRef.current = text;
+      clearSilenceTimer();
+      if (!text.trim()) return;
+      const observed = text;
+      silenceTimer.current = setTimeout(() => {
+        silenceTimer.current = null;
+        if (latestPreviewRef.current === observed) dictation.commitUtterance();
+      }, M6E_SILENCE_FINALIZE_MS);
     },
     onUtteranceEnd: (text) => {
+      clearSilenceTimer();
       lastUtteranceRaw.current = text;
       void showStableHearing(text);
     },
     onFinal: (text) => {
+      clearSilenceTimer();
       const duplicate = isDuplicateM6ESessionFinal(text, lastUtteranceRaw.current);
       hearingSequencer.invalidateSession();
       if (text.trim() && !duplicate) {
@@ -283,6 +302,7 @@ export function M6EPrescriptionVoicePanel({
       setPaused(false);
     },
     onCancel: () => {
+      clearSilenceTimer();
       hearingSequencer.invalidateSession();
       setPreview("");
       setPaused(false);
@@ -295,7 +315,9 @@ export function M6EPrescriptionVoicePanel({
 
   function start() {
     if (disabled || active) return;
+    clearSilenceTimer();
     hearingSequencer.beginSession();
+    latestPreviewRef.current = "";
     setPreview("");
     setPaused(false);
     lastUtteranceRaw.current = null;
@@ -307,6 +329,7 @@ export function M6EPrescriptionVoicePanel({
 
   function end() {
     if (!active) return;
+    clearSilenceTimer();
     hearingSequencer.invalidateSession();
     setStatus("Ending Prescription voice session…");
     dictation.stop();
