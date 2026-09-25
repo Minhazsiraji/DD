@@ -11,7 +11,8 @@ describe("M3 responsive prescription workflow", () => {
     expect(form).toContain("grid grid-cols-12 gap-3");
     expect(form).toContain("min-h-11");
     expect(form).toContain("sm:flex-row");
-    expect(form).toContain("More medicine details");
+    expect(form).toContain("data-medicine-editor-section");
+    expect(form).not.toContain("<details");
     expect(list).toContain("<ol");
     expect(list).not.toMatch(/<table|overflow-x-auto/);
     expect(list).toContain("size-11");

@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { Check, ChevronDown, Loader2 } from "lucide-react";
+import { Check, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
   MEDICINE_FIELDS,
@@ -11,15 +11,14 @@ import {
 } from "../schema";
 import type { SignedMedicineSuggestion } from "../m3-history";
 
-const FAST_KEYS = new Set<MedicineField>([
-  "displayName",
-  "strengthText",
-  "doseText",
-  "scheduleText",
-  "durationText",
-]);
-const FAST_FIELDS = MEDICINE_FIELDS.filter((field) => FAST_KEYS.has(field.key));
-const MORE_FIELDS = MEDICINE_FIELDS.filter((field) => !FAST_KEYS.has(field.key));
+const MEDICINE_EDITOR_ORDER: readonly MedicineField[] = [
+  "displayName", "strengthText", "doseText", "scheduleText", "durationText",
+  "brandName", "genericName", "dosageForm", "route", "quantityText",
+  "foodRelation", "instructions",
+];
+const MEDICINE_EDITOR_FIELDS = MEDICINE_EDITOR_ORDER.map((key) =>
+  MEDICINE_FIELDS.find((field) => field.key === key),
+).filter((field): field is FieldSpec => Boolean(field));
 
 function spanClass(field: FieldSpec): string {
   if (field.key === "displayName") return "col-span-12 sm:col-span-6";
@@ -58,12 +57,6 @@ export function MedicineForm({
   const [suggestions, setSuggestions] = React.useState<SignedMedicineSuggestion[]>([]);
   const [showSuggestions, setShowSuggestions] = React.useState(false);
   const query = value.displayName;
-
-  const moreHasValue =
-    MORE_FIELDS.some((field) => value[field.key].trim() !== "") ||
-    value.isPrn ||
-    !value.substitutionAllowed;
-  const [moreOpen, setMoreOpen] = React.useState(() => moreHasValue);
 
   React.useEffect(() => {
     const q = query.trim();
@@ -148,7 +141,6 @@ export function MedicineForm({
                     void lastUsed;
                     void timesUsed;
                     onApplySuggestion(draft);
-                    setMoreOpen(true);
                     setShowSuggestions(false);
                   }}
                   className="flex min-h-11 w-full flex-col items-start justify-center px-3 py-2 text-left hover:bg-white/35 focus-visible:focus-ring"
@@ -204,54 +196,37 @@ export function MedicineForm({
       }}
       className="dd-material-panel dd-panel-pearl dd-panel-rim space-y-4 rounded-glass p-3 sm:p-4"
     >
-      <div>
-        <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-brand">
-          Fast entry
-        </p>
-        <div className="grid grid-cols-12 gap-3">{FAST_FIELDS.map(renderField)}</div>
-      </div>
-
-      <details
-        className="dd-material-record dd-record-pearl rounded-2xl"
-        open={moreOpen}
-        onToggle={(event) => setMoreOpen(event.currentTarget.open)}
-      >
-        <summary className="flex min-h-11 cursor-pointer items-center gap-2 px-3 text-[12px] font-semibold text-ink focus-visible:focus-ring">
-          <ChevronDown
-            className={cn("size-4 text-ink-muted transition-transform", moreOpen && "rotate-180")}
-            aria-hidden="true"
-          />
-          More medicine details
-          <span className="ml-auto hidden text-[10px] font-normal text-ink-muted sm:inline">
-            brand · generic · form · route · quantity · food · instructions
+      <div data-medicine-editor-section>
+        <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-1">
+          <p className="text-[12px] font-semibold text-ink">Medicine details</p>
+          <span className="text-[10px] text-ink-muted">
+            medicine · strength · dose · schedule · duration · brand · generic · form · route · quantity · food · instructions
           </span>
-        </summary>
-        <div className="border-t border-white/55 p-3">
-          <div className="grid grid-cols-12 gap-3">{MORE_FIELDS.map(renderField)}</div>
-          <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1">
-            <label className="flex min-h-11 cursor-pointer items-center gap-2 text-[12px] text-ink">
-              <input
-                type="checkbox"
-                checked={value.isPrn}
-                disabled={busy}
-                onChange={(event) => set("isPrn", event.target.checked)}
-                className="size-4 accent-[var(--color-brand)]"
-              />
-              As needed (PRN)
-            </label>
-            <label className="flex min-h-11 cursor-pointer items-center gap-2 text-[12px] text-ink">
-              <input
-                type="checkbox"
-                checked={value.substitutionAllowed}
-                disabled={busy}
-                onChange={(event) => set("substitutionAllowed", event.target.checked)}
-                className="size-4 accent-[var(--color-brand)]"
-              />
-              Substitution allowed
-            </label>
-          </div>
         </div>
-      </details>
+        <div className="grid grid-cols-12 gap-3">{MEDICINE_EDITOR_FIELDS.map(renderField)}</div>
+        <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1">
+          <label className="flex min-h-11 cursor-pointer items-center gap-2 text-[12px] text-ink">
+            <input
+              type="checkbox"
+              checked={value.isPrn}
+              disabled={busy}
+              onChange={(event) => set("isPrn", event.target.checked)}
+              className="size-4 accent-[var(--color-brand)]"
+            />
+            As needed (PRN)
+          </label>
+          <label className="flex min-h-11 cursor-pointer items-center gap-2 text-[12px] text-ink">
+            <input
+              type="checkbox"
+              checked={value.substitutionAllowed}
+              disabled={busy}
+              onChange={(event) => set("substitutionAllowed", event.target.checked)}
+              className="size-4 accent-[var(--color-brand)]"
+            />
+            Substitution allowed
+          </label>
+        </div>
+      </div>
 
       <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
         <button

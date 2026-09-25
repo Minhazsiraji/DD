@@ -35,19 +35,18 @@ function fullRow(): MedicineRow {
 }
 
 describe("M3 fast medicine entry", () => {
-  it("keeps the five speed fields first-visible and secondary fields behind progressive disclosure", () => {
+  it("keeps every medicine field in one always-visible editor section", () => {
     const source = form();
-    for (const key of ["displayName", "strengthText", "doseText", "scheduleText", "durationText"]) {
-      expect(source).toContain(`\"${key}\"`);
-    }
-    expect(source).toContain("FAST_FIELDS");
-    expect(source).toContain("MORE_FIELDS");
-    expect(source).toContain("More medicine details");
-    expect(source).toContain("open={moreOpen}");
-    expect(source).toContain("onToggle={(event) => setMoreOpen(event.currentTarget.open)}");
+    expect(source).toContain("data-medicine-editor-section");
+    expect(source).toContain("MEDICINE_EDITOR_FIELDS.map(renderField)");
+    expect(source).toContain("MEDICINE_EDITOR_ORDER");
+    expect(source).not.toContain("FAST_FIELDS");
+    expect(source).not.toContain("MORE_FIELDS");
+    expect(source).not.toContain("More medicine details");
+    expect(source).not.toContain("<details");
   });
 
-  it("does not lose persisted secondary clinical fields when disclosure is closed/reopened", () => {
+  it("does not lose persisted secondary clinical fields in the unified editor", () => {
     const patch = patchFromDraft(draftFromRow(fullRow()));
     expect(patch.brandName).toBe("Brand");
     expect(patch.genericName).toBe("Generic");
