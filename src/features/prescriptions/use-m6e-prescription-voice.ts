@@ -336,6 +336,24 @@ export function useM6EPrescriptionVoiceController({
       : targetAutopilot();
   }
 
+  function openSignedMedicineHistory(mode: "RECENT" | "FREQUENT" | null): string {
+    if (rx.blocked) return "Prescription editing is currently blocked. Signed medicine history was not opened.";
+    if (rx.editor || rx.dirty) return "Finish or cancel the open medicine form before browsing signed medicine history.";
+
+    const history = document.querySelector<HTMLDetailsElement>("[data-m3-signed-medicine-history]");
+    if (!history) return "Signed medicine history is not available in this prescription context. Nothing changed.";
+
+    history.open = true;
+    if (mode) {
+      window.requestAnimationFrame(() => {
+        document.querySelector<HTMLButtonElement>(`[data-m3-signed-history-mode="${mode}"]`)?.click();
+      });
+    }
+    history.scrollIntoView({ block: "center", behavior: "smooth" });
+    const label = mode === "FREQUENT" ? "Frequent" : "Recent";
+    return `${label} signed medicine history opened. Choosing a line only fills the staged medicine form; Add medicine is still required.`;
+  }
+
   function openPreviousPrescriptionReuse(): string {
     if (rx.editor || rx.dirty) return "Finish or cancel the open medicine form before reusing a previous prescription.";
     if (rx.confirmingRemoval) return "Resolve the pending medicine removal before reusing a previous prescription.";
@@ -542,6 +560,8 @@ export function useM6EPrescriptionVoiceController({
         return autopilotVoiceRef.current
           ? await autopilotVoiceRef.current.apply()
           : "Autopilot is not available in this prescription context.";
+      case "OPEN_SIGNED_HISTORY":
+        return openSignedMedicineHistory(intent.mode);
       case "OPEN_REUSE_HISTORY":
         return openPreviousPrescriptionReuse();
       case "REVIEW_PRESCRIPTION": {

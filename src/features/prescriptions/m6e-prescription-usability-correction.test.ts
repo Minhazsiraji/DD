@@ -44,6 +44,21 @@ describe("M6E prescription usability correction", () => {
     });
   });
 
+  it("opens signed medicine history by voice without creating a clinical write", () => {
+    expect(parseM6EPrescriptionVoice("Signed medicine history", context)).toEqual({
+      type: "OPEN_SIGNED_HISTORY", mode: "RECENT",
+    });
+    expect(parseM6EPrescriptionVoice("Frequent signed medicines", context)).toEqual({
+      type: "OPEN_SIGNED_HISTORY", mode: "FREQUENT",
+    });
+    const controller = readFileSync(resolve(process.cwd(), "src/features/prescriptions/use-m6e-prescription-voice.ts"), "utf8");
+    expect(controller).toContain('case "OPEN_SIGNED_HISTORY"');
+    expect(controller).toContain('data-m3-signed-medicine-history');
+    expect(controller).toContain('data-m3-signed-history-mode');
+    expect(controller).toContain("Add medicine is still required");
+    expect(controller).not.toContain("addMedicineAction");
+  });
+
   it("opens previous-prescription reuse by voice without copying history automatically", () => {
     for (const phrase of [
       "Reuse previous prescription",

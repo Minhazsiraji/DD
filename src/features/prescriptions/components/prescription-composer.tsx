@@ -193,38 +193,6 @@ export function PrescriptionComposer({
         />
       ) : null}
 
-      {/*
-        M3 accelerators live in the real draft workflow. Signed-history selection
-        only opens a proposed medicine form; historical whole/selected reuse is
-        the separate explicit bulk mutation through the same MutationGate.
-      */}
-      {!readOnly ? (
-        <div data-m3-prescription-accelerators className="space-y-3">
-          <SignedMedicineHistory
-            disabled={acceleratorDisabled}
-            onSelect={rx.proposeMedicine}
-          />
-
-          {prescription.replacesPrescriptionId ? (
-            <p
-              role="status"
-              className="dd-material-record dd-record-pearl rounded-2xl px-4 py-3 text-[12px] text-ink-secondary"
-            >
-              <strong className="font-semibold text-ink">Correction draft starts blank.</strong>{" "}
-              Whole-prescription historical reuse is disabled here. You may still choose a signed
-              medicine above to propose one line, inspect it, and add it explicitly.
-            </p>
-          ) : (
-            <PrescriptionReuse
-              prescriptionId={prescription.id}
-              targetItemCount={rx.items.length}
-              disabled={acceleratorDisabled}
-              onReuse={rx.reuseHistory}
-            />
-          )}
-        </div>
-      ) : null}
-
       <SectionCard data-m6e-medicines>
         <SectionHeader
           title="Medicines"
@@ -246,6 +214,42 @@ export function PrescriptionComposer({
         />
 
         <div className="space-y-3 p-4 sm:p-5">
+          {/*
+            History accelerators belong to Medicines, not between major Prescription sections.
+            Both remain proposal/explicit-confirmation workflows and never bypass M3 writes.
+          */}
+          {!readOnly ? (
+            <div data-m3-prescription-accelerators className="space-y-2 rounded-2xl border border-hairline bg-white/35 p-2.5 sm:p-3">
+              <div className="px-1">
+                <p className="text-[12px] font-semibold text-ink">Medicine shortcuts</p>
+                <p className="mt-0.5 text-[11px] text-ink-muted">Use your signed medicine history or this patientâ€™s previous finalized prescription. Nothing is added without the existing explicit action.</p>
+              </div>
+
+              <SignedMedicineHistory
+                disabled={acceleratorDisabled}
+                onSelect={rx.proposeMedicine}
+              />
+
+              {prescription.replacesPrescriptionId ? (
+                <p
+                  role="status"
+                  className="dd-material-record dd-record-pearl rounded-2xl px-4 py-3 text-[12px] text-ink-secondary"
+                >
+                  <strong className="font-semibold text-ink">Correction draft starts blank.</strong>{" "}
+                  Whole-prescription historical reuse is disabled here. You may still choose a signed
+                  medicine above to propose one line, inspect it, and add it explicitly.
+                </p>
+              ) : (
+                <PrescriptionReuse
+                  prescriptionId={prescription.id}
+                  targetItemCount={rx.items.length}
+                  disabled={acceleratorDisabled}
+                  onReuse={rx.reuseHistory}
+                />
+              )}
+            </div>
+          ) : null}
+
           {rx.state.kind === "error" ? (
             <p
               role="status"

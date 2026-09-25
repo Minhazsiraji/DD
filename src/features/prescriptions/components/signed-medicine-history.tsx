@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { Clock3, Loader2, Search, Sparkles } from "lucide-react";
+import { ChevronDown, Clock3, Loader2, Search, Sparkles } from "lucide-react";
 import type { MedicineDraft } from "../schema";
 import type { SignedHistoryMode, SignedMedicineSuggestion } from "../m3-history";
 
@@ -65,34 +65,41 @@ export function SignedMedicineHistory({
   const visibleError = queryTooShort ? null : error;
 
   return (
-    <section className="dd-material-panel dd-panel-pearl dd-panel-rim rounded-glass p-3 sm:p-4" aria-label="Signed medicine history">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <p className="flex items-center gap-1.5 text-[13px] font-semibold text-ink">
-            <Sparkles className="size-4 text-brand" aria-hidden="true" />
-            Signed medicine history
-          </p>
-          <p className="mt-0.5 text-[11px] text-ink-muted">Choose a line to propose it. Nothing is added until you press Add medicine.</p>
-        </div>
-        <div className="flex gap-1.5" role="group" aria-label="History order">
-          {(["RECENT", "FREQUENT"] as const).map((value) => (
-            <button
-              key={value}
-              type="button"
-              onClick={() => setMode(value)}
-              disabled={disabled}
-              aria-pressed={mode === value}
-              className={mode === value
-                ? "dd-primary inline-flex min-h-11 items-center px-3 text-[12px] font-semibold focus-visible:focus-ring"
-                : "dd-secondary inline-flex min-h-11 items-center px-3 text-[12px] font-semibold focus-visible:focus-ring"}
-            >
-              {value === "RECENT" ? "Recent" : "Frequent"}
-            </button>
-          ))}
-        </div>
-      </div>
+    <details data-m3-signed-medicine-history className="group rounded-2xl border border-hairline bg-white/55" aria-label="Signed medicine history">
+      <summary className="flex min-h-12 cursor-pointer list-none items-center gap-3 px-3 py-2.5 focus-visible:focus-ring sm:px-4">
+        <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-brand-soft text-brand">
+          <Sparkles className="size-4" aria-hidden="true" />
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="block text-[13px] font-semibold text-ink">Quick add from signed medicines</span>
+          <span className="block text-[11px] text-ink-muted">Recent or frequent medicine lines from your finalized prescriptions.</span>
+        </span>
+        <ChevronDown className="size-4 shrink-0 text-ink-muted transition-transform group-open:rotate-180" aria-hidden="true" />
+      </summary>
 
-      <label className="relative mt-3 block">
+      <div className="border-t border-hairline px-3 pb-3 pt-3 sm:px-4 sm:pb-4">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-[11px] text-ink-muted">Choose a line to fill the staged medicine form. Nothing is added until you press Add medicine.</p>
+          <div className="flex gap-1.5" role="group" aria-label="History order">
+            {(["RECENT", "FREQUENT"] as const).map((value) => (
+              <button
+                key={value}
+                data-m3-signed-history-mode={value}
+                type="button"
+                onClick={() => setMode(value)}
+                disabled={disabled}
+                aria-pressed={mode === value}
+                className={mode === value
+                  ? "dd-primary inline-flex min-h-11 items-center px-3 text-[12px] font-semibold focus-visible:focus-ring"
+                  : "dd-secondary inline-flex min-h-11 items-center px-3 text-[12px] font-semibold focus-visible:focus-ring"}
+              >
+                {value === "RECENT" ? "Recent" : "Frequent"}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <label className="relative mt-3 block">
         <Search className="pointer-events-none absolute left-3 top-3.5 size-4 text-ink-muted" aria-hidden="true" />
         <span className="sr-only">Search signed medicine history</span>
         <input
@@ -105,9 +112,9 @@ export function SignedMedicineHistory({
         />
       </label>
 
-      {visibleError ? <p role="status" className="mt-2 text-[12px] font-medium text-danger">{visibleError}</p> : null}
+        {visibleError ? <p role="status" className="mt-2 text-[12px] font-medium text-danger">{visibleError}</p> : null}
 
-      <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+        <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
         {visibleLoading ? (
           <p className="col-span-full flex min-h-11 items-center gap-2 text-[12px] text-ink-muted"><Loader2 className="size-4 animate-spin" />Loading signed history…</p>
         ) : visibleItems.length === 0 ? (
@@ -135,7 +142,8 @@ export function SignedMedicineHistory({
             </button>
           ))
         )}
+        </div>
       </div>
-    </section>
+    </details>
   );
 }

@@ -34,6 +34,7 @@ export type M6EPrescriptionVoiceIntent =
   | { type: "REMOVE_AUTOPILOT_MEDICINE"; index: number }
   | { type: "DISCARD_AUTOPILOT" }
   | { type: "APPLY_AUTOPILOT" }
+  | { type: "OPEN_SIGNED_HISTORY"; mode: "RECENT" | "FREQUENT" | null }
   | { type: "OPEN_REUSE_HISTORY" }
   | { type: "REVIEW_PRESCRIPTION" }
   | { type: "PROHIBITED_FINALIZE" }
@@ -291,6 +292,8 @@ const FINALIZE = [
   "finalize prescription", "finalise prescription", "sign prescription", "complete prescription", "prescription finalize",
   "prescription sign", "প্রেসক্রিপশন ফাইনাল", "প্রেসক্রিপশন সাইন", "প্রেসক্রিপশন complete", "final prescription koro",
 ];
+const SIGNED_HISTORY_RECENT = ["signed medicine history", "open signed medicine history", "recent signed medicines", "show recent signed medicines", "medicine history", "my signed medicines", "signed medicines kholo", "recent signed medicines kholo", "\u09b8\u09be\u0987\u09a8\u09a1 \u09ae\u09c7\u09a1\u09bf\u09b8\u09bf\u09a8 \u09b9\u09bf\u09b8\u09cd\u099f\u09cd\u09b0\u09bf", "\u09b8\u09be\u09ae\u09cd\u09aa\u09cd\u09b0\u09a4\u09bf\u0995 \u09b8\u09be\u0987\u09a8\u09a1 \u09ae\u09c7\u09a1\u09bf\u09b8\u09bf\u09a8"];
+const SIGNED_HISTORY_FREQUENT = ["frequent signed medicines", "show frequent signed medicines", "frequent medicine history", "most used signed medicines", "frequent signed medicines kholo", "\u09ac\u09c7\u09b6\u09bf \u09ac\u09cd\u09af\u09ac\u09b9\u09c3\u09a4 \u09b8\u09be\u0987\u09a8\u09a1 \u09ae\u09c7\u09a1\u09bf\u09b8\u09bf\u09a8"];
 const REUSE_HISTORY = ["reuse previous prescription", "reuse previous prescriptions", "reuse prescription", "open previous prescription", "open previous prescriptions", "previous prescription", "previous prescriptions", "আগের প্রেসক্রিপশন", "আগের প্রেসক্রিপশন ব্যবহার করো", "আগের প্রেসক্রিপশন রিইউজ করো", "previous prescription kholo", "previous prescription reuse koro"];
 const REVIEW = ["review prescription", "prescription review", "preview prescription", "prescription preview", "open prescription review", "go to review", "প্রেসক্রিপশন রিভিউ", "প্রেসক্রিপশন প্রিভিউ", "প্রিভিউ প্রেসক্রিপশন", "review prescription koro", "preview prescription koro"];
 const GENERATE = ["generate with autopilot", "generate autopilot", "autopilot generate", "autopilot দিয়ে generate", "autopilot দিয়ে generate", "অটোপাইলট জেনারেট করো"];
@@ -362,7 +365,8 @@ export function parseM6EPrescriptionVoice(text: string, context: M6EVoiceParseCo
   if (exact(value, PREVIOUS_AUTOPILOT)) return { type: "PREVIOUS_AUTOPILOT_ITEM" };
   if (exact(value, DISCARD)) return { type: "DISCARD_AUTOPILOT" };
   if (exact(value, APPLY)) return { type: "APPLY_AUTOPILOT" };
-  if (exact(value, REUSE_HISTORY)) return { type: "OPEN_REUSE_HISTORY" };
+  if (exact(value, SIGNED_HISTORY_FREQUENT)) return { type: "OPEN_SIGNED_HISTORY", mode: "FREQUENT" };
+  if (exact(value, SIGNED_HISTORY_RECENT)) return { type: "OPEN_SIGNED_HISTORY", mode: "RECENT" };
   if (exact(value, REUSE_HISTORY)) return { type: "OPEN_REUSE_HISTORY" };
   if (exact(value, REVIEW)) return { type: "REVIEW_PRESCRIPTION" };
   if (exact(value, OPEN_ADD)) return { type: "OPEN_ADD" };

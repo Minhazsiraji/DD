@@ -92,6 +92,14 @@ describe("M3 signed history", () => {
     expect(source).not.toMatch(/addMedicineAction|add_prescription_item|reuse_finalized_prescription_items/);
   });
 
+  it("keeps signed history compact by default and explains its purpose", () => {
+    const source = history();
+    expect(source).toContain("<details data-m3-signed-medicine-history");
+    expect(source).toContain("Quick add from signed medicines");
+    expect(source).toContain("Recent or frequent medicine lines from your finalized prescriptions");
+    expect(source).toContain("data-m3-signed-history-mode");
+  });
+
   it("server history reads only through prescription_signed_medicine_history and reports failures", () => {
     const source = m3Queries();
     expect(source).toContain('supabase.rpc("prescription_signed_medicine_history"');
@@ -107,6 +115,8 @@ describe("M3 historical prescription reuse", () => {
     expect(source).toContain("onSelect={rx.proposeMedicine}");
     expect(source).toContain("<PrescriptionReuse");
     expect(source).toContain("onReuse={rx.reuseHistory}");
+    expect(source).toContain("Medicine shortcuts");
+    expect(source.indexOf("<SectionCard data-m6e-medicines>")).toBeLessThan(source.indexOf("data-m3-prescription-accelerators"));
   });
 
   it("keeps correction successors blank and disables whole-prescription reuse there", () => {
