@@ -44,6 +44,16 @@ describe("M6E prescription usability correction", () => {
     });
   });
 
+  it("accepts short safe cancel and common signed-history ASR variants", () => {
+    expect(parseM6EPrescriptionVoice("Cancel", context)).toEqual({ type: "CANCEL_EDITOR" });
+    expect(parseM6EPrescriptionVoice("Frequent sign medicine", context)).toEqual({
+      type: "OPEN_SIGNED_HISTORY", mode: "FREQUENT",
+    });
+    expect(parseM6EPrescriptionVoice("Recent sign medicine", context)).toEqual({
+      type: "OPEN_SIGNED_HISTORY", mode: "RECENT",
+    });
+  });
+
   it("opens signed medicine history by voice without creating a clinical write", () => {
     expect(parseM6EPrescriptionVoice("Signed medicine history", context)).toEqual({
       type: "OPEN_SIGNED_HISTORY", mode: "RECENT",

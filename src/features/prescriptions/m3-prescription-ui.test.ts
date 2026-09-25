@@ -38,7 +38,8 @@ describe("M3 fast medicine entry", () => {
   it("keeps every medicine field in one always-visible editor section", () => {
     const source = form();
     expect(source).toContain("data-medicine-editor-section");
-    expect(source).toContain("MEDICINE_EDITOR_FIELDS.map(renderField)");
+    expect(source).toContain("primaryFields.map(renderField)");
+    expect(source).toContain("remainingFields.map(renderField)");
     expect(source).toContain("MEDICINE_EDITOR_ORDER");
     expect(source).not.toContain("FAST_FIELDS");
     expect(source).not.toContain("MORE_FIELDS");

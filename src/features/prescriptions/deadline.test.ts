@@ -92,14 +92,14 @@ describe("the settled state is the SAFE one", () => {
 });
 
 describe("a convenience read cannot delay a clinical write", () => {
-  it("signed medicine suggestions are fetched over HTTP, not as a server action", async () => {
+  it("medicine variant suggestions are fetched over HTTP, not as a server action", async () => {
     const form = strip(
       await readFile(
         path.resolve("src/features/prescriptions/components/medicine-form.tsx"),
         "utf8",
       ),
     );
-    expect(form).toMatch(/fetch\(`\/api\/m3-signed-medicine-history/);
+    expect(form).toMatch(/fetch\(`\/api\/m6e-medicine-lookup/);
     expect(form).not.toMatch(/medicineSuggestionsAction|getSignedMedicineHistoryAction/);
 
     const actions = strip(

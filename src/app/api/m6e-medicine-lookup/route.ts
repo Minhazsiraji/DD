@@ -23,6 +23,7 @@ type VoiceMedicineMatch = {
   label: string;
   source: LookupSource;
   draft: MedicineDraft;
+  manufacturer: string | null;
 };
 function doctorDraft(row: DoctorMedicine): MedicineDraft {
   const seed = toRxDraftSeed(row);
@@ -68,6 +69,7 @@ function doctorMatch(row: DoctorMedicine): VoiceMedicineMatch {
     label: row.displayName,
     source: row.isFavorite ? "favorite" : "mine",
     draft: doctorDraft(row),
+    manufacturer: null,
   };
 }
 
@@ -77,6 +79,7 @@ function catalogueMatch(row: MedicineReference): VoiceMedicineMatch {
     label: defaultDisplayName(row),
     source: "catalogue",
     draft: referenceDraft(row),
+    manufacturer: row.manufacturer,
   };
 }
 
@@ -97,6 +100,10 @@ export async function GET(request: NextRequest) {
   }
 
   const query = (request.nextUrl.searchParams.get("q") ?? "").trim();
+  const requestedLimit = Number(request.nextUrl.searchParams.get("limit") ?? "6");
+  const resultLimit = Number.isFinite(requestedLimit)
+    ? Math.max(1, Math.min(Math.trunc(requestedLimit), 12))
+    : 6;
   const requestedScope = request.nextUrl.searchParams.get("scope") ?? "all";
   const scope: LookupScope = ["all", "favorites", "mine", "catalogue"].includes(requestedScope)
     ? requestedScope as LookupScope
@@ -110,16 +117,16 @@ export async function GET(request: NextRequest) {
   const includeCatalogue = scope === "all" || scope === "catalogue";
   const [library, catalogue] = await Promise.all([
     includeLibrary ? listDoctorMedicines() : Promise.resolve([]),
-    includeCatalogue && query ? searchMedicines(query, { limit: 8 }) : Promise.resolve([]),
+    includeCatalogue && query ? searchMedicines(query, { limit: resultLimit }) : Promise.resolve([]),
   ]);
   const filteredLibrary = library
     .filter((row) => doctorMatches(row, query))
     .filter((row) => scope !== "favorites" || row.isFavorite)
-    .slice(0, 6)
+    .slice(0, resultLimit)
     .map(doctorMatch);
 
-  const catalogueMatches = catalogue.slice(0, 6).map(catalogueMatch);
-  const matches = dedupe([...filteredLibrary, ...catalogueMatches]).slice(0, 6);
+  const catalogueMatches = catalogue.slice(0, resultLimit).map(catalogueMatch);
+  const matches = dedupe([...filteredLibrary, ...catalogueMatches]).slice(0, resultLimit);
 
   return NextResponse.json(
     { matches },
