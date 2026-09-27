@@ -9,6 +9,7 @@ import {
   type MedicineDraft,
   type MedicineField,
 } from "../schema";
+import type { M6EVoiceMedicineMatch } from "../use-m6e-prescription-voice";
 
 const MEDICINE_EDITOR_ORDER: readonly MedicineField[] = [
   "displayName", "strengthText", "doseText", "scheduleText", "durationText",
@@ -19,15 +20,7 @@ const MEDICINE_EDITOR_FIELDS = MEDICINE_EDITOR_ORDER.map((key) =>
   MEDICINE_FIELDS.find((field) => field.key === key),
 ).filter((field): field is FieldSpec => Boolean(field));
 
-type MedicineVariantMatch = {
-  key: string;
-  label: string;
-  source: "favorite" | "mine" | "catalogue";
-  draft: MedicineDraft;
-  manufacturer: string | null;
-};
-
-function variantSourceLabel(source: MedicineVariantMatch["source"]): string {
+function variantSourceLabel(source: M6EVoiceMedicineMatch["source"]): string {
   if (source === "favorite") return "Favorite";
   if (source === "mine") return "My Medicines";
   return "Catalogue";
@@ -54,7 +47,12 @@ export function MedicineForm({
   onChange,
   onSubmit,
   onCancel,
-  onApplySuggestion,
+  variantMatches,
+  variantPending,
+  activeVariantIndex,
+  onVariantQueryChange,
+  onSearchVariants,
+  onSelectVariant,
 }: {
   value: MedicineDraft;
   busy: boolean;
@@ -63,41 +61,35 @@ export function MedicineForm({
   onChange: (next: MedicineDraft) => void;
   onSubmit: () => void;
   onCancel: () => void;
-  onApplySuggestion: (s: MedicineDraft) => void;
+  variantMatches: readonly M6EVoiceMedicineMatch[];
+  variantPending: boolean;
+  activeVariantIndex: number | null;
+  onVariantQueryChange: (query: string) => void;
+  onSearchVariants: (query: string) => Promise<unknown>;
+  onSelectVariant: (index: number) => void;
 }) {
   const id = React.useId();
   const canSubmit = value.displayName.trim() !== "" && !busy && !blocked;
-  const [variantMatches, setVariantMatches] = React.useState<MedicineVariantMatch[]>([]);
-  const [variantPending, setVariantPending] = React.useState(false);
   const [showVariants, setShowVariants] = React.useState(false);
   const query = value.displayName;
+  const onSearchVariantsRef = React.useRef(onSearchVariants);
+  const suppressNextSearch = React.useRef(false);
+
+  React.useLayoutEffect(() => {
+    onSearchVariantsRef.current = onSearchVariants;
+  });
 
   React.useEffect(() => {
     const q = query.trim();
+    if (suppressNextSearch.current) {
+      suppressNextSearch.current = false;
+      return;
+    }
     if (q.length < 2) return;
-    const controller = new AbortController();
     const timer = window.setTimeout(() => {
-      setVariantPending(true);
-      const params = new URLSearchParams({ scope: "all", q, limit: "10" });
-      void fetch(`/api/m6e-medicine-lookup?${params.toString()}`, {
-        signal: controller.signal,
-        cache: "no-store",
-        headers: { Accept: "application/json" },
-      })
-        .then(async (response) => {
-          if (!response.ok) return;
-          const body = (await response.json()) as { matches?: MedicineVariantMatch[] };
-          setVariantMatches(Array.isArray(body.matches) ? body.matches : []);
-        })
-        .catch(() => undefined)
-        .finally(() => {
-          if (!controller.signal.aborted) setVariantPending(false);
-        });
+      void onSearchVariantsRef.current(q);
     }, 200);
-    return () => {
-      controller.abort();
-      window.clearTimeout(timer);
-    };
+    return () => window.clearTimeout(timer);
   }, [query]);
 
   const visibleVariants = query.trim().length < 2 ? [] : variantMatches;
@@ -137,6 +129,7 @@ export function MedicineForm({
             value={value[field.key]}
             disabled={busy}
             onChange={(event) => {
+              if (isName) onVariantQueryChange(event.target.value);
               set(field.key, event.target.value);
               if (isName) setShowVariants(true);
             }}
@@ -208,19 +201,25 @@ export function MedicineForm({
 
       {visibleVariants.length > 0 ? (
         <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
-          {visibleVariants.map((match) => (
+          {visibleVariants.map((match, index) => (
             <button
               key={match.key}
               type="button"
               data-medicine-variant={match.key}
               onMouseDown={(event) => event.preventDefault()}
               onClick={() => {
-                onApplySuggestion(match.draft);
+                suppressNextSearch.current = true;
+                onSelectVariant(index + 1);
                 setShowVariants(false);
               }}
-              className="min-h-16 rounded-xl border border-hairline bg-white/80 px-3 py-2 text-left hover:bg-white focus-visible:focus-ring"
+              aria-current={activeVariantIndex === index ? "true" : undefined}
+              className={cn(
+                "min-h-16 rounded-xl border bg-white/80 px-3 py-2 text-left hover:bg-white focus-visible:focus-ring",
+                activeVariantIndex === index ? "border-brand ring-1 ring-brand/25" : "border-hairline",
+              )}
             >
               <span className="flex flex-wrap items-center gap-1.5">
+                <span className="text-[12px] font-semibold tabular-nums text-brand">{index + 1}.</span>
                 <span className="text-[12px] font-semibold text-ink">{match.label}</span>
                 <span className="rounded-full bg-brand-soft px-2 py-0.5 text-[9px] font-semibold text-brand">
                   {variantSourceLabel(match.source)}

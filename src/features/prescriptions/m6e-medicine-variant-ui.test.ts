@@ -7,9 +7,11 @@ const read = (path: string) => readFileSync(resolve(process.cwd(), path), "utf8"
 describe("M6E staged medicine variant picker", () => {
   it("uses the shared catalogue and doctor library instead of signed-history-only autocomplete", () => {
     const form = read("src/features/prescriptions/components/medicine-form.tsx");
-    expect(form).toContain("/api/m6e-medicine-lookup?");
-    expect(form).toContain('scope: "all"');
-    expect(form).toContain('limit: "10"');
+    const controller = read("src/features/prescriptions/use-m6e-prescription-voice.ts");
+    expect(controller).toContain("/api/m6e-medicine-lookup?");
+    expect(controller).toContain('searchMedicineMatches("all", query, 10)');
+    expect(form).toContain("variantMatches: readonly M6EVoiceMedicineMatch[]");
+    expect(form).not.toContain("setVariantMatches");
     expect(form).not.toContain("/api/m3-signed-medicine-history?mode=RECENT");
   });
 
@@ -27,7 +29,8 @@ describe("M6E staged medicine variant picker", () => {
     expect(form).toContain('return "Favorite"');
     expect(form).toContain('return "My Medicines"');
     expect(form).toContain('return "Catalogue"');
-    expect(form).toContain("onApplySuggestion(match.draft)");
+    expect(form).toContain("onSelectVariant(index + 1)");
+    expect(form).toContain("{index + 1}.");
     expect(form).toContain("nothing is added until you press Add medicine");
     expect(form).not.toContain("addMedicineAction");
   });

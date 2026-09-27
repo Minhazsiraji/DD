@@ -116,7 +116,7 @@ describe("M6E prescription usability correction", () => {
     expect(route).not.toContain("addMedicineAction");
     expect(route).not.toContain("finalizePrescriptionAction");
     expect(controller).toContain("loaded from ${source} into the staged medicine form");
-    expect(controller).toContain("visible Add medicine button");
+    expect(controller).toContain("visible ${action} button");
     expect(controller).not.toContain("finalizePrescriptionAction");
   });
 

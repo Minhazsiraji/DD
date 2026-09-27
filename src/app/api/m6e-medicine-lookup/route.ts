@@ -12,6 +12,10 @@ import {
   type MedicineReference,
 } from "@/features/medicines/medicine";
 import { emptyMedicine, type MedicineDraft } from "@/features/prescriptions/schema";
+import {
+  canonicalizeSelectedMedicineDraft,
+  medicineDisplayWithStrength,
+} from "@/features/prescriptions/medicine-display";
 
 export const dynamic = "force-dynamic";
 
@@ -27,7 +31,7 @@ type VoiceMedicineMatch = {
 };
 function doctorDraft(row: DoctorMedicine): MedicineDraft {
   const seed = toRxDraftSeed(row);
-  return {
+  return canonicalizeSelectedMedicineDraft({
     ...emptyMedicine(),
     displayName: seed.displayName,
     brandName: seed.brandName ?? "",
@@ -43,18 +47,18 @@ function doctorDraft(row: DoctorMedicine): MedicineDraft {
     instructions: seed.instructions ?? "",
     isPrn: seed.isPrn,
     substitutionAllowed: true,
-  };
+  });
 }
 
 function referenceDraft(row: MedicineReference): MedicineDraft {
-  return {
+  return canonicalizeSelectedMedicineDraft({
     ...emptyMedicine(),
     displayName: defaultDisplayName(row),
     brandName: row.brandName ?? "",
     genericName: row.genericName,
     strengthText: row.strengthText ?? "",
     dosageForm: row.dosageForm ?? "",
-  };
+  });
 }
 function doctorMatches(row: DoctorMedicine, query: string) {
   if (!query) return true;
@@ -64,21 +68,23 @@ function doctorMatches(row: DoctorMedicine, query: string) {
 }
 
 function doctorMatch(row: DoctorMedicine): VoiceMedicineMatch {
+  const draft = doctorDraft(row);
   return {
     key: `mine:${row.id}`,
-    label: row.displayName,
+    label: medicineDisplayWithStrength(draft.displayName, draft.strengthText),
     source: row.isFavorite ? "favorite" : "mine",
-    draft: doctorDraft(row),
+    draft,
     manufacturer: null,
   };
 }
 
 function catalogueMatch(row: MedicineReference): VoiceMedicineMatch {
+  const draft = referenceDraft(row);
   return {
     key: `catalogue:${row.id}`,
-    label: defaultDisplayName(row),
+    label: medicineDisplayWithStrength(draft.displayName, draft.strengthText),
     source: "catalogue",
-    draft: referenceDraft(row),
+    draft,
     manufacturer: row.manufacturer,
   };
 }

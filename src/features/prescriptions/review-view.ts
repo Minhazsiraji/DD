@@ -1,6 +1,7 @@
 import { computeAge } from "@/features/patients/identity";
 import { formatAgeSex } from "@/lib/format";
 import type { BundleItem, ReviewBundle } from "./review-bundle";
+import { hasExactTrailingStrength } from "./medicine-display";
 
 export interface ReviewLine {
   position: number;
@@ -84,6 +85,7 @@ function join(parts: (string | null)[], separator: string): string | null {
 
 export function toLine(item: BundleItem): ReviewLine {
   const name = item.display_name.trim();
+  const strength = clean(item.strength_text);
   const lower = name.toLowerCase();
   const brand = clean(item.brand_name);
   const generic = clean(item.generic_name);
@@ -95,7 +97,7 @@ export function toLine(item: BundleItem): ReviewLine {
     position: item.position,
     name,
     subtitle: extra.length === 0 ? null : extra.join(" · "),
-    strength: clean(item.strength_text),
+    strength: hasExactTrailingStrength(name, strength) ? null : strength,
     dose: clean(item.dose_text),
     administration: join([item.dosage_form, item.route], " · "),
     schedule: clean(item.schedule_text),

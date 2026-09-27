@@ -93,14 +93,14 @@ describe("the settled state is the SAFE one", () => {
 
 describe("a convenience read cannot delay a clinical write", () => {
   it("medicine variant suggestions are fetched over HTTP, not as a server action", async () => {
-    const form = strip(
+    const lookupOwner = strip(
       await readFile(
-        path.resolve("src/features/prescriptions/components/medicine-form.tsx"),
+        path.resolve("src/features/prescriptions/use-m6e-prescription-voice.ts"),
         "utf8",
       ),
     );
-    expect(form).toMatch(/fetch\(`\/api\/m6e-medicine-lookup/);
-    expect(form).not.toMatch(/medicineSuggestionsAction|getSignedMedicineHistoryAction/);
+    expect(lookupOwner).toMatch(/fetch\(`\/api\/m6e-medicine-lookup/);
+    expect(lookupOwner).not.toMatch(/medicineSuggestionsAction|getSignedMedicineHistoryAction/);
 
     const actions = strip(
       await readFile(path.resolve("src/features/prescriptions/actions.ts"), "utf8"),
@@ -109,14 +109,14 @@ describe("a convenience read cannot delay a clinical write", () => {
   });
 
   it("the lookup is abortable, so a stale one cannot answer over a newer one", async () => {
-    const form = strip(
+    const lookupOwner = strip(
       await readFile(
-        path.resolve("src/features/prescriptions/components/medicine-form.tsx"),
+        path.resolve("src/features/prescriptions/use-m6e-prescription-voice.ts"),
         "utf8",
       ),
     );
-    expect(form).toMatch(/new AbortController\(\)/);
-    expect(form).toMatch(/controller\.abort\(\)/);
+    expect(lookupOwner).toMatch(/new AbortController\(\)/);
+    expect(lookupOwner).toMatch(/medicineLookupAbort\.current\?\.abort\(\)/);
   });
 
   it("the signed-history route authorises and stays private/no-store", async () => {

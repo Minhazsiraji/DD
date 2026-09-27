@@ -4,6 +4,7 @@ import * as React from "react";
 import { ChevronDown, Clock3, Loader2, Search, Sparkles } from "lucide-react";
 import type { MedicineDraft } from "../schema";
 import type { SignedHistoryMode, SignedMedicineSuggestion } from "../m3-history";
+import { medicineDisplayWithStrength } from "../medicine-display";
 
 function when(value: string | null): string {
   if (!value) return "";
@@ -133,11 +134,14 @@ export function SignedMedicineHistory({
               }}
               className="dd-material-record dd-record-pearl dd-record-interactive min-h-11 rounded-2xl p-3 text-left focus-visible:focus-ring disabled:opacity-50"
             >
-              <span className="block truncate text-[13px] font-semibold text-ink">{item.displayName}{item.strengthText ? ` ${item.strengthText}` : ""}</span>
+              <span className="block truncate text-[13px] font-semibold text-ink">{medicineDisplayWithStrength(item.displayName, item.strengthText)}</span>
               <span className="mt-0.5 block truncate text-[11px] text-ink-secondary">{[item.doseText, item.scheduleText, item.durationText].filter(Boolean).join(" · ") || "Signed wording"}</span>
               <span className="mt-1 flex items-center gap-1.5 text-[10px] text-ink-muted">
                 <Clock3 className="size-3" aria-hidden="true" />
-                {mode === "FREQUENT" ? `${item.timesUsed} signed Rx${item.timesUsed === 1 ? "" : "s"}` : when(item.lastUsed) || "Signed history"}
+                {[when(item.lastUsed) ? `Last used ${when(item.lastUsed)}` : null,
+                  `${item.timesUsed} signed Rx${item.timesUsed === 1 ? "" : "s"}`]
+                  .filter(Boolean)
+                  .join(" · ")}
               </span>
             </button>
           ))

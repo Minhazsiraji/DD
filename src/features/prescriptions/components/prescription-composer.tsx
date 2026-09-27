@@ -105,7 +105,10 @@ export function PrescriptionComposer({
           targetOptions={prescriptionVoice.targetOptions}
           onTargetChange={prescriptionVoice.selectTarget}
           onStableTranscript={prescriptionVoice.handleStableTranscript}
+          onVoiceSessionStart={prescriptionVoice.clearMedicineMatches}
+          onVoiceSessionEnd={prescriptionVoice.clearMedicineMatches}
           medicineMatches={prescriptionVoice.medicineMatches}
+          activeMedicineMatchIndex={prescriptionVoice.medicineMatchIndex}
           medicineLookupPending={prescriptionVoice.medicineLookupPending}
         />
       ) : null}
@@ -266,7 +269,24 @@ export function PrescriptionComposer({
             </p>
           ) : null}
 
-          {rx.items.length > 0 ? <MedicineList rx={rx} readOnly={readOnly} /> : null}
+          {rx.items.length > 0 ? (
+            <MedicineList
+              rx={rx}
+              readOnly={readOnly}
+              variantMatches={prescriptionVoice.medicineMatches}
+              variantPending={prescriptionVoice.medicineLookupPending}
+              activeVariantIndex={prescriptionVoice.medicineMatchIndex}
+              onVariantQueryChange={prescriptionVoice.invalidateMedicineQuery}
+              onSearchVariants={prescriptionVoice.searchInlineMedicineMatches}
+              onSelectVariant={(index) => {
+                prescriptionVoice.selectMedicineMatch(index);
+              }}
+              onCancelEditor={() => {
+                prescriptionVoice.clearMedicineMatches();
+                rx.closeEditor();
+              }}
+            />
+          ) : null}
 
           {rx.editor?.mode === "add" ? (
             <MedicineForm
@@ -276,8 +296,18 @@ export function PrescriptionComposer({
               submitLabel="Add medicine"
               onChange={rx.setDraft}
               onSubmit={() => void rx.submit()}
-              onCancel={rx.closeEditor}
-              onApplySuggestion={rx.applySuggestion}
+              onCancel={() => {
+                prescriptionVoice.clearMedicineMatches();
+                rx.closeEditor();
+              }}
+              variantMatches={prescriptionVoice.medicineMatches}
+              variantPending={prescriptionVoice.medicineLookupPending}
+              activeVariantIndex={prescriptionVoice.medicineMatchIndex}
+              onVariantQueryChange={prescriptionVoice.invalidateMedicineQuery}
+              onSearchVariants={prescriptionVoice.searchInlineMedicineMatches}
+              onSelectVariant={(index) => {
+                prescriptionVoice.selectMedicineMatch(index);
+              }}
             />
           ) : null}
         </div>

@@ -20,6 +20,11 @@ export type M6EPrescriptionVoiceIntent =
   | { type: "REMOVE_LAST_LINE" }
   | { type: "SEARCH_MEDICINE"; scope: M6EMedicineLookupScope; query: string }
   | { type: "USE_MEDICINE_MATCH"; index: number }
+  | { type: "NEXT_MEDICINE_MATCH" }
+  | { type: "PREVIOUS_MEDICINE_MATCH" }
+  | { type: "READ_MEDICINE_MATCHES" }
+  | { type: "USE_CURRENT_MEDICINE_MATCH" }
+  | { type: "USE_EXACT_MEDICINE_MATCH" }
   | { type: "REPLACE_FIELD"; from: string; to: string }
   | { type: "SET_FIELD"; field: M6EVoiceMedicineField; value: string }
   | { type: "STAGE_MEDICINE"; patch: Partial<MedicineDraft>; rawText: string }
@@ -44,6 +49,7 @@ export interface M6EVoiceParseContext {
   editorOpen: boolean;
   fieldTarget: M6EVoiceMedicineField | null;
   autopilotProposalActive?: boolean;
+  medicineResultsActive?: boolean;
 }
 
 export type M6EVoiceSessionControl = "PAUSE" | "RESUME" | "END";
@@ -120,6 +126,13 @@ const INDEX_WORD = "(?:\\d{1,2}|one|two|three|four|five|six|seven|eight|nine|ten
 
 function medicineIndex(value: string): number | null {
   const match = value.match(new RegExp(`(?:medicine|med|মেডিসিন|ওষুধ)\\s*(${INDEX_WORD})`, "iu"));
+  if (!match) return null;
+  const parsed = parseBoundedNumber(match[1]!);
+  return parsed && Number.isInteger(parsed) && parsed >= 1 && parsed <= 50 ? parsed : null;
+}
+
+function proposalMedicineIndex(value: string): number | null {
+  const match = value.match(new RegExp(`proposal\\s+(?:medicine|med|মেডিসিন|ওষুধ)\\s*(${INDEX_WORD})`, "iu"));
   if (!match) return null;
   const parsed = parseBoundedNumber(match[1]!);
   return parsed && Number.isInteger(parsed) && parsed >= 1 && parsed <= 50 ? parsed : null;
@@ -315,12 +328,40 @@ const UNDO = ["undo", "undo medicine", "medicine undo", "আনডু", "undo ko
 const CLEAR_CURRENT_SECTION = ["clear this section", "clear current section", "clear this field", "clear current field"];
 const REMOVE_LAST_LINE = ["remove last line", "delete last line", "last line remove", "শেষ লাইন মুছো", "শেষ লাইন বাদ দাও"];
 
-function lookupIntent(raw: string, value: string): M6EPrescriptionVoiceIntent | null {
-  const useMatch = value.match(new RegExp(`^(?:use|choose)\\s+(?:medicine\\s+)?(?:result\\s+|match\\s+)?(${INDEX_WORD})$`, "iu"));
+function lookupIntent(
+  raw: string,
+  value: string,
+  context: M6EVoiceParseContext,
+): M6EPrescriptionVoiceIntent | null {
+  const useMatch = value.match(new RegExp(
+    `^(?:use|select|choose)\\s+(?:medicine|variant)(?:\\s+(?:number|result|match))?\\s+(${INDEX_WORD})$`,
+    "iu",
+  ));
   if (useMatch) {
     const index = parseBoundedNumber(useMatch[1]!);
     if (index && Number.isInteger(index) && index >= 1 && index <= 20) return { type: "USE_MEDICINE_MATCH", index };
   }
+
+  const suffixMatch = value.match(new RegExp(
+    `^(?:variant|medicine|ভ্যারিয়েন্ট|ভ্যারিয়েন্ট|মেডিসিন|ওষুধ)\\s+(${INDEX_WORD})\\s+(?:nao|নাও|select koro|সিলেক্ট করো|choose koro)$`,
+    "iu",
+  ));
+  if (suffixMatch) {
+    const index = parseBoundedNumber(suffixMatch[1]!);
+    if (index && Number.isInteger(index) && index >= 1 && index <= 20) return { type: "USE_MEDICINE_MATCH", index };
+  }
+
+  const bareMatch = value.match(new RegExp(`^(?:variant|medicine|ভ্যারিয়েন্ট|ভ্যারিয়েন্ট|মেডিসিন|ওষুধ)\\s+(${INDEX_WORD})$`, "iu"));
+  if (bareMatch && context.medicineResultsActive) {
+    const index = parseBoundedNumber(bareMatch[1]!);
+    if (index && Number.isInteger(index) && index >= 1 && index <= 20) return { type: "USE_MEDICINE_MATCH", index };
+  }
+
+  if (exact(value, ["next variant", "পরের ভ্যারিয়েন্ট", "পরের ভ্যারিয়েন্ট", "next variant e jao"])) return { type: "NEXT_MEDICINE_MATCH" };
+  if (exact(value, ["previous variant", "আগের ভ্যারিয়েন্ট", "আগের ভ্যারিয়েন্ট", "previous variant e jao"])) return { type: "PREVIOUS_MEDICINE_MATCH" };
+  if (exact(value, ["read variants", "read medicine matches", "ভ্যারিয়েন্টগুলো পড়ো", "ভ্যারিয়েন্টগুলো পড়ো", "ভ্যারিয়েন্টগুলো পড়ো", "ভ্যারিয়েন্টগুলো পড়ো", "variant gulo poro"])) return { type: "READ_MEDICINE_MATCHES" };
+  if (exact(value, ["select current variant", "use current variant", "বর্তমান ভ্যারিয়েন্ট নাও", "বর্তমান ভ্যারিয়েন্ট নাও"])) return { type: "USE_CURRENT_MEDICINE_MATCH" };
+  if (exact(value, ["use exact match", "select exact match", "exact match nao"])) return { type: "USE_EXACT_MEDICINE_MATCH" };
 
   if (/^(?:show|list)\s+(?:my\s+)?(?:favorite|favourite)\s+medicines?$/iu.test(value)) {
     return { type: "SEARCH_MEDICINE", scope: "favorites", query: "" };
@@ -349,7 +390,7 @@ export function parseM6EPrescriptionVoice(text: string, context: M6EVoiceParseCo
   if (!raw) return { type: "UNKNOWN", rawText: raw };
 
   if (exact(value, FINALIZE)) return { type: "PROHIBITED_FINALIZE" };
-  const medicineLookup = lookupIntent(raw, value);
+  const medicineLookup = lookupIntent(raw, value, context);
   if (medicineLookup) return medicineLookup;
   if (exact(value, CLEAR_CURRENT_SECTION)) {
     return context.fieldTarget
@@ -383,8 +424,9 @@ export function parseM6EPrescriptionVoice(text: string, context: M6EVoiceParseCo
   }
 
   const index = medicineIndex(value);
-  if (index !== null && /^(?:select|সিলেক্ট)\s+/iu.test(value)) return { type: "SELECT_AUTOPILOT_MEDICINE", index };
-  if (index !== null && /^(?:deselect|unselect|ডিসিলেক্ট)\s+/iu.test(value)) return { type: "DESELECT_AUTOPILOT_MEDICINE", index };
+  const proposalIndex = proposalMedicineIndex(value);
+  if (proposalIndex !== null && /^(?:select|সিলেক্ট)\s+/iu.test(value)) return { type: "SELECT_AUTOPILOT_MEDICINE", index: proposalIndex };
+  if (proposalIndex !== null && /^(?:deselect|unselect|ডিসিলেক্ট)\s+/iu.test(value)) return { type: "DESELECT_AUTOPILOT_MEDICINE", index: proposalIndex };
   if (index !== null && /(?:edit|এডিট|সম্পাদনা)/iu.test(value)) {
     return context.autopilotProposalActive
       ? { type: "EDIT_AUTOPILOT_MEDICINE", index }

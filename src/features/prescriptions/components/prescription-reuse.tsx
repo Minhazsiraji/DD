@@ -8,6 +8,7 @@ import {
   type PrescriptionReuseSource,
   type PrescriptionReuseSourceDetail,
 } from "../m3-history";
+import { medicineDisplayWithStrength } from "../medicine-display";
 
 function dateLabel(iso: string): string {
   const d = new Date(iso);
@@ -186,7 +187,7 @@ export function PrescriptionReuse({
               <label key={item.itemId} className="dd-material-record dd-record-pearl flex min-h-11 cursor-pointer items-start gap-3 rounded-2xl px-3 py-2.5">
                 <input type="checkbox" checked={selected.has(item.itemId)} onChange={() => toggle(item.itemId)} className="mt-1 size-4 accent-[var(--color-brand)]" />
                 <span className="min-w-0 flex-1">
-                  <span className="block text-[13px] font-semibold text-ink">{item.displayName}{item.strengthText ? ` ${item.strengthText}` : ""}</span>
+                  <span className="block text-[13px] font-semibold text-ink">{medicineDisplayWithStrength(item.displayName, item.strengthText)}</span>
                   <span className="block text-[11px] text-ink-secondary">{[item.doseText, item.scheduleText, item.durationText].filter(Boolean).join(" · ")}</span>
                 </span>
               </label>

@@ -184,7 +184,10 @@ export function M6EPrescriptionVoicePanel({
   targetOptions,
   onTargetChange,
   onStableTranscript,
+  onVoiceSessionStart,
+  onVoiceSessionEnd,
   medicineMatches,
+  activeMedicineMatchIndex,
   medicineLookupPending,
 }: {
   disabled: boolean;
@@ -193,7 +196,10 @@ export function M6EPrescriptionVoicePanel({
   targetOptions: readonly VoiceTargetOption[];
   onTargetChange: (value: string) => void;
   onStableTranscript: (text: string) => Promise<string>;
+  onVoiceSessionStart: () => void;
+  onVoiceSessionEnd: () => void;
   medicineMatches: readonly { key: string; label: string; source: "favorite" | "mine" | "catalogue" }[];
+  activeMedicineMatchIndex: number | null;
   medicineLookupPending: boolean;
 }) {
   const voiceLanguage = useVoiceLanguage();
@@ -261,6 +267,7 @@ export function M6EPrescriptionVoicePanel({
     }
     if (control === "END") {
       setStatus("Ending Prescription voice session…");
+      onVoiceSessionEnd();
       dictation.stop();
       return;
     }
@@ -295,6 +302,7 @@ export function M6EPrescriptionVoicePanel({
     },
     onFinal: (text) => {
       clearSilenceTimer();
+      onVoiceSessionEnd();
       const duplicate = isDuplicateM6ESessionFinal(text, lastUtteranceRaw.current);
       hearingSequencer.invalidateSession();
       if (text.trim() && !duplicate) {
@@ -307,6 +315,7 @@ export function M6EPrescriptionVoicePanel({
     },
     onCancel: () => {
       clearSilenceTimer();
+      onVoiceSessionEnd();
       hearingSequencer.invalidateSession();
       setPreview("");
       setPaused(false);
@@ -320,6 +329,7 @@ export function M6EPrescriptionVoicePanel({
   function start() {
     if (disabled || active) return;
     clearSilenceTimer();
+    onVoiceSessionStart();
     hearingSequencer.beginSession();
     latestPreviewRef.current = "";
     setPreview("");
@@ -334,6 +344,7 @@ export function M6EPrescriptionVoicePanel({
   function end() {
     if (!active) return;
     clearSilenceTimer();
+    onVoiceSessionEnd();
     hearingSequencer.invalidateSession();
     setStatus("Ending Prescription voice session…");
     dictation.stop();
@@ -442,7 +453,11 @@ export function M6EPrescriptionVoicePanel({
                 <p className="text-[11px] font-semibold text-ink">Medicine matches</p>
                 <ol className="mt-1 space-y-1 text-[11px] text-ink-secondary">
                   {medicineMatches.map((match, index) => (
-                    <li key={match.key} className="break-words">
+                    <li
+                      key={match.key}
+                      className="break-words"
+                      aria-current={activeMedicineMatchIndex === index ? "true" : undefined}
+                    >
                       <strong className="font-semibold text-ink">{index + 1}.</strong>{" "}
                       {match.label}{" "}
                       <span className="text-ink-muted">

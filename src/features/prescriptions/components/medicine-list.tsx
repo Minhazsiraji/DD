@@ -5,6 +5,7 @@ import { ArrowDown, ArrowUp, Pencil, Trash2 } from "lucide-react";
 import type { usePrescription } from "../use-prescription";
 import type { MedicineRow } from "../schema";
 import { MedicineForm } from "./medicine-form";
+import type { M6EVoiceMedicineMatch } from "../use-m6e-prescription-voice";
 
 /**
  * The medicines on this prescription, in the order they will print.
@@ -19,9 +20,23 @@ import { MedicineForm } from "./medicine-form";
 export function MedicineList({
   rx,
   readOnly,
+  variantMatches,
+  variantPending,
+  activeVariantIndex,
+  onVariantQueryChange,
+  onSearchVariants,
+  onSelectVariant,
+  onCancelEditor,
 }: {
   rx: ReturnType<typeof usePrescription>;
   readOnly: boolean;
+  variantMatches: readonly M6EVoiceMedicineMatch[];
+  variantPending: boolean;
+  activeVariantIndex: number | null;
+  onVariantQueryChange: (query: string) => void;
+  onSearchVariants: (query: string) => Promise<unknown>;
+  onSelectVariant: (index: number) => void;
+  onCancelEditor: () => void;
 }) {
   return (
     <ol className="divide-y divide-hairline">
@@ -38,8 +53,13 @@ export function MedicineList({
                 submitLabel="Save changes"
                 onChange={rx.setDraft}
                 onSubmit={() => void rx.submit()}
-                onCancel={rx.closeEditor}
-                onApplySuggestion={rx.applySuggestion}
+                onCancel={onCancelEditor}
+                variantMatches={variantMatches}
+                variantPending={variantPending}
+                activeVariantIndex={activeVariantIndex}
+                onVariantQueryChange={onVariantQueryChange}
+                onSearchVariants={onSearchVariants}
+                onSelectVariant={onSelectVariant}
               />
             </li>
           );

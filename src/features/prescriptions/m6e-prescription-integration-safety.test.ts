@@ -21,7 +21,9 @@ describe("M6E complete Prescription safety integration", () => {
   it("reuses the existing M3 add/save/remove controls as the authoritative write boundary", () => {
     expect(composer).toContain('submitLabel="Add medicine"');
     expect(composer).toContain("onSubmit={() => void rx.submit()}");
-    expect(composer).toContain("<MedicineList rx={rx} readOnly={readOnly} />");
+    expect(composer).toContain("<MedicineList");
+    expect(composer).toContain("rx={rx}");
+    expect(composer).toContain("readOnly={readOnly}");
   });
 
   it("reuses the existing Autopilot proposal engine and Apply action instead of creating another one", () => {

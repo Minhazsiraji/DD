@@ -218,9 +218,10 @@ describe("toReviewView", () => {
     expect(view({ bundle: { template: { ...baseTemplate(), paperSize: "A5" } } }).paperSize).toBe("A5");
   });
 
-  it("keeps strength and dose apart", () => {
+  it("keeps dose apart while suppressing only exact duplicated trailing strength", () => {
     const line = view().lines[0];
-    expect(line.strength).toBe("500 mg");
+    expect(line.name).toBe("Tab. Napa 500 mg");
+    expect(line.strength).toBeNull();
     expect(line.dose).toBe("1 tablet");
   });
 
