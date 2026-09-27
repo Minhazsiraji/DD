@@ -7,6 +7,16 @@ export type PrescriptionDocumentState =
       timeZone: string;
     };
 
+const LEGACY_FOLLOW_UP_COPY =
+  "Please bring your prescription and all test report on your next visit.";
+const CURRENT_FOLLOW_UP_COPY =
+  "Please bring this prescription and all test reports to your next visit.";
+
+/** Presentation-only correction for the previously shipped footer sentence. */
+export function formatPrescriptionFooterText(value: string): string {
+  return value.replaceAll(LEGACY_FOLLOW_UP_COPY, CURRENT_FOLLOW_UP_COPY);
+}
+
 /** A deterministic chamber-local timestamp for finalized prescription paper. */
 export function formatFinalizedTimestamp(iso: string, timeZone: string): string {
   const date = new Date(iso);

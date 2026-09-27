@@ -42,6 +42,16 @@ const COUNTABLE_FORM_UNIT: Readonly<Record<string, { one: string; many: string }
   suppository: { one: "suppository", many: "suppositories" },
 };
 
+/**
+ * Quantity units are deliberately narrower than dose units. Tablet and
+ * capsule are unambiguously countable inventory units; other forms need an
+ * explicit unit in `quantity_text` (for example, `100 mL`).
+ */
+const SAFE_QUANTITY_FORM_UNIT: Readonly<Record<string, { one: string; many: string }>> = {
+  tablet: { one: "tablet", many: "tablets" },
+  capsule: { one: "capsule", many: "capsules" },
+};
+
 export function cleanPrescriptionText(value: string | null | undefined): string | null {
   const trimmed = (value ?? "").trim();
   return trimmed === "" ? null : trimmed;
@@ -118,10 +128,22 @@ export function formatScheduleForDisplay(
   return { schedule: compact, interpretation };
 }
 
-function quantityForDisplay(quantityText: string | null | undefined): string | null {
+function quantityForDisplay(
+  quantityText: string | null | undefined,
+  dosageForm: string | null | undefined,
+): string | null {
   const quantity = cleanPrescriptionText(quantityText);
   if (!quantity) return null;
-  return /^qty\s*:/iu.test(quantity) ? quantity : `Qty: ${quantity}`;
+
+  // Normalize an existing label without changing the authoritative value.
+  const value = quantity.replace(/^qty\s*:\s*/iu, "").trim();
+  const number = numericDose(value);
+  if (number === null) return `Qty: ${value}`;
+
+  const form = cleanPrescriptionText(dosageForm);
+  const unit = form ? SAFE_QUANTITY_FORM_UNIT[normalized(form)] : undefined;
+  if (!unit) return `Qty: ${value}`;
+  return `Qty: ${value} ${number === 1 ? unit.one : unit.many}`;
 }
 
 /**
@@ -152,7 +174,7 @@ export function formatPrescriptionMedicine(item: BundleItem): PrescriptionMedici
     schedule: schedule.schedule,
     scheduleInterpretation: schedule.interpretation,
     duration: cleanPrescriptionText(item.duration_text),
-    quantity: quantityForDisplay(item.quantity_text),
+    quantity: quantityForDisplay(item.quantity_text, item.dosage_form),
     foodRelation: cleanPrescriptionText(item.food_relation),
     isPrn: item.is_prn,
     substitutionAllowed: item.substitution_allowed,

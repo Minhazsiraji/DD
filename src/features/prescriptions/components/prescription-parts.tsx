@@ -3,6 +3,7 @@ import { formatDate } from "@/lib/format";
 import type { DocumentChrome, ReviewLine, ReviewView } from "../review-view";
 import {
   formatFinalizedTimestamp,
+  formatPrescriptionFooterText,
   type PrescriptionDocumentState,
 } from "../prescription-document-state";
 
@@ -213,6 +214,17 @@ export function MedicineLine({
           is the product, "1 tablet" is the act.
         */}
         {regimen.length > 0 ? <p data-rx-medicine-regimen>{regimen.join(" · ")}</p> : null}
+
+        {documentState.kind === "draft" && !line.dose ? (
+          <p
+            data-print-hidden
+            data-rx-review-warning="missing-dose"
+            className="italic text-ink-muted"
+            style={{ fontSize: u.pt(view.baseFontPt * 0.76) }}
+          >
+            Dose not specified
+          </p>
+        ) : null}
 
         {documentState.kind === "draft" && !line.duration ? (
           <p
@@ -432,7 +444,7 @@ export function PrescriptionFooter({
           className="whitespace-pre-wrap"
           style={{ marginBottom: platformAttribution || showFinalization ? u.mm(3) : 0 }}
         >
-          {view.footerText}
+          {formatPrescriptionFooterText(view.footerText!)}
         </div>
       ) : null}
 

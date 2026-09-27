@@ -268,3 +268,164 @@ describe("prescription medicine presentation standard", () => {
     expect(print).not.toMatch(/overflow:\s*["']hidden["']/);
   });
 });
+
+describe("prescription print final finishing", () => {
+  it("1. shows the missing-dose warning in Draft Review", () => {
+    const markup = medicineMarkup(item({ dose_text: null }), "draft");
+    expect(markup).toContain('data-rx-review-warning="missing-dose"');
+    expect(markup).toContain("Dose not specified");
+  });
+
+  it("2. omits the warning when an authoritative dose is present", () => {
+    expect(medicineMarkup(item({ dose_text: "1" }), "draft")).not.toContain(
+      "Dose not specified",
+    );
+  });
+
+  it("3. neither fabricates a missing tablet dose nor prints the Review warning", () => {
+    const row = item({ dose_text: null, dosage_form: "Tablet", schedule_text: "0+0+1" });
+    expect(formatPrescriptionMedicine(row).dose).toBeNull();
+    const finalized = medicineMarkup(row, "finalized");
+    expect(finalized).not.toContain("1 tablet");
+    expect(finalized).not.toContain("Dose not specified");
+  });
+
+  it("4. never mutates the source medicine while formatting a missing dose", () => {
+    const row = item({ dose_text: null, dosage_form: "Capsule" });
+    const before = structuredClone(row);
+    formatPrescriptionMedicine(row);
+    expect(row).toEqual(before);
+  });
+
+  it("5. renders the frozen BM&DC registration under doctor identity", () => {
+    const markup = renderToStaticMarkup(
+      React.createElement(PrescriptionHeader, { view: view(), u: PHYSICAL_UNITS }),
+    );
+    expect(markup).toContain('data-rx-bmdc="true"');
+    expect(markup).toContain("BM&amp;DC Reg: A-12345");
+  });
+
+  it("6. omits the BM&DC line and label when the frozen value is absent", () => {
+    const markup = renderToStaticMarkup(
+      React.createElement(PrescriptionHeader, {
+        view: view({ header: { ...view().header!, bmdc: null } }),
+        u: PHYSICAL_UNITS,
+      }),
+    );
+    expect(markup).not.toContain("BM&amp;DC Reg:");
+    expect(markup).not.toContain("data-rx-bmdc");
+  });
+
+  it("7. formats the persisted finalized timestamp in chamber-local time", () => {
+    const markup = renderToStaticMarkup(
+      React.createElement(PrescriptionFooter, {
+        view: view(),
+        u: PHYSICAL_UNITS,
+        documentState: FINALIZED,
+      }),
+    );
+    expect(markup).toContain("Digitally finalized: 27 Sep 2026, 10:25 AM");
+  });
+
+  it("8. makes no finalized claim for a draft", () => {
+    const markup = renderToStaticMarkup(
+      React.createElement(PrescriptionFooter, {
+        view: view(),
+        u: PHYSICAL_UNITS,
+        documentState: { kind: "draft" },
+      }),
+    );
+    expect(markup).not.toContain("Digitally finalized:");
+    expect(markup).not.toContain("Prescription ID:");
+  });
+
+  it("9. renders the authoritative prescription ID exactly once", () => {
+    const markup = renderToStaticMarkup(
+      React.createElement(PrescriptionFooter, {
+        view: view(),
+        u: PHYSICAL_UNITS,
+        documentState: FINALIZED,
+      }),
+    );
+    expect(markup.match(new RegExp(FINALIZED.prescriptionId, "g"))).toHaveLength(1);
+  });
+
+  it("10. adds the deterministic tablet quantity unit", () => {
+    expect(formatPrescriptionMedicine(item({ quantity_text: "10", dosage_form: "Tablet" })).quantity)
+      .toBe("Qty: 10 tablets");
+  });
+
+  it("11. adds the deterministic capsule quantity unit", () => {
+    expect(formatPrescriptionMedicine(item({ quantity_text: "14", dosage_form: "Capsule" })).quantity)
+      .toBe("Qty: 14 capsules");
+  });
+
+  it("12. keeps a number unitless when the form cannot determine a safe quantity unit", () => {
+    expect(formatPrescriptionMedicine(item({ quantity_text: "14", dosage_form: "Syrup" })).quantity)
+      .toBe("Qty: 14");
+    expect(formatPrescriptionMedicine(item({ quantity_text: "100 mL", dosage_form: "Syrup" })).quantity)
+      .toBe("Qty: 100 mL");
+  });
+
+  it("13. normalizes quantity-label spacing", () => {
+    expect(formatPrescriptionMedicine(item({ quantity_text: "Qty:14", dosage_form: null })).quantity)
+      .toBe("Qty: 14");
+  });
+
+  it("14. renders the revised follow-up footer sentence", () => {
+    const footer = "Please bring your prescription and all test report on your next visit.";
+    const markup = renderToStaticMarkup(
+      React.createElement(PrescriptionFooter, {
+        view: view({ showFooter: true, footerText: footer }),
+        u: PHYSICAL_UNITS,
+        documentState: { kind: "draft" },
+      }),
+    );
+    expect(markup).toContain(
+      "Please bring this prescription and all test reports to your next visit.",
+    );
+    expect(markup).not.toContain(footer);
+  });
+
+  it("15. keeps exact strength deduplication protected", () => {
+    const deduped = formatPrescriptionMedicine(
+      item({ display_name: "Alater 10 mg", strength_text: "10 mg" }),
+    );
+    expect(deduped.name).toBe("Alater 10 mg");
+    expect(deduped.strength).toBeNull();
+  });
+
+  it("16. keeps revised medicine and footer presentation consistent in Review and Print", () => {
+    const documentView = view({
+      lines: [formatPrescriptionMedicine(item({ quantity_text: "14", dosage_form: "Capsule" }))],
+      showFooter: true,
+      footerText: "Please bring your prescription and all test report on your next visit.",
+    });
+    const review = renderToStaticMarkup(
+      React.createElement(ReviewSheet, { view: documentView, documentState: FINALIZED }),
+    );
+    const print = renderToStaticMarkup(
+      React.createElement(PrintSheet, { view: documentView, documentState: FINALIZED }),
+    );
+    for (const text of [
+      "Qty: 14 capsules",
+      "Please bring this prescription and all test reports to your next visit.",
+      "Digitally finalized: 27 Sep 2026, 10:25 AM",
+      `Prescription ID: ${FINALIZED.prescriptionId}`,
+    ]) {
+      expect(review).toContain(text);
+      expect(print).toContain(text);
+    }
+  });
+
+  it("17. preserves A4 sizing and medicine/footer page-break protection", () => {
+    const print = renderToStaticMarkup(
+      React.createElement(PrintSheet, { view: view(), documentState: FINALIZED }),
+    );
+    const parts = readFileSync("src/features/prescriptions/components/prescription-parts.tsx", "utf8");
+    expect(print).toContain("@page { size: 210mm 297mm; margin: 15mm; }");
+    expect(print).toContain('data-paper="A4"');
+    expect(parts).toContain('pageBreakInside: "avoid"');
+    expect(parts).toContain('breakInside: "avoid"');
+  });
+});
