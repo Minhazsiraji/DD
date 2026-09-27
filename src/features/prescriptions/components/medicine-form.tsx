@@ -92,7 +92,9 @@ export function MedicineForm({
     return () => window.clearTimeout(timer);
   }, [query]);
 
-  const visibleVariants = query.trim().length < 2 ? [] : variantMatches;
+  const visibleVariants = query.trim().length >= 2 || variantMatches.length > 0
+    ? variantMatches
+    : [];
   const set = (key: keyof MedicineDraft, next: string | boolean) =>
     onChange({ ...value, [key]: next } as MedicineDraft);
 
@@ -172,7 +174,7 @@ export function MedicineForm({
     );
   };
 
-  const variantPanel = showVariants && query.trim().length >= 2 ? (
+  const variantPanel = (showVariants && query.trim().length >= 2) || visibleVariants.length > 0 ? (
     <div
       data-medicine-variant-panel
       className="mt-3 rounded-2xl border border-hairline bg-white/70 p-3 sm:p-4"

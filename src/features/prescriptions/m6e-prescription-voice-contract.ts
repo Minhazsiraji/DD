@@ -54,6 +54,14 @@ export interface M6EVoiceParseContext {
 
 export type M6EVoiceSessionControl = "PAUSE" | "RESUME" | "END";
 
+export function m6eMedicineVariantStatus(count: number): string {
+  return `${count} medicine variant${count === 1 ? "" : "s"} found. Say “Use medicine 1”, “Next variant”, or choose a variant below.`;
+}
+
+export function isM6EMedicineVariantStatus(value: string): boolean {
+  return /^\d+ medicine variants? found\./u.test(value);
+}
+
 const BN_DIGITS = "০১২৩৪৫৬৭৮৯";
 
 function clean(text: string) {

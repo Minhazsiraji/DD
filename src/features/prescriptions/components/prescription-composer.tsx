@@ -107,8 +107,7 @@ export function PrescriptionComposer({
           onStableTranscript={prescriptionVoice.handleStableTranscript}
           onVoiceSessionStart={prescriptionVoice.clearMedicineMatches}
           onVoiceSessionEnd={prescriptionVoice.clearMedicineMatches}
-          medicineMatches={prescriptionVoice.medicineMatches}
-          activeMedicineMatchIndex={prescriptionVoice.medicineMatchIndex}
+          medicineMatchCount={prescriptionVoice.medicineMatches.length}
           medicineLookupPending={prescriptionVoice.medicineLookupPending}
         />
       ) : null}

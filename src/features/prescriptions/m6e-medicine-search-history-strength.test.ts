@@ -7,7 +7,10 @@ import {
   hasExactTrailingStrength,
   medicineDisplayWithStrength,
 } from "./medicine-display";
-import { parseM6EPrescriptionVoice } from "./m6e-prescription-voice-contract";
+import {
+  m6eMedicineVariantStatus,
+  parseM6EPrescriptionVoice,
+} from "./m6e-prescription-voice-contract";
 
 const root = process.cwd();
 const read = (path: string) => readFileSync(resolve(root, path), "utf8");
@@ -112,13 +115,74 @@ describe("M6E exact strength canonicalization", () => {
 });
 
 describe("M6E result lifecycle and signed-history contracts", () => {
-  it("uses one lifted result list for inline, voice, mouse, and voice selection", () => {
+  it("uses one lifted result list for inline, mouse, and voice selection", () => {
     const composer = read("src/features/prescriptions/components/prescription-composer.tsx");
     const form = read("src/features/prescriptions/components/medicine-form.tsx");
     const panel = read("src/features/prescriptions/components/m6e-prescription-voice-panel.tsx");
     expect(composer.match(/prescriptionVoice\.medicineMatches/gu)).toHaveLength(3);
     expect(form).not.toContain("useState<MedicineVariantMatch");
     expect(panel).not.toContain("setMedicineMatches");
+  });
+
+  it("renders the authoritative detailed numbered cards exactly once in the editor", () => {
+    const form = read("src/features/prescriptions/components/medicine-form.tsx");
+    const panel = read("src/features/prescriptions/components/m6e-prescription-voice-panel.tsx");
+    expect(form.match(/Available medicine variants/gu)).toHaveLength(2);
+    expect(form.match(/visibleVariants\.map/gu)).toHaveLength(1);
+    expect(panel).not.toContain("Medicine matches");
+    expect(panel).not.toContain("medicineMatches.map");
+    expect(panel).not.toContain("data-m6e-medicine-matches");
+  });
+
+  it("keeps the sticky Voice result state compact and count-only", () => {
+    const composer = read("src/features/prescriptions/components/prescription-composer.tsx");
+    const panel = read("src/features/prescriptions/components/m6e-prescription-voice-panel.tsx");
+    expect(m6eMedicineVariantStatus(4)).toBe(
+      "4 medicine variants found. Say “Use medicine 1”, “Next variant”, or choose a variant below.",
+    );
+    expect(composer).toContain("medicineMatchCount={prescriptionVoice.medicineMatches.length}");
+    expect(panel).toContain("medicineMatchCount: number");
+    expect(panel).not.toContain("readonly { key: string; label: string");
+  });
+
+  it("opens a staged editor for a Voice search without changing the explicit save boundary", () => {
+    const controller = read("src/features/prescriptions/use-m6e-prescription-voice.ts");
+    const searchCase = controller.slice(
+      controller.indexOf('case "SEARCH_MEDICINE"'),
+      controller.indexOf('case "USE_MEDICINE_MATCH"'),
+    );
+    expect(searchCase).toContain("rx.openAdd()");
+    expect(searchCase).toContain("displayName: intent.query.trim()");
+    expect(searchCase).toContain("suppressNextInlineSearch.current");
+    expect(searchCase).toContain('field: "displayName"');
+    expect(searchCase).not.toMatch(/submit|addMedicineAction|updateMedicineAction/);
+  });
+
+  it("keeps Read variants as transient textual feedback, not a persistent second panel", () => {
+    const controller = read("src/features/prescriptions/use-m6e-prescription-voice.ts");
+    const panel = read("src/features/prescriptions/components/m6e-prescription-voice-panel.tsx");
+    expect(controller).toContain("function readMedicineMatches(): string");
+    expect(controller).toContain("matches.map((match, index) => `${index + 1}. ${match.label}`)");
+    expect(panel).not.toContain("medicineMatches.map");
+  });
+
+  it("clears compact count feedback with the authoritative result lifecycle", () => {
+    const panel = read("src/features/prescriptions/components/m6e-prescription-voice-panel.tsx");
+    const composer = read("src/features/prescriptions/components/prescription-composer.tsx");
+    expect(panel).toContain("medicineMatchCount > 0");
+    expect(panel).toContain("m6eMedicineVariantStatus(medicineMatchCount)");
+    expect(panel).not.toContain("previousMedicineMatchCount");
+    expect(composer).toContain("onVoiceSessionEnd={prescriptionVoice.clearMedicineMatches}");
+  });
+
+  it("keeps the compact sticky shell responsive without a detailed-list expansion", () => {
+    const panel = read("src/features/prescriptions/components/m6e-prescription-voice-panel.tsx");
+    const form = read("src/features/prescriptions/components/medicine-form.tsx");
+    expect(panel).toContain('className="sticky top-2 z-40 min-w-0"');
+    expect(panel).toContain("overflow-x-hidden");
+    expect(panel).toContain("sm:grid-cols-2");
+    expect(panel).not.toMatch(/<ol|medicineMatches\.map/);
+    expect(form).toContain("sm:grid-cols-2 xl:grid-cols-3");
   });
 
   it("invalidates selection authority by generation and query identity", () => {

@@ -10,7 +10,11 @@ import {
   VoiceLanguageControl,
 } from "@/features/dictation/voice-language";
 import { restoreM6EMixedContractTerms } from "../m6e-mixed-restoration";
-import { parseM6EVoiceSessionControl } from "../m6e-prescription-voice-contract";
+import {
+  isM6EMedicineVariantStatus,
+  m6eMedicineVariantStatus,
+  parseM6EVoiceSessionControl,
+} from "../m6e-prescription-voice-contract";
 
 const M6E_NORMALIZE_TIMEOUT_MS = 9_000;
 const M6E_SILENCE_FINALIZE_MS = 800;
@@ -186,8 +190,7 @@ export function M6EPrescriptionVoicePanel({
   onStableTranscript,
   onVoiceSessionStart,
   onVoiceSessionEnd,
-  medicineMatches,
-  activeMedicineMatchIndex,
+  medicineMatchCount,
   medicineLookupPending,
 }: {
   disabled: boolean;
@@ -198,8 +201,7 @@ export function M6EPrescriptionVoicePanel({
   onStableTranscript: (text: string) => Promise<string>;
   onVoiceSessionStart: () => void;
   onVoiceSessionEnd: () => void;
-  medicineMatches: readonly { key: string; label: string; source: "favorite" | "mine" | "catalogue" }[];
-  activeMedicineMatchIndex: number | null;
+  medicineMatchCount: number;
   medicineLookupPending: boolean;
 }) {
   const voiceLanguage = useVoiceLanguage();
@@ -277,7 +279,9 @@ export function M6EPrescriptionVoicePanel({
     }
 
     const result = await onStableTranscriptRef.current(stable);
-    setStatus(sessionEnded ? `Voice session ended. ${result}` : result);
+    if (!isM6EMedicineVariantStatus(result)) {
+      setStatus(sessionEnded ? `Voice session ended. ${result}` : result);
+    }
   }
 
   const dictation = useDictation({
@@ -448,26 +452,13 @@ export function M6EPrescriptionVoicePanel({
               <p className="rounded-xl bg-surface-muted px-3 py-2 text-[12px] text-ink-secondary">
                 Searching My Medicines and the medicine catalogue…
               </p>
-            ) : medicineMatches.length > 0 ? (
-              <div className="rounded-xl border border-hairline bg-white/55 px-3 py-2" data-m6e-medicine-matches>
-                <p className="text-[11px] font-semibold text-ink">Medicine matches</p>
-                <ol className="mt-1 space-y-1 text-[11px] text-ink-secondary">
-                  {medicineMatches.map((match, index) => (
-                    <li
-                      key={match.key}
-                      className="break-words"
-                      aria-current={activeMedicineMatchIndex === index ? "true" : undefined}
-                    >
-                      <strong className="font-semibold text-ink">{index + 1}.</strong>{" "}
-                      {match.label}{" "}
-                      <span className="text-ink-muted">
-                        ({match.source === "favorite" ? "Favorite" : match.source === "mine" ? "My Medicines" : "Catalogue"})
-                      </span>
-                    </li>
-                  ))}
-                </ol>
-                <p className="mt-1 text-[10px] text-ink-muted">Say “Use medicine 1” (or another result number) to load it into the staged form.</p>
-              </div>
+            ) : medicineMatchCount > 0 ? (
+              <p
+                className="min-w-0 break-words rounded-xl bg-surface-muted px-3 py-2 text-[12px] text-ink-secondary"
+                data-m6e-medicine-match-status
+              >
+                {m6eMedicineVariantStatus(medicineMatchCount)}
+              </p>
             ) : null}
 
             {dictation.error ? (

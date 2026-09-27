@@ -14,7 +14,11 @@ import {
   type M6EVoiceDestination,
   type M6EVoiceTargetOption,
 } from "./m6e-prescription-voice-targeting";
-import type { M6EMedicineLookupScope, M6EVoiceMedicineField } from "./m6e-prescription-voice-contract";
+import {
+  m6eMedicineVariantStatus,
+  type M6EMedicineLookupScope,
+  type M6EVoiceMedicineField,
+} from "./m6e-prescription-voice-contract";
 
 const FIELD_SET = new Set<string>(M6E_VOICE_FIELD_ORDER);
 
@@ -330,8 +334,7 @@ export function useM6EPrescriptionVoiceController({
       const matches = Array.isArray(body.matches) ? body.matches.slice(0, limit) : [];
       publishMedicineMatches(matches);
       if (matches.length === 0) return "No exact medicine match was found. Nothing changed.";
-      const summary = matches.map((match, index) => `${index + 1}. ${match.label}`).join("; ");
-      return `Found ${matches.length} medicine match${matches.length === 1 ? "" : "es"}: ${summary}. Say Use medicine 1, Use medicine 2, and so on.`;
+      return m6eMedicineVariantStatus(matches.length);
     } catch {
       if (medicineLookupGeneration.current === generation && !controller.signal.aborted) {
         publishMedicineMatches([]);
@@ -524,7 +527,15 @@ export function useM6EPrescriptionVoiceController({
             field: "displayName",
           });
         } else {
-          commitDestination({ kind: "MEDICINES", medicineIndex: null });
+          if (rx.blocked) return "Prescription editing is currently blocked. Nothing changed.";
+          rx.openAdd();
+          if (intent.query.trim()) {
+            suppressNextInlineSearch.current = intent.query.trim().length >= 2;
+            rx.setDraft({ ...emptyMedicine(), displayName: intent.query.trim() });
+          }
+          voiceUndo.current = null;
+          commitDestination({ kind: "MEDICINE_FIELD", medicineIndex: null, field: "displayName" });
+          focusMedicineField("displayName");
         }
         return await searchMedicineMatches(intent.scope, intent.query);
       case "USE_MEDICINE_MATCH":
