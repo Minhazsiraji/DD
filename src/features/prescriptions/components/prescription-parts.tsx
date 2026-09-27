@@ -1,6 +1,10 @@
 import * as React from "react";
 import { formatDate } from "@/lib/format";
 import type { DocumentChrome, ReviewLine, ReviewView } from "../review-view";
+import {
+  formatFinalizedTimestamp,
+  type PrescriptionDocumentState,
+} from "../prescription-document-state";
 
 /**
  * The prescription document, once — rendered in two unit systems.
@@ -90,7 +94,9 @@ export function PrescriptionHeader({
             <p style={{ fontSize: u.pt(view.baseFontPt * 0.85) }}>{h.credentials.join(", ")}</p>
           ) : null}
           {h.bmdc ? (
-            <p style={{ fontSize: u.pt(view.baseFontPt * 0.85) }}>BMDC Reg. {h.bmdc}</p>
+            <p data-rx-bmdc style={{ fontSize: u.pt(view.baseFontPt * 0.85) }}>
+              BM&amp;DC Reg: {h.bmdc}
+            </p>
           ) : null}
         </div>
 
@@ -168,13 +174,18 @@ export function MedicineLine({
   line,
   view,
   u,
+  documentState,
 }: {
   line: ReviewLine;
   view: DocumentChrome;
   u: Units;
+  documentState: PrescriptionDocumentState;
 }) {
-  const dosing = [line.dose, line.schedule, line.duration, line.foodRelation].filter(Boolean);
-  const supply = [line.administration, line.quantity].filter(Boolean);
+  const secondary = [line.subtitle, line.administration].filter(Boolean);
+  const regimen = [line.dose, line.schedule, line.scheduleInterpretation, line.duration].filter(
+    Boolean,
+  );
+  const supporting = [line.foodRelation, line.quantity].filter(Boolean);
 
   return (
     <li
@@ -182,16 +193,18 @@ export function MedicineLine({
       style={{ gap: u.mm(3), marginTop: u.mm(3.5), breakInside: "avoid", pageBreakInside: "avoid" }}
     >
       <span className="shrink-0 tabular-nums">{line.position}.</span>
-      <div className="min-w-0 flex-1">
-        <p className="font-semibold">
+      <div className="min-w-0 flex-1 break-words">
+        <p data-rx-medicine-primary className="font-semibold break-words">
           {line.name}
           {/* Strength sits beside the name, as it is written on a pad. */}
           {line.strength ? <span className="font-normal"> {line.strength}</span> : null}
           {line.isPrn ? <span className="font-normal italic"> (as needed)</span> : null}
         </p>
 
-        {line.subtitle ? (
-          <p style={{ fontSize: u.pt(view.baseFontPt * 0.85) }}>{line.subtitle}</p>
+        {secondary.length > 0 ? (
+          <p data-rx-medicine-secondary style={{ fontSize: u.pt(view.baseFontPt * 0.85) }}>
+            {secondary.join(" · ")}
+          </p>
         ) : null}
 
         {/*
@@ -199,10 +212,23 @@ export function MedicineLine({
           pharmacist reads them. Dose is NEVER merged into strength — "500 mg"
           is the product, "1 tablet" is the act.
         */}
-        {dosing.length > 0 ? <p>{dosing.join(" — ")}</p> : null}
+        {regimen.length > 0 ? <p data-rx-medicine-regimen>{regimen.join(" · ")}</p> : null}
 
-        {supply.length > 0 ? (
-          <p style={{ fontSize: u.pt(view.baseFontPt * 0.85) }}>{supply.join(" · ")}</p>
+        {documentState.kind === "draft" && !line.duration ? (
+          <p
+            data-print-hidden
+            data-rx-review-warning="missing-duration"
+            className="italic text-ink-muted"
+            style={{ fontSize: u.pt(view.baseFontPt * 0.76) }}
+          >
+            Duration not specified
+          </p>
+        ) : null}
+
+        {supporting.length > 0 ? (
+          <p data-rx-medicine-supporting style={{ fontSize: u.pt(view.baseFontPt * 0.85) }}>
+            {supporting.join(" · ")}
+          </p>
         ) : null}
 
         {/* Long Bangla instructions wrap. They are never clipped and never shrunk. */}
@@ -215,7 +241,15 @@ export function MedicineLine({
 }
 
 /** The medicines. The clinical body below is what absorbs a short page's slack. */
-export function MedicineList({ view, u }: { view: DocumentChrome; u: Units }) {
+export function MedicineList({
+  view,
+  u,
+  documentState,
+}: {
+  view: DocumentChrome;
+  u: Units;
+  documentState: PrescriptionDocumentState;
+}) {
   return (
     <section>
       <p className="font-serif italic" style={{ fontSize: u.pt(view.baseFontPt * 1.6) }}>
@@ -224,7 +258,13 @@ export function MedicineList({ view, u }: { view: DocumentChrome; u: Units }) {
 
       <ol style={{ marginTop: u.mm(2) }}>
         {view.lines.map((line) => (
-          <MedicineLine key={line.position} line={line} view={view} u={u} />
+          <MedicineLine
+            key={line.position}
+            line={line}
+            view={view}
+            u={u}
+            documentState={documentState}
+          />
         ))}
       </ol>
 
@@ -364,15 +404,18 @@ export function SignatureBlock({
 export function PrescriptionFooter({
   view,
   u,
+  documentState,
   platformAttribution = false,
 }: {
   view: DocumentChrome;
   u: Units;
+  documentState: PrescriptionDocumentState;
   /** V4-only product attribution. Legacy V3 leaves this false and is unchanged. */
   platformAttribution?: boolean;
 }) {
   const showDoctorFooter = view.showFooter && Boolean(view.footerText);
-  if (!showDoctorFooter && !platformAttribution) return null;
+  const showFinalization = documentState.kind === "finalized";
+  if (!showDoctorFooter && !platformAttribution && !showFinalization) return null;
 
   return (
     <footer
@@ -385,8 +428,27 @@ export function PrescriptionFooter({
       }}
     >
       {showDoctorFooter ? (
-        <div className="whitespace-pre-wrap" style={{ marginBottom: platformAttribution ? u.mm(3) : 0 }}>
+        <div
+          className="whitespace-pre-wrap"
+          style={{ marginBottom: platformAttribution || showFinalization ? u.mm(3) : 0 }}
+        >
           {view.footerText}
+        </div>
+      ) : null}
+
+      {showFinalization ? (
+        <div
+          data-rx-finalization-metadata
+          className="break-words"
+          style={{ marginBottom: platformAttribution ? u.mm(3) : 0, lineHeight: 1.45 }}
+        >
+          {documentState.finalizedAt ? (
+            <p>
+              Digitally finalized:{" "}
+              {formatFinalizedTimestamp(documentState.finalizedAt, documentState.timeZone)}
+            </p>
+          ) : null}
+          <p className="font-mono">Prescription ID: {documentState.prescriptionId}</p>
         </div>
       ) : null}
 

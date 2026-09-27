@@ -342,8 +342,8 @@ describe("toLine", () => {
     expect(toLine(item as never).subtitle).toBe("Paracetamol");
   });
 
-  it("keeps a brand the name does not mention", () => {
-    expect(toLine({ ...item, display_name: "Paracetamol 500" } as never).subtitle).toBe("Napa");
+  it("does not repeat a separate brand when the printable display identity is generic", () => {
+    expect(toLine({ ...item, display_name: "Paracetamol 500" } as never).subtitle).toBeNull();
   });
 
   it("drops the subtitle when it would say nothing new", () => {

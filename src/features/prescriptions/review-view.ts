@@ -1,23 +1,13 @@
 import { computeAge } from "@/features/patients/identity";
 import { formatAgeSex } from "@/lib/format";
 import type { BundleItem, ReviewBundle } from "./review-bundle";
-import { hasExactTrailingStrength } from "./medicine-display";
+import {
+  cleanPrescriptionText,
+  formatPrescriptionMedicine,
+  type PrescriptionMedicinePresentation,
+} from "./prescription-medicine-format";
 
-export interface ReviewLine {
-  position: number;
-  name: string;
-  subtitle: string | null;
-  strength: string | null;
-  dose: string | null;
-  administration: string | null;
-  schedule: string | null;
-  duration: string | null;
-  quantity: string | null;
-  foodRelation: string | null;
-  isPrn: boolean;
-  substitutionAllowed: boolean;
-  instructions: string | null;
-}
+export type ReviewLine = PrescriptionMedicinePresentation;
 
 export interface ReviewInvestigation {
   position: number;
@@ -74,8 +64,7 @@ export interface ReviewView extends DocumentChrome {
 }
 
 export function clean(value: string | null | undefined): string | null {
-  const trimmed = (value ?? "").trim();
-  return trimmed === "" ? null : trimmed;
+  return cleanPrescriptionText(value);
 }
 
 function join(parts: (string | null)[], separator: string): string | null {
@@ -84,30 +73,7 @@ function join(parts: (string | null)[], separator: string): string | null {
 }
 
 export function toLine(item: BundleItem): ReviewLine {
-  const name = item.display_name.trim();
-  const strength = clean(item.strength_text);
-  const lower = name.toLowerCase();
-  const brand = clean(item.brand_name);
-  const generic = clean(item.generic_name);
-  const extra = [brand, generic].filter(
-    (v): v is string => v !== null && !lower.includes(v.toLowerCase()),
-  );
-
-  return {
-    position: item.position,
-    name,
-    subtitle: extra.length === 0 ? null : extra.join(" · "),
-    strength: hasExactTrailingStrength(name, strength) ? null : strength,
-    dose: clean(item.dose_text),
-    administration: join([item.dosage_form, item.route], " · "),
-    schedule: clean(item.schedule_text),
-    duration: clean(item.duration_text),
-    quantity: clean(item.quantity_text),
-    foodRelation: clean(item.food_relation),
-    isPrn: item.is_prn,
-    substitutionAllowed: item.substitution_allowed,
-    instructions: clean(item.instructions),
-  };
+  return formatPrescriptionMedicine(item);
 }
 
 export function toDocumentChrome(bundle: ReviewBundle): DocumentChrome {

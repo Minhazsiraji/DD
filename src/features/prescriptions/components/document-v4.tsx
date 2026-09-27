@@ -9,16 +9,19 @@ import {
 } from "./prescription-parts";
 import { ClinicLogoHeader as PrescriptionHeader } from "./clinic-logo-header";
 import { SectionBlock } from "./section-parts";
+import type { PrescriptionDocumentState } from "../prescription-document-state";
 
 export function ModularDocument({
   view,
   u,
   signatureUrl,
+  documentState,
 }: {
   view: ModularView;
   u: Units;
   signatureUrl?: string | null;
   clinicLogoUrl?: string | null;
+  documentState: PrescriptionDocumentState;
 }) {
   const hasColumns = view.left.length > 0 || view.right.length > 0;
 
@@ -69,7 +72,7 @@ export function ModularDocument({
                 data-rx-column="right"
                 style={{ display: "table-cell", verticalAlign: "top", paddingLeft: u.mm(4) }}
               >
-                <MedicineList view={view} u={u} />
+                <MedicineList view={view} u={u} documentState={documentState} />
                 {view.right.map((section) => (
                   <SectionBlock key={section.module} section={section} view={view} u={u} />
                 ))}
@@ -77,12 +80,17 @@ export function ModularDocument({
             </div>
           </div>
         ) : (
-          <MedicineList view={view} u={u} />
+          <MedicineList view={view} u={u} documentState={documentState} />
         )}
       </div>
 
       <SignatureBlock view={view} u={u} signatureUrl={signatureUrl} />
-      <PrescriptionFooter view={view} u={u} platformAttribution />
+      <PrescriptionFooter
+        view={view}
+        u={u}
+        documentState={documentState}
+        platformAttribution
+      />
     </>
   );
 }

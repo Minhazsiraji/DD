@@ -9,6 +9,13 @@ import { PrintSheet } from "./print-sheet";
 import { ReviewSheet } from "./review-sheet";
 import { UnsupportedSnapshot } from "./unsupported-snapshot";
 
+const HARNESS_DOCUMENT_STATE = {
+  kind: "finalized" as const,
+  finalizedAt: "2026-08-26T12:00:00.000Z",
+  prescriptionId: "11111111-2222-4333-8444-555555555555",
+  timeZone: "Asia/Dhaka",
+};
+
 /**
  * THE PERMANENT PRINT HARNESS — development only.
  *
@@ -77,7 +84,7 @@ export function PrintHarness() {
             </div>
 
             {render.ok ?
-              <ReviewSheet view={render.view} />
+              <ReviewSheet view={render.view} documentState={HARNESS_DOCUMENT_STATE} />
             : <UnsupportedSnapshot found={render.found} />}
           </section>
         );
@@ -91,7 +98,7 @@ export function PrintHarness() {
       {mounted && activeRender?.ok ?
         createPortal(
           <div data-print-only aria-hidden="true">
-            <PrintSheet view={activeRender.view} />
+            <PrintSheet view={activeRender.view} documentState={HARNESS_DOCUMENT_STATE} />
           </div>,
           document.body,
         )

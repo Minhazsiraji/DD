@@ -42,7 +42,8 @@ describe("pilot Step 1 prescription corrections", () => {
   });
 
   it("adds the V4 platform footer with AgentSiraji attribution and Doctor's Diary identity", () => {
-    expect(v4).toContain("<PrescriptionFooter view={view} u={u} platformAttribution />");
+    expect(v4).toContain("documentState={documentState}");
+    expect(v4).toContain("platformAttribution");
     expect(parts).toContain('data-rx-platform-footer="doctors-diary"');
     expect(parts).toContain("Developed by: ©AgentSiraji");
     expect(parts).toContain("Contact: business@agentsiraji.com");
@@ -56,7 +57,9 @@ describe("pilot Step 1 prescription corrections", () => {
     expect(v3).not.toContain('data-rx-platform-footer="doctors-diary"');
     expect(v3).toContain("<PrescriptionHeader view={view} u={u} />");
     expect(v3).toContain("<SignatureBlock view={view} u={u} signatureUrl={signatureUrl} />");
-    expect(v3).toContain("<PrescriptionFooter view={view} u={u} />");
+    expect(v3).toContain(
+      "<PrescriptionFooter view={view} u={u} documentState={documentState} />",
+    );
   });
 
   it("freezes Fahrenheit only into newly built review bundles and recomputes the digest", () => {

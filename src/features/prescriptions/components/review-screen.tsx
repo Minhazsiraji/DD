@@ -342,7 +342,11 @@ export function ReviewScreen({
       </SectionCard>
 
       <div className={cn("transition-opacity", (busy || preparing) && "opacity-60")}>
-        <ReviewSheet view={doc} signatureUrl={visibleSignatureUrl} />
+        <ReviewSheet
+          view={doc}
+          signatureUrl={visibleSignatureUrl}
+          documentState={{ kind: "draft" }}
+        />
       </div>
 
       {/*

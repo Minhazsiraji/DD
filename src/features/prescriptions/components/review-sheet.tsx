@@ -4,16 +4,19 @@ import { PAPER_MM } from "@/features/doctor/schema";
 import type { PrescriptionView } from "../prescription-view";
 import { PrescriptionDocument } from "./prescription-document";
 import { proportionalUnits } from "./prescription-parts";
+import type { PrescriptionDocumentState } from "../prescription-document-state";
 
 export function ReviewSheet({
   view,
   signatureUrl,
   clinicLogoUrl,
+  documentState,
   className,
 }: {
   view: PrescriptionView;
   signatureUrl?: string | null;
   clinicLogoUrl?: string | null;
+  documentState: PrescriptionDocumentState;
   className?: string;
 }) {
   const paper = PAPER_MM[view.paperSize];
@@ -41,6 +44,7 @@ export function ReviewSheet({
           u={u}
           signatureUrl={signatureUrl}
           clinicLogoUrl={clinicLogoUrl}
+          documentState={documentState}
         />
       </div>
     </div>

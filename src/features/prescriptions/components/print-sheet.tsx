@@ -3,6 +3,7 @@ import { PAPER_MM } from "@/features/doctor/schema";
 import type { PrescriptionView } from "../prescription-view";
 import { PrescriptionDocument } from "./prescription-document";
 import { PHYSICAL_UNITS } from "./prescription-parts";
+import type { PrescriptionDocumentState } from "../prescription-document-state";
 
 /**
  * The prescription, on paper — across as many pages as it takes.
@@ -35,9 +36,11 @@ import { PHYSICAL_UNITS } from "./prescription-parts";
 export function PrintSheet({
   view,
   signatureUrl,
+  documentState,
 }: {
   view: PrescriptionView;
   signatureUrl?: string | null;
+  documentState: PrescriptionDocumentState;
 }) {
   const paper = PAPER_MM[view.paperSize];
   /** The page's content box, once the approved margin is taken off both sides. */
@@ -79,9 +82,13 @@ export function PrintSheet({
           } as React.CSSProperties
         }
       >
-        <PrescriptionDocument view={view} u={PHYSICAL_UNITS} signatureUrl={signatureUrl} />
+        <PrescriptionDocument
+          view={view}
+          u={PHYSICAL_UNITS}
+          signatureUrl={signatureUrl}
+          documentState={documentState}
+        />
       </div>
     </>
   );
 }
-

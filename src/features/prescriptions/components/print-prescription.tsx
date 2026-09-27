@@ -12,6 +12,7 @@ import {
 } from "../m3-actions";
 import type { PrescriptionView } from "../prescription-view";
 import { PrintSheet } from "./print-sheet";
+import type { PrescriptionDocumentState } from "../prescription-document-state";
 
 /**
  * Printing an approved prescription.
@@ -95,9 +96,11 @@ function actorLabel(entry: NonNullable<PrescriptionPrintHistory["latestInitiatio
 export function PrintPrescription({
   prescriptionId,
   view,
+  documentState,
 }: {
   prescriptionId: string;
   view: PrescriptionView;
+  documentState: PrescriptionDocumentState;
 }) {
   const needsSignature = view.signature.kind === "frozen";
   const [signatureUrl, setSignatureUrl] = React.useState<string | null>(null);
@@ -604,7 +607,11 @@ export function PrintPrescription({
       {mounted
         ? createPortal(
             <div data-print-only aria-hidden="true" ref={wrapperRef}>
-              <PrintSheet view={view} signatureUrl={signatureUrl} />
+              <PrintSheet
+                view={view}
+                signatureUrl={signatureUrl}
+                documentState={documentState}
+              />
             </div>,
             document.body,
           )

@@ -166,7 +166,7 @@ describe("O1-MD2 visual baseline guard", () => {
     expect(background).toContain("content: none !important");
     expect(background).toContain("filter: none !important");
     expect(gitBlobSha("src/features/prescriptions/components/print-sheet.tsx")).toBe(
-      "0b8afc336ff27faa0a33eaf22f6a8eac1b236c36",
+      "00cbedef903d740fc0be5c29ab7ace64bc3ac456",
     );
   });
 });

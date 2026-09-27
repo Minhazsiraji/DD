@@ -47,7 +47,9 @@ export function ClinicLogoHeader({
             <p style={{ fontSize: u.pt(view.baseFontPt * 0.85) }}>{h.credentials.join(", ")}</p>
           ) : null}
           {h.bmdc ? (
-            <p style={{ fontSize: u.pt(view.baseFontPt * 0.85) }}>BMDC Reg. {h.bmdc}</p>
+            <p data-rx-bmdc style={{ fontSize: u.pt(view.baseFontPt * 0.85) }}>
+              BM&amp;DC Reg: {h.bmdc}
+            </p>
           ) : null}
         </div>
 

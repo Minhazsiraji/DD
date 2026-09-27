@@ -331,6 +331,6 @@ describe("Investigation V1 reads, accessibility and responsive structure", () =>
 
   it("leaves the frozen Prescription/global print surfaces byte-identical", () => {
     expect(gitBlobSha("src/app/globals.css")).toBe("9e5d07175e729f142b4cff5574ded5af5a61bdbf");
-    expect(gitBlobSha("src/features/prescriptions/components/print-sheet.tsx")).toBe("0b8afc336ff27faa0a33eaf22f6a8eac1b236c36");
+    expect(gitBlobSha("src/features/prescriptions/components/print-sheet.tsx")).toBe("00cbedef903d740fc0be5c29ab7ace64bc3ac456");
   });
 });

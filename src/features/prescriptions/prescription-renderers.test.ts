@@ -41,7 +41,7 @@ async function code(file: string) {
  * than where it goes. Only the shared parts may.
  */
 const CLINICAL_READS = [
-  /\bline\.(name|strength|dose|schedule|duration|quantity|foodRelation|instructions|subtitle|administration|isPrn)\b/,
+  /\bline\.(name|strength|dose|schedule|scheduleInterpretation|duration|quantity|foodRelation|instructions|subtitle|administration|isPrn)\b/,
   // `h` is the destructured `view.header` inside the shared parts.
   /\b(view\.header|h)\.(doctorName|credentials|bmdc|clinicName|addressLine|phone|headerNote)\b/,
   /view\.patient\.(fullName|ageSex|patientNumber)\b/,
@@ -86,6 +86,7 @@ describe("only the shared parts read clinical fields", () => {
       "line.strength",
       "line.dose",
       "line.schedule",
+      "line.scheduleInterpretation",
       "line.duration",
       "line.quantity",
       "line.foodRelation",
@@ -755,9 +756,10 @@ describe("the printed page carries the prescription and nothing else", () => {
     expect(finalized).toMatch(/data-print-hidden[\s\S]{0,120}\{digest\}/);
   });
 
-  it("never renders an internal id or a signed URL inside the sheet", async () => {
+  it("renders only the required stable prescription id, never a digest or signed URL", async () => {
     const parts = await code("prescription-parts.tsx");
-    expect(parts).not.toMatch(/prescriptionId|\bdigest\b|signedUrl/);
+    expect(parts).toMatch(/Prescription ID: \{documentState\.prescriptionId\}/);
+    expect(parts).not.toMatch(/\bdigest\b|signedUrl/);
     /**
      * The signature URL may be passed as a prop and set as an `<img src>` —
      * that is delivery. What it must never be is a TEXT CHILD, which would put

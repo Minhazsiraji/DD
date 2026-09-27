@@ -19,6 +19,7 @@ export function FinalizedPrescription({
   encounterId,
   viewerIsOwner,
   finalizedAt,
+  timeZone,
   correctionUiEligible,
   digest,
   bundle,
@@ -30,6 +31,7 @@ export function FinalizedPrescription({
   encounterId: string;
   viewerIsOwner: boolean;
   finalizedAt: string | null;
+  timeZone: string;
   /** Presentation policy only; authoritative correction enforcement belongs to MD. */
   correctionUiEligible: boolean;
   digest: string;
@@ -65,6 +67,12 @@ export function FinalizedPrescription({
     );
   }
   const doc = render.view;
+  const documentState = {
+    kind: "finalized" as const,
+    finalizedAt,
+    prescriptionId,
+    timeZone,
+  };
   const backHref = returnTo ?? (viewerIsOwner ? `/consultation/${encounterId}` : "/queue");
   const backLabel = returnTo
     ? "Return to current consultation"
@@ -135,7 +143,11 @@ export function FinalizedPrescription({
           flex item that squeezes the operational print history.
         */}
         <div data-finalized-rx-actions className="flex min-w-0 flex-col items-stretch gap-3">
-          <PrintPrescription prescriptionId={prescriptionId} view={doc} />
+          <PrintPrescription
+            prescriptionId={prescriptionId}
+            view={doc}
+            documentState={documentState}
+          />
           {showCorrectionAction ? (
             <div data-print-hidden className="flex min-w-0 flex-wrap items-center gap-2">
               <WriteCorrection prescriptionId={prescriptionId} />
@@ -148,6 +160,7 @@ export function FinalizedPrescription({
         className="mt-5"
         view={doc}
         signatureUrl={frozen ? signatureUrl : null}
+        documentState={documentState}
       />
 
       {viewerIsOwner ? (

@@ -10,6 +10,7 @@ import {
   SignatureBlock,
   type Units,
 } from "./prescription-parts";
+import type { PrescriptionDocumentState } from "../prescription-document-state";
 
 /**
  * THE V3 DOCUMENT — AND IT IS FROZEN.
@@ -37,10 +38,12 @@ export function LinearDocument({
   view,
   u,
   signatureUrl,
+  documentState,
 }: {
   view: ReviewView;
   u: Units;
   signatureUrl?: string | null;
+  documentState: PrescriptionDocumentState;
 }) {
   return (
     <>
@@ -63,13 +66,13 @@ export function LinearDocument({
         not belong to.
       */}
       <div className="flex flex-1 flex-col">
-        <MedicineList view={view} u={u} />
+        <MedicineList view={view} u={u} documentState={documentState} />
         <InvestigationList view={view} u={u} />
         <AdviceBlock view={view} u={u} />
       </div>
 
       <SignatureBlock view={view} u={u} signatureUrl={signatureUrl} />
-      <PrescriptionFooter view={view} u={u} />
+      <PrescriptionFooter view={view} u={u} documentState={documentState} />
     </>
   );
 }

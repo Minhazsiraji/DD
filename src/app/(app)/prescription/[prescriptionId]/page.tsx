@@ -60,6 +60,7 @@ export default async function PrescriptionPage({
           encounterId={finalized.finalized.encounterId}
           viewerIsOwner={finalized.finalized.viewerIsOwner}
           finalizedAt={finalized.finalized.finalizedAt}
+          timeZone={ctx.timeZone ?? "UTC"}
           correctionUiEligible={correctionUiEligible}
           digest={finalized.finalized.digest}
           bundle={finalized.finalized.bundle}
