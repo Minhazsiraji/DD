@@ -5,6 +5,7 @@ describe("M6D local command router", () => {
   it("keeps the supported clinical-note target order stable", () => {
     expect(M6D_TARGETS).toEqual([
       "chiefComplaints",
+      "symptoms",
       "presentIllness",
       "pastHistory",
       "examination",
@@ -93,7 +94,7 @@ describe("M6D local command router", () => {
     expect(parseM6DLocalCommand("Previous section").type).toBe("PREVIOUS");
     expect(nextM6DTarget("presentIllness", 1)).toBe("pastHistory");
     expect(nextM6DTarget("pastHistory", 1)).toBe("examination");
-    expect(nextM6DTarget("presentIllness", -1)).toBe("chiefComplaints");
+    expect(nextM6DTarget("presentIllness", -1)).toBe("symptoms");
   });
 
   it("supports draft-only editing commands", () => {

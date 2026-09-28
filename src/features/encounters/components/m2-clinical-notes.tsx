@@ -16,6 +16,7 @@ import {
 
 const VOICE_SECTION_KEYS = new Set<SectionKey>([
   "chiefComplaints",
+  "symptoms",
   "presentIllness",
   "pastHistory",
   "examination",

@@ -44,7 +44,7 @@ export function M2VitalFields({
   );
 
   return (
-    <SectionCard className="overflow-hidden">
+    <SectionCard className="overflow-hidden" data-m6f-vitals>
       <SectionHeader
         title="Vitals"
         icon={<Activity className="size-4" />}
@@ -99,7 +99,7 @@ export function M2VitalFields({
           )}
         </div>
 
-        <details className="dd-material-record dd-record-pearl rounded-2xl" open={moreOpen || undefined}>
+        <details data-m6f-more-vitals className="dd-material-record dd-record-pearl rounded-2xl" open={moreOpen || undefined}>
           <summary className="flex min-h-11 cursor-pointer items-center gap-2 px-3 text-[13px] font-semibold text-ink focus-visible:focus-ring">
             <ChevronDown className="size-4 text-ink-muted" aria-hidden="true" />
             More vitals

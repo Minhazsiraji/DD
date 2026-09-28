@@ -51,6 +51,9 @@ export const M6D_SECTION_ALIASES = {
   chiefComplaints: [
     "chief complaint", "chief complaints", "complaint", "complaints", "cheap complaint", "cheap complaints", "প্রধান অভিযোগ", "মূল অভিযোগ", "অভিযোগ", "chief complaint e jao",
   ],
+  symptoms: [
+    "symptom", "symptoms", "উপসর্গ", "লক্ষণ", "symptom e jao", "symptoms e jao", "উপসর্গে যাও",
+  ],
   presentIllness: [
     "history", "present illness", "history of present illness", "hpi", "হিস্ট্রি", "ইতিহাস", "বর্তমান অসুস্থতার ইতিহাস", "বর্তমান রোগের ইতিহাস", "history e jao", "হিস্ট্রিতে যাও",
   ],

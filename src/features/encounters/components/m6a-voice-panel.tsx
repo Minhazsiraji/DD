@@ -11,12 +11,15 @@ import { BP_SPLIT_COMPLETION_GRACE_MS, guidedVoiceFinalizationDelay, reduceBlood
 import { useDictation } from "@/features/dictation/use-dictation";
 import { LIVE_VOICE_ENABLED, useVoiceLanguage, VoiceLanguageControl } from "@/features/dictation/voice-language";
 import { isM6DCommandLikeUtterance, isM6DDiagnosisIntent, isM6DInvestigationIntent, isM6DNavigationIntent, m6dNavigationCommandKey, parseM6DAppendText, parseM6DLocalCommand, type M6DDiagnosisIntent, type M6DInvestigationIntent, type M6DLocalIntent, type M6DNavigationIntent, type M6DTarget } from "@/features/dictation/m6d-intent-router";
-import { applyM6DTextEdit, INITIAL_M6D_VOICE_STATE, M6D_VOICE_SECTION_OPTIONS, m6dCommandPriority, m6dVoiceDestinationForIntent, m6dVoiceDestinationForSection, m6dVoiceFocusSelector, m6dVoiceSection, type M6DPendingNavigation, type M6DVoiceDestination, type M6DVoiceSection, type M6DVoiceState } from "@/features/dictation/m6d-voice-state";
+import { applyM6DTextEdit, INITIAL_M6D_VOICE_STATE, m6dCommandPriority, m6dVoiceDestinationForIntent, m6dVoiceFocusSelector, m6dVoiceSection, type M6DPendingNavigation, type M6DVoiceDestination, type M6DVoiceSection, type M6DVoiceState } from "@/features/dictation/m6d-voice-state";
 import { parseM6BCommand, type M6BIntent } from "@/features/dictation/m6b-command-parser";
+import { M6F_CONSULTATION_TARGETS, parseM6FConsultationCommand, type M6FConsultationTarget } from "@/features/dictation/m6f-consultation-controls";
+import { parseM6FInvestigationCommand, type M6FInvestigationTarget } from "@/features/dictation/m6f-investigation-controls";
 import { SectionCard } from "@/components/common/section-card";
 
 const LABELS: Record<M6DTarget, string> = {
   chiefComplaints: "Chief complaint",
+  symptoms: "Symptoms",
   presentIllness: "History",
   pastHistory: "Past history",
   examination: "Examination",
@@ -29,6 +32,10 @@ const M6D_CLINICAL_EVENT = "dd:m6d-clinical-command";
 const SILENCE_FINALIZE_MS = 800;
 const FAST_NAVIGATION_STABLE_MS = 80;
 const VOICE_RESTART_DELAY_MS = 100;
+const NOTE_TARGETS = new Set<M6DTarget>(["chiefComplaints", "symptoms", "presentIllness", "pastHistory", "examination", "assessment", "advice", "nextVisitNote"]);
+const M6F_TARGET_OPTIONS = M6F_CONSULTATION_TARGETS.filter(
+  (entry, index, entries) => entries.findIndex((candidate) => candidate.target === entry.target) === index,
+);
 
 type LastVoiceChange =
   | { kind: "note"; target: M6DTarget; before: string; after: string }
@@ -88,6 +95,7 @@ export function M6AVoicePanel({
   onAppendInvestigation,
   onEditInvestigation,
   onSetFollowUpDate,
+  onOpenPrescription,
 }: {
   values: DraftValues;
   diagnosisDraft: FindingDraft | null;
@@ -99,9 +107,11 @@ export function M6AVoicePanel({
   onAppendInvestigation: (text: string) => { before: string; after: string } | null;
   onEditInvestigation: (intent: M6DLocalIntent, undo: { before: string; after: string } | null) => { handled: boolean; mutation: { before: string; after: string } | null; message: string };
   onSetFollowUpDate: (amount: number, unit: "days" | "months") => boolean;
+  onOpenPrescription: () => void;
 }) {
   const voiceLanguage = useVoiceLanguage();
   const [voiceState, setVoiceState] = React.useState<M6DVoiceState>(INITIAL_M6D_VOICE_STATE);
+  const [activeTarget, setActiveTarget] = React.useState<M6FConsultationTarget>("chiefComplaints");
   const [mode, setMode] = React.useState<"guided" | "ambient">("guided");
   const [preview, setPreview] = React.useState("");
   const [status, setStatus] = React.useState("Ready. Start Voice once, then speak naturally or use short commands.");
@@ -125,7 +135,6 @@ export function M6AVoicePanel({
 
   const sessionActive = voiceState.session !== "idle";
   const paused = voiceState.session === "paused";
-  const currentSection = m6dVoiceSection(voiceState.destination);
   React.useEffect(() => { valuesRef.current = values; }, [values]);
   React.useEffect(() => () => {
     if (silenceTimer.current) clearTimeout(silenceTimer.current);
@@ -306,15 +315,137 @@ export function M6AVoicePanel({
   }
 
   function navigate(next: M6DTarget) {
+    setActiveTarget(next);
     const destination: M6DVoiceDestination = { kind: "note", target: next };
     setDestination(destination, `Current target: ${LABELS[next]}.`);
     focusDestination(destination);
+  }
+
+  function focusM6FTarget(target: M6FConsultationTarget) {
+    setActiveTarget(target);
+    if (NOTE_TARGETS.has(target as M6DTarget)) return navigate(target as M6DTarget);
+    if (target === "diagnoses" || target === "diagnosisTitle") return applyDiagnosisIntent({ type: "DIAGNOSIS_TARGET", target: "title" });
+    if (target === "diagnosisCertainty") return applyDiagnosisIntent({ type: "DIAGNOSIS_TARGET", target: "certainty" });
+    if (target === "diagnosisNote") return applyDiagnosisIntent({ type: "DIAGNOSIS_TARGET", target: "note" });
+    if (["investigations", "investigationSearch", "stagedInvestigations", "stagedInvestigationTitle", "stagedInvestigationNote", "confirmedInvestigationTitle", "confirmedInvestigationNote"].includes(target)) {
+      return applyInvestigationIntent({ type: "INVESTIGATION_TARGET", target: "field" });
+    }
+    if (target === "prescription") return onOpenPrescription();
+    const selectors: Partial<Record<M6FConsultationTarget, string>> = {
+      vitals: "[data-m6f-vitals]", moreVitals: "[data-m6f-more-vitals]", bloodPressure: "#vitalSystolic",
+      vitalTemperatureC: "#vitalTemperatureC-fahrenheit", nextVisitOn: "#nextVisitOn",
+      confirmInvestigations: "[data-m6f-confirm-investigations]",
+    };
+    const selector = selectors[target] ?? (target.startsWith("vital") ? `#${target}` : null);
+    const element = selector ? document.querySelector(selector) : null;
+    const details = element?.closest("details");
+    if (details instanceof HTMLDetailsElement) details.open = true;
+    element?.closest("[data-m6d-section], [data-m6f-vitals]")?.scrollIntoView({ behavior: "instant", block: "start" });
+    if (element instanceof HTMLElement) element.focus({ preventScroll: true });
+    setStatus(`Current target: ${target}.`);
+  }
+
+  function applyM6FConsultation(text: string): boolean {
+    const investigation = parseM6FInvestigationCommand(text);
+    if (investigation.type !== "NONE") {
+      if (investigation.type === "PROTECTED_CONFIRM") {
+        focusM6FTarget("confirmInvestigations");
+        setStatus("Investigation confirmation remains an explicit visible action. Nothing was confirmed by voice.");
+        return true;
+      }
+      if (investigation.type === "SET_SEARCH") {
+        onFocusInvestigation();
+        onEditInvestigation({ type: "NOTE_EDIT", operation: "CLEAR" }, null);
+        onAppendInvestigation(investigation.value);
+        setStatus("Investigation search draft updated. Nothing was staged or confirmed.");
+        return true;
+      }
+      if (investigation.type === "READ") {
+        setStatus("Staged investigations are visible for review. Voice did not confirm them.");
+        return true;
+      }
+      focusM6FInvestigationTarget(investigation.target, investigation.index);
+      return true;
+    }
+    const intent = parseM6FConsultationCommand(text);
+    if (intent.type === "NONE") return false;
+    if (intent.type === "OPEN_PRESCRIPTION") {
+      onOpenPrescription();
+      setStatus("Opening the editable prescription draft. Nothing was added or finalized.");
+      return true;
+    }
+    if (intent.type === "PROTECTED_CONFIRM_INVESTIGATIONS") {
+      focusM6FTarget("confirmInvestigations");
+      setStatus("Investigation confirmation remains an explicit visible action. Nothing was confirmed by voice.");
+      return true;
+    }
+    if (intent.type === "SET_BP") {
+      onChange("vitalSystolic", intent.systolic);
+      onChange("vitalDiastolic", intent.diastolic);
+      focusM6FTarget("bloodPressure");
+      setStatus(`Blood pressure draft updated to ${intent.systolic}/${intent.diastolic} mmHg.`);
+      return true;
+    }
+    if (intent.type === "SET_FOLLOW_UP") {
+      const applied = onSetFollowUpDate(intent.amount, intent.unit);
+      if (applied) focusM6FTarget("nextVisitOn");
+      setStatus(applied ? "Follow-up date updated in the editable draft using the chamber calendar." : "Follow-up date could not be calculated. Nothing changed.");
+      return true;
+    }
+    if (intent.type === "SET_DRAFT") {
+      onChange(intent.target, intent.value);
+      focusM6FTarget(intent.target);
+      setStatus("Editable consultation draft updated. Existing autosave and validation protections remain active.");
+      return true;
+    }
+    if (intent.type === "CLEAR_DRAFT") {
+      onChange(intent.target, "");
+      focusM6FTarget(intent.target);
+      setStatus("Editable consultation field cleared.");
+      return true;
+    }
+    if (intent.type === "TARGET") {
+      focusM6FTarget(intent.target);
+      return true;
+    }
+    if (intent.type === "READ_TARGET") {
+      if (intent.target in valuesRef.current) {
+        const current = valuesRef.current[intent.target as DraftKey] ?? "";
+        setStatus(current ? `${intent.target}: ${current}` : `${intent.target} is empty.`);
+      } else setStatus(`${intent.target} is ready.`);
+      return true;
+    }
+    return false;
+  }
+
+  function focusM6FInvestigationTarget(target: M6FInvestigationTarget, index: number | null) {
+    if (target === "section" || target === "search") return applyInvestigationIntent({ type: "INVESTIGATION_TARGET", target: "field" });
+    const voiceTarget: Partial<Record<M6FInvestigationTarget, M6FConsultationTarget>> = {
+      stagedList: "stagedInvestigations", stagedTitle: "stagedInvestigationTitle", stagedNote: "stagedInvestigationNote",
+      confirmedTitle: "confirmedInvestigationTitle", confirmedNote: "confirmedInvestigationNote", confirm: "confirmInvestigations",
+    };
+    if (voiceTarget[target]) setActiveTarget(voiceTarget[target]!);
+    const selectors: Record<Exclude<M6FInvestigationTarget, "section" | "search">, string> = {
+      stagedList: "#investigation-staged-heading",
+      stagedTitle: '[id^="staged-investigation-"]', stagedNote: '[id^="staged-note-"]',
+      confirmedTitle: '[id^="confirmed-investigation-title-"]', confirmedNote: '[id^="confirmed-investigation-note-"]',
+      confirm: "[data-m6f-confirm-investigations]",
+    };
+    const elements = document.querySelectorAll(selectors[target]);
+    const element = elements[Math.max(0, (index ?? 1) - 1)] ?? elements[0];
+    element?.scrollIntoView({ behavior: "instant", block: "center" });
+    if (element instanceof HTMLElement) element.focus({ preventScroll: true });
+    setStatus(`Investigation ${target} focused. Existing stage/confirm/save boundaries remain active.`);
   }
 
   function applyDiagnosisIntent(intent: M6DDiagnosisIntent) {
     if (intent.type === "DIAGNOSIS_NAVIGATE") {
       return applyDiagnosisIntent({ type: "DIAGNOSIS_TARGET", target: "title" });
     }
+
+    setActiveTarget(intent.type === "DIAGNOSIS_TARGET"
+      ? intent.target === "title" ? "diagnosisTitle" : intent.target === "certainty" ? "diagnosisCertainty" : "diagnosisNote"
+      : "diagnosisCertainty");
 
     const destination = m6dVoiceDestinationForIntent(voiceStateRef.current.destination, intent);
     if (destination) setDestination(destination);
@@ -426,6 +557,7 @@ export function M6AVoicePanel({
 
   function applyInvestigationIntent(intent: M6DInvestigationIntent) {
     void intent;
+    setActiveTarget("investigationSearch");
     setDestination({ kind: "investigation", target: "field" });
     onFocusInvestigation();
     setStatus("Investigation search field focused. Ordinary speech may edit the search; staging still requires an explicit action.");
@@ -539,6 +671,10 @@ export function M6AVoicePanel({
     if (mode === "ambient") {
       setAmbientDraft((current) => [current.trim(), text.trim()].filter(Boolean).join(" "));
       setStatus("Ambient speech prepared for review. No diagnosis, prescription or finalized record was changed.");
+      if (restart) scheduleRestart();
+      return;
+    }
+    if (applyM6FConsultation(text)) {
       if (restart) scheduleRestart();
       return;
     }
@@ -735,12 +871,7 @@ export function M6AVoicePanel({
             <VoiceLanguageControl disabled={disabled || providerBusy} />
             <select aria-label="Voice mode" value={mode} disabled={providerBusy} onChange={(e) => setMode(e.target.value as "guided" | "ambient")} className="min-h-11 rounded-xl border border-hairline bg-white px-3 text-[12px] font-semibold text-ink"><option value="guided">Guided Voice</option><option value="ambient">Ambient Consultation</option></select>
           </div>
-          <select aria-label="Current voice target" value={currentSection} disabled={disabled || providerBusy || mode === "ambient"} onChange={(e) => {
-            const destination = m6dVoiceDestinationForSection(e.target.value as M6DVoiceSection);
-            if (destination.kind === "note") navigate(destination.target);
-            else if (destination.kind === "diagnosis") applyDiagnosisIntent({ type: "DIAGNOSIS_TARGET", target: "title" });
-            else applyInvestigationIntent({ type: "INVESTIGATION_TARGET", target: "field" });
-          }} className="min-h-11 min-w-0 max-w-full rounded-xl border border-hairline bg-white px-3 text-[12px] font-semibold text-ink">{M6D_VOICE_SECTION_OPTIONS.map((key) => <option key={key} value={key}>{SECTION_LABELS[key]}</option>)}</select>
+          <select aria-label="Current voice target" value={activeTarget} disabled={disabled || providerBusy || mode === "ambient"} onChange={(e) => focusM6FTarget(e.target.value as M6FConsultationTarget)} className="min-h-11 min-w-0 max-w-full rounded-xl border border-hairline bg-white px-3 text-[12px] font-semibold text-ink">{M6F_TARGET_OPTIONS.map((entry) => <option key={entry.target} value={entry.target}>{entry.label}</option>)}</select>
           {!sessionActive ? <button type="button" onClick={startSession} disabled={disabled || !dictation.supported} className="inline-flex min-h-11 items-center gap-1.5 rounded-xl bg-brand px-3 text-[12px] font-semibold text-white disabled:opacity-50"><Play className="size-4" />Start Voice</button> : paused ? <button type="button" onClick={() => resumeSession()} disabled={disabled} className="inline-flex min-h-11 items-center gap-1.5 rounded-xl bg-brand px-3 text-[12px] font-semibold text-white disabled:opacity-50"><Play className="size-4" />Resume</button> : <button type="button" onClick={() => pauseSession()} className="inline-flex min-h-11 items-center gap-1.5 rounded-xl border border-hairline bg-white px-3 text-[12px] font-semibold text-ink"><Pause className="size-4" />Pause</button>}
           {sessionActive ? <button type="button" onClick={endSession} className="inline-flex min-h-11 items-center gap-1.5 rounded-xl border border-hairline bg-white px-3 text-[12px] font-semibold text-ink"><Square className="size-3.5 fill-current" />End</button> : null}
           <button type="button" onClick={() => applyLocal({ type: "UNDO" })} disabled={!lastChange} className="inline-flex min-h-11 items-center gap-1.5 rounded-xl border border-hairline bg-white px-3 text-[12px] font-semibold text-ink disabled:opacity-45"><Undo2 className="size-4" />Undo</button>

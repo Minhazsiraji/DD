@@ -3,6 +3,7 @@ import { parseBengaliClinicalNumber } from "./bengali-clinical-number";
 
 export type M6DTarget =
   | "chiefComplaints"
+  | "symptoms"
   | "presentIllness"
   | "pastHistory"
   | "examination"
@@ -11,7 +12,7 @@ export type M6DTarget =
   | "nextVisitNote";
 
 export const M6D_TARGETS: readonly M6DTarget[] = [
-  "chiefComplaints", "presentIllness", "pastHistory", "examination", "assessment", "advice", "nextVisitNote",
+  "chiefComplaints", "symptoms", "presentIllness", "pastHistory", "examination", "assessment", "advice", "nextVisitNote",
 ];
 
 export type M6DNavigationIntent =
@@ -180,7 +181,8 @@ function parseFollowUpDate(raw: string, activeTarget?: M6DTarget): M6DLocalInten
 
   if (activeTarget !== "nextVisitNote") return null;
   const contextual = raw.toLocaleLowerCase("en-US");
-  if (["tomorrow", "আগামীকাল", "kal"].includes(contextual)) return { type: "FOLLOW_UP_DATE", amount: 1, unit: "days" };
+  if (["tomorrow", "আগামীকাল", "কাল", "kal", "agamikal"].includes(contextual)) return { type: "FOLLOW_UP_DATE", amount: 1, unit: "days" };
+  if (["day after tomorrow", "পরশু", "porshu"].includes(contextual)) return { type: "FOLLOW_UP_DATE", amount: 2, unit: "days" };
 
   const mixedInterval = contextual.match(/^(.+?)\s+(দিন|day|days|সপ্তাহ|week|weeks|মাস|month|months)\s+(?:পরে|পর|pore|por)$/iu);
   if (mixedInterval) {

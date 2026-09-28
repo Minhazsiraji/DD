@@ -805,6 +805,7 @@ export const InvestigationPanel = React.forwardRef<InvestigationPanelHandle, Inv
 
             <button
               type="button"
+              data-m6f-confirm-investigations
               onClick={() => void confirmStaged()}
               disabled={!canConfirm}
               className="dd-primary mt-3 inline-flex min-h-11 w-full items-center justify-center gap-1.5 px-4 text-[13px] font-semibold disabled:cursor-not-allowed disabled:opacity-55 focus-visible:focus-ring sm:w-auto"

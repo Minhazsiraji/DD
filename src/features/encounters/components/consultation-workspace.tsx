@@ -322,6 +322,7 @@ export function ConsultationWorkspace({
               onAppendInvestigation={(text) => investigationPanelRef.current?.appendVoiceText(text) ?? null}
               onEditInvestigation={(intent, undo) => investigationPanelRef.current?.editVoiceField(intent, undo) ?? { handled: false, mutation: null, message: "" }}
               onSetFollowUpDate={applyM6DRelativeFollowUp}
+              onOpenPrescription={() => { void openRx(false); }}
             />
           )}
 

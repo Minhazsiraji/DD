@@ -93,10 +93,16 @@ function exact(value: string, options: readonly string[]) {
 }
 
 function fieldFromTargetCommand(value: string): M6EVoiceMedicineField | null {
+  if (/^(?:মেডিসিন|ওষুধ)(?:ের)?\s+নামের\s+ঘরে\s+(?:যাও|যান)$/iu.test(value)) return "displayName";
+  const compactTarget = value
+    .replace(/^(?:go to|open|target|focus|যাও|খোলো|ফোকাস)\s+/iu, "")
+    .replace(/(?:\s+name)?\s*(?:field|ঘর|নামের ঘর)?(?:ে|ের)?\s+(?:e\s+)?(?:jao|jan|যাও|যান|kholo|খোলো)$/iu, "")
+    .trim();
   for (const field of M6E_VOICE_FIELD_ORDER) {
     for (const alias of M6E_FIELD_ALIASES[field]) {
       if (
         value === alias ||
+        compactTarget === alias ||
         value === `go to ${alias}` ||
         value === `open ${alias}` ||
         value === `target ${alias}` ||

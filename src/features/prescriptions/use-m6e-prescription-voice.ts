@@ -612,6 +612,16 @@ export function useM6EPrescriptionVoiceController({
         targetMedicineField(intent.field);
         return `${M6E_VOICE_FIELD_LABELS[intent.field]} updated in the staged medicine form. Review it before saving.`;
       }
+      case "SET_PRN": {
+        if (!rx.editor || rx.blocked) return "No editable medicine form is available. Nothing changed.";
+        stageVoiceDraft({ ...rx.draft, isPrn: intent.value });
+        return `PRN ${intent.value ? "enabled" : "disabled"} in the staged medicine form. Review it before saving.`;
+      }
+      case "SET_SUBSTITUTION": {
+        if (!rx.editor || rx.blocked) return "No editable medicine form is available. Nothing changed.";
+        stageVoiceDraft({ ...rx.draft, substitutionAllowed: intent.value });
+        return `Substitution ${intent.value ? "allowed" : "not allowed"} in the staged medicine form. Review it before saving.`;
+      }
       case "CLEAR_FIELD": {
         if (!rx.editor || rx.blocked) return "No editable medicine form is available. Nothing changed.";
         if (intent.field === "displayName") clearMedicineMatches();

@@ -27,6 +27,8 @@ export type M6EPrescriptionVoiceIntent =
   | { type: "USE_EXACT_MEDICINE_MATCH" }
   | { type: "REPLACE_FIELD"; from: string; to: string }
   | { type: "SET_FIELD"; field: M6EVoiceMedicineField; value: string }
+  | { type: "SET_PRN"; value: boolean }
+  | { type: "SET_SUBSTITUTION"; value: boolean }
   | { type: "STAGE_MEDICINE"; patch: Partial<MedicineDraft>; rawText: string }
   | { type: "TARGET_AUTOPILOT" }
   | { type: "GENERATE_AUTOPILOT" }
@@ -311,7 +313,7 @@ export function parseStructuredMedicineSpeech(rawText: string): Partial<Medicine
 
 const FINALIZE = [
   "finalize prescription", "finalise prescription", "sign prescription", "complete prescription", "prescription finalize",
-  "prescription sign", "প্রেসক্রিপশন ফাইনাল", "প্রেসক্রিপশন সাইন", "প্রেসক্রিপশন complete", "final prescription koro",
+  "prescription sign", "finish prescription", "প্রেসক্রিপশন ফাইনাল", "প্রেসক্রিপশন ফাইনাল করো", "প্রেসক্রিপশন সাইন", "প্রেসক্রিপশন সাইন করো", "প্রেসক্রিপশন complete", "final prescription koro", "prescription final koro",
 ];
 const SIGNED_HISTORY_RECENT = ["signed medicine history", "open signed medicine history", "recent signed medicines", "recent signed medicine", "recent sign medicine", "show recent signed medicines", "medicine history", "my signed medicines", "signed medicines kholo", "recent signed medicines kholo", "\u09b8\u09be\u0987\u09a8\u09a1 \u09ae\u09c7\u09a1\u09bf\u09b8\u09bf\u09a8 \u09b9\u09bf\u09b8\u09cd\u099f\u09cd\u09b0\u09bf", "\u09b8\u09be\u09ae\u09cd\u09aa\u09cd\u09b0\u09a4\u09bf\u0995 \u09b8\u09be\u0987\u09a8\u09a1 \u09ae\u09c7\u09a1\u09bf\u09b8\u09bf\u09a8"];
 const SIGNED_HISTORY_FREQUENT = ["frequent signed medicines", "frequent signed medicine", "frequent sign medicine", "frequent medicine", "show frequent signed medicines", "show frequent medicine", "frequent medicine history", "most used signed medicines", "frequent signed medicines kholo", "\u09ac\u09c7\u09b6\u09bf \u09ac\u09cd\u09af\u09ac\u09b9\u09c3\u09a4 \u09b8\u09be\u0987\u09a8\u09a1 \u09ae\u09c7\u09a1\u09bf\u09b8\u09bf\u09a8"];
@@ -389,6 +391,11 @@ function lookupIntent(
 
   const general = raw.match(/^(?:search|find|lookup)\s+(?:medicine|medicines)\s+(.+)$/iu);
   if (general) return { type: "SEARCH_MEDICINE", scope: "all", query: general[1]!.trim() };
+  const bangla = raw.match(/^(?:ওষুধ|মেডিসিন)\s+(?:খুঁজো|খুঁজুন|সার্চ করো)\s+(.+)$/iu);
+  if (bangla) return { type: "SEARCH_MEDICINE", scope: "all", query: bangla[1]!.trim() };
+  const banglish = raw.match(/^(?:medicine|oshudh)\s+(?:khojo|search koro)\s+(.+)$/iu)
+    ?? raw.match(/^(.+?)\s+(?:medicine\s+)?search koro$/iu);
+  if (banglish) return { type: "SEARCH_MEDICINE", scope: "all", query: banglish[1]!.trim() };
   return null;
 }
 
@@ -398,6 +405,10 @@ export function parseM6EPrescriptionVoice(text: string, context: M6EVoiceParseCo
   if (!raw) return { type: "UNKNOWN", rawText: raw };
 
   if (exact(value, FINALIZE)) return { type: "PROHIBITED_FINALIZE" };
+  if (/^(?:prn|as needed|প্রয়োজনে|প্রয়োজনে|proyojone)(?:\s+(?:on|enable|চালু|on koro))?$/iu.test(value)) return { type: "SET_PRN", value: true };
+  if (/^(?:prn|as needed|প্রয়োজনে|প্রয়োজনে|proyojone)\s+(?:off|disable|বন্ধ|off koro)$/iu.test(value)) return { type: "SET_PRN", value: false };
+  if (/^(?:allow substitution|substitution allowed|বিকল্প ব্র্যান্ড চলবে|substitution allow koro)$/iu.test(value)) return { type: "SET_SUBSTITUTION", value: true };
+  if (/^(?:no substitution|substitution off|বিকল্প নয়|বিকল্প নয়|substitution off koro)$/iu.test(value)) return { type: "SET_SUBSTITUTION", value: false };
   const medicineLookup = lookupIntent(raw, value, context);
   if (medicineLookup) return medicineLookup;
   if (exact(value, CLEAR_CURRENT_SECTION)) {
@@ -471,8 +482,14 @@ export function parseM6EPrescriptionVoice(text: string, context: M6EVoiceParseCo
         return { type: "SET_FIELD", field, value: typeof structuredValue === "string" ? structuredValue : spokenValue };
       }
     }
-    if (/^(?:after food|before food|with food|empty stomach|at bedtime|খাবারের পরে|খাবারের আগে|খাবারের সাথে|খালি পেটে)$/iu.test(raw)) {
-      const patch = parseStructuredMedicineSpeech(`Add medicine VoiceTarget ${raw}`);
+    if (/^(?:after food|before food|with food|empty stomach|at bedtime|খাবারের পরে|খাবারের আগে|খাবারের সাথে|খালি পেটে|khabarer pore|khabarer age|khabarer sathe|khali pete)(?:\s+(?:dao|koro|দাও|করো))?$/iu.test(raw)) {
+      const foodValue = raw.replace(/\s+(?:dao|koro|দাও|করো)$/iu, "");
+      const banglishFood = /^(?:khabarer pore)$/iu.test(foodValue) ? "After food"
+        : /^(?:khabarer age)$/iu.test(foodValue) ? "Before food"
+        : /^(?:khabarer sathe)$/iu.test(foodValue) ? "With food"
+        : /^(?:khali pete)$/iu.test(foodValue) ? "Empty stomach" : null;
+      if (banglishFood) return { type: "SET_FIELD", field: "foodRelation", value: banglishFood };
+      const patch = parseStructuredMedicineSpeech(`Add medicine VoiceTarget ${foodValue}`);
       if (patch?.foodRelation) return { type: "SET_FIELD", field: "foodRelation", value: patch.foodRelation };
     }
   }

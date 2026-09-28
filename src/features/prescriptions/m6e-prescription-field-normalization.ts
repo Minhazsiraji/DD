@@ -18,7 +18,7 @@ function lower(text: string) {
 }
 
 export const M6E_FIELD_ALIASES: Record<MedicineField, readonly string[]> = {
-  displayName: ["medicine name", "medicine", "name field", "ওষুধের নাম", "ওষুধ নাম", "মেডিসিন নাম", "medicine nam"],
+  displayName: ["medicine name", "medicine", "name field", "ওষুধের নাম", "ওষুধ নাম", "মেডিসিন নাম", "medicine nam", "medicine name e"],
   brandName: ["brand", "brand name", "ব্র্যান্ড", "ব্র্যান্ড নাম", "brand nam"],
   genericName: ["generic", "generic name", "জেনেরিক", "জেনেরিক নাম", "generic nam"],
   strengthText: ["strength", "strength field", "স্ট্রেংথ", "স্ট্রেংথ ফিল্ড", "শক্তি"],
@@ -259,7 +259,7 @@ export function canonicalizeM6EScheduleSpeech(raw: string): string | null {
   if (exact(["morning only", "only morning", "sokal only", "sudhu sokal", "সকাল শুধু", "শুধু সকাল", "সকালে শুধু"])) return "1+0+0";
   if (exact(["noon only", "midday only", "afternoon only", "dupur only", "sudhu dupur", "দুপুর শুধু", "শুধু দুপুর", "দুপুরে শুধু"])) return "0+1+0";
   if (exact(["night only", "at night only", "rat only", "rate only", "sudhu rat", "রাত শুধু", "শুধু রাত", "রাতে শুধু"])) return "0+0+1";
-  if (exact(["morning night", "morning at night", "sokal rat", "sokal rate", "সকাল রাত", "সকাল রাতে", "সকালে রাতে"])) return "1+0+1";
+  if (exact(["morning night", "morning at night", "sokal rat", "sokal rate", "shokal rat", "shokal rate", "সকাল রাত", "সকাল রাতে", "সকালে রাতে"])) return "1+0+1";
   if (exact(["morning noon night", "morning afternoon night", "morning midday night", "sokal dupur rat", "sokal dupur rate", "সকাল দুপুর রাত", "সকাল দুপুর রাতে", "সকালে দুপুরে রাতে"])) return "1+1+1";
 
   if (/^(?:twice daily|two times? daily|2 times? daily|daily (?:two|2|to) times?|two times? a day|2 times? a day)$/iu.test(value)) return "1+0+1";
@@ -312,6 +312,8 @@ export function parseM6EDirectFieldSpeech(raw: string): { field: MedicineField; 
       if (explicit?.[1]?.trim()) return { field, value: explicit[1].trim() };
       const suffixVerb = input.match(new RegExp(`^${escaped}\\s+(?:set|change|update|সেট|পরিবর্তন|বদলাও|করো|দাও|koro|dao)\\s+(.+)$`, "iu"));
       if (suffixVerb?.[1]?.trim()) return { field, value: suffixVerb[1].trim() };
+      const valueThenVerb = input.match(new RegExp(`^${escaped}\\s+(.+?)\\s+(?:set|change|update|করো|দাও|দিন|koro|dao)$`, "iu"));
+      if (valueThenVerb?.[1]?.trim()) return { field, value: valueThenVerb[1].trim() };
       if (!BARE_DIRECT_FIELDS.has(field)) continue;
       const bare = input.match(new RegExp(`^${escaped}\\s+(?:to\\s+|as\\s+|করো\\s+|দাও\\s+|koro\\s+|dao\\s+)?(.+)$`, "iu"));
       if (bare?.[1]?.trim()) return { field, value: bare[1].trim() };
