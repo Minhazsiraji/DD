@@ -14,29 +14,26 @@ describe("M6D navigation command consumption", () => {
     expect(panel).toContain("onProviderFinal: handleProviderFinal");
   });
 
-  it("marks provider-final navigation consumed without restarting the persistent stream", () => {
-    expect(panel).toContain("routePendingNavigation(local, true)");
-    expect(panel).toContain("const local = parseCurrentLocalCommand(rawText)");
+  it("does not use provider-final as an application command boundary", () => {
     expect(panel).toContain('continuous: mode === "guided"');
-    expect(panel).toContain("dictation.commitUtterance()");
+    expect(panel).toContain("shouldCommitM6FProviderFinal()");
     expect(panel).toContain("onUtteranceEnd: (text) => void handleGuidedUtteranceEnd(text)");
-    expect(panel.slice(panel.indexOf("function handleProviderFinal"), panel.indexOf("async function handleFinal"))).not.toContain("stopRef.current?.()");
+    const providerFinal = panel.slice(panel.indexOf("function handleProviderFinal"), panel.indexOf("async function handleFinal"));
+    expect(providerFinal).not.toContain("dictation.commitUtterance()");
+    expect(providerFinal).not.toContain("applyLocal(");
   });
 
-  it("suppresses the matching raw final before normalization or note append", () => {
-    const rawGuard = panel.indexOf("const rawFinalLocal = parseCurrentLocalCommand(rawText)");
+  it("normalizes only at the complete utterance path before note append", () => {
     const normalize = panel.indexOf("const text = await normalizeTranscript(rawText, voiceLanguage.lang)");
     const append = panel.indexOf("appendDraft(destination.target, text)");
-    expect(rawGuard).toBeGreaterThan(-1);
-    expect(normalize).toBeGreaterThan(rawGuard);
+    expect(normalize).toBeGreaterThan(-1);
     expect(append).toBeGreaterThan(normalize);
-    expect(panel).toContain("pendingNavigation && isM6DNavigationIntent(rawFinalLocal)");
-    expect(panel).toContain("pendingNavigation: null");
   });
 
-  it("rolls back provisional navigation when a longer utterance is not a command", () => {
-    expect(panel).toContain("rollbackPendingNavigation()");
-    expect(panel).toContain("!isM6DNavigationIntent(candidate)");
+  it("does not provisionally navigate from a progressive preview prefix", () => {
+    const preview = panel.slice(panel.indexOf("function previewWithSilenceFinalization"), panel.indexOf("async function handleGuidedUtteranceEnd"));
+    expect(preview).not.toContain("routePendingNavigation");
+    expect(preview).not.toContain("focusDestination");
   });
 
   it("keeps one provider session but forces a boundary after each consumed command", () => {
@@ -70,11 +67,11 @@ describe("M6D navigation command consumption", () => {
     expect(panel).not.toContain('scrollIntoView({ behavior: "smooth"');
   });
 
-  it("uses provider-final only to close standalone command boundaries", () => {
+  it("uses provider-final only as a non-committing stability signal", () => {
     const providerFinal = panel.slice(panel.indexOf("function handleProviderFinal"), panel.indexOf("async function handleFinal"));
     const speechFinal = panel.slice(panel.indexOf("async function handleFinal"), panel.indexOf("const dictation = useDictation"));
-    expect(providerFinal).toContain('if (local.type === "NONE")');
-    expect(providerFinal).toContain("dictation.commitUtterance()");
+    expect(providerFinal).toContain("shouldCommitM6FProviderFinal()");
+    expect(providerFinal).not.toContain("dictation.commitUtterance()");
     expect(providerFinal).not.toContain("applyLocal(local)");
     expect(speechFinal).toContain("applyLocal(local)");
   });

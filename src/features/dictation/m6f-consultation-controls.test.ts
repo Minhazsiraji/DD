@@ -16,7 +16,7 @@ describe("M6F consultation controls", () => {
     ["ফলো আপ তারিখ দুই সপ্তাহ পরে", { type: "SET_FOLLOW_UP", amount: 14, unit: "days" }],
     ["open prescription", { type: "OPEN_PRESCRIPTION" }],
   ])("routes %s deterministically", (spoken, expected) => {
-    expect(parseM6FConsultationCommand(spoken)).toEqual(expected);
+    expect(parseM6FConsultationCommand(spoken, { activeTarget: "vitals", destination: { kind: "note", target: "examination" } })).toEqual(expected);
   });
 
   it("does not convert command-like words embedded in clinical prose", () => {

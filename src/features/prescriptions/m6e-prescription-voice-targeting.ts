@@ -10,6 +10,7 @@ import {
   canonicalizeM6EFieldSpeech,
   parseM6EDirectFieldSpeech,
 } from "./m6e-prescription-field-normalization";
+import { restoreM6ECommandTerms } from "./m6e-mixed-restoration";
 
 export type M6EVoiceDestination =
   | { kind: "MEDICINES"; medicineIndex: number | null }
@@ -157,17 +158,20 @@ export function parseM6EPrescriptionVoiceTargeting(
   text: string,
   context: M6EExpandedVoiceContext,
 ): M6EExpandedVoiceIntent {
-  const raw = text.normalize("NFC").trim();
+  const originalRaw = text.normalize("NFC").trim();
+  const raw = restoreM6ECommandTerms(text).normalize("NFC").trim();
   const value = normalizeCommand(raw);
+  const originalValue = normalizeCommand(originalRaw);
+  const commandExact = (options: readonly string[]) => exact(value, options) || exact(originalValue, options);
   if (!raw) return { type: "UNKNOWN", rawText: raw };
 
-  if (exact(value, NEXT_SECTION)) return { type: "NEXT_SECTION" };
-  if (exact(value, PREVIOUS_SECTION)) return { type: "PREVIOUS_SECTION" };
-  if (exact(value, MEDICINES)) return { type: "TARGET_MEDICINES" };
-  if (exact(value, AUTOPILOT)) return { type: "TARGET_AUTOPILOT" };
+  if (commandExact(NEXT_SECTION)) return { type: "NEXT_SECTION" };
+  if (commandExact(PREVIOUS_SECTION)) return { type: "PREVIOUS_SECTION" };
+  if (commandExact(MEDICINES)) return { type: "TARGET_MEDICINES" };
+  if (commandExact(AUTOPILOT)) return { type: "TARGET_AUTOPILOT" };
 
-  if (exact(value, NEXT_FIELD)) return { type: "NEXT_FIELD" };
-  if (exact(value, PREVIOUS_FIELD)) return { type: "PREVIOUS_FIELD" };
+  if (commandExact(NEXT_FIELD)) return { type: "NEXT_FIELD" };
+  if (commandExact(PREVIOUS_FIELD)) return { type: "PREVIOUS_FIELD" };
 
   if (exact(value, BARE_NEXT)) {
     if (context.destinationKind === "MEDICINE_FIELD") return { type: "NEXT_FIELD" };
@@ -182,25 +186,25 @@ export function parseM6EPrescriptionVoiceTargeting(
     return { type: "UNKNOWN", rawText: raw };
   }
 
-  const readField = fieldFromReadCommand(value);
+  const readField = fieldFromReadCommand(value) ?? fieldFromReadCommand(originalValue);
   if (readField) return { type: "READ_FIELD", field: readField };
   if (
-    exact(value, ["read", "read field", "এটা পড়ো", "এটা পড়ো", "এই ফিল্ড পড়ো", "এই ফিল্ড পড়ো", "eta poro"]) &&
+    commandExact(["read", "read field", "এটা পড়ো", "এটা পড়ো", "এই ফিল্ড পড়ো", "এই ফিল্ড পড়ো", "eta poro"]) &&
     context.fieldTarget
   ) return { type: "READ_FIELD", field: context.fieldTarget };
 
-  const clearField = fieldFromClearCommand(value);
+  const clearField = fieldFromClearCommand(value) ?? fieldFromClearCommand(originalValue);
   if (clearField) return { type: "CLEAR_FIELD", field: clearField };
   if (
-    exact(value, ["clear field", "clear this field", "এই ফিল্ড পরিষ্কার করো", "এই ঘর পরিষ্কার করো", "এই ফিল্ড মুছো", "এই ঘর খালি করো", "ei field clear koro"]) &&
+    commandExact(["clear field", "clear this field", "এই ফিল্ড পরিষ্কার করো", "এই ঘর পরিষ্কার করো", "এই ফিল্ড মুছো", "এই ঘর খালি করো", "ei field clear koro"]) &&
     context.fieldTarget
   ) return { type: "CLEAR_FIELD", field: context.fieldTarget };
 
-  const targetField = fieldFromTargetCommand(value);
+  const targetField = fieldFromTargetCommand(value) ?? fieldFromTargetCommand(originalValue);
   if (targetField) return { type: "TARGET_FIELD", field: targetField };
 
   if (context.editorOpen) {
-    const direct = parseM6EDirectFieldSpeech(raw);
+    const direct = parseM6EDirectFieldSpeech(originalRaw);
     if (direct) {
       return {
         type: "SET_FIELD",
@@ -210,7 +214,7 @@ export function parseM6EPrescriptionVoiceTargeting(
     }
   }
 
-  const base = parseM6EPrescriptionVoice(raw, context);
+  const base = parseM6EPrescriptionVoice(originalRaw, context);
   if (base.type === "SET_FIELD") {
     return {
       ...base,

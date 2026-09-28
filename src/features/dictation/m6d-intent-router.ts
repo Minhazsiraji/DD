@@ -130,7 +130,7 @@ function sectionFromAlias(value: string): M6DTarget | null {
 }
 
 function isAlias(value: string, aliases: readonly string[]): boolean {
-  return aliases.includes(value);
+  return aliases.some((alias) => clean(alias).toLocaleLowerCase("en-US") === value);
 }
 
 function parseRelativeAmount(raw: string): number | null {
@@ -270,9 +270,9 @@ export function parseM6DLocalCommand(text: string, context: M6DCommandContext = 
 
   match = raw.match(/^(?:replace|change|correct)\s+(.+?)\s+(?:with|to|by)\s+(.+)$/i);
   if (match) return { type: "NOTE_EDIT", operation: "REPLACE", value: match[1]!.trim(), replacement: match[2]!.trim() };
-  match = raw.match(/^(.+?)\s+(?:এর বদলে|বদলে|পরিবর্তন করে)\s+(.+)$/u);
+  match = raw.match(/^(.+?)\s+(?:এর জায়গায়|এর জায়গায়|এর পরিবর্তে|এর বদলে|বদলে|পরিবর্তন করে)\s+(.+?)(?:\s+(?:দাও|করো))?$/u);
   if (match) return { type: "NOTE_EDIT", operation: "REPLACE", value: match[1]!.trim(), replacement: match[2]!.trim() };
-  match = raw.match(/^(.+?)\s+(?:change kore|replace kore|er jaygay)\s+(.+)$/i);
+  match = raw.match(/^(.+?)\s+(?:change kore|replace kore|er jaygay|bodle)\s+(.+?)(?:\s+(?:dao|koro))?$/i);
   if (match) return { type: "NOTE_EDIT", operation: "REPLACE", value: match[1]!.trim(), replacement: match[2]!.trim() };
 
   match = raw.match(/^(?:remove|delete|erase)\s+(.+)$/i);

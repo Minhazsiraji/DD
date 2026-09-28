@@ -10,6 +10,9 @@ describe("M6F consultation target / DOM synchronization", () => {
     expect(panel).toContain("M6F_TARGET_OPTIONS.map");
     expect(panel).toContain('value={activeTarget}');
     expect(panel).toContain("focusM6FTarget");
+    expect(panel).toContain("function syncVoiceTarget");
+    expect(panel).toContain("activeTargetRef.current = target");
+    expect(panel).toContain("m6fConsultationTargetForDestination(destination)");
   });
 
   it("opens More vitals before focusing hidden fields and exposes the confirm boundary", () => {

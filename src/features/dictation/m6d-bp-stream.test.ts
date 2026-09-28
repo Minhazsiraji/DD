@@ -80,10 +80,10 @@ describe("M6D BP streaming finalization", () => {
   it("wires the BP-only delay and split reconciliation into Guided Voice", () => {
     const panel = readFileSync("src/features/encounters/components/m6a-voice-panel.tsx", "utf8");
     const preview = panel.slice(panel.indexOf("function previewWithSilenceFinalization"), panel.indexOf("function writeDraft"));
-    expect(preview).toContain("guidedVoiceFinalizationDelay(text, SILENCE_FINALIZE_MS)");
+    expect(preview).toContain("guidedVoiceFinalizationDelay(text, m6fSilenceFinalizeMs(voiceLanguage.lang))");
     expect(panel).toContain("reduceBloodPressureCapture");
     expect(panel).toContain("onUtteranceEnd: (text) => void handleGuidedUtteranceEnd(text)");
     expect(panel).toContain("BP_SPLIT_COMPLETION_GRACE_MS");
-    expect(panel).not.toContain("SILENCE_FINALIZE_MS = 1500");
+    expect(panel).not.toContain("FAST_NAVIGATION_STABLE_MS");
   });
 });

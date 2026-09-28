@@ -1,4 +1,5 @@
 import type { MedicineDraft, MedicineField } from "./schema";
+import { restoreM6ECommandTerms } from "./m6e-mixed-restoration";
 
 export type M6EVoiceMedicineField = MedicineField;
 export type M6EMedicineLookupScope = "all" | "favorites" | "mine" | "catalogue";
@@ -313,7 +314,7 @@ export function parseStructuredMedicineSpeech(rawText: string): Partial<Medicine
 
 const FINALIZE = [
   "finalize prescription", "finalise prescription", "sign prescription", "complete prescription", "prescription finalize",
-  "prescription sign", "finish prescription", "প্রেসক্রিপশন ফাইনাল", "প্রেসক্রিপশন ফাইনাল করো", "প্রেসক্রিপশন সাইন", "প্রেসক্রিপশন সাইন করো", "প্রেসক্রিপশন complete", "final prescription koro", "prescription final koro",
+  "prescription sign", "finish prescription", "prescription finalize করো", "prescription sign করো", "প্রেসক্রিপশন ফাইনাল", "প্রেসক্রিপশন ফাইনাল করো", "প্রেসক্রিপশন সাইন", "প্রেসক্রিপশন সাইন করো", "প্রেসক্রিপশন complete", "final prescription koro", "prescription final koro",
 ];
 const SIGNED_HISTORY_RECENT = ["signed medicine history", "open signed medicine history", "recent signed medicines", "recent signed medicine", "recent sign medicine", "show recent signed medicines", "medicine history", "my signed medicines", "signed medicines kholo", "recent signed medicines kholo", "\u09b8\u09be\u0987\u09a8\u09a1 \u09ae\u09c7\u09a1\u09bf\u09b8\u09bf\u09a8 \u09b9\u09bf\u09b8\u09cd\u099f\u09cd\u09b0\u09bf", "\u09b8\u09be\u09ae\u09cd\u09aa\u09cd\u09b0\u09a4\u09bf\u0995 \u09b8\u09be\u0987\u09a8\u09a1 \u09ae\u09c7\u09a1\u09bf\u09b8\u09bf\u09a8"];
 const SIGNED_HISTORY_FREQUENT = ["frequent signed medicines", "frequent signed medicine", "frequent sign medicine", "frequent medicine", "show frequent signed medicines", "show frequent medicine", "frequent medicine history", "most used signed medicines", "frequent signed medicines kholo", "\u09ac\u09c7\u09b6\u09bf \u09ac\u09cd\u09af\u09ac\u09b9\u09c3\u09a4 \u09b8\u09be\u0987\u09a8\u09a1 \u09ae\u09c7\u09a1\u09bf\u09b8\u09bf\u09a8"];
@@ -326,7 +327,11 @@ const NEXT_AUTOPILOT = ["next proposal item", "next autopilot item", "পরে�
 const PREVIOUS_AUTOPILOT = ["previous proposal item", "previous autopilot item", "আগের প্রপোজাল আইটেম"];
 const DISCARD = ["discard proposal", "discard autopilot", "autopilot discard", "discard", "প্রপোজাল বাতিল", "proposal bad dao"];
 const APPLY = ["apply selected", "apply proposal", "apply to draft", "autopilot apply", "apply autopilot", "প্রপোজাল apply করো", "proposal apply koro"];
-const OPEN_ADD = ["add medicine", "add a medicine", "new medicine", "medicine add", "medicine add koro", "মেডিসিন add করো", "মেডিসিন যোগ করো", "ওষুধ যোগ করো"];
+const OPEN_ADD = [
+  "add medicine", "add a medicine", "new medicine", "medicine add", "medicine add koro",
+  "medicine add korun", "medicine add করো", "medicine add করুন", "মেডিসিন add করো", "মেডিসিন add করুন", "মেডিসিন যোগ করো", "মেডিসিন যোগ করুন",
+  "ওষুধ add করো", "ওষুধ add করুন", "ওষুধ যোগ করো", "ওষুধ যোগ করুন",
+];
 const TARGET_MEDICINES = ["medicines", "go to medicines", "open medicines", "medicine list", "ওষুধ", "ওষুধে যাও", "মেডিসিনে যাও"];
 const NEXT = ["next medicine", "go to next medicine", "পরের medicine", "পরের মেডিসিন", "পরের ওষুধ", "next medicine e jao"];
 const PREVIOUS = ["previous medicine", "go to previous medicine", "আগের medicine", "আগের মেডিসিন", "আগের ওষুধ", "previous medicine e jao"];
@@ -400,43 +405,46 @@ function lookupIntent(
 }
 
 export function parseM6EPrescriptionVoice(text: string, context: M6EVoiceParseContext): M6EPrescriptionVoiceIntent {
-  const raw = clean(text);
+  const originalRaw = clean(text);
+  const raw = clean(restoreM6ECommandTerms(text));
   const value = normalized(raw);
+  const originalValue = normalized(originalRaw);
+  const commandExact = (options: readonly string[]) => exact(value, options) || exact(originalValue, options);
   if (!raw) return { type: "UNKNOWN", rawText: raw };
 
-  if (exact(value, FINALIZE)) return { type: "PROHIBITED_FINALIZE" };
+  if (commandExact(FINALIZE)) return { type: "PROHIBITED_FINALIZE" };
   if (/^(?:prn|as needed|প্রয়োজনে|প্রয়োজনে|proyojone)(?:\s+(?:on|enable|চালু|on koro))?$/iu.test(value)) return { type: "SET_PRN", value: true };
   if (/^(?:prn|as needed|প্রয়োজনে|প্রয়োজনে|proyojone)\s+(?:off|disable|বন্ধ|off koro)$/iu.test(value)) return { type: "SET_PRN", value: false };
   if (/^(?:allow substitution|substitution allowed|বিকল্প ব্র্যান্ড চলবে|substitution allow koro)$/iu.test(value)) return { type: "SET_SUBSTITUTION", value: true };
   if (/^(?:no substitution|substitution off|বিকল্প নয়|বিকল্প নয়|substitution off koro)$/iu.test(value)) return { type: "SET_SUBSTITUTION", value: false };
-  const medicineLookup = lookupIntent(raw, value, context);
+  const medicineLookup = lookupIntent(raw, value, context) ?? lookupIntent(originalRaw, originalValue, context);
   if (medicineLookup) return medicineLookup;
-  if (exact(value, CLEAR_CURRENT_SECTION)) {
+  if (commandExact(CLEAR_CURRENT_SECTION)) {
     return context.fieldTarget
       ? { type: "CLEAR_FIELD", field: context.fieldTarget }
       : { type: "UNKNOWN", rawText: raw };
   }
-  if (exact(value, REMOVE_LAST_LINE)) return { type: "REMOVE_LAST_LINE" };
-  if (exact(value, TARGET_MEDICINES)) return { type: "TARGET_MEDICINES" };
-  if (exact(value, TARGET_AUTOPILOT)) return { type: "TARGET_AUTOPILOT" };
-  if (exact(value, GENERATE)) return { type: "GENERATE_AUTOPILOT" };
-  if (exact(value, READ_AUTOPILOT)) return { type: "READ_AUTOPILOT" };
-  if (exact(value, NEXT_AUTOPILOT)) return { type: "NEXT_AUTOPILOT_ITEM" };
-  if (exact(value, PREVIOUS_AUTOPILOT)) return { type: "PREVIOUS_AUTOPILOT_ITEM" };
-  if (exact(value, DISCARD)) return { type: "DISCARD_AUTOPILOT" };
-  if (exact(value, APPLY)) return { type: "APPLY_AUTOPILOT" };
-  if (exact(value, SIGNED_HISTORY_FREQUENT)) return { type: "OPEN_SIGNED_HISTORY", mode: "FREQUENT" };
-  if (exact(value, SIGNED_HISTORY_RECENT)) return { type: "OPEN_SIGNED_HISTORY", mode: "RECENT" };
-  if (exact(value, REUSE_HISTORY)) return { type: "OPEN_REUSE_HISTORY" };
-  if (exact(value, REVIEW)) return { type: "REVIEW_PRESCRIPTION" };
-  if (exact(value, OPEN_ADD)) return { type: "OPEN_ADD" };
-  if (exact(value, NEXT)) return { type: "NEXT_MEDICINE" };
-  if (exact(value, PREVIOUS)) return { type: "PREVIOUS_MEDICINE" };
-  if (exact(value, READ_MEDICINE)) return { type: "READ_MEDICINE" };
-  if (exact(value, CLEAR_FORM)) return { type: "CLEAR_FORM" };
-  if (exact(value, CANCEL)) return { type: "CANCEL_EDITOR" };
-  if (exact(value, UNDO)) return { type: "UNDO" };
-  if (exact(value, ["clear", "clear koro", "পরিষ্কার করো"])) {
+  if (commandExact(REMOVE_LAST_LINE)) return { type: "REMOVE_LAST_LINE" };
+  if (commandExact(TARGET_MEDICINES)) return { type: "TARGET_MEDICINES" };
+  if (commandExact(TARGET_AUTOPILOT)) return { type: "TARGET_AUTOPILOT" };
+  if (commandExact(GENERATE)) return { type: "GENERATE_AUTOPILOT" };
+  if (commandExact(READ_AUTOPILOT)) return { type: "READ_AUTOPILOT" };
+  if (commandExact(NEXT_AUTOPILOT)) return { type: "NEXT_AUTOPILOT_ITEM" };
+  if (commandExact(PREVIOUS_AUTOPILOT)) return { type: "PREVIOUS_AUTOPILOT_ITEM" };
+  if (commandExact(DISCARD)) return { type: "DISCARD_AUTOPILOT" };
+  if (commandExact(APPLY)) return { type: "APPLY_AUTOPILOT" };
+  if (commandExact(SIGNED_HISTORY_FREQUENT)) return { type: "OPEN_SIGNED_HISTORY", mode: "FREQUENT" };
+  if (commandExact(SIGNED_HISTORY_RECENT)) return { type: "OPEN_SIGNED_HISTORY", mode: "RECENT" };
+  if (commandExact(REUSE_HISTORY)) return { type: "OPEN_REUSE_HISTORY" };
+  if (commandExact(REVIEW)) return { type: "REVIEW_PRESCRIPTION" };
+  if (commandExact(OPEN_ADD)) return { type: "OPEN_ADD" };
+  if (commandExact(NEXT)) return { type: "NEXT_MEDICINE" };
+  if (commandExact(PREVIOUS)) return { type: "PREVIOUS_MEDICINE" };
+  if (commandExact(READ_MEDICINE)) return { type: "READ_MEDICINE" };
+  if (commandExact(CLEAR_FORM)) return { type: "CLEAR_FORM" };
+  if (commandExact(CANCEL)) return { type: "CANCEL_EDITOR" };
+  if (commandExact(UNDO)) return { type: "UNDO" };
+  if (commandExact(["clear", "clear koro", "পরিষ্কার করো"])) {
     return context.fieldTarget
       ? { type: "CLEAR_FIELD", field: context.fieldTarget }
       : { type: "CLEAR_FORM" };
@@ -495,12 +503,12 @@ export function parseM6EPrescriptionVoice(text: string, context: M6EVoiceParseCo
   }
 
   if (context.editorOpen && context.fieldTarget) {
-    return { type: "SET_FIELD", field: context.fieldTarget, value: raw };
+    return { type: "SET_FIELD", field: context.fieldTarget, value: originalRaw };
   }
 
-  const patch = parseStructuredMedicineSpeech(raw);
-  const staged = stagePrefix(raw).explicit;
-  if (patch && (context.editorOpen || staged)) return { type: "STAGE_MEDICINE", patch, rawText: raw };
+  const patch = parseStructuredMedicineSpeech(originalRaw);
+  const staged = stagePrefix(originalRaw).explicit;
+  if (patch && (context.editorOpen || staged)) return { type: "STAGE_MEDICINE", patch, rawText: originalRaw };
 
-  return { type: "UNKNOWN", rawText: raw };
+  return { type: "UNKNOWN", rawText: originalRaw };
 }

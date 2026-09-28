@@ -46,6 +46,7 @@ export const M6F_CLOSED_ASR_RESTORATIONS = {
   "টেম্পারেচার": "temperature", "পালস": "pulse", "এসপিওটু": "spo2",
   "ডায়াগনসিস": "diagnosis", "ডায়াগনসিস": "diagnosis", "ইনভেস্টিগেশন": "investigation",
   "অটোপাইলট": "autopilot", "রিভিউ": "review", "প্রিভিউ": "preview",
+  "বিপি": "bp", "সেট": "set", "এড": "add", "অ্যাড": "add",
   "ক্লিয়ার": "clear", "ক্লিয়ার": "clear", "ডিলিট": "delete", "রিমুভ": "remove",
   "রিপ্লেস": "replace", "চেঞ্জ": "change", "এডিট": "edit", "আনডু": "undo",
   "ক্যানসেল": "cancel", "নেক্সট": "next", "প্রিভিয়াস": "previous",

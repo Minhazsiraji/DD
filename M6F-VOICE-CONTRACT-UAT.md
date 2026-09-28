@@ -11,7 +11,7 @@ Generated from `M6F_VOICE_SURFACE_INVENTORY` by `scripts/generate-m6f-voice-cont
 - English aliases: 125
 - Bangla aliases: 121
 - Banglish aliases: 74
-- Closed ASR restorations: 58
+- Closed ASR restorations: 62
 
 The canonical grammar accepts explicit action + target, target + action, action + target + value, and target + value + action forms. Raw clinical text remains separate and falls through unchanged when no deterministic command matches. Voice never saves a medicine, confirms investigations, applies an Autopilot proposal, or finalizes a prescription without the existing protected explicit UI action.
 

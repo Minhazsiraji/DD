@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { parseM6EPrescriptionVoiceTargeting } from "./m6e-prescription-voice-targeting";
+import { restoreM6ECommandTerms, restoreM6EMixedContractTerms } from "./m6e-mixed-restoration";
 
 const context = { editorOpen: true, fieldTarget: null, destinationKind: "MEDICINE_FORM" as const, autopilotProposalActive: false, medicineResultsActive: false };
 
@@ -28,5 +29,24 @@ describe("M6F prescription multilingual recovery", () => {
     for (const spoken of ["finish prescription", "প্রেসক্রিপশন ফাইনাল করো", "prescription final koro"]) {
       expect(parseM6EPrescriptionVoiceTargeting(spoken, context)).toEqual({ type: "PROHIBITED_FINALIZE" });
     }
+  });
+
+  it.each([
+    "মেডিসিন এড করো", "মেডিসিন এড করুন", "মেডিসিন অ্যাড করো", "মেডিসিন অ্যাড করুন",
+    "মেডিসিন যোগ করো", "মেডিসিন যোগ করুন", "ওষুধ এড করো", "ওষুধ অ্যাড করো",
+    "ওষুধ যোগ করো", "ওষুধ যোগ করুন", "medicine add koro", "add medicine", "new medicine",
+  ])("opens only the staged medicine editor for %s", (spoken) => {
+    expect(parseM6EPrescriptionVoiceTargeting(spoken, {
+      ...context,
+      editorOpen: false,
+      destinationKind: "MEDICINES",
+    })).toEqual({ type: "OPEN_ADD" });
+  });
+
+  it("keeps add restoration inside command parsing and does not rewrite prose", () => {
+    const prose = "রোগী নতুন মেডিসিন এড করেনি";
+    expect(restoreM6EMixedContractTerms(prose)).toContain("এড করেনি");
+    expect(restoreM6ECommandTerms("মেডিসিন এড করো")).toBe("medicine add করো");
+    expect(parseM6EPrescriptionVoiceTargeting(prose, context)).toEqual({ type: "UNKNOWN", rawText: prose });
   });
 });

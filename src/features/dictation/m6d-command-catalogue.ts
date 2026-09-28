@@ -9,16 +9,21 @@ export const M6D_COMMAND_ALIASES = {
     "end", "stop", "end voice", "stop voice", "stop listening", "voice off", "শেষ", "শেষ করো", "বন্ধ করো", "ভয়েস বন্ধ করো", "ভয়েস বন্ধ করো", "voice bondho koro",
   ],
   undo: [
-    "undo", "undo last", "undo last sentence", "undo last change", "cancel last change", "go back last change", "বাতিল", "আগেরটা বাতিল", "শেষটা ফেরত", "শেষ পরিবর্তন বাতিল", "শেষ বাক্য undo", "last change undo koro",
+    "undo", "undo koro", "undo last", "undo last sentence", "undo last change", "cancel last change", "go back last change", "আনডু", "আনডু করো", "বাতিল", "আগেরটা বাতিল", "শেষটা ফেরত", "শেষ পরিবর্তন বাতিল", "শেষ বাক্য undo", "last change undo koro",
   ],
   removeLastSentence: [
-    "remove last sentence", "delete last sentence", "remove last line", "delete last line", "erase last sentence", "erase last line", "শেষ বাক্য মুছো", "শেষ লাইন মুছো", "শেষ কথাটা মুছো", "শেষ বাক্য বাদ দাও", "last sentence delete koro", "last line remove koro",
+    "remove last sentence", "delete last sentence", "remove last line", "delete last line", "erase last sentence", "erase last line", "শেষ বাক্য মুছো", "শেষ বাক্য মুছে দাও", "শেষ লাইন মুছো", "শেষ কথাটা মুছো", "শেষ বাক্য বাদ দাও", "last sentence remove koro", "last sentence delete koro", "last line remove koro",
   ],
   clear: [
-    "clear current section", "clear this section", "clear section", "clear field", "clear this field", "clear note", "এই সেকশন clear", "এই সেকশন মুছো", "এই অংশ মুছো", "এই ঘর খালি করো", "নোট মুছো", "field clear koro", "section clear koro",
+    "clear", "clear koro", "clear current section", "clear this section", "clear section", "clear field", "clear this field", "clear current field", "clear note",
+    "this section clear koro", "ei section clear koro", "section clear koro", "current section clear koro", "field clear koro", "field ta clear koro", "current field clear koro", "eta clear koro",
+    "clear করো", "section clear করো", "এই section clear করো", "field clear করো", "এই field clear করো",
+    "এই সেকশন clear", "এই সেকশন ক্লিয়ার করো", "এই সেকশন ক্লিয়ার করো", "সেকশনটা ক্লিয়ার করো", "বর্তমান সেকশন ক্লিয়ার করো",
+    "এই ঘরটা খালি করো", "ঘরটা খালি করো", "এই ফিল্ড ক্লিয়ার করো", "ফিল্ডটা ক্লিয়ার করো", "এটা ক্লিয়ার করো", "সব মুছে দাও",
+    "এই সেকশন মুছো", "এই অংশ মুছো", "এই ঘর খালি করো", "নোট মুছো",
   ],
   read: [
-    "read current section", "read this section", "read section", "read field", "read note", "এই সেকশন পড়ো", "এই অংশ পড়ো", "এই ঘর পড়ো", "নোট পড়ো", "current section poro",
+    "read", "read current field", "read current section", "read this section", "read section", "read field", "read note", "এই সেকশন পড়ে শোনাও", "এই ফিল্ড পড়ো", "এই সেকশন পড়ো", "এই অংশ পড়ো", "এই ঘর পড়ো", "নোট পড়ো", "current section poro", "current section pore shonao",
   ],
   next: ["next", "next section", "next field", "পরের সেকশন", "পরের অংশ", "পরের ঘর", "next e jao"],
   previous: ["previous", "previous section", "previous field", "back", "আগের সেকশন", "আগের অংশ", "আগের ঘর", "পেছনে যাও", "previous e jao"],

@@ -41,11 +41,11 @@ describe("M6D complete Diagnoses voice workflow", () => {
     expect(form).toContain("name={`${id}-certainty`}");
   });
 
-  it("consumes diagnosis controls once at speech-final and never appends their text", () => {
+  it("consumes diagnosis controls only at a complete utterance and never appends their text", () => {
     const providerFinal = panel.slice(panel.indexOf("function handleProviderFinal"), panel.indexOf("async function handleFinal"));
     const speechFinal = panel.slice(panel.indexOf("async function handleFinal"), panel.indexOf("const dictation = useDictation"));
-    expect(providerFinal).toContain('if (local.type === "NONE")');
-    expect(providerFinal).toContain("dictation.commitUtterance()");
+    expect(providerFinal).toContain("shouldCommitM6FProviderFinal()");
+    expect(providerFinal).not.toContain("dictation.commitUtterance()");
     expect(providerFinal).not.toContain("applyDiagnosisIntent");
     expect(speechFinal.indexOf("applyLocal(local)")).toBeLessThan(speechFinal.indexOf("appendDiagnosisDraft(dictationText)"));
   });
@@ -54,7 +54,7 @@ describe("M6D complete Diagnoses voice workflow", () => {
     expect(catalogue).toContain('"diagnosis", "diagnoses"');
     expect(catalogue).toContain('"diagnosis field", "diagnosis name", "diagnosis title"');
     expect(panel).toContain('intent.type === "DIAGNOSIS_NAVIGATE"');
-    expect(panel).toContain('intent.type === "DIAGNOSIS_TARGET" && intent.target === "title"');
+    expect(panel).toContain('target === "diagnoses" || target === "diagnosisTitle"');
     expect(panel).toContain('setDestination(destination)');
     expect(panel).toContain('destination.kind === "diagnosis"');
   });

@@ -55,6 +55,20 @@ export const M6F_CONSULTATION_TARGETS: readonly M6FConsultationTargetSpec[] = [
   ["prescription", "Prescription", ["prescription", "write prescription", "open prescription"], ["প্রেসক্রিপশন", "প্রেসক্রিপশন খোলো"], ["prescription kholo"]],
 ].map(([target, label, aliasesEnglish, aliasesBangla, aliasesBanglish]) => ({ target, label, aliasesEnglish, aliasesBangla, aliasesBanglish })) as readonly M6FConsultationTargetSpec[];
 
+const M6F_CONSULTATION_TARGET_ORDER = M6F_CONSULTATION_TARGETS
+  .map((entry) => entry.target)
+  .filter((target, index, targets) => targets.indexOf(target) === index);
+
+export function nextM6FConsultationTarget(
+  current: M6FConsultationTarget,
+  direction: 1 | -1,
+): M6FConsultationTarget {
+  const index = Math.max(0, M6F_CONSULTATION_TARGET_ORDER.indexOf(current));
+  return M6F_CONSULTATION_TARGET_ORDER[
+    (index + direction + M6F_CONSULTATION_TARGET_ORDER.length) % M6F_CONSULTATION_TARGET_ORDER.length
+  ]!;
+}
+
 export type M6FConsultationIntent =
   | { type: "TARGET"; target: M6FConsultationTarget }
   | { type: "SET_DRAFT"; target: DraftKey; value: string }
@@ -65,6 +79,23 @@ export type M6FConsultationIntent =
   | { type: "OPEN_PRESCRIPTION" }
   | { type: "PROTECTED_CONFIRM_INVESTIGATIONS" }
   | { type: "NONE" };
+
+export interface M6FConsultationCommandContext {
+  activeTarget?: M6FConsultationTarget;
+  destination?: { kind: "note" | "diagnosis" | "investigation"; target: string };
+}
+
+export function m6fConsultationTargetForDestination(
+  destination: NonNullable<M6FConsultationCommandContext["destination"]>,
+): M6FConsultationTarget {
+  if (destination.kind === "note") return destination.target as DraftKey;
+  if (destination.kind === "investigation") return "investigationSearch";
+  return destination.target === "title"
+    ? "diagnosisTitle"
+    : destination.target === "certainty"
+      ? "diagnosisCertainty"
+      : "diagnosisNote";
+}
 
 const ALL_ALIASES = M6F_CONSULTATION_TARGETS.flatMap((spec) =>
   [...spec.aliasesEnglish, ...spec.aliasesBangla, ...spec.aliasesBanglish]
@@ -119,7 +150,41 @@ function canonicalVital(target: VitalKey, raw: string): string | null {
   return String(number);
 }
 
-export function parseM6FConsultationCommand(rawTranscript: string): M6FConsultationIntent {
+function maySetBareVital(
+  target: M6FConsultationTarget,
+  context: M6FConsultationCommandContext,
+): boolean {
+  return context.activeTarget === target || context.activeTarget === "vitals";
+}
+
+function parseBloodPressureValues(text: string): { systolic: string; diastolic: string } | null {
+  const match = text.match(/^(.+?)\s*(?:by|over|বাই|ওভার|\/|এর উপর)\s*(.+?)$/iu);
+  if (!match) return null;
+  const systolic = parseNumber(match[1]!);
+  const diastolic = parseNumber(match[2]!);
+  return systolic !== null && diastolic !== null &&
+    systolic >= 60 && systolic <= 300 &&
+    diastolic >= 30 && diastolic <= 200 &&
+    systolic - diastolic >= 10
+    ? { systolic: String(systolic), diastolic: String(diastolic) }
+    : null;
+}
+
+const LABELLED_VITALS: readonly [VitalKey, RegExp][] = [
+  ["vitalPulseBpm", /^(?:pulse|heart rate|পালস|হৃদস্পন্দন)\s+(.+)$/iu],
+  ["vitalTemperatureC", /^(?:temperature|temperature fahrenheit|তাপমাত্রা|টেম্পারেচার)\s+(.+)$/iu],
+  ["vitalSpo2", /^(?:spo2|oxygen saturation|oxygen|অক্সিজেন স্যাচুরেশন|এসপিওটু)\s+(.+)$/iu],
+  ["vitalWeightKg", /^(?:weight|ওজন)\s+(.+)$/iu],
+  ["vitalHeightCm", /^(?:height|উচ্চতা)\s+(.+)$/iu],
+  ["vitalRespRate", /^(?:respiratory rate|respiration rate|breathing rate|শ্বাসের হার|রেসপিরেটরি রেট)\s+(.+)$/iu],
+  ["vitalSystolic", /^(?:systolic|upper pressure|সিস্টোলিক|উপরের চাপ)\s+(.+)$/iu],
+  ["vitalDiastolic", /^(?:diastolic|lower pressure|ডায়াস্টোলিক|ডায়াস্টোলিক|নিচের চাপ)\s+(.+)$/iu],
+];
+
+export function parseM6FConsultationCommand(
+  rawTranscript: string,
+  context: M6FConsultationCommandContext = {},
+): M6FConsultationIntent {
   const { canonicalCommandText: text } = normalizeM6FCommandText(rawTranscript);
   if (!text) return { type: "NONE" };
 
@@ -139,10 +204,34 @@ export function parseM6FConsultationCommand(rawTranscript: string): M6FConsultat
     }
   }
 
-  const bp = text.match(/^(?:set\s+|write\s+)?(?:blood pressure|bp|রক্তচাপ)\s+(.+?)\s+(?:by|over|বাই|ওভার|\/|এর উপর)\s+(.+?)(?:\s+(?:dao|দাও|din|দিন))?$/iu);
-  if (bp) {
-    const systolic = parseNumber(bp[1]!); const diastolic = parseNumber(bp[2]!);
-    if (systolic !== null && diastolic !== null) return { type: "SET_BP", systolic: String(systolic), diastolic: String(diastolic) };
+  const explicitBp = text.match(/^(?:set|record|write)\s+(?:blood pressure|bp|রক্তচাপ)\s+(.+)$/iu)
+    ?? text.match(/^(?:blood pressure|bp|রক্তচাপ)\s+(.+?)\s+(?:set koro|set korun|set করো|set করুন|dao|দাও|din|দিন)$/iu);
+  if (explicitBp) {
+    const values = parseBloodPressureValues(explicitBp[1]!);
+    if (values) return { type: "SET_BP", ...values };
+  }
+
+  const labelledBp = text.match(/^(?:blood pressure|bp|রক্তচাপ)\s+(.+)$/iu);
+  if (labelledBp && maySetBareVital("bloodPressure", context)) {
+    const values = parseBloodPressureValues(labelledBp[1]!);
+    if (values) return { type: "SET_BP", ...values };
+  }
+
+  if (context.activeTarget === "bloodPressure") {
+    const values = parseBloodPressureValues(text);
+    if (values) return { type: "SET_BP", ...values };
+  }
+
+  for (const [target, pattern] of LABELLED_VITALS) {
+    const labelled = text.match(pattern);
+    if (!labelled || !maySetBareVital(target, context)) continue;
+    const value = canonicalVital(target, labelled[1]!);
+    if (value !== null) return { type: "SET_DRAFT", target, value };
+  }
+
+  if (context.activeTarget?.startsWith("vital") && draftTarget(context.activeTarget)) {
+    const value = canonicalVital(context.activeTarget as VitalKey, text);
+    if (value !== null) return { type: "SET_DRAFT", target: context.activeTarget, value };
   }
 
   const direct = targetAtStart(text);
@@ -153,6 +242,8 @@ export function parseM6FConsultationCommand(rawTranscript: string): M6FConsultat
     if (/^(?:go|jao|jan|যাও|যান|kholo|খোলো)$/iu.test(remainder)) return { type: "TARGET", target: direct.target };
     if (remainder && draftTarget(direct.target)) {
       if (direct.target.startsWith("vital")) {
+        const explicitSuffix = /\s+(?:set koro|set korun|set করো|set করুন|dao|দাও|din|দিন)$/iu.test(text);
+        if (!explicitSuffix && !maySetBareVital(direct.target, context)) return { type: "NONE" };
         const value = canonicalVital(direct.target as VitalKey, remainder);
         if (value !== null) return { type: "SET_DRAFT", target: direct.target, value };
       } else if (direct.target === "nextVisitOn") {

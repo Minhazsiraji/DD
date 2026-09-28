@@ -4,9 +4,6 @@ const PHRASE_RESTORATIONS: readonly Restoration[] = [
   ["মেডিসিন সেকশনে যাও", "medicine section e jao"],
   ["মেডিসিন সেকশন খুলে দাও", "medicine section kholo"],
   ["মেডিসিনে যাও", "medicine e jao"],
-  ["মেডিসিন যোগ করো", "add medicine"],
-  ["মেডিসিন add করো", "add medicine"],
-  ["মেডিসিন অ্যাড করো", "add medicine"],
   ["অটোপাইলটে যাও", "autopilot e jao"],
   ["অটোপাইলট জেনারেট করো", "autopilot generate"],
   ["প্রেসক্রিপশন ফাইনাল", "prescription finalize"],
@@ -46,7 +43,6 @@ const TOKEN_RESTORATIONS: readonly Restoration[] = [
   ["নেক্সট", "next"],
   ["প্রিভিয়াস", "previous"],
   ["প্রিভিয়াস", "previous"],
-  ["অ্যাড", "add"],
   ["এডিট", "edit"],
   ["রিমুভ", "remove"],
   ["রিড", "read"],
@@ -57,6 +53,15 @@ const TOKEN_RESTORATIONS: readonly Restoration[] = [
   ["অ্যাপ্লাই", "apply"],
   ["ডিসকার্ড", "discard"],
   ["রিভিউ", "review"],
+];
+
+const COMMAND_ONLY_RESTORATIONS: readonly Restoration[] = [
+  ["মেডিসিন যোগ করো", "add medicine"],
+  ["মেডিসিন যোগ করুন", "add medicine"],
+  ["ওষুধ যোগ করো", "add medicine"],
+  ["ওষুধ যোগ করুন", "add medicine"],
+  ["এড", "add"],
+  ["অ্যাড", "add"],
 ];
 
 function escapeRegExp(value: string) {
@@ -82,4 +87,16 @@ export function restoreM6EMixedContractTerms(transcript: string): string {
     restored = replaceStandalone(restored, source, target);
   }
   return restored;
+}
+
+/**
+ * Restores provider spellings that are safe only inside the closed command
+ * parser. Ordinary medicine/patient prose must retain these words verbatim.
+ */
+export function restoreM6ECommandTerms(transcript: string): string {
+  let restored = transcript.normalize("NFC");
+  for (const [source, target] of COMMAND_ONLY_RESTORATIONS) {
+    restored = replaceStandalone(restored, source, target);
+  }
+  return restoreM6EMixedContractTerms(restored);
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { restoreM6EMixedContractTerms } from "./m6e-mixed-restoration";
+import { restoreM6ECommandTerms, restoreM6EMixedContractTerms } from "./m6e-mixed-restoration";
 import { parseM6EPrescriptionVoiceTargeting } from "./m6e-prescription-voice-targeting";
 import { parseM6EVoiceSessionControl } from "./m6e-prescription-voice-contract";
 
@@ -12,7 +12,7 @@ const noEditor = {
 
 describe("M6E mixed command restoration", () => {
   it("keeps known command phrases deterministic after script restoration", () => {
-    expect(parseM6EPrescriptionVoiceTargeting(restoreM6EMixedContractTerms("মেডিসিন যোগ করো"), noEditor)).toEqual({ type: "OPEN_ADD" });
+    expect(parseM6EPrescriptionVoiceTargeting(restoreM6ECommandTerms("মেডিসিন যোগ করো"), noEditor)).toEqual({ type: "OPEN_ADD" });
     expect(parseM6EPrescriptionVoiceTargeting(restoreM6EMixedContractTerms("মেডিসিন সেকশনে যাও"), noEditor)).toEqual({ type: "TARGET_MEDICINES" });
     expect(parseM6EPrescriptionVoiceTargeting(restoreM6EMixedContractTerms("অটোপাইলট জেনারেট করো"), noEditor)).toEqual({ type: "GENERATE_AUTOPILOT" });
     expect(parseM6EPrescriptionVoiceTargeting(restoreM6EMixedContractTerms("প্রেসক্রিপশন ফাইনাল"), noEditor)).toEqual({ type: "PROHIBITED_FINALIZE" });

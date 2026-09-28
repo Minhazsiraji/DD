@@ -10,11 +10,12 @@ import { applyGuidedVoiceFinalToNote } from "@/features/dictation/m6d-guided-not
 import { BP_SPLIT_COMPLETION_GRACE_MS, guidedVoiceFinalizationDelay, reduceBloodPressureCapture, type BloodPressureCaptureState } from "@/features/dictation/m6d-bp-stream";
 import { useDictation } from "@/features/dictation/use-dictation";
 import { LIVE_VOICE_ENABLED, useVoiceLanguage, VoiceLanguageControl } from "@/features/dictation/voice-language";
-import { isM6DCommandLikeUtterance, isM6DDiagnosisIntent, isM6DInvestigationIntent, isM6DNavigationIntent, m6dNavigationCommandKey, parseM6DAppendText, parseM6DLocalCommand, type M6DDiagnosisIntent, type M6DInvestigationIntent, type M6DLocalIntent, type M6DNavigationIntent, type M6DTarget } from "@/features/dictation/m6d-intent-router";
-import { applyM6DTextEdit, INITIAL_M6D_VOICE_STATE, m6dCommandPriority, m6dVoiceDestinationForIntent, m6dVoiceFocusSelector, m6dVoiceSection, type M6DPendingNavigation, type M6DVoiceDestination, type M6DVoiceSection, type M6DVoiceState } from "@/features/dictation/m6d-voice-state";
+import { isM6DCommandLikeUtterance, isM6DDiagnosisIntent, isM6DInvestigationIntent, parseM6DAppendText, parseM6DLocalCommand, type M6DDiagnosisIntent, type M6DInvestigationIntent, type M6DLocalIntent, type M6DTarget } from "@/features/dictation/m6d-intent-router";
+import { applyM6DTextEdit, INITIAL_M6D_VOICE_STATE, m6dCommandPriority, m6dVoiceDestinationForIntent, m6dVoiceFocusSelector, m6dVoiceSection, type M6DVoiceDestination, type M6DVoiceSection, type M6DVoiceState } from "@/features/dictation/m6d-voice-state";
 import { parseM6BCommand, type M6BIntent } from "@/features/dictation/m6b-command-parser";
-import { M6F_CONSULTATION_TARGETS, parseM6FConsultationCommand, type M6FConsultationTarget } from "@/features/dictation/m6f-consultation-controls";
+import { M6F_CONSULTATION_TARGETS, m6fConsultationTargetForDestination, nextM6FConsultationTarget, parseM6FConsultationCommand, type M6FConsultationTarget } from "@/features/dictation/m6f-consultation-controls";
 import { parseM6FInvestigationCommand, type M6FInvestigationTarget } from "@/features/dictation/m6f-investigation-controls";
+import { m6fSilenceFinalizeMs, shouldCommitM6FProviderFinal } from "@/features/dictation/m6f-utterance-boundary";
 import { SectionCard } from "@/components/common/section-card";
 
 const LABELS: Record<M6DTarget, string> = {
@@ -29,8 +30,6 @@ const LABELS: Record<M6DTarget, string> = {
 };
 const SECTION_LABELS: Record<M6DVoiceSection, string> = { ...LABELS, diagnoses: "Diagnoses", investigations: "Investigation orders" };
 const M6D_CLINICAL_EVENT = "dd:m6d-clinical-command";
-const SILENCE_FINALIZE_MS = 800;
-const FAST_NAVIGATION_STABLE_MS = 80;
 const VOICE_RESTART_DELAY_MS = 100;
 const NOTE_TARGETS = new Set<M6DTarget>(["chiefComplaints", "symptoms", "presentIllness", "pastHistory", "examination", "assessment", "advice", "nextVisitNote"]);
 const M6F_TARGET_OPTIONS = M6F_CONSULTATION_TARGETS.filter(
@@ -79,11 +78,6 @@ function navigationSection(intent: M6BIntent): M6DTarget | null {
   return map[intent.target] ?? null;
 }
 
-function isM6DDiagnosisDirectOpenIntent(intent: M6DLocalIntent): boolean {
-  return intent.type === "DIAGNOSIS_NAVIGATE" ||
-    (intent.type === "DIAGNOSIS_TARGET" && intent.target === "title");
-}
-
 export function M6AVoicePanel({
   values,
   diagnosisDraft,
@@ -118,12 +112,12 @@ export function M6AVoicePanel({
   const [ambientDraft, setAmbientDraft] = React.useState("");
   const [lastChange, setLastChangeState] = React.useState<LastVoiceChange | null>(null);
   const voiceStateRef = React.useRef<M6DVoiceState>(INITIAL_M6D_VOICE_STATE);
+  const activeTargetRef = React.useRef<M6FConsultationTarget>("chiefComplaints");
   const lastChangeRef = React.useRef<LastVoiceChange | null>(null);
   const valuesRef = React.useRef(values);
   const startRef = React.useRef<(() => void) | null>(null);
   const stopRef = React.useRef<(() => void) | null>(null);
   const silenceTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
-  const fastNavigationTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const bloodPressureTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const bloodPressureCaptureRef = React.useRef<BloodPressureCaptureState>({ pending: null });
   const latestPreviewRef = React.useRef("");
@@ -138,7 +132,6 @@ export function M6AVoicePanel({
   React.useEffect(() => { valuesRef.current = values; }, [values]);
   React.useEffect(() => () => {
     if (silenceTimer.current) clearTimeout(silenceTimer.current);
-    if (fastNavigationTimer.current) clearTimeout(fastNavigationTimer.current);
     if (bloodPressureTimer.current) clearTimeout(bloodPressureTimer.current);
   }, []);
   React.useLayoutEffect(() => {
@@ -184,6 +177,17 @@ export function M6AVoicePanel({
     setVoiceState(next);
   }
 
+  function syncVoiceTarget(
+    target: M6FConsultationTarget,
+    destination?: M6DVoiceDestination,
+    message?: string,
+  ) {
+    activeTargetRef.current = target;
+    setActiveTarget(target);
+    if (destination) commitVoiceState((current) => ({ ...current, destination }));
+    if (message) setStatus(message);
+  }
+
   function recordChange(change: LastVoiceChange | null) {
     lastChangeRef.current = change;
     setLastChangeState(change);
@@ -191,63 +195,22 @@ export function M6AVoicePanel({
 
   function setDestination(destination: M6DVoiceDestination, message?: string) {
     pendingReplaceLastRef.current = null;
-    commitVoiceState((current) => ({ ...current, destination }));
-    if (message) setStatus(message);
+    syncVoiceTarget(m6fConsultationTargetForDestination(destination), destination, message);
   }
 
   function rollbackPendingNavigation() {
     const pending = voiceStateRef.current.pendingNavigation;
     if (!pending || pending.consumed) return;
-    commitVoiceState((current) => ({ ...current, destination: pending.previousDestination, pendingNavigation: null }));
-  }
-
-  function routePendingNavigation(intent: M6DNavigationIntent, consumed: boolean) {
-    const key = m6dNavigationCommandKey(intent);
-    const existing = voiceStateRef.current.pendingNavigation;
-    if (existing?.key === key) {
-      commitVoiceState((current) => ({ ...current, pendingNavigation: current.pendingNavigation ? { ...current.pendingNavigation, consumed: current.pendingNavigation.consumed || consumed } : null }));
-      return;
-    }
-    if (existing && !existing.consumed) rollbackPendingNavigation();
-    const previousDestination = voiceStateRef.current.destination;
-    const destination = m6dVoiceDestinationForIntent(previousDestination, intent);
-    if (!destination || destination.kind !== "note") return;
-    const pending: M6DPendingNavigation = { key, target: destination.target, previousDestination, consumed };
-    commitVoiceState((current) => ({ ...current, destination, pendingNavigation: pending }));
-    focusDestination(destination);
-    setStatus(`Current target: ${LABELS[destination.target]}.`);
+    const previous = pending.previousDestination;
+    syncVoiceTarget(m6fConsultationTargetForDestination(previous), previous);
+    commitVoiceState((current) => ({ ...current, pendingNavigation: null }));
   }
 
   function previewWithSilenceFinalization(text: string) {
     setPreview(text);
     latestPreviewRef.current = text;
     clearSilenceTimer();
-    if (fastNavigationTimer.current) clearTimeout(fastNavigationTimer.current);
-    fastNavigationTimer.current = null;
     if (!text.trim()) return;
-
-    if (mode === "guided") {
-      const candidate = parseCurrentLocalCommand(text);
-      const pending = voiceStateRef.current.pendingNavigation;
-      if (pending && !pending.consumed) {
-        if (!isM6DNavigationIntent(candidate) || m6dNavigationCommandKey(candidate) !== pending.key) {
-          rollbackPendingNavigation();
-        }
-      }
-      const immediateDestination = m6dVoiceDestinationForIntent(voiceStateRef.current.destination, candidate);
-      if (isM6DNavigationIntent(candidate) || isM6DDiagnosisDirectOpenIntent(candidate) || immediateDestination?.kind === "investigation") {
-        const observed = text;
-        fastNavigationTimer.current = setTimeout(() => {
-          fastNavigationTimer.current = null;
-          if (voiceStateRef.current.session === "listening" && latestPreviewRef.current === observed) {
-            if (isM6DNavigationIntent(candidate) && immediateDestination?.kind === "note") routePendingNavigation(candidate, false);
-            // Define the command boundary without stopping the microphone or
-            // WebSocket. The provider flushes and clears exactly this utterance.
-            dictation.commitUtterance();
-          }
-        }, FAST_NAVIGATION_STABLE_MS);
-      }
-    }
 
     if (mode === "guided") {
       const observed = text;
@@ -261,14 +224,14 @@ export function M6AVoicePanel({
         if (voiceStateRef.current.session !== "idle" && latestPreviewRef.current === observed) {
           dictation.commitUtterance();
         }
-      }, guidedVoiceFinalizationDelay(text, SILENCE_FINALIZE_MS));
+      }, guidedVoiceFinalizationDelay(text, m6fSilenceFinalizeMs(voiceLanguage.lang)));
       return;
     }
 
     silenceTimer.current = setTimeout(() => {
       silenceTimer.current = null;
       if (voiceStateRef.current.session === "listening") stopRef.current?.();
-    }, SILENCE_FINALIZE_MS);
+    }, m6fSilenceFinalizeMs(voiceLanguage.lang));
   }
 
   async function handleGuidedUtteranceEnd(text: string) {
@@ -315,14 +278,12 @@ export function M6AVoicePanel({
   }
 
   function navigate(next: M6DTarget) {
-    setActiveTarget(next);
     const destination: M6DVoiceDestination = { kind: "note", target: next };
     setDestination(destination, `Current target: ${LABELS[next]}.`);
     focusDestination(destination);
   }
 
   function focusM6FTarget(target: M6FConsultationTarget) {
-    setActiveTarget(target);
     if (NOTE_TARGETS.has(target as M6DTarget)) return navigate(target as M6DTarget);
     if (target === "diagnoses" || target === "diagnosisTitle") return applyDiagnosisIntent({ type: "DIAGNOSIS_TARGET", target: "title" });
     if (target === "diagnosisCertainty") return applyDiagnosisIntent({ type: "DIAGNOSIS_TARGET", target: "certainty" });
@@ -330,6 +291,7 @@ export function M6AVoicePanel({
     if (["investigations", "investigationSearch", "stagedInvestigations", "stagedInvestigationTitle", "stagedInvestigationNote", "confirmedInvestigationTitle", "confirmedInvestigationNote"].includes(target)) {
       return applyInvestigationIntent({ type: "INVESTIGATION_TARGET", target: "field" });
     }
+    syncVoiceTarget(target);
     if (target === "prescription") return onOpenPrescription();
     const selectors: Partial<Record<M6FConsultationTarget, string>> = {
       vitals: "[data-m6f-vitals]", moreVitals: "[data-m6f-more-vitals]", bloodPressure: "#vitalSystolic",
@@ -367,7 +329,10 @@ export function M6AVoicePanel({
       focusM6FInvestigationTarget(investigation.target, investigation.index);
       return true;
     }
-    const intent = parseM6FConsultationCommand(text);
+    const intent = parseM6FConsultationCommand(text, {
+      activeTarget: activeTargetRef.current,
+      destination: voiceStateRef.current.destination,
+    });
     if (intent.type === "NONE") return false;
     if (intent.type === "OPEN_PRESCRIPTION") {
       onOpenPrescription();
@@ -424,7 +389,7 @@ export function M6AVoicePanel({
       stagedList: "stagedInvestigations", stagedTitle: "stagedInvestigationTitle", stagedNote: "stagedInvestigationNote",
       confirmedTitle: "confirmedInvestigationTitle", confirmedNote: "confirmedInvestigationNote", confirm: "confirmInvestigations",
     };
-    if (voiceTarget[target]) setActiveTarget(voiceTarget[target]!);
+    if (voiceTarget[target]) syncVoiceTarget(voiceTarget[target]!);
     const selectors: Record<Exclude<M6FInvestigationTarget, "section" | "search">, string> = {
       stagedList: "#investigation-staged-heading",
       stagedTitle: '[id^="staged-investigation-"]', stagedNote: '[id^="staged-note-"]',
@@ -442,10 +407,6 @@ export function M6AVoicePanel({
     if (intent.type === "DIAGNOSIS_NAVIGATE") {
       return applyDiagnosisIntent({ type: "DIAGNOSIS_TARGET", target: "title" });
     }
-
-    setActiveTarget(intent.type === "DIAGNOSIS_TARGET"
-      ? intent.target === "title" ? "diagnosisTitle" : intent.target === "certainty" ? "diagnosisCertainty" : "diagnosisNote"
-      : "diagnosisCertainty");
 
     const destination = m6dVoiceDestinationForIntent(voiceStateRef.current.destination, intent);
     if (destination) setDestination(destination);
@@ -557,7 +518,6 @@ export function M6AVoicePanel({
 
   function applyInvestigationIntent(intent: M6DInvestigationIntent) {
     void intent;
-    setActiveTarget("investigationSearch");
     setDestination({ kind: "investigation", target: "field" });
     onFocusInvestigation();
     setStatus("Investigation search field focused. Ordinary speech may edit the search; staging still requires an explicit action.");
@@ -626,6 +586,9 @@ export function M6AVoicePanel({
     }
     if (priority === "edit" && applyDestinationEdit(intent)) return;
     if (priority === "navigation") {
+      if (intent.type === "NEXT" || intent.type === "PREVIOUS") {
+        return focusM6FTarget(nextM6FConsultationTarget(activeTargetRef.current, intent.type === "NEXT" ? 1 : -1));
+      }
       if (isM6DDiagnosisIntent(intent)) return applyDiagnosisIntent(intent);
       if (isM6DInvestigationIntent(intent)) return applyInvestigationIntent(intent);
       const destination = m6dVoiceDestinationForIntent(voiceStateRef.current.destination, intent);
@@ -640,33 +603,16 @@ export function M6AVoicePanel({
 
   function handleProviderFinal(rawText: string) {
     if (mode !== "guided") return;
-    const local = parseCurrentLocalCommand(rawText);
-    if (local.type === "NONE") {
-      rollbackPendingNavigation();
-      return;
-    }
-    if (isM6DNavigationIntent(local) && m6dVoiceDestinationForIntent(voiceStateRef.current.destination, local)?.kind === "note") {
-      routePendingNavigation(local, true);
-    }
-    // Every deterministic standalone command defines its own utterance boundary.
-    // This prevents persistent provider buffers from delaying or replaying controls.
-    dictation.commitUtterance();
-    clearSilenceTimer();
-    if (fastNavigationTimer.current) clearTimeout(fastNavigationTimer.current);
-    fastNavigationTimer.current = null;
+    void rawText;
+    // Deepgram can mark a stable fragment final while the Doctor is still
+    // speaking. Provider-final therefore never forces an application boundary;
+    // provider utterance-end or language-aware stable silence owns the commit.
+    shouldCommitM6FProviderFinal();
   }
 
   async function handleFinal(rawText: string, restart = true) {
     clearSilenceTimer();
     setPreview("");
-    const pendingNavigation = voiceStateRef.current.pendingNavigation;
-    const rawFinalLocal = parseCurrentLocalCommand(rawText);
-    if (pendingNavigation && isM6DNavigationIntent(rawFinalLocal) && m6dNavigationCommandKey(rawFinalLocal) === pendingNavigation.key) {
-      commitVoiceState((current) => ({ ...current, pendingNavigation: null }));
-      if (restart) scheduleRestart();
-      return;
-    }
-    if (pendingNavigation && !pendingNavigation.consumed) rollbackPendingNavigation();
     const text = await normalizeTranscript(rawText, voiceLanguage.lang);
     if (mode === "ambient") {
       setAmbientDraft((current) => [current.trim(), text.trim()].filter(Boolean).join(" "));
@@ -705,6 +651,7 @@ export function M6AVoicePanel({
     }
 
     const destination = voiceStateRef.current.destination;
+    const authoritativeTarget = activeTargetRef.current;
 
     // Clinical action safety wins before target-specific dictation. This keeps
     // phrases such as “Add CBC” or “Add Napa…” in the protected proposal flow
@@ -723,6 +670,13 @@ export function M6AVoicePanel({
     // the utterance, so medicine/investigation proposal commands remain safe.
     const appendText = parseM6DAppendText(text);
     const dictationText = normalizeClinicalNumbers(appendText ?? text);
+
+    if (!NOTE_TARGETS.has(authoritativeTarget as M6DTarget) &&
+      !["diagnosisTitle", "diagnosisNote", "investigationSearch"].includes(authoritativeTarget)) {
+      setStatus("The current Voice target expects a structured value or explicit control command. Nothing was inserted elsewhere.");
+      if (restart) scheduleRestart();
+      return;
+    }
 
     if (destination.kind === "diagnosis" && destination.target === "certainty") {
       setStatus("Diagnosis certainty expects Provisional, Working, Confirmed, or Ruled out. Nothing was inserted.");
@@ -860,7 +814,7 @@ export function M6AVoicePanel({
 
   return (
     <div ref={stickyShellRef} className="sticky top-2 z-40 min-w-0">
-    <SectionCard data-m6d-voice-assistant data-voice-mode={LIVE_VOICE_ENABLED ? "live-ai" : "mock"} data-silence-finalize-ms={SILENCE_FINALIZE_MS} className="max-h-[42vh] min-w-0 overflow-y-auto border-brand/25 p-2.5 sm:max-h-none sm:overflow-visible sm:p-4">
+    <SectionCard data-m6d-voice-assistant data-voice-mode={LIVE_VOICE_ENABLED ? "live-ai" : "mock"} data-silence-finalize-ms={m6fSilenceFinalizeMs(voiceLanguage.lang)} className="max-h-[42vh] min-w-0 overflow-y-auto border-brand/25 p-2.5 sm:max-h-none sm:overflow-visible sm:p-4">
       <div className="flex min-w-0 flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2"><Mic2 className="size-4 text-brand" aria-hidden="true" /><h2 className="text-[14px] font-semibold text-ink">Voice Assistant</h2><span className="rounded-full bg-brand/10 px-2 py-0.5 text-[10px] font-semibold text-brand">M6D</span>{sessionActive && !paused ? <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-[#a81c1c]"><span className="size-2 animate-pulse rounded-full bg-[#a81c1c]" />Listening</span> : null}</div>
