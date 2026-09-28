@@ -6,7 +6,7 @@ import { usePathname } from "next/navigation";
 import { Sparkles } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { BrandMark, BrandWordmark } from "@/components/brand/brand-mark";
-import { PRIMARY_NAV, SECONDARY_NAV, type NavItem } from "./nav-config";
+import { PRIMARY_NAV, SECONDARY_NAV, VOICE_GUIDE_NAV, type NavItem } from "./nav-config";
 import type { NavCounts } from "@/features/queue/nav-counts";
 
 /**
@@ -55,6 +55,9 @@ export function DesktopSidebar({
       </nav>
 
       <div className="border-t border-glass-border px-3 py-3">
+        <ul className="mb-1 space-y-1">
+          <SidebarLink item={VOICE_GUIDE_NAV} pathname={pathname} />
+        </ul>
         <Link
           href="/assistant"
           className="dd-assistant-link flex items-center gap-3 rounded-xl px-3 py-2.5 text-brand transition-colors focus-visible:focus-ring xl:px-3"

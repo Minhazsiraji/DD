@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
-import { PRIMARY_NAV, SECONDARY_NAV, MOBILE_NAV, QUICK_ACTIONS } from "./nav-config";
+import { PRIMARY_NAV, SECONDARY_NAV, MOBILE_NAV, QUICK_ACTIONS, VOICE_GUIDE_NAV } from "./nav-config";
 
 /**
  * Every navigation target must be a route that exists.
@@ -69,6 +69,7 @@ describe("navigation goes somewhere", () => {
 
   for (const [name, items] of [
     ["PRIMARY_NAV", PRIMARY_NAV],
+    ["VOICE_GUIDE_NAV", [VOICE_GUIDE_NAV]],
     ["SECONDARY_NAV", SECONDARY_NAV],
     ["MOBILE_NAV", MOBILE_NAV],
   ] as const) {

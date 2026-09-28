@@ -14,6 +14,8 @@ import {
   ClipboardPlus,
   Upload,
   Printer,
+  ChartNoAxesCombined,
+  AudioLines,
 } from "lucide-react";
 import type { OrbAccent } from "@/components/common/icon-orb";
 
@@ -40,6 +42,7 @@ const ICON = "size-[18px]";
 /** Desktop sidebar / tablet rail — the full workspace map. */
 export const PRIMARY_NAV: NavItem[] = [
   { href: "/dashboard", label: "Dashboard", icon: <LayoutDashboard className={ICON} /> },
+  { href: "/analytics", label: "Analytics", icon: <ChartNoAxesCombined className={ICON} /> },
   { href: "/queue", label: "Live Queue", icon: <ListChecks className={ICON} />, badgeKey: "waiting" },
   /*
     Reception's way to a signed prescription. Listed for everyone because the
@@ -59,6 +62,12 @@ export const PRIMARY_NAV: NavItem[] = [
   { href: "/documents", label: "Documents", icon: <FileText className={ICON} /> },
   { href: "/payments", label: "Payments", icon: <CircleDollarSign className={ICON} /> },
 ];
+
+export const VOICE_GUIDE_NAV: NavItem = {
+  href: "/voice-guide",
+  label: "Voice Guide",
+  icon: <AudioLines className={ICON} />,
+};
 
 export const SECONDARY_NAV: NavItem[] = [
   { href: "/settings", label: "Settings", icon: <Settings className={ICON} /> },
@@ -140,4 +149,3 @@ export const QUICK_ACTIONS: QuickAction[] = [
     accent: "info",
   },
 ];
-
