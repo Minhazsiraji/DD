@@ -15,6 +15,7 @@ import { SectionCard, SectionHeader } from "@/components/common/section-card";
 import { StatCard } from "@/components/common/stat-card";
 import { STATUS_LABEL } from "@/features/appointments/schema";
 import { cn } from "@/lib/utils";
+import { getAnalyticsChambers } from "../scope";
 import {
   ANALYTICS_PERIODS,
   type AnalyticsPeriod,
@@ -23,7 +24,8 @@ import {
 
 const PERIOD_LABEL: Record<AnalyticsPeriod, string> = { 1: "Today", 7: "7 days", 30: "30 days", all: "All time" };
 
-export function AnalyticsDashboard({ outcome, selected }: { outcome: DoctorAnalyticsOutcome; selected: AnalyticsPeriod }) {
+export async function AnalyticsDashboard({ outcome, selected, selectedScope }: { outcome: DoctorAnalyticsOutcome; selected: AnalyticsPeriod; selectedScope: string }) {
+  const chambers = await getAnalyticsChambers();
   if (!outcome.ok) {
     return (
       <SectionCard className="p-6 sm:p-8">
@@ -50,11 +52,12 @@ export function AnalyticsDashboard({ outcome, selected }: { outcome: DoctorAnaly
   return (
     <div className="min-w-0 space-y-5 sm:space-y-6">
       <div className="flex min-w-0 flex-wrap items-center justify-between gap-3">
+        <form action="/analytics"><input type="hidden" name="period" value={String(selected)} /><select name="scope" defaultValue={selectedScope} className="min-h-9 rounded-lg border border-hairline bg-white/70 px-3 text-xs font-semibold" aria-label="Analytics chamber scope"><option value="all">All Chambers</option>{chambers.map(c => <option key={c.locationId} value={c.locationId}>{c.locationName}</option>)}</select><button className="ml-2 min-h-9 rounded-lg border border-hairline px-3 text-xs font-semibold">Apply</button></form>
         <div className="flex min-w-0 flex-wrap gap-1 rounded-xl bg-white/55 p-1" aria-label="Analytics date range">
           {ANALYTICS_PERIODS.map((period) => (
             <Link
               key={period}
-              href={`/analytics?period=${period}`}
+              href={`/analytics?period=${period}&scope=${encodeURIComponent(selectedScope)}`}
               aria-current={selected === period ? "page" : undefined}
               className={cn(
                 "inline-flex min-h-9 items-center rounded-lg px-3 text-xs font-semibold transition-colors focus-visible:focus-ring",
@@ -75,11 +78,11 @@ export function AnalyticsDashboard({ outcome, selected }: { outcome: DoctorAnaly
         <div className="grid min-w-0 grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-4">
           <StatCard label="Patient encounters" value={data.patientCount} icon={<Users className="size-5" />} hint="Consultations started in this period" accent="success" />
           <StatCard label="Income" value="—" icon={<WalletCards className="size-5" />} hint="Not configured" />
-          <StatCard label="Cost" value="—" icon={<WalletCards className="size-5" />} hint="Not configured" />
+          <StatCard label="Cost" value={`৳${data.financials.cost}`} icon={<WalletCards className="size-5" />} hint="Expense ledger" />
           <StatCard label="Net income" value="—" icon={<WalletCards className="size-5" />} hint="Not configured" />
         </div>
         <p className="mt-2 text-xs leading-5 text-ink-muted">
-          Income, Cost and Net Income will be calculated from Doctor practice Payment and Cost records when financial tracking is configured.
+          Cost is calculated from your Doctor expense ledger. Income and Net Income remain unavailable until an authoritative patient/practice revenue source exists.
         </p>
       </section>
 

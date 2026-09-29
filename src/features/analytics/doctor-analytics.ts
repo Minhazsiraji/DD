@@ -15,10 +15,7 @@ export interface DoctorAnalytics {
   locationName: string;
   timeZone: string;
   patientCount: number;
-  financials: {
-    status: "not-configured";
-    reason: string;
-  };
+  financials: { status: "cost-authoritative"; cost: string; income: null; netIncome: null; reason: string; };
   encounters: number;
   completedEncounters: number;
   appointments: number;
@@ -64,13 +61,26 @@ function chunks<T>(values: readonly T[], size = 100): T[][] {
   return result;
 }
 
-export async function getDoctorAnalytics(period: AnalyticsPeriod): Promise<DoctorAnalyticsOutcome> {
+async function supabaseScope(doctorId: string, activeLocationId: string, requested: string) {
+  const supabase = await createSupabaseServerClient();
+  const result = await supabase.rpc("doctor_expense_chambers");
+  if (result.error || !Array.isArray(result.data)) return null;
+  const chambers = result.data as unknown as {locationId:string;locationName:string;timezone:string}[];
+  const chosen = requested === "all" ? chambers : requested === "active" ? chambers.filter(c=>c.locationId===activeLocationId) : chambers.filter(c=>c.locationId===requested);
+  if (!chosen.length) return null;
+  const zones = new Set(chosen.map(c=>c.timezone));
+  return { locationIds: chosen.map(c=>c.locationId), locationName: requested === "all" ? "All Chambers" : chosen[0].locationName, timeZone: zones.size === 1 ? chosen[0].timezone : "Asia/Dhaka" };
+}
+
+export async function getDoctorAnalytics(period: AnalyticsPeriod, requestedScope = "active"): Promise<DoctorAnalyticsOutcome> {
   const authority = await getM1DoctorAuthority();
   if (!authority.canClinical || !authority.doctorId || !authority.localDate) {
     return { ok: false, reason: "doctor-required" };
   }
 
-  const timeZone = authority.timeZone ?? "Asia/Dhaka";
+  const scopeResult = await supabaseScope(authority.doctorId, authority.locationId, requestedScope);
+  if (!scopeResult) return { ok: false, reason: "unavailable" };
+  const { locationIds, locationName, timeZone } = scopeResult;
   const { startDate, endDateExclusive, endDateInclusive } = analyticsDateRange(
     authority.localDate,
     period,
@@ -82,7 +92,7 @@ export async function getDoctorAnalytics(period: AnalyticsPeriod): Promise<Docto
     .from("appointments")
     .select("id,status,visit_type,session_date")
     .eq("owner_doctor_id", authority.doctorId)
-    .eq("practice_location_id", authority.locationId)
+    .in("practice_location_id", locationIds)
     .lt("session_date", endDateExclusive);
   if (startDate) appointmentQuery = appointmentQuery.gte("session_date", startDate);
 
@@ -90,23 +100,30 @@ export async function getDoctorAnalytics(period: AnalyticsPeriod): Promise<Docto
     .from("encounters")
     .select("id,status,started_at,completed_at")
     .eq("owner_doctor_id", authority.doctorId)
-    .eq("practice_location_id", authority.locationId)
+    .in("practice_location_id", locationIds)
     .lt("started_at", utc?.to ?? `${endDateExclusive}T12:00:00.000Z`);
   if (utc) encounterQuery = encounterQuery.gte("started_at", utc.from);
 
-  const [appointmentResult, encounterResult, finalizedResult] = await Promise.all([
+  let expenseQuery = supabase.from("doctor_expenses").select("amount,expense_date,practice_location_id").eq("owner_doctor_id", authority.doctorId).in("practice_location_id", locationIds).lt("expense_date", endDateExclusive);
+  if (startDate) expenseQuery = expenseQuery.gte("expense_date", startDate);
+
+  const [appointmentResult, encounterResult, finalizedResult, expenseResult] = await Promise.all([
     appointmentQuery,
     encounterQuery,
     supabase.rpc("finalized_prescriptions_at", {
-      p_practice_location_id: authority.locationId,
+      p_practice_location_id: locationIds.length === 1 ? locationIds[0] : null,
       p_patient_id: null,
     }),
+    expenseQuery,
   ]);
 
-  if (appointmentResult.error || encounterResult.error || finalizedResult.error) {
+  if (appointmentResult.error || encounterResult.error || finalizedResult.error || expenseResult.error) {
     console.error("[analytics] primary aggregate read failed");
     return { ok: false, reason: "unavailable" };
   }
+
+  const costCents = (expenseResult.data ?? []).reduce((sum, row) => sum + Math.round(Number(row.amount) * 100), 0);
+  const cost = (costCents / 100).toFixed(2);
 
   const appointments = (appointmentResult.data ?? []) as unknown as {
     id: string;
@@ -168,7 +185,7 @@ export async function getDoctorAnalytics(period: AnalyticsPeriod): Promise<Docto
         .from("encounters")
         .select("id")
         .eq("owner_doctor_id", authority.doctorId)
-        .eq("practice_location_id", authority.locationId)
+        .in("practice_location_id", locationIds)
         .in("id", ids)
         .then((result) => {
           if (result.error) return false;
@@ -212,13 +229,10 @@ export async function getDoctorAnalytics(period: AnalyticsPeriod): Promise<Docto
       period,
       startDate,
       endDateInclusive,
-      locationName: authority.locationName,
+      locationName,
       timeZone,
       patientCount: encounters.length,
-      financials: {
-        status: "not-configured",
-        reason: "Financial tracking not configured. Practice income and expense ledgers are not yet authoritative.",
-      },
+      financials: { status: "cost-authoritative", cost, income: null, netIncome: null, reason: "Practice Income is not configured; existing subscription payments are Doctor’s Diary SaaS billing and are excluded." },
       encounters: encounters.length,
       completedEncounters: encounters.filter((row) => row.status === "COMPLETED").length,
       appointments: appointments.length,
