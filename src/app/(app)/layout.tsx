@@ -14,6 +14,7 @@ import { todayInDhaka } from "@/features/appointments/schema";
 import { logPreviewElapsed, startPreviewTimer, timedPreviewStage } from "@/lib/preview-timing";
 import { BackgroundCanvas } from "@/features/settings/components/background-canvas";
 import { EngagementBeacon } from "@/features/engagement/components/engagement-beacon";
+import { AppFooter } from "@/components/layout/app-footer";
 import { engagementPipelineWired } from "@/features/engagement/ports";
 
 /**
@@ -116,6 +117,7 @@ export default async function AppLayout({ children }: LayoutProps<"/">) {
         >
           {children}
         </main>
+        <AppFooter />
       </div>
 
       <MobileBottomNav />

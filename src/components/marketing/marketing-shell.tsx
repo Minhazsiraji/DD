@@ -47,7 +47,9 @@ export function MarketingShell({ children }: { children: ReactNode }) {
             <Link href="/security">Security</Link>
           </div>
           <div className="grid gap-2">
-            <Link href="/faq">FAQ</Link>
+            <Link href="/faq">Frequently Asked Questions</Link>
+            <Link href="/privacy">Privacy</Link>
+            <Link href="/terms">Terms &amp; Conditions</Link>
             <Link href="/contact">Contact</Link>
             <Link href="/login">Doctor sign in</Link>
           </div>
