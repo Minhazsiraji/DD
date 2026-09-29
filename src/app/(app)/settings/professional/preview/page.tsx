@@ -4,7 +4,7 @@ import { notFound } from "next/navigation";
 import { ArrowLeft, Eye, EyeOff } from "lucide-react";
 import { requireLocationContext } from "@/lib/auth/session";
 import { getOwnProfile } from "@/features/doctor/profile";
-import { DoctorProfileCard } from "@/features/doctor/components/profile-card";
+import { PublicDoctorProfile } from "@/features/public-booking/components/public-doctor-profile";
 import { PublicProfileControls } from "@/features/doctor/components/public-profile-controls";
 
 export const metadata: Metadata = {
@@ -40,11 +40,13 @@ export default async function ProfilePreviewPage() {
         <PublicProfileControls slug={profile.slug} visibility={profile.visibility} compact />
       </div>
 
-      <DoctorProfileCard profile={profile} />
+      <div className="mx-auto max-w-5xl">
+        <PublicDoctorProfile doctor={{ ...profile, slug: profile.slug ?? "preview", bmdc: profile.bmdc ?? null, chambers: profile.chambers.map((chamber) => ({ chamberId: chamber.locationId, locationId: chamber.locationId, name: chamber.name, address: chamber.addressLine, district: null, publicNote: chamber.publicNote, bookingEnabled: false, bookingMode: null, consultationFee: null, currency: "BDT", sessions: chamber.sessions })) }} photoUrl={profile.photoUrl} showBooking={false} />
+      </div>
 
       <p className="mx-auto max-w-[560px] text-center text-[12px] text-ink-muted">
         {published
-          ? "This preview uses your patient-facing profile details. Use View public profile above to verify the anonymous page."
+          ? "This preview uses the same universal patient-facing profile layout as your shared public link. Booking is disabled only inside preview."
           : "This is how your profile would look to a patient after you publish it. Anonymous visitors cannot access it yet."}
       </p>
     </div>

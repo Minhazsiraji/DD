@@ -36,7 +36,7 @@ describe("public doctor profile presentation", () => {
   });
 
   it("keeps booking chamber-specific and shows an explicit unavailable state", () => {
-    const profile = source("src/app/dr/[slug]/page.tsx");
+    const profile = source("src/features/public-booking/components/public-doctor-profile.tsx");
 
     expect(profile).toContain("doctor.chambers.map((chamber)");
     expect(profile).toContain("chamber.bookingEnabled ?");
@@ -58,7 +58,7 @@ describe("public doctor profile presentation", () => {
   });
 
   it("stacks profile and chamber CTA layout on phones but keeps a horizontal desktop composition", () => {
-    const profile = source("src/app/dr/[slug]/page.tsx");
+    const profile = source("src/features/public-booking/components/public-doctor-profile.tsx");
 
     expect(profile).toContain("flex-col items-center gap-5 text-center sm:flex-row");
     expect(profile).toContain("md:grid-cols-[minmax(0,1fr)_auto]");
