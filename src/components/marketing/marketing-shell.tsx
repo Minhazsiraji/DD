@@ -36,6 +36,10 @@ export function MarketingShell({ children }: { children: ReactNode }) {
           <div>
             <p className="font-semibold text-ink">Doctor&apos;s Diary</p>
             <p className="mt-2 max-w-md">Less typing. Less searching. Less remembering. More patient.</p>
+            <div className="mt-4 space-y-1 text-xs">
+              <p>Developed by: <a className="font-semibold text-brand hover:underline" href="https://agentsiraji.com" target="_blank" rel="noreferrer">AgentSiraji.com</a></p>
+              <p>Contact: <a className="hover:underline" href="mailto:business@agentsiraji.com">business@agentsiraji.com</a></p>
+            </div>
           </div>
           <div className="grid gap-2">
             <Link href="/features">Features</Link>
