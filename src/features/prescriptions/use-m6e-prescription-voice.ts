@@ -19,6 +19,7 @@ import {
   type M6EMedicineLookupScope,
   type M6EVoiceMedicineField,
 } from "./m6e-prescription-voice-contract";
+import { resolveDoctorVoiceUtterance } from "@/features/dictation/m6f-voice-personalization";
 
 const FIELD_SET = new Set<string>(M6E_VOICE_FIELD_ORDER);
 
@@ -500,6 +501,7 @@ export function useM6EPrescriptionVoiceController({
   }
 
   async function handleStableTranscript(text: string): Promise<string> {
+    text = resolveDoctorVoiceUtterance(text);
     const current = destinationRef.current;
     const fieldTarget = current.kind === "MEDICINE_FIELD" ? current.field : null;
     const intent = parseM6EPrescriptionVoiceTargeting(text, {

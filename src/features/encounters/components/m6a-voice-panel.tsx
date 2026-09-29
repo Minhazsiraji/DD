@@ -16,6 +16,7 @@ import { parseM6BCommand, type M6BIntent } from "@/features/dictation/m6b-comman
 import { M6F_CONSULTATION_TARGETS, m6fConsultationTargetForDestination, nextM6FConsultationTarget, parseM6FConsultationCommand, type M6FConsultationTarget } from "@/features/dictation/m6f-consultation-controls";
 import { parseM6FInvestigationCommand, type M6FInvestigationTarget } from "@/features/dictation/m6f-investigation-controls";
 import { m6fSilenceFinalizeMs, shouldCommitM6FProviderFinal } from "@/features/dictation/m6f-utterance-boundary";
+import { resolveDoctorVoiceUtterance } from "@/features/dictation/m6f-voice-personalization";
 import { SectionCard } from "@/components/common/section-card";
 
 const LABELS: Record<M6DTarget, string> = {
@@ -166,7 +167,7 @@ export function M6AVoicePanel({
 
   function parseCurrentLocalCommand(text: string) {
     const destination = voiceStateRef.current.destination;
-    return parseM6DLocalCommand(text, {
+    return parseM6DLocalCommand(resolveDoctorVoiceUtterance(text), {
       activeTarget: destination.kind === "note" ? destination.target : undefined,
     });
   }
@@ -308,6 +309,7 @@ export function M6AVoicePanel({
   }
 
   function applyM6FConsultation(text: string): boolean {
+    text = resolveDoctorVoiceUtterance(text);
     const investigation = parseM6FInvestigationCommand(text);
     if (investigation.type !== "NONE") {
       if (investigation.type === "PROTECTED_CONFIRM") {
@@ -623,6 +625,17 @@ export function M6AVoicePanel({
     if (applyM6FConsultation(text)) {
       if (restart) scheduleRestart();
       return;
+    }
+    const personalizedText = resolveDoctorVoiceUtterance(text);
+    if (personalizedText !== text) {
+      const personalizedClinical = parseM6BCommand(personalizedText);
+      if (personalizedClinical.type !== "UNKNOWN") {
+        const section = navigationSection(personalizedClinical);
+        if (section) navigate(section);
+        else handOffClinicalAction(personalizedText);
+        if (restart) scheduleRestart();
+        return;
+      }
     }
     const local = parseCurrentLocalCommand(text);
     if (local.type !== "NONE") {

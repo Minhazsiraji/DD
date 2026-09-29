@@ -95,6 +95,9 @@ export function restoreM6EMixedContractTerms(transcript: string): string {
  */
 export function restoreM6ECommandTerms(transcript: string): string {
   let restored = transcript.normalize("NFC");
+  if (/^(?:medicine|oshudh|ওষুধ|মেডিসিন)(?:\s*(?:ta|টা|টি))\s+(?:add|এড|অ্যাড|যোগ)(?:\s+(?:koro|korun|করো|করুন))?$/iu.test(restored.trim())) {
+    return "add medicine";
+  }
   for (const [source, target] of COMMAND_ONLY_RESTORATIONS) {
     restored = replaceStandalone(restored, source, target);
   }

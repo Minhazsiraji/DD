@@ -10,10 +10,15 @@ export { ANALYTICS_PERIODS, type AnalyticsPeriod } from "./doctor-analytics-type
 
 export interface DoctorAnalytics {
   period: AnalyticsPeriod;
-  startDate: string;
+  startDate: string | null;
   endDateInclusive: string;
   locationName: string;
   timeZone: string;
+  patientCount: number;
+  financials: {
+    status: "not-configured";
+    reason: string;
+  };
   encounters: number;
   completedEncounters: number;
   appointments: number;
@@ -32,14 +37,14 @@ export type DoctorAnalyticsOutcome =
 function inLocalRange(
   instant: string | null,
   timeZone: string,
-  startDate: string,
+  startDate: string | null,
   endDateExclusive: string,
 ): boolean {
   if (!instant) return false;
   const parsed = new Date(instant);
   if (Number.isNaN(parsed.getTime())) return false;
   const localDate = localDateInTimeZone(timeZone, parsed);
-  return localDate >= startDate && localDate < endDateExclusive;
+  return (startDate === null || localDate >= startDate) && localDate < endDateExclusive;
 }
 
 function wideUtcBounds(startDate: string, endDateExclusive: string) {
@@ -70,24 +75,28 @@ export async function getDoctorAnalytics(period: AnalyticsPeriod): Promise<Docto
     authority.localDate,
     period,
   );
-  const utc = wideUtcBounds(startDate, endDateExclusive);
+  const utc = startDate ? wideUtcBounds(startDate, endDateExclusive) : null;
   const supabase = await createSupabaseServerClient();
 
+  let appointmentQuery = supabase
+    .from("appointments")
+    .select("id,status,visit_type,session_date")
+    .eq("owner_doctor_id", authority.doctorId)
+    .eq("practice_location_id", authority.locationId)
+    .lt("session_date", endDateExclusive);
+  if (startDate) appointmentQuery = appointmentQuery.gte("session_date", startDate);
+
+  let encounterQuery = supabase
+    .from("encounters")
+    .select("id,status,started_at,completed_at")
+    .eq("owner_doctor_id", authority.doctorId)
+    .eq("practice_location_id", authority.locationId)
+    .lt("started_at", utc?.to ?? `${endDateExclusive}T12:00:00.000Z`);
+  if (utc) encounterQuery = encounterQuery.gte("started_at", utc.from);
+
   const [appointmentResult, encounterResult, finalizedResult] = await Promise.all([
-    supabase
-      .from("appointments")
-      .select("id,status,visit_type,session_date")
-      .eq("owner_doctor_id", authority.doctorId)
-      .eq("practice_location_id", authority.locationId)
-      .gte("session_date", startDate)
-      .lt("session_date", endDateExclusive),
-    supabase
-      .from("encounters")
-      .select("id,status,started_at,completed_at")
-      .eq("owner_doctor_id", authority.doctorId)
-      .eq("practice_location_id", authority.locationId)
-      .gte("started_at", utc.from)
-      .lt("started_at", utc.to),
+    appointmentQuery,
+    encounterQuery,
     supabase.rpc("finalized_prescriptions_at", {
       p_practice_location_id: authority.locationId,
       p_patient_id: null,
@@ -205,6 +214,11 @@ export async function getDoctorAnalytics(period: AnalyticsPeriod): Promise<Docto
       endDateInclusive,
       locationName: authority.locationName,
       timeZone,
+      patientCount: encounters.length,
+      financials: {
+        status: "not-configured",
+        reason: "Financial tracking not configured. Practice income and expense ledgers are not yet authoritative.",
+      },
       encounters: encounters.length,
       completedEncounters: encounters.filter((row) => row.status === "COMPLETED").length,
       appointments: appointments.length,

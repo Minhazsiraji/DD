@@ -15,9 +15,10 @@ export default async function AnalyticsPage({
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const params = await searchParams;
-  const requested = Number(typeof params.period === "string" ? params.period : "7");
-  const period: AnalyticsPeriod = ANALYTICS_PERIODS.includes(requested as AnalyticsPeriod)
-    ? (requested as AnalyticsPeriod)
+  const requested = typeof params.period === "string" ? params.period : "7";
+  const candidate: AnalyticsPeriod = requested === "all" ? "all" : Number(requested) as AnalyticsPeriod;
+  const period: AnalyticsPeriod = ANALYTICS_PERIODS.includes(candidate)
+    ? candidate
     : 7;
   const outcome = await getDoctorAnalytics(period);
 

@@ -17,6 +17,8 @@ export default function VoiceGuidePage() {
         entries={M6F_VOICE_GUIDE.entries}
         controls={M6F_VOICE_GUIDE.controls}
         safety={M6F_VOICE_GUIDE.safety}
+        certificationTotals={M6F_VOICE_GUIDE.certificationTotals}
+        certification={M6F_VOICE_GUIDE.certification}
       />
     </div>
   );

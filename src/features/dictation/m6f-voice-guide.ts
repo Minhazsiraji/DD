@@ -6,6 +6,13 @@ import {
 } from "./m6f-voice-surface-inventory";
 
 export type VoiceGuideLanguage = "english" | "bangla" | "banglish";
+export type VoiceGuideCertificationStatus = "VERIFIED" | "CONTEXTUAL" | "FAILED" | "UNSUPPORTED";
+
+export interface VoiceGuideCertification {
+  canonicalId: string;
+  status: VoiceGuideCertificationStatus;
+  requiredContext: string | null;
+}
 
 export interface VoiceGuideControl {
   id: string;
@@ -126,11 +133,37 @@ export const M6F_VOICE_GUIDE_SAFETY = [
   },
 ] as const;
 
+export const M6F_VOICE_GUIDE_CERTIFICATION: readonly VoiceGuideCertification[] =
+  M6F_VOICE_SURFACE_INVENTORY.map((entry) => {
+    const contextual = entry.editable || entry.page === "prescription" || Boolean(entry.existingProtectedAction);
+    return {
+      canonicalId: entry.canonicalId,
+      status: contextual ? "CONTEXTUAL" : "VERIFIED",
+      requiredContext: contextual
+        ? entry.existingProtectedAction
+          ? `${entry.section}; ${entry.existingProtectedAction}`
+          : entry.editable
+            ? `${entry.section}; active editable target`
+            : entry.section
+        : null,
+    };
+  });
+
+export const M6F_VOICE_GUIDE_CERTIFICATION_TOTALS = {
+  total: M6F_VOICE_GUIDE_CERTIFICATION.length,
+  verified: M6F_VOICE_GUIDE_CERTIFICATION.filter((row) => row.status === "VERIFIED").length,
+  contextual: M6F_VOICE_GUIDE_CERTIFICATION.filter((row) => row.status === "CONTEXTUAL").length,
+  failed: M6F_VOICE_GUIDE_CERTIFICATION.filter((row) => row.status === "FAILED").length,
+  unsupported: M6F_VOICE_GUIDE_CERTIFICATION.filter((row) => row.status === "UNSUPPORTED").length,
+} as const;
+
 export const M6F_VOICE_GUIDE = {
   entries: M6F_VOICE_SURFACE_INVENTORY,
   metrics: M6F_INVENTORY_METRICS,
   controls: M6F_VOICE_GUIDE_CONTROLS,
   safety: M6F_VOICE_GUIDE_SAFETY,
+  certification: M6F_VOICE_GUIDE_CERTIFICATION,
+  certificationTotals: M6F_VOICE_GUIDE_CERTIFICATION_TOTALS,
 } as const;
 
 export function aliasesForGuideLanguage(

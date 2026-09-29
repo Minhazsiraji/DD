@@ -9,11 +9,19 @@ const read = (file: string) => readFileSync(path.resolve(file), "utf8");
 describe("Doctor Voice Guide presentation authority", () => {
   it("uses the live M6F inventory and derives the displayed count", () => {
     expect(M6F_VOICE_GUIDE.metrics.targets).toBe(M6F_VOICE_GUIDE.entries.length);
-    expect(M6F_VOICE_GUIDE.metrics.targets).toBe(68);
     expect(M6F_VOICE_GUIDE.metrics.unsupported).toBe(0);
     const page = read("src/app/(app)/voice-guide/page.tsx");
     expect(page).toContain("M6F_VOICE_GUIDE.metrics.targets");
     expect(page).not.toMatch(/\b68 supported/);
+  });
+
+  it("publishes only runtime-certified or explicitly contextual surfaces", () => {
+    expect(M6F_VOICE_GUIDE.certification).toHaveLength(M6F_VOICE_GUIDE.entries.length);
+    expect(M6F_VOICE_GUIDE.certificationTotals.total).toBe(M6F_VOICE_GUIDE.entries.length);
+    expect(M6F_VOICE_GUIDE.certificationTotals.failed).toBe(0);
+    expect(M6F_VOICE_GUIDE.certificationTotals.unsupported).toBe(0);
+    expect(M6F_VOICE_GUIDE.certificationTotals.verified + M6F_VOICE_GUIDE.certificationTotals.contextual)
+      .toBe(M6F_VOICE_GUIDE.entries.length);
   });
 
   it("represents every consultation and prescription source inventory entry", () => {

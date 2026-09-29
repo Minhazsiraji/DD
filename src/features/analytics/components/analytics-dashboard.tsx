@@ -7,6 +7,8 @@ import {
   ListChecks,
   Stethoscope,
   TriangleAlert,
+  Users,
+  WalletCards,
 } from "lucide-react";
 import { EmptyState } from "@/components/common/empty-state";
 import { SectionCard, SectionHeader } from "@/components/common/section-card";
@@ -19,7 +21,7 @@ import {
   type DoctorAnalyticsOutcome,
 } from "../doctor-analytics";
 
-const PERIOD_LABEL: Record<AnalyticsPeriod, string> = { 1: "Today", 7: "7 days", 30: "30 days" };
+const PERIOD_LABEL: Record<AnalyticsPeriod, string> = { 1: "Today", 7: "7 days", 30: "30 days", all: "All time" };
 
 export function AnalyticsDashboard({ outcome, selected }: { outcome: DoctorAnalyticsOutcome; selected: AnalyticsPeriod }) {
   if (!outcome.ok) {
@@ -64,9 +66,24 @@ export function AnalyticsDashboard({ outcome, selected }: { outcome: DoctorAnaly
           ))}
         </div>
         <p className="text-xs text-ink-muted">
-          {data.startDate} to {data.endDateInclusive} · {data.timeZone}
+          {data.startDate ? `${data.startDate} to ${data.endDateInclusive}` : `Through ${data.endDateInclusive}`} · {data.timeZone}
         </p>
       </div>
+
+      <section aria-labelledby="practice-summary-heading">
+        <h2 id="practice-summary-heading" className="mb-2 text-xs font-semibold tracking-wide text-ink-secondary uppercase">Doctor summary</h2>
+        <div className="grid min-w-0 grid-cols-1 gap-3 min-[480px]:grid-cols-2 xl:grid-cols-4">
+          <StatCard label="Patient encounters" value={data.patientCount} icon={<Users className="size-5" />} hint="Consultations started in this period" accent="success" />
+          {(["Income", "Cost", "Net income"] as const).map((label) => (
+            <SectionCard key={label} className="min-w-0 p-4">
+              <div className="flex items-start gap-3">
+                <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-surface-muted text-ink-muted"><WalletCards className="size-5" aria-hidden="true" /></span>
+                <div className="min-w-0"><p className="text-xs font-semibold text-ink-secondary">{label}</p><p className="mt-1 text-sm font-semibold text-ink">Not configured</p><p className="mt-1 text-xs leading-4 text-ink-muted">{data.financials.reason}</p></div>
+              </div>
+            </SectionCard>
+          ))}
+        </div>
+      </section>
 
       <div className="grid min-w-0 grid-cols-1 gap-3 min-[480px]:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
         <StatCard label="Consultations" value={data.encounters} icon={<Stethoscope className="size-5" />} hint={`${data.completedEncounters} completed`} />

@@ -40,12 +40,12 @@ function aliases(sourceKey: string, fallback: string) {
 
 function splitMedicineAliases(values: readonly string[], label: string) {
   const bangla = values.filter((value) => /[\u0980-\u09ff]/u.test(value));
-  const english = values.filter((value) => !/[\u0980-\u09ff]/u.test(value) && !/\b(?:nam|e|te|koro|dao)\b/iu.test(value));
+  const english = values.filter((value) => value !== "medicine" && !/[\u0980-\u09ff]/u.test(value) && !/\b(?:nam|e|te|koro|dao)\b/iu.test(value));
   const banglish = values.filter((value) => /\b(?:nam|e|te|koro|dao)\b/iu.test(value));
   return {
     aliasesEnglish: english.length ? english : [label.toLocaleLowerCase("en-US")],
     aliasesBangla: bangla.length ? bangla : [`${label} ঘর`],
-    aliasesBanglish: banglish.length ? banglish : [`${label.toLocaleLowerCase("en-US")} e`],
+    aliasesBanglish: banglish.length ? banglish : [english[0] ?? label.toLocaleLowerCase("en-US")],
     asrRestorations: asrKeys.filter((key) => bangla.some((alias) => alias.includes(key))),
   };
 }
@@ -92,7 +92,7 @@ export const M6F_VOICE_SURFACE_INVENTORY: readonly VoiceSurfaceEntry[] = [
   ...noteEntries,
   control("consultation.followUp.section", "consultation", "follow-up", "Follow-up", "action", "followUp", false, {}, null, ["follow-up", "next visit"], ["ফলো আপ", "পরবর্তী ভিজিট"], ["follow up e"]),
   control("consultation.followUp.date", "consultation", "follow-up", "Follow-up date", "date", NEXT_VISIT_DATE, true, { nextPreviousEligible: false }, null, ["follow-up date", "next visit date"], ["ফলো আপ তারিখ", "পরবর্তী ভিজিটের তারিখ"], ["follow up date e"]),
-  control("consultation.followUp.note", "consultation", "follow-up", "Follow-up note", "text", "nextVisitNote", true, { nextPreviousEligible: true }, null, ["follow-up note", "next visit note"], ["ফলো আপ নোট"], ["follow up note e"]),
+  control("consultation.followUp.note", "consultation", "follow-up", "Follow-up note", "text", "nextVisitNote", true, { nextPreviousEligible: true }, null, ["follow up note", "next visit note"], ["ফলো আপ নোট"], ["follow up note e"]),
   control("consultation.vitals.section", "consultation", "vitals", "Vitals", "action", "vitals", false, {}, null, ["vitals"], ["ভাইটালস"], ["vitals e"]),
   control("consultation.vitals.bloodPressure", "consultation", "vitals", "Blood pressure", "action", "bloodPressure", false, { nextPreviousEligible: true }, null, ["blood pressure", "BP"], ["রক্তচাপ", "ব্লাড প্রেসার"], ["bp te"]),
   ...vitalEntries,
@@ -110,27 +110,29 @@ export const M6F_VOICE_SURFACE_INVENTORY: readonly VoiceSurfaceEntry[] = [
   control("consultation.investigation.confirmedNote", "consultation", "investigation", "Confirmed investigation note", "textarea", "confirmedInvestigationNote", true, {}, "Save correction", ["confirmed investigation note"], ["নিশ্চিত পরীক্ষার নোট"], ["confirmed investigation note e"]),
   control("consultation.investigation.confirm", "consultation", "investigation", "Confirm investigations", "action", "confirmInvestigations", false, {}, "visible Confirm investigations button", ["confirm investigations"], ["পরীক্ষা নিশ্চিত করো"], ["investigation confirm koro"]),
   control("consultation.prescription.open", "consultation", "prescription", "Write prescription", "action", "prescription", false, {}, "opens draft only", ["write prescription", "open prescription"], ["প্রেসক্রিপশন খোলো"], ["prescription kholo"]),
-  control("prescription.medicines.section", "prescription", "medicines", "Medicines", "list", "medicines", false, { nextPreviousEligible: true }, "saved list only", ["medicines", "medicine list"], ["ওষুধ", "মেডিসিন"], ["medicine list e"]),
-  control("prescription.medicine.form", "prescription", "medicine editor", "New/Edit medicine form", "action", "editor", false, {}, "visible Add medicine or Save changes", ["new medicine", "medicine form"], ["নতুন ওষুধ", "মেডিসিন ফর্ম"], ["medicine add koro"]),
+  control("prescription.medicines.section", "prescription", "medicines", "Medicines", "list", "medicines", false, { nextPreviousEligible: true }, "saved list only", ["medicines", "medicine list"], ["ওষুধ", "মেডিসিন"], ["medicine e jao"]),
+  control("prescription.medicine.form", "prescription", "medicine editor", "New/Edit medicine form", "action", "editor", false, {}, "visible Add medicine or Save changes", ["new medicine", "add medicine"], ["নতুন ওষুধ", "ওষুধ যোগ করো"], ["medicine add koro"]),
   ...medicineEntries,
   control("prescription.medicine.prn", "prescription", "medicine editor", "As needed (PRN)", "checkbox", "isPrn", true, { clearable: true, replaceable: true, nextPreviousEligible: true }, "draft toggle only", ["PRN", "as needed"], ["প্রয়োজনে"], ["proyojone"]),
   control("prescription.medicine.substitution", "prescription", "medicine editor", "Substitution allowed", "checkbox", "substitutionAllowed", true, { clearable: true, replaceable: true, nextPreviousEligible: true }, "draft toggle only", ["substitution allowed", "no substitution"], ["বিকল্প ব্র্যান্ড চলবে", "বিকল্প নয়"], ["substitution allow koro"]),
-  control("prescription.results", "prescription", "results", "Medicine variants", "list", "variantMatches", false, { nextPreviousEligible: true }, "selection stages draft only", ["medicine variants", "medicine results"], ["মেডিসিন ভ্যারিয়েন্ট"], ["variant gulo"]),
-  control("prescription.saved", "prescription", "results", "Saved medicines", "list", "savedMedicines", false, { nextPreviousEligible: true }, "remove requires confirmation", ["saved medicines"], ["সেভ করা ওষুধ"], ["saved medicine list"]),
-  control("prescription.history.signed", "prescription", "history", "Signed medicine history", "list", "signedHistory", false, { nextPreviousEligible: true }, "selection stages only", ["signed medicine history"], ["সাইনড মেডিসিন হিস্ট্রি"], ["signed medicine history kholo"]),
+  control("prescription.results", "prescription", "results", "Medicine variants", "list", "variantMatches", false, { nextPreviousEligible: true }, "selection stages draft only", ["read variants", "next variant"], ["ভ্যারিয়েন্টগুলো পড়ো"], ["variant gulo poro"]),
+  control("prescription.saved", "prescription", "results", "Saved medicines", "list", "savedMedicines", false, { nextPreviousEligible: true }, "remove requires confirmation", ["medicine one", "next medicine"], ["ওষুধ এক"], ["medicine one"]),
+  control("prescription.history.signed", "prescription", "history", "Signed medicine history", "list", "signedHistory", false, { nextPreviousEligible: true }, "selection stages only", ["signed medicine history"], ["সাইনড মেডিসিন হিস্ট্রি"], ["signed medicines kholo"]),
   control("prescription.history.reuse", "prescription", "history", "Reuse previous prescription", "action", "reuseHistory", false, {}, "reuse remains guarded", ["reuse previous prescription"], ["আগের প্রেসক্রিপশন ব্যবহার করো"], ["previous prescription reuse koro"]),
-  control("prescription.history.recent", "prescription", "history", "Recent", "list", "recent", false, {}, "history view only", ["recent medicines"], ["সাম্প্রতিক ওষুধ"], ["recent medicine kholo"]),
-  control("prescription.history.frequent", "prescription", "history", "Frequent", "list", "frequent", false, {}, "history view only", ["frequent medicines"], ["বেশি ব্যবহৃত ওষুধ"], ["frequent medicine kholo"]),
-  control("prescription.history.favorites", "prescription", "history", "Favorites", "list", "favorites", false, {}, "selection stages only", ["favorite medicines"], ["পছন্দের ওষুধ"], ["favorite medicine kholo"]),
-  control("prescription.history.mine", "prescription", "history", "My Medicines", "list", "myMedicines", false, {}, "selection stages only", ["my medicines"], ["আমার ওষুধ"], ["my medicine kholo"]),
-  ...([
-    ["destination", "Autopilot", "autopilot", "explicit Apply selected"], ["generate", "Generate", "generateAutopilot", "proposal only"],
-    ["proposal", "Autopilot proposal", "autopilotProposal", "proposal only"], ["select", "Select proposal medicine", "selectProposal", "selection only"],
-    ["edit", "Edit proposal medicine", "editProposal", "proposal only"], ["remove", "Remove proposal medicine", "removeProposal", "proposal only"],
-    ["discard", "Discard proposal", "discardProposal", "discard only"], ["apply", "Apply selected", "applySelected", "explicit Apply selected"],
-    ["navigation", "Next/Previous proposal", "proposalNavigation", "proposal only"],
-  ] as const).map(([id, label, sourceKey, boundary]) => control(`prescription.autopilot.${id}`, "prescription", "autopilot", label, id === "proposal" ? "list" : "action", sourceKey, false, { nextPreviousEligible: id === "proposal" || id === "navigation" }, boundary, [label.toLocaleLowerCase("en-US")], [`অটোপাইলট ${label}`], [`autopilot ${id} koro`])),
-  control("prescription.review", "prescription", "review", "Review / Preview", "action", "review", false, {}, "voice finalization prohibited", ["review prescription", "preview prescription"], ["প্রেসক্রিপশন রিভিউ", "প্রেসক্রিপশন প্রিভিউ"], ["prescription review koro"]),
+  control("prescription.history.recent", "prescription", "history", "Recent", "list", "recent", false, {}, "history view only", ["recent signed medicines"], ["সাম্প্রতিক সাইনড মেডিসিন"], ["recent signed medicines kholo"]),
+  control("prescription.history.frequent", "prescription", "history", "Frequent", "list", "frequent", false, {}, "history view only", ["frequent signed medicines"], ["বেশি ব্যবহৃত সাইনড মেডিসিন"], ["frequent signed medicines kholo"]),
+  control("prescription.history.favorites", "prescription", "history", "Favorites", "list", "favorites", false, {}, "selection stages only", ["show favorite medicines"], ["পছন্দের ওষুধ দেখাও"], ["favorite medicine gulo dekhao"]),
+  control("prescription.history.mine", "prescription", "history", "My Medicines", "list", "myMedicines", false, {}, "selection stages only", ["show my medicines"], ["আমার ওষুধ দেখাও"], ["my medicine gulo dekhao"]),
+  control("prescription.autopilot.destination", "prescription", "autopilot", "Autopilot", "action", "autopilot", false, {}, "explicit Apply selected", ["autopilot"], ["অটোপাইলট"], ["autopilot e jao"]),
+  control("prescription.autopilot.generate", "prescription", "autopilot", "Generate", "action", "generateAutopilot", false, {}, "proposal only", ["generate autopilot"], ["অটোপাইলট জেনারেট করো"], ["autopilot generate"]),
+  control("prescription.autopilot.proposal", "prescription", "autopilot", "Autopilot proposal", "list", "autopilotProposal", false, { nextPreviousEligible: true }, "proposal only", ["read autopilot proposal"], ["প্রপোজাল পড়ো"], ["proposal poro"]),
+  control("prescription.autopilot.select", "prescription", "autopilot", "Select proposal medicine", "action", "selectProposal", false, {}, "selection only", ["select proposal medicine one"], ["select proposal medicine এক"], ["select proposal medicine 1"]),
+  control("prescription.autopilot.edit", "prescription", "autopilot", "Edit proposal medicine", "action", "editProposal", false, {}, "proposal only", ["edit proposal medicine one"], ["edit proposal medicine এক"], ["edit proposal medicine 1"]),
+  control("prescription.autopilot.remove", "prescription", "autopilot", "Remove proposal medicine", "action", "removeProposal", false, {}, "proposal only", ["remove proposal medicine one"], ["remove proposal medicine এক"], ["remove proposal medicine 1"]),
+  control("prescription.autopilot.discard", "prescription", "autopilot", "Discard proposal", "action", "discardProposal", false, {}, "discard only", ["discard proposal"], ["প্রপোজাল বাতিল"], ["proposal bad dao"]),
+  control("prescription.autopilot.apply", "prescription", "autopilot", "Apply selected", "action", "applySelected", false, {}, "explicit Apply selected", ["apply selected"], ["প্রপোজাল apply করো"], ["proposal apply koro"]),
+  control("prescription.autopilot.navigation", "prescription", "autopilot", "Next/Previous proposal", "action", "proposalNavigation", false, { nextPreviousEligible: true }, "proposal only", ["next proposal item"], ["পরের প্রপোজাল আইটেম"], ["next autopilot item"]),
+  control("prescription.review", "prescription", "review", "Review / Preview", "action", "review", false, {}, "voice finalization prohibited", ["review prescription", "preview prescription"], ["প্রেসক্রিপশন রিভিউ", "প্রেসক্রিপশন প্রিভিউ"], ["review prescription koro"]),
 ];
 
 export const M6F_SOURCE_TEXT_KEYS = TEXT_KEYS;

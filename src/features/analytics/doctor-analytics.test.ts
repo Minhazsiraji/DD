@@ -6,7 +6,7 @@ import { analyticsDateRange } from "./period";
 const read = (file: string) => readFileSync(path.resolve(file), "utf8");
 
 describe("Doctor Analytics presentation contract", () => {
-  it("builds chamber-local inclusive Today, 7-day and 30-day ranges", () => {
+  it("builds chamber-local Today, weekly, monthly and All Time ranges", () => {
     expect(analyticsDateRange("2026-09-28", 1)).toEqual({
       startDate: "2026-09-28",
       endDateExclusive: "2026-09-29",
@@ -14,6 +14,29 @@ describe("Doctor Analytics presentation contract", () => {
     });
     expect(analyticsDateRange("2026-09-28", 7).startDate).toBe("2026-09-22");
     expect(analyticsDateRange("2026-09-28", 30).startDate).toBe("2026-08-30");
+    expect(analyticsDateRange("2026-09-28", "all")).toEqual({
+      startDate: null,
+      endDateExclusive: "2026-09-29",
+      endDateInclusive: "2026-09-28",
+    });
+  });
+
+  it("labels Patient Count honestly as encounters without loading identifiers", () => {
+    const source = read("src/features/analytics/doctor-analytics.ts");
+    const view = read("src/features/analytics/components/analytics-dashboard.tsx");
+    expect(source).toContain('select("id,status,started_at,completed_at")');
+    expect(source).toContain("patientCount: encounters.length");
+    expect(view).toContain("Patient encounters");
+    expect(view).toContain("Consultations started in this period");
+  });
+
+  it("does not treat SaaS subscription payments or AI provider costs as practice finance", () => {
+    const source = read("src/features/analytics/doctor-analytics.ts");
+    const view = read("src/features/analytics/components/analytics-dashboard.tsx");
+    expect(source).not.toMatch(/subscription_payments|owner_activity_cost|ai_usage/iu);
+    expect(source).toContain('status: "not-configured"');
+    expect(view).toContain("Not configured");
+    expect(source).toContain("Financial tracking not configured");
   });
 
   it("scopes every primary read to the doctor and active chamber", () => {

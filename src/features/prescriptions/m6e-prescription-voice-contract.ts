@@ -143,7 +143,7 @@ function medicineIndex(value: string): number | null {
 }
 
 function proposalMedicineIndex(value: string): number | null {
-  const match = value.match(new RegExp(`proposal\\s+(?:medicine|med|মেডিসিন|ওষুধ)\\s*(${INDEX_WORD})`, "iu"));
+  const match = value.match(new RegExp(`(?:proposal|প্রপোজাল)\\s+(?:medicine|med|মেডিসিন|ওষুধ)\\s*(${INDEX_WORD})`, "iu"));
   if (!match) return null;
   const parsed = parseBoundedNumber(match[1]!);
   return parsed && Number.isInteger(parsed) && parsed >= 1 && parsed <= 50 ? parsed : null;
@@ -330,7 +330,7 @@ const APPLY = ["apply selected", "apply proposal", "apply to draft", "autopilot 
 const OPEN_ADD = [
   "add medicine", "add a medicine", "new medicine", "medicine add", "medicine add koro",
   "medicine add korun", "medicine add করো", "medicine add করুন", "মেডিসিন add করো", "মেডিসিন add করুন", "মেডিসিন যোগ করো", "মেডিসিন যোগ করুন",
-  "ওষুধ add করো", "ওষুধ add করুন", "ওষুধ যোগ করো", "ওষুধ যোগ করুন",
+  "ওষুধ add করো", "ওষুধ add করুন", "ওষুধ যোগ করো", "ওষুধ যোগ করুন", "নতুন ওষুধ",
 ];
 const TARGET_MEDICINES = ["medicines", "go to medicines", "open medicines", "medicine list", "ওষুধ", "ওষুধে যাও", "মেডিসিনে যাও"];
 const NEXT = ["next medicine", "go to next medicine", "পরের medicine", "পরের মেডিসিন", "পরের ওষুধ", "next medicine e jao"];
@@ -381,7 +381,13 @@ function lookupIntent(
   if (/^(?:show|list)\s+(?:my\s+)?(?:favorite|favourite)\s+medicines?$/iu.test(value)) {
     return { type: "SEARCH_MEDICINE", scope: "favorites", query: "" };
   }
+  if (/^(?:পছন্দের ওষুধ দেখাও|favorite medicine gulo dekhao)$/iu.test(value)) {
+    return { type: "SEARCH_MEDICINE", scope: "favorites", query: "" };
+  }
   if (/^(?:show|list)\s+my\s+medicines?$/iu.test(value)) {
+    return { type: "SEARCH_MEDICINE", scope: "mine", query: "" };
+  }
+  if (/^(?:আমার ওষুধ দেখাও|my medicine gulo dekhao)$/iu.test(value)) {
     return { type: "SEARCH_MEDICINE", scope: "mine", query: "" };
   }
 

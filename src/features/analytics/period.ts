@@ -6,7 +6,7 @@ function addCalendarDays(date: string, amount: number): string {
   return value.toISOString().slice(0, 10);
 }
 export function analyticsDateRange(localToday: string, period: AnalyticsPeriod) {
-  const startDate = addCalendarDays(localToday, -(period - 1));
+  const startDate = period === "all" ? null : addCalendarDays(localToday, -(period - 1));
   const endDateExclusive = addCalendarDays(localToday, 1);
   return { startDate, endDateExclusive, endDateInclusive: localToday };
 }

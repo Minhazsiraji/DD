@@ -16,7 +16,7 @@ export const M6D_COMMAND_ALIASES = {
   ],
   clear: [
     "clear", "clear koro", "clear current section", "clear this section", "clear section", "clear field", "clear this field", "clear current field", "clear note",
-    "this section clear koro", "ei section clear koro", "section clear koro", "current section clear koro", "field clear koro", "field ta clear koro", "current field clear koro", "eta clear koro",
+    "section clear", "this section clear koro", "ei section clear koro", "ei section ta clear koro", "section clear koro", "current section clear koro", "field clear koro", "field ta clear koro", "current field clear koro", "eta clear koro",
     "clear করো", "section clear করো", "এই section clear করো", "field clear করো", "এই field clear করো",
     "এই সেকশন clear", "এই সেকশন ক্লিয়ার করো", "এই সেকশন ক্লিয়ার করো", "সেকশনটা ক্লিয়ার করো", "বর্তমান সেকশন ক্লিয়ার করো",
     "এই ঘরটা খালি করো", "ঘরটা খালি করো", "এই ফিল্ড ক্লিয়ার করো", "ফিল্ডটা ক্লিয়ার করো", "এটা ক্লিয়ার করো", "সব মুছে দাও",

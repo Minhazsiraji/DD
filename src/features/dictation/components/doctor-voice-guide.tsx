@@ -9,8 +9,13 @@ import {
   valueExampleForGuide,
   type VoiceGuideControl,
   type VoiceGuideLanguage,
+  type VoiceGuideCertification,
 } from "../m6f-voice-guide";
 import type { VoiceSurfaceEntry } from "../m6f-voice-surface-inventory";
+import {
+  loadDoctorVoicePersonalization,
+  type DoctorVoiceLanguagePreference,
+} from "../m6f-voice-personalization";
 
 const LANGUAGES: readonly { id: VoiceGuideLanguage; label: string }[] = [
   { id: "english", label: "English" },
@@ -27,12 +32,24 @@ interface DoctorVoiceGuideProps {
   entries: readonly VoiceSurfaceEntry[];
   controls: readonly VoiceGuideControl[];
   safety: readonly { title: string; description: string }[];
+  certificationTotals: { total: number; verified: number; contextual: number; failed: number; unsupported: number };
+  certification: readonly VoiceGuideCertification[];
 }
 
-export function DoctorVoiceGuide({ entries, controls, safety }: DoctorVoiceGuideProps) {
-  const [language, setLanguage] = React.useState<VoiceGuideLanguage>("english");
+export function DoctorVoiceGuide({ entries, controls, safety, certificationTotals, certification }: DoctorVoiceGuideProps) {
+  const [selectedLanguage, setSelectedLanguage] = React.useState<VoiceGuideLanguage | null>(null);
   const [query, setQuery] = React.useState("");
+  const preferredLanguage = React.useSyncExternalStore<DoctorVoiceLanguagePreference>(
+    subscribeToVoicePreferences,
+    () => loadDoctorVoicePersonalization().language,
+    () => "mixed",
+  );
+  const language = selectedLanguage ?? (preferredLanguage === "mixed" ? "english" : preferredLanguage);
   const normalizedQuery = query.trim().toLocaleLowerCase("en-US");
+  const certificationById = React.useMemo(
+    () => new Map(certification.map((row) => [row.canonicalId, row])),
+    [certification],
+  );
 
   const filtered = React.useMemo(() => {
     if (!normalizedQuery) return entries;
@@ -59,7 +76,7 @@ export function DoctorVoiceGuide({ entries, controls, safety }: DoctorVoiceGuide
                   type="button"
                   role="tab"
                   aria-selected={language === item.id}
-                  onClick={() => setLanguage(item.id)}
+                  onClick={() => setSelectedLanguage(item.id)}
                   className={cn(
                     "min-h-9 rounded-lg px-3 text-xs font-semibold transition-colors focus-visible:focus-ring",
                     language === item.id ? "bg-white text-brand shadow-soft" : "text-ink-secondary hover:text-ink",
@@ -86,6 +103,9 @@ export function DoctorVoiceGuide({ entries, controls, safety }: DoctorVoiceGuide
           <p className="mt-2 text-xs text-ink-muted" aria-live="polite">
             {filtered.length} of {entries.length} supported surfaces shown
           </p>
+          <p className="mt-1 text-xs text-ink-muted">
+            Runtime certification: {certificationTotals.verified} verified · {certificationTotals.contextual} contextual · {certificationTotals.failed} failed · {certificationTotals.unsupported} unsupported
+          </p>
         </div>
       </SectionCard>
 
@@ -104,7 +124,7 @@ export function DoctorVoiceGuide({ entries, controls, safety }: DoctorVoiceGuide
                   </h3>
                   <div className="grid min-w-0 gap-2 md:grid-cols-2 xl:grid-cols-3">
                     {groupEntries.filter((entry) => entry.section === section).map((entry) => (
-                      <TargetCard key={entry.canonicalId} entry={entry} language={language} />
+                      <TargetCard key={entry.canonicalId} entry={entry} language={language} certification={certificationById.get(entry.canonicalId)} />
                     ))}
                   </div>
                 </section>
@@ -151,7 +171,12 @@ export function DoctorVoiceGuide({ entries, controls, safety }: DoctorVoiceGuide
   );
 }
 
-function TargetCard({ entry, language }: { entry: VoiceSurfaceEntry; language: VoiceGuideLanguage }) {
+function subscribeToVoicePreferences(onStoreChange: () => void): () => void {
+  window.addEventListener("storage", onStoreChange);
+  return () => window.removeEventListener("storage", onStoreChange);
+}
+
+function TargetCard({ entry, language, certification }: { entry: VoiceSurfaceEntry; language: VoiceGuideLanguage; certification?: VoiceGuideCertification }) {
   const examples = aliasesForGuideLanguage(entry, language);
   const valueExample = valueExampleForGuide(entry, language);
   return (
@@ -168,6 +193,7 @@ function TargetCard({ entry, language }: { entry: VoiceSurfaceEntry; language: V
       ) : null}
       {valueExample ? <p className="mt-2 text-xs leading-5 text-ink-secondary">{valueExample}</p> : null}
       <div className="mt-3 flex flex-wrap gap-1.5 text-[10px] font-semibold text-ink-secondary">
+        {certification ? <Tag>{certification.status}</Tag> : null}
         {entry.editable ? <Tag>Dictate value</Tag> : null}
         {entry.clearable ? <Tag>Clear</Tag> : null}
         {entry.replaceable ? <Tag>Replace</Tag> : null}
@@ -177,6 +203,7 @@ function TargetCard({ entry, language }: { entry: VoiceSurfaceEntry; language: V
       {entry.existingProtectedAction ? (
         <p className="mt-2 text-[11px] leading-4 text-[#8a3f07]">Protected: {entry.existingProtectedAction}</p>
       ) : null}
+      {certification?.requiredContext ? <p className="mt-1 text-[11px] leading-4 text-ink-muted">Context: {certification.requiredContext}</p> : null}
     </article>
   );
 }

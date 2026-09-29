@@ -11,6 +11,7 @@ import {
   IdCard,
   CalendarClock,
   Palette,
+  Mic2,
 } from "lucide-react";
 import { cookies } from "next/headers";
 import { PageHeader } from "@/components/common/page-header";
@@ -182,6 +183,18 @@ export default async function SettingsPage() {
           <p className="mt-2 text-xs text-ink-muted">
             Whether patients can book you from your public profile, per chamber.
             Off until you turn it on.
+          </p>
+
+          <Link
+            href="/settings/voice"
+            className="mt-3 inline-flex h-10 items-center gap-2 rounded-xl border border-hairline bg-white px-4 text-sm font-semibold text-ink transition-colors hover:bg-surface-muted focus-visible:focus-ring"
+          >
+            <Mic2 className="size-4 text-brand" aria-hidden="true" />
+            Voice Personalization / My Voice
+            <ChevronRight className="size-4 text-ink-muted" aria-hidden="true" />
+          </Link>
+          <p className="mt-2 text-xs text-ink-muted">
+            Choose a speaking style and confirm browser-local aliases for existing protected commands and fields.
           </p>
 
           <p className="mt-4 text-xs text-ink-muted">

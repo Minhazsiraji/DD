@@ -37,6 +37,10 @@ export function parseM6FInvestigationCommand(rawTranscript: string): M6FInvestig
     return { type: "SET_SEARCH", value: rawSearch?.[1]?.trim() ?? search[1].trim() };
   }
 
+  if (/^(?:staged investigations|staged tests|স্টেজড ইনভেস্টিগেশন)$/iu.test(value) || /^স্টেজড ইনভেস্টিগেশন$/u.test(raw)) {
+    return { type: "TARGET", target: "stagedList", index: null };
+  }
+
   const indexed = value.match(/^(?:open|focus|target|go to|খোলো|যাও|kholo)?\s*(staged|confirmed|স্টেজড|নিশ্চিত)\s+(?:investigation|test|পরীক্ষা)(?:\s+(title|name|note|নাম|নোট))?(?:\s+(\d{1,2}|one|two|three|four|five|ek|dui|tin|char|pach|এক|দুই|তিন|চার|পাঁচ))?\s*(?:open|focus|খোলো|যাও|e jao)?$/iu);
   if (indexed) {
     const confirmed = /^(?:confirmed|নিশ্চিত)$/iu.test(indexed[1]!);
@@ -47,6 +51,5 @@ export function parseM6FInvestigationCommand(rawTranscript: string): M6FInvestig
   if (/^(?:read|পড়ো|পড়ো|poro)\s+(?:staged investigations|staged tests|স্টেজড ইনভেস্টিগেশন)$/iu.test(value)) return { type: "READ", target: "stagedList" };
   if (/^(?:investigation|investigations|test order|ইনভেস্টিগেশন|টেস্ট অর্ডার)$/iu.test(value)) return { type: "TARGET", target: "section", index: null };
   if (/^(?:investigation search|test search|ইনভেস্টিগেশন সার্চ|টেস্ট সার্চ)$/iu.test(value)) return { type: "TARGET", target: "search", index: null };
-  if (/^(?:staged investigations|staged tests|স্টেজড ইনভেস্টিগেশন)$/iu.test(value)) return { type: "TARGET", target: "stagedList", index: null };
   return { type: "NONE" };
 }
