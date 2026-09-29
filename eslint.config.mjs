@@ -71,6 +71,7 @@ const eslintConfig = defineConfig([
       "src/lib/o1/runtime-authority.ts",
       "src/features/prescriptions/freeze-store.ts",
       "src/features/prescriptions/actions.ts",
+      "src/features/payments/gateway.ts",
     ],
     rules: { "no-restricted-imports": "off" },
   },

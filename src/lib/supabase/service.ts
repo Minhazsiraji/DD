@@ -276,3 +276,16 @@ export async function serviceFinalizeActivityMeasurementDay(input: {
 export function canFreezeSignatures(): boolean {
   return typeof window === "undefined" && Boolean(process.env.SUPABASE_SERVICE_ROLE_KEY);
 }
+
+
+/** Server-only, service-role gateway state transition. No browser access. */
+export async function serviceTransitionPracticeGatewayPayment(merchantTransactionId:string,status:"FAILED"|"CANCELLED"):Promise<void>{
+  await privilegedRpc<unknown>("transition_practice_gateway_payment",{target_merchant_transaction_id:merchantTransactionId,target_status:status});
+}
+
+/** Atomically reconciles one verified provider transaction into practice_payments. */
+export async function serviceReconcilePracticeGatewayPayment(input:{merchantTransactionId:string;providerTransactionId:string|null;amount:string;currency:"BDT";paymentChannel:string|null}):Promise<{status:string;amount:string|null;currency:string|null}>{
+  const data=await privilegedRpc<unknown>("reconcile_practice_gateway_payment",{target_merchant_transaction_id:input.merchantTransactionId,target_provider_transaction_id:input.providerTransactionId??"",target_amount:input.amount,target_currency:input.currency,target_payment_channel:input.paymentChannel??""});
+  const row=onlyRow(data,"GATEWAY_RECONCILIATION_INVALID");
+  return {status:String(row.status??"UNKNOWN"),amount:row.amount==null?null:String(row.amount),currency:row.currency==null?null:String(row.currency)};
+}

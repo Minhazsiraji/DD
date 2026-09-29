@@ -9,7 +9,7 @@ const schema = z.object({
   id: z.string().uuid().optional(), locationId: z.string().uuid(),
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), gross: z.coerce.number().min(0).max(100000000),
   paid: z.coerce.number().min(0).max(100000000), refund: z.coerce.number().min(0).max(100000000),
-  method: z.enum(["CASH","BKASH","NAGAD","BANGLAQR","CARD","BANK","OTHER"]),
+  method: z.literal("CASH"),
   status: z.enum(["UNPAID","PARTIAL","PAID","REFUNDED","WAIVED"]), note: z.string().trim().max(500).optional(),
 }).refine(v => v.refund <= v.paid, { message: "refund" });
 

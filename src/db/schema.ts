@@ -1991,6 +1991,36 @@ export const practicePayments = pgTable(
   ],
 );
 
+export const doctorPaymentSettings = pgTable(
+  "doctor_payment_settings",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    ownerDoctorId: uuid("owner_doctor_id").notNull().unique().references(() => doctorProfiles.id, { onDelete: "cascade" }),
+    cashEnabled: boolean("cash_enabled").notNull().default(true),
+    onlinePaymentEnabled: boolean("online_payment_enabled").notNull().default(false),
+    provider: text("provider").notNull().default("SSLCOMMERZ"),
+    environment: text("environment").notNull().default("SANDBOX"),
+    storeIdentifier: text("store_identifier"),
+    banglaQrStatus: text("bangla_qr_status").notNull().default("MERCHANT_ACTIVATION_REQUIRED"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [check("doctor_payment_settings_provider", sql`provider = 'SSLCOMMERZ'`), check("doctor_payment_settings_environment", sql`environment = 'SANDBOX'`)],
+);
+
+export const practicePaymentTransactions = pgTable(
+  "practice_payment_transactions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(), ownerDoctorId: uuid("owner_doctor_id").notNull().references(() => doctorProfiles.id, { onDelete: "cascade" }),
+    practiceLocationId: uuid("practice_location_id").notNull().references(() => practiceLocations.id, { onDelete: "restrict" }), practicePaymentId: uuid("practice_payment_id").unique().references(() => practicePayments.id, { onDelete: "set null" }),
+    appointmentId: uuid("appointment_id"), encounterId: uuid("encounter_id"), provider: text("provider").notNull().default("SSLCOMMERZ"), merchantTransactionId: text("merchant_transaction_id").notNull().unique(), providerTransactionId: text("provider_transaction_id"),
+    amount: numeric("amount", { precision: 12, scale: 2 }).notNull(), currency: text("currency").notNull().default("BDT"), paymentChannel: text("payment_channel"), status: text("status").notNull().default("PENDING"),
+    refundAmount: numeric("refund_amount", { precision: 12, scale: 2 }).notNull().default("0"), verifiedAt: timestamp("verified_at", { withTimezone: true }), failedAt: timestamp("failed_at", { withTimezone: true }), cancelledAt: timestamp("cancelled_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(), updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("practice_payment_tx_doctor_idx").on(t.ownerDoctorId, t.createdAt), index("practice_payment_tx_location_idx").on(t.practiceLocationId, t.createdAt), uniqueIndex("practice_payment_tx_provider_ref_uq").on(t.provider, t.providerTransactionId).where(sql`provider_transaction_id is not null`), check("practice_payment_tx_status", sql`status in ('PENDING','PAID','FAILED','CANCELLED','REFUNDED','PARTIALLY_REFUNDED')`), check("practice_payment_tx_amount", sql`amount > 0 and refund_amount >= 0 and refund_amount <= amount`)],
+);
+
 export const subscriptionPayments = pgTable(
   "subscription_payments",
   {

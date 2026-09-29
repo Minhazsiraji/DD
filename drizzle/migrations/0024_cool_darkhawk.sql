@@ -1,0 +1,2 @@
+CREATE UNIQUE INDEX "practice_payment_tx_provider_ref_uq" ON "practice_payment_transactions" USING btree ("provider","provider_transaction_id") WHERE provider_transaction_id is not null;--> statement-breakpoint
+ALTER TABLE "practice_payment_transactions" ADD CONSTRAINT "practice_payment_transactions_practice_payment_id_unique" UNIQUE("practice_payment_id");

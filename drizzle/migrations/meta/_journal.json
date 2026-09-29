@@ -162,6 +162,20 @@
       "when": 1790668804130,
       "tag": "0022_left_gunslinger",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1790674029015,
+      "tag": "0023_known_vance_astro",
+      "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1790674043050,
+      "tag": "0024_cool_darkhawk",
+      "breakpoints": true
     }
   ]
 }

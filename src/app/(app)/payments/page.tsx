@@ -4,13 +4,15 @@ import { SectionCard } from "@/components/common/section-card";
 import { getExpenseChambers } from "@/features/expenses/queries";
 import { deletePracticePayment, savePracticePayment } from "@/features/payments/actions";
 import { getPracticePayments } from "@/features/payments/queries";
+import { startOnlinePracticePayment } from "@/features/payments/gateway-actions";
+import { getPaymentSettings } from "@/features/payments/settings";
 
 export const metadata: Metadata = { title: "Payments" };
-const methods = ["CASH","BKASH","NAGAD","BANGLAQR","CARD","BANK","OTHER"] as const;
+const methods = ["CASH"] as const;
 const statuses = ["PAID","PARTIAL","UNPAID","REFUNDED","WAIVED"] as const;
 
 export default async function PaymentsPage({ searchParams }: { searchParams: Promise<Record<string,string|string[]|undefined>> }) {
-  const [payments, chambers, search] = await Promise.all([getPracticePayments(), getExpenseChambers(), searchParams]);
+  const [payments, chambers, search, paymentSettings] = await Promise.all([getPracticePayments(), getExpenseChambers(), searchParams, getPaymentSettings()]);
   const names = new Map(chambers.map(c => [c.locationId, c.locationName]));
   const error = typeof search.error === "string" ? search.error : null;
   return <div className="min-w-0 space-y-5 sm:space-y-6">
@@ -30,6 +32,7 @@ export default async function PaymentsPage({ searchParams }: { searchParams: Pro
         <button className="rounded-lg bg-brand px-4 py-2.5 text-sm font-semibold text-white sm:col-span-2 lg:col-span-4">Add payment</button>
       </form>
     </SectionCard>
+    {paymentSettings?.onlinePaymentEnabled && paymentSettings.configured && <SectionCard className="p-4 sm:p-5"><h2 className="text-lg font-semibold text-ink">Online payment · SSLCOMMERZ Sandbox</h2><p className="mt-1 text-sm text-ink-muted">Creates a pending gateway transaction. Income is recorded only after server-side provider validation.</p><form action={startOnlinePracticePayment} className="mt-4 grid gap-3 sm:grid-cols-2"><select name="locationId" required className="rounded-lg border border-hairline px-3 py-2.5"><option value="">Select chamber</option>{chambers.map(c=><option key={c.locationId} value={c.locationId}>{c.locationName}</option>)}</select><input name="amount" type="number" min="0.01" step="0.01" placeholder="Amount (BDT)" required className="rounded-lg border border-hairline px-3 py-2.5"/><input name="customerName" placeholder="Patient name" required className="rounded-lg border border-hairline px-3 py-2.5"/><input name="customerPhone" placeholder="Phone" required className="rounded-lg border border-hairline px-3 py-2.5"/><input name="customerEmail" type="email" placeholder="Email" required className="rounded-lg border border-hairline px-3 py-2.5"/><button className="rounded-lg bg-brand px-4 py-2.5 text-sm font-semibold text-white">Continue to secure checkout</button></form></SectionCard>}
     <SectionCard className="overflow-hidden">
       <div className="border-b border-hairline px-4 py-3 sm:px-5"><h2 className="font-semibold text-ink">Practice payment ledger</h2></div>
       {payments.length === 0 ? <p className="p-6 text-center text-sm text-ink-muted">No practice payments recorded yet.</p> : <div className="divide-y divide-hairline">{payments.map(p => {
@@ -37,13 +40,13 @@ export default async function PaymentsPage({ searchParams }: { searchParams: Pro
         return <div key={p.id} className="grid gap-2 p-4 text-sm sm:grid-cols-[1fr_1fr_1fr_1fr_auto] sm:items-center sm:px-5">
           <div><p className="font-semibold text-ink">৳{net} received</p><p className="text-ink-muted">{p.status} · {p.method}</p></div>
           <span>{p.paymentDate}</span><span>{names.get(p.practiceLocationId)||"Authorized chamber"}</span><span className="tabular-nums">Fee ৳{p.grossAmount}</span>
-          <div className="flex gap-2"><details><summary className="cursor-pointer rounded-lg border border-hairline px-3 py-2 font-semibold">Edit</summary><form action={savePracticePayment} className="mt-2 grid min-w-64 gap-2">
+          <div className="flex gap-2">{p.method==="CASH" && <><details><summary className="cursor-pointer rounded-lg border border-hairline px-3 py-2 font-semibold">Edit</summary><form action={savePracticePayment} className="mt-2 grid min-w-64 gap-2">
             <input type="hidden" name="id" value={p.id}/><input name="date" type="date" defaultValue={p.paymentDate} required className="rounded-lg border px-2 py-1"/>
             <select name="locationId" defaultValue={p.practiceLocationId} required className="rounded-lg border px-2 py-1">{chambers.map(c=><option key={c.locationId} value={c.locationId}>{c.locationName}</option>)}</select>
             <input name="gross" type="number" min="0" step="0.01" defaultValue={p.grossAmount} required className="rounded-lg border px-2 py-1"/><input name="paid" type="number" min="0" step="0.01" defaultValue={p.paidAmount} required className="rounded-lg border px-2 py-1"/>
             <input name="refund" type="number" min="0" step="0.01" defaultValue={p.refundedAmount} required className="rounded-lg border px-2 py-1"/><select name="method" defaultValue={p.method} className="rounded-lg border px-2 py-1">{methods.map(v=><option key={v}>{v}</option>)}</select>
             <select name="status" defaultValue={p.status} className="rounded-lg border px-2 py-1">{statuses.map(v=><option key={v}>{v}</option>)}</select><input name="note" defaultValue={p.note||""} className="rounded-lg border px-2 py-1"/><button className="rounded-lg bg-brand px-3 py-2 font-semibold text-white">Save</button>
-          </form></details><form action={deletePracticePayment}><input type="hidden" name="id" value={p.id}/><button className="rounded-lg border border-hairline px-3 py-2 font-semibold text-red-700">Delete</button></form></div>
+          </form></details><form action={deletePracticePayment}><input type="hidden" name="id" value={p.id}/><button className="rounded-lg border border-hairline px-3 py-2 font-semibold text-red-700">Delete</button></form></> }</div>
         </div>;
       })}</div>}
     </SectionCard>

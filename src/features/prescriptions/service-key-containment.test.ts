@@ -40,6 +40,7 @@ describe("the privileged service client", () => {
       path.join("features", "prescriptions", "freeze-store.ts"),
       path.join("features", "prescriptions", "actions.ts"),
       path.join("lib", "o1", "runtime-authority.ts"),
+      path.join("features", "payments", "gateway.ts"),
     ]);
 
     const offenders: string[] = [];
