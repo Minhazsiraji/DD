@@ -107,17 +107,21 @@ export async function getDoctorAnalytics(period: AnalyticsPeriod, requestedScope
   let expenseQuery = supabase.from("doctor_expenses").select("amount,expense_date,practice_location_id").eq("owner_doctor_id", authority.doctorId).in("practice_location_id", locationIds).lt("expense_date", endDateExclusive);
   if (startDate) expenseQuery = expenseQuery.gte("expense_date", startDate);
 
-  const [appointmentResult, encounterResult, finalizedResult, expenseResult] = await Promise.all([
-    appointmentQuery,
-    encounterQuery,
+  const finalizedQueries = locationIds.map((locationId) =>
     supabase.rpc("finalized_prescriptions_at", {
-      p_practice_location_id: locationIds.length === 1 ? locationIds[0] : null,
+      p_practice_location_id: locationId,
       p_patient_id: null,
     }),
+  );
+  const [appointmentResult, encounterResult, finalizedResults, expenseResult] = await Promise.all([
+    appointmentQuery,
+    encounterQuery,
+    Promise.all(finalizedQueries),
     expenseQuery,
   ]);
+  const finalizedError = finalizedResults.some((result) => result.error);
 
-  if (appointmentResult.error || encounterResult.error || finalizedResult.error || expenseResult.error) {
+  if (appointmentResult.error || encounterResult.error || finalizedError || expenseResult.error) {
     console.error("[analytics] primary aggregate read failed");
     return { ok: false, reason: "unavailable" };
   }
@@ -140,7 +144,7 @@ export async function getDoctorAnalytics(period: AnalyticsPeriod, requestedScope
 
   const encounterIds = encounters.map((row) => row.id);
   const appointmentIds = appointments.map((row) => row.id);
-  const finalizedRows = (finalizedResult.data ?? []) as unknown as {
+  const finalizedRows = finalizedResults.flatMap((result) => result.data ?? []) as unknown as {
     encounter_id: string;
     finalized_at: string | null;
   }[];
