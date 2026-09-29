@@ -7,6 +7,7 @@ import {
   Pill,
   FileText,
   CircleDollarSign,
+  ReceiptText,
   Settings,
   UserPlus,
   CalendarPlus,
@@ -61,7 +62,7 @@ export const PRIMARY_NAV: NavItem[] = [
   { href: "/medicines", label: "Medicines", icon: <Pill className={ICON} /> },
   { href: "/documents", label: "Documents", icon: <FileText className={ICON} /> },
   { href: "/payments", label: "Payments", icon: <CircleDollarSign className={ICON} /> },
-  { href: "/expenses", label: "Expenses", icon: <CircleDollarSign className={ICON} /> },
+  { href: "/expenses", label: "Expenses", icon: <ReceiptText className={ICON} /> },
 ];
 
 export const VOICE_GUIDE_NAV: NavItem = {
