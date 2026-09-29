@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { BadgeCheck, BadgeQuestionMark } from "lucide-react";
 import type { PublicDoctor } from "../queries";
 import { PublicDoctorAvatar } from "./public-doctor-avatar";
 import { PublicShareActions } from "./public-share-actions";
@@ -21,13 +22,20 @@ export function PublicDoctorProfile({
           <PublicDoctorAvatar fullName={doctor.fullName} photoUrl={photoUrl} />
           <div className="min-w-0 flex-1">
             <p className="text-xs font-semibold uppercase tracking-[0.14em] text-brand sm:text-sm">Professional profile · Doctor&apos;s Diary</p>
-            <h1 className="mt-2 break-words text-3xl font-semibold tracking-tight sm:text-4xl">{doctor.fullName}</h1>
+            <div className="mt-2 flex flex-wrap items-center justify-center gap-2 sm:justify-start">
+              <h1 className="break-words text-3xl font-semibold tracking-tight sm:text-4xl">{doctor.fullName}</h1>
+              {doctor.verified ? (
+                <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700 ring-1 ring-emerald-200" title="Professional identity verified by Doctor’s Diary"><BadgeCheck className="size-4" aria-hidden="true" /> Verified</span>
+              ) : (
+                <span className="inline-flex items-center gap-1 rounded-full bg-surface-muted/80 px-2.5 py-1 text-xs font-semibold text-ink-muted opacity-70 grayscale" title="Professional identity has not been verified by Doctor’s Diary"><BadgeQuestionMark className="size-4 blur-[0.4px]" aria-hidden="true" /> Not verified</span>
+              )}
+            </div>
             <div className="mt-3 flex min-w-0 flex-wrap justify-center gap-x-3 gap-y-1 text-sm text-ink-secondary sm:justify-start sm:text-base">
               {doctor.designation && <span>{doctor.designation}</span>}
               {doctor.specialization && <span>· {doctor.specialization}</span>}
               {doctor.qualification && <span>· {doctor.qualification}</span>}
             </div>
-            {doctor.bmdc && <p className="mt-3 break-words text-sm text-ink-muted">BMDC: {doctor.bmdc} <span className="sm:ml-1">(doctor-displayed; verification badge not implied)</span></p>}
+            {doctor.bmdc && <p className="mt-3 break-words text-sm text-ink-muted">BMDC: {doctor.bmdc}{!doctor.verified && <span className="sm:ml-1"> (doctor-displayed)</span>}</p>}
             <PublicShareActions doctorName={doctor.fullName} />
           </div>
         </div>

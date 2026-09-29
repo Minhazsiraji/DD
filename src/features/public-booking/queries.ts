@@ -28,6 +28,7 @@ export interface PublicDoctor {
   specialization: string | null;
   bmdc: string | null;
   slug: string;
+  verified: boolean;
   /** Only a short-lived signed HTTPS URL. The raw storage object key is never public data. */
   photoUrl?: string | null;
   chambers: PublicChamber[];

@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 import { ArrowLeft, Eye, EyeOff } from "lucide-react";
 import { requireLocationContext } from "@/lib/auth/session";
 import { getOwnProfile } from "@/features/doctor/profile";
+import { approvedClaim, getMyClaims } from "@/features/doctor/claim";
 import { PublicDoctorProfile } from "@/features/public-booking/components/public-doctor-profile";
 import { PublicProfileControls } from "@/features/doctor/components/public-profile-controls";
 
@@ -14,7 +15,7 @@ export const metadata: Metadata = {
 
 export default async function ProfilePreviewPage() {
   await requireLocationContext();
-  const profile = await getOwnProfile();
+  const [profile, claims] = await Promise.all([getOwnProfile(), getMyClaims()]);
   if (!profile) notFound();
 
   const published = profile.visibility === "PUBLIC";
@@ -41,7 +42,7 @@ export default async function ProfilePreviewPage() {
       </div>
 
       <div className="mx-auto max-w-5xl">
-        <PublicDoctorProfile doctor={{ ...profile, slug: profile.slug ?? "preview", bmdc: profile.bmdc ?? null, chambers: profile.chambers.map((chamber) => ({ chamberId: chamber.locationId, locationId: chamber.locationId, name: chamber.name, address: chamber.addressLine, district: null, publicNote: chamber.publicNote, bookingEnabled: false, bookingMode: null, consultationFee: null, currency: "BDT", sessions: chamber.sessions })) }} photoUrl={profile.photoUrl} showBooking={false} />
+        <PublicDoctorProfile doctor={{ ...profile, verified: Boolean(approvedClaim(claims)), slug: profile.slug ?? "preview", bmdc: profile.bmdc ?? null, chambers: profile.chambers.map((chamber) => ({ chamberId: chamber.locationId, locationId: chamber.locationId, name: chamber.name, address: chamber.addressLine, district: null, publicNote: chamber.publicNote, bookingEnabled: false, bookingMode: null, consultationFee: null, currency: "BDT", sessions: chamber.sessions })) }} photoUrl={profile.photoUrl} showBooking={false} />
       </div>
 
       <p className="mx-auto max-w-5xl text-center text-[12px] text-ink-muted">

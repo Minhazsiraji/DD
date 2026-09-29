@@ -9,6 +9,7 @@ function source(file: string): string {
 const edge = source("supabase/functions/public-doctor-photo/index.ts");
 const queries = source("src/features/public-booking/queries.ts");
 const profilePage = source("src/app/dr/[slug]/page.tsx");
+const publicProfile = source("src/features/public-booking/components/public-doctor-profile.tsx");
 const commercialSql = source("supabase/policies/0030_paid_doctor_commercial.sql");
 
 describe("public doctor portrait delivery boundary", () => {
@@ -58,7 +59,7 @@ describe("public doctor portrait delivery boundary", () => {
     expect(queries).toContain("body: { slug: normalized }");
     expect(queries).not.toContain("body: { path:");
     expect(profilePage).toContain("getPublicDoctorPhotoUrl(slug)");
-    expect(profilePage).toContain(
+    expect(publicProfile).toContain(
       "<PublicDoctorAvatar fullName={doctor.fullName} photoUrl={photoUrl} />",
     );
   });
