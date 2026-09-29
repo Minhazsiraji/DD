@@ -35,7 +35,7 @@ export function PublicDoctorProfile({
               {doctor.specialization && <span>· {doctor.specialization}</span>}
               {doctor.qualification && <span>· {doctor.qualification}</span>}
             </div>
-            {doctor.bmdc && <p className="mt-3 break-words text-sm text-ink-muted">BMDC: {doctor.bmdc}{!doctor.verified && <span className="sm:ml-1"> (doctor-displayed)</span>}</p>}
+            {doctor.bmdc && <p className="mt-3 break-words text-sm text-ink-muted">BMDC: {doctor.bmdc}</p>}
             <PublicShareActions doctorName={doctor.fullName} />
           </div>
         </div>

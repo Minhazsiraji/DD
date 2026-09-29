@@ -45,7 +45,7 @@ describe("pilot Step 1 prescription corrections", () => {
     expect(v4).toContain("documentState={documentState}");
     expect(v4).toContain("platformAttribution");
     expect(parts).toContain('data-rx-platform-footer="doctors-diary"');
-    expect(parts).toContain("Developed by: ©AgentSiraji");
+    expect(parts).toContain("Developed by: AgentSiraji.com");
     expect(parts).toContain("Contact: business@agentsiraji.com");
     expect(parts).toContain('src="/brand/dd-logo-mark-canonical.webp"');
     expect(parts).toContain("Care · Record · Connect");

@@ -471,7 +471,7 @@ export function PrescriptionFooter({
           style={{ gap: u.mm(5) }}
         >
           <div className="min-w-0" style={{ lineHeight: 1.45 }}>
-            <p>Developed by: ©AgentSiraji</p>
+            <p>Developed by: AgentSiraji.com</p>
             <p>Contact: business@agentsiraji.com</p>
           </div>
 
