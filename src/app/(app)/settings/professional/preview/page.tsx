@@ -21,7 +21,7 @@ export default async function ProfilePreviewPage() {
 
   return (
     <div className="space-y-5 pb-4">
-      <div className="mx-auto flex max-w-[560px] flex-wrap items-center justify-between gap-3">
+      <div className="mx-auto flex max-w-5xl flex-wrap items-center justify-between gap-3">
         <Link
           href="/settings/professional"
           className="inline-flex h-11 items-center gap-1.5 text-[13px] font-semibold text-ink-secondary hover:text-ink focus-visible:focus-ring"
@@ -36,7 +36,7 @@ export default async function ProfilePreviewPage() {
         </span>
       </div>
 
-      <div className="mx-auto max-w-[560px]">
+      <div className="mx-auto max-w-5xl">
         <PublicProfileControls slug={profile.slug} visibility={profile.visibility} compact />
       </div>
 
@@ -44,7 +44,7 @@ export default async function ProfilePreviewPage() {
         <PublicDoctorProfile doctor={{ ...profile, slug: profile.slug ?? "preview", bmdc: profile.bmdc ?? null, chambers: profile.chambers.map((chamber) => ({ chamberId: chamber.locationId, locationId: chamber.locationId, name: chamber.name, address: chamber.addressLine, district: null, publicNote: chamber.publicNote, bookingEnabled: false, bookingMode: null, consultationFee: null, currency: "BDT", sessions: chamber.sessions })) }} photoUrl={profile.photoUrl} showBooking={false} />
       </div>
 
-      <p className="mx-auto max-w-[560px] text-center text-[12px] text-ink-muted">
+      <p className="mx-auto max-w-5xl text-center text-[12px] text-ink-muted">
         {published
           ? "This preview uses the same universal patient-facing profile layout as your shared public link. Booking is disabled only inside preview."
           : "This is how your profile would look to a patient after you publish it. Anonymous visitors cannot access it yet."}

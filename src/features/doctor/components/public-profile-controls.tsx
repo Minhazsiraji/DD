@@ -73,7 +73,7 @@ export function PublicProfileControls({ slug, visibility: initialVisibility, com
   const published = visibility === "PUBLIC";
 
   return (
-    <section className={`rounded-2xl border border-hairline bg-white ${compact ? "p-4" : "p-5 sm:p-6"}`} data-public-profile-controls>
+    <section className={`glass-panel rounded-[28px] border border-white/80 shadow-soft ${compact ? "p-4 sm:p-5" : "p-5 sm:p-6"}`} data-public-profile-controls>
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <div className="flex items-center gap-2">
@@ -105,31 +105,31 @@ export function PublicProfileControls({ slug, visibility: initialVisibility, com
           type="button"
           disabled={pending || (!slug && !published)}
           onClick={() => changeVisibility(published ? "PRIVATE" : "PUBLIC")}
-          className="inline-flex min-h-11 items-center justify-center rounded-xl border border-hairline bg-white px-4 text-xs font-semibold text-ink hover:bg-surface-muted disabled:cursor-not-allowed disabled:opacity-50 focus-visible:focus-ring"
+          className="inline-flex min-h-11 items-center justify-center rounded-xl border border-white/80 bg-white/60 px-4 text-xs font-semibold text-ink hover:bg-surface-muted disabled:cursor-not-allowed disabled:opacity-50 focus-visible:focus-ring"
         >
           {published ? "Unpublish" : pending ? "Publishing…" : "Publish profile"}
         </button>
 
         {published && pathname && (
           <>
-            <Link href={pathname} target="_blank" className="inline-flex min-h-11 items-center gap-1.5 rounded-xl border border-hairline bg-white px-4 text-xs font-semibold text-ink hover:bg-surface-muted focus-visible:focus-ring">
+            <Link href={pathname} target="_blank" className="inline-flex min-h-11 items-center gap-1.5 rounded-xl border border-white/80 bg-white/60 px-4 text-xs font-semibold text-ink hover:bg-surface-muted focus-visible:focus-ring">
               <ExternalLink className="size-3.5" aria-hidden="true" /> View public profile
             </Link>
-            <button type="button" onClick={() => void copyLink()} className="inline-flex min-h-11 items-center gap-1.5 rounded-xl border border-hairline bg-white px-4 text-xs font-semibold text-ink hover:bg-surface-muted focus-visible:focus-ring">
+            <button type="button" onClick={() => void copyLink()} className="inline-flex min-h-11 items-center gap-1.5 rounded-xl border border-white/80 bg-white/60 px-4 text-xs font-semibold text-ink hover:bg-surface-muted focus-visible:focus-ring">
               <Copy className="size-3.5" aria-hidden="true" /> Copy link
             </button>
-            <button type="button" onClick={() => void shareProfile()} className="inline-flex min-h-11 items-center gap-1.5 rounded-xl border border-hairline bg-white px-4 text-xs font-semibold text-ink hover:bg-surface-muted focus-visible:focus-ring">
+            <button type="button" onClick={() => void shareProfile()} className="inline-flex min-h-11 items-center gap-1.5 rounded-xl border border-white/80 bg-white/60 px-4 text-xs font-semibold text-ink hover:bg-surface-muted focus-visible:focus-ring">
               <Share2 className="size-3.5" aria-hidden="true" /> Share profile
             </button>
             {!compact && (
               <>
-                <button type="button" onClick={() => openShare("whatsapp")} className="inline-flex min-h-11 items-center gap-1.5 rounded-xl border border-hairline bg-white px-4 text-xs font-semibold text-ink hover:bg-surface-muted focus-visible:focus-ring">
+                <button type="button" onClick={() => openShare("whatsapp")} className="inline-flex min-h-11 items-center gap-1.5 rounded-xl border border-white/80 bg-white/60 px-4 text-xs font-semibold text-ink hover:bg-surface-muted focus-visible:focus-ring">
                   <MessageCircle className="size-3.5" aria-hidden="true" /> WhatsApp
                 </button>
-                <button type="button" onClick={() => openShare("facebook")} className="inline-flex min-h-11 items-center gap-1.5 rounded-xl border border-hairline bg-white px-4 text-xs font-semibold text-ink hover:bg-surface-muted focus-visible:focus-ring">
+                <button type="button" onClick={() => openShare("facebook")} className="inline-flex min-h-11 items-center gap-1.5 rounded-xl border border-white/80 bg-white/60 px-4 text-xs font-semibold text-ink hover:bg-surface-muted focus-visible:focus-ring">
                   <Share2 className="size-3.5" aria-hidden="true" /> Facebook
                 </button>
-                <button type="button" onClick={() => void copyLink("Link copied — paste it into Messenger.")} className="inline-flex min-h-11 items-center gap-1.5 rounded-xl border border-hairline bg-white px-4 text-xs font-semibold text-ink hover:bg-surface-muted focus-visible:focus-ring">
+                <button type="button" onClick={() => void copyLink("Link copied — paste it into Messenger.")} className="inline-flex min-h-11 items-center gap-1.5 rounded-xl border border-white/80 bg-white/60 px-4 text-xs font-semibold text-ink hover:bg-surface-muted focus-visible:focus-ring">
                   <MessageCircle className="size-3.5" aria-hidden="true" /> Messenger
                 </button>
               </>
