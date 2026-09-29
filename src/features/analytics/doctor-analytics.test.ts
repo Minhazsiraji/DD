@@ -34,9 +34,9 @@ describe("Doctor Analytics presentation contract", () => {
     const source = read("src/features/analytics/doctor-analytics.ts");
     const view = read("src/features/analytics/components/analytics-dashboard.tsx");
     expect(source).not.toMatch(/subscription_payments|owner_activity_cost|ai_usage/iu);
-    expect(source).toContain('status: "not-configured"');
+    expect(source).toContain('status: "cost-authoritative"');
     expect(view).toContain("Not configured");
-    expect(source).toContain("Financial tracking not configured");
+    expect(source).toContain("subscription payments are Doctor’s Diary SaaS billing");
   });
 
   it("renders the four Doctor summary metrics as one responsive StatCard family", () => {
@@ -44,17 +44,17 @@ describe("Doctor Analytics presentation contract", () => {
     expect(view).toContain("md:grid-cols-2 lg:grid-cols-4");
     expect(view).toContain('<StatCard label="Patient encounters"');
     expect(view).toContain('<StatCard label="Income" value="—"');
-    expect(view).toContain('<StatCard label="Cost" value="—"');
+    expect(view).toContain('<StatCard label="Cost" value={`−৳${data.financials.cost}`}');
     expect(view).toContain('<StatCard label="Net income" value="—"');
-    expect(view.match(/hint="Not configured"/gu)).toHaveLength(3);
-    expect(view.match(/Income, Cost and Net Income will be calculated/gu)).toHaveLength(1);
+    expect(view.match(/hint="Not configured"/gu)).toHaveLength(2);
+    expect(view).toContain("Cost is calculated from your Doctor expense ledger");
     expect(view).not.toContain("{data.financials.reason}");
   });
 
-  it("scopes every primary read to the doctor and active chamber", () => {
+  it("scopes every primary read to the doctor and authorized chamber set", () => {
     const source = read("src/features/analytics/doctor-analytics.ts");
     expect(source.match(/\.eq\("owner_doctor_id", authority\.doctorId\)/gu)?.length).toBeGreaterThanOrEqual(3);
-    expect(source.match(/\.eq\("practice_location_id", authority\.locationId\)/gu)?.length).toBeGreaterThanOrEqual(3);
+    expect(source.match(/\.in\("practice_location_id", locationIds\)/gu)?.length).toBeGreaterThanOrEqual(3);
     expect(source).toContain('supabase.rpc("finalized_prescriptions_at"');
     expect(source).toContain("ownedFinalizedEncounterIds.has(row.encounter_id)");
   });
@@ -70,7 +70,7 @@ describe("Doctor Analytics presentation contract", () => {
     const page = read("src/app/(app)/analytics/page.tsx");
     const loading = read("src/app/(app)/analytics/loading.tsx");
     const view = read("src/features/analytics/components/analytics-dashboard.tsx");
-    expect(page).toContain("getDoctorAnalytics(period)");
+    expect(page).toContain("getDoctorAnalytics(period, requestedScope)");
     expect(loading).toContain("Loading Doctor Analytics");
     expect(view).toContain("Analytics unavailable");
     expect(view).toContain("This is a true empty result");

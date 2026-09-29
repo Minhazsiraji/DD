@@ -1943,6 +1943,28 @@ export const doctorSubscriptions = pgTable(
  * it — there is deliberately no self-service confirmation path. Approval
  * belongs to platform-owner authority, which does not exist on main yet.
  */
+export const doctorExpenses = pgTable(
+  "doctor_expenses",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    ownerDoctorId: uuid("owner_doctor_id").notNull().references(() => doctorProfiles.id, { onDelete: "cascade" }),
+    practiceLocationId: uuid("practice_location_id").notNull().references(() => practiceLocations.id, { onDelete: "restrict" }),
+    expenseName: text("expense_name").notNull(),
+    expenseDate: date("expense_date").notNull(),
+    amount: numeric("amount", { precision: 12, scale: 2 }).notNull(),
+    reason: text("reason"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("doctor_expenses_doctor_date_idx").on(t.ownerDoctorId, t.expenseDate),
+    index("doctor_expenses_location_date_idx").on(t.practiceLocationId, t.expenseDate),
+    check("doctor_expenses_name", sql`btrim(expense_name) <> '' and length(expense_name) <= 120`),
+    check("doctor_expenses_amount", sql`amount > 0`),
+    check("doctor_expenses_reason", sql`reason is null or length(reason) <= 500`),
+  ],
+);
+
 export const subscriptionPayments = pgTable(
   "subscription_payments",
   {

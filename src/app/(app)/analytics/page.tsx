@@ -20,16 +20,17 @@ export default async function AnalyticsPage({
   const period: AnalyticsPeriod = ANALYTICS_PERIODS.includes(candidate)
     ? candidate
     : 7;
-  const outcome = await getDoctorAnalytics(period);
+  const requestedScope = typeof params.scope === "string" ? params.scope : "all";
+  const outcome = await getDoctorAnalytics(period, requestedScope);
 
   return (
     <div className="min-w-0 space-y-5 sm:space-y-6">
       <PageHeader
         eyebrow="Practice activity"
         title={outcome.ok ? outcome.analytics.locationName : "Doctor Analytics"}
-        subtitle="Privacy-safe clinical and workflow aggregates for your active chamber."
+        subtitle="Privacy-safe clinical, workflow and practice-cost aggregates across your authorized chambers."
       />
-      <AnalyticsDashboard outcome={outcome} selected={period} />
+      <AnalyticsDashboard outcome={outcome} selected={period} selectedScope={requestedScope} />
     </div>
   );
 }
