@@ -11,6 +11,9 @@ create index if not exists patient_documents_owner_archive_created_idx
   on public.patient_documents(owner_doctor_id, archived_at, created_at desc);
 create index if not exists patient_documents_patient_archive_created_idx
   on public.patient_documents(patient_id, archived_at, created_at desc);
+create index if not exists patient_documents_location_idx on public.patient_documents(practice_location_id);
+create index if not exists patient_documents_uploaded_by_idx on public.patient_documents(uploaded_by);
+create index if not exists patient_documents_archived_by_idx on public.patient_documents(archived_by);
 
 -- A staff member may upload only where the owning doctor is also an active doctor.
 -- A patient may upload only to their own linked record/location. Upload != read.
@@ -81,14 +84,14 @@ drop policy if exists patient_documents_storage_delete on storage.objects;
 drop policy if exists patient_documents_select on public.patient_documents;
 create policy patient_documents_select on public.patient_documents for select to authenticated using (
   owner_doctor_id=public.current_doctor_id()
-  or exists(select 1 from public.patients p where p.id=patient_id and p.patient_account_id=auth.uid())
+  or exists(select 1 from public.patients p where p.id=patient_id and p.patient_account_id=(select auth.uid()))
 );
 drop policy if exists patient_documents_storage_select on storage.objects;
 create policy patient_documents_storage_select on storage.objects for select to authenticated using (
   bucket_id='patient-documents' and (
     (storage.foldername(name))[1]=auth.uid()::text
     or exists(select 1 from public.patients p
-      where p.id=((storage.foldername(name))[2])::uuid and p.patient_account_id=auth.uid())
+      where p.id=((storage.foldername(name))[2])::uuid and p.patient_account_id=(select auth.uid()))
   )
 );
 
@@ -149,6 +152,7 @@ create table if not exists public.patient_document_events(
   )
 );
 create index if not exists patient_document_events_document_idx on public.patient_document_events(document_id,seq);
+create index if not exists patient_document_events_actor_idx on public.patient_document_events(actor_id);
 alter table public.patient_document_events enable row level security;
 alter table public.patient_document_events force row level security;
 revoke all on public.patient_document_events from anon,authenticated;
@@ -166,7 +170,7 @@ begin
   if not found then raise exception 'DOCUMENT_NOT_FOUND' using errcode='42501'; end if;
   if not (v_doc.owner_doctor_id=public.current_doctor_id()
     or v_doc.uploaded_by=auth.uid()
-    or exists(select 1 from public.patients p where p.id=v_doc.patient_id and p.patient_account_id=auth.uid())) then
+    or exists(select 1 from public.patients p where p.id=v_doc.patient_id and p.patient_account_id=(select auth.uid()))) then
     raise exception 'DOCUMENT_NOT_FOUND' using errcode='42501'; end if;
   if v_doc.archived_at is not null then raise exception 'DOCUMENT_ALREADY_ARCHIVED'; end if;
   update public.patient_documents set archived_at=clock_timestamp(),archived_by=auth.uid(),archive_reason=v_reason,updated_at=clock_timestamp()
@@ -205,7 +209,7 @@ begin
     raise exception 'DOCUMENT_ACCESS_ACTION_INVALID'; end if;
   select * into v_doc from public.patient_documents d where d.id=p_document_id and (
     d.owner_doctor_id=public.current_doctor_id()
-    or exists(select 1 from public.patients p where p.id=d.patient_id and p.patient_account_id=auth.uid())
+    or exists(select 1 from public.patients p where p.id=d.patient_id and p.patient_account_id=(select auth.uid()))
   );
   if not found then raise exception 'DOCUMENT_NOT_FOUND' using errcode='42501'; end if;
   insert into public.audit_events(practice_location_id,actor_id,action,resource_type,resource_id,ip,user_agent,meta)
