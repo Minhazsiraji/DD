@@ -69,7 +69,7 @@ export async function AnalyticsDashboard({ outcome, selected, selectedScope }: {
           ))}
         </div>
         <p className="text-xs text-ink-muted">
-          {data.startDate ? `${data.startDate} to ${data.endDateInclusive}` : `Through ${data.endDateInclusive}`} · {data.timeZone}
+          {data.startDate ? `${data.startDate} to ${data.endDateInclusive}` : `Through ${data.endDateInclusive}`} Â· {data.timeZone}
         </p>
       </div>
 
@@ -77,12 +77,12 @@ export async function AnalyticsDashboard({ outcome, selected, selectedScope }: {
         <h2 id="practice-summary-heading" className="mb-2 text-xs font-semibold tracking-wide text-ink-secondary uppercase">Doctor summary</h2>
         <div className="grid min-w-0 grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-4">
           <StatCard label="Patient encounters" value={data.patientCount} icon={<Users className="size-5" />} hint="Consultations started in this period" accent="success" />
-          <StatCard label="Income" value="—" icon={<WalletCards className="size-5" />} hint="Not configured" />
+          <StatCard label="Income" value={`৳${data.financials.income}`} icon={<WalletCards className="size-5" />} hint="Practice payments received − refunds" />
           <StatCard label="Cost" value={`−৳${data.financials.cost}`} icon={<WalletCards className="size-5" />} hint="Expense ledger" accent="danger" />
-          <StatCard label="Net income" value="—" icon={<WalletCards className="size-5" />} hint="Not configured" />
+          <StatCard label="Net income" value={`৳${data.financials.netIncome}`} icon={<WalletCards className="size-5" />} hint="Income − Cost" />
         </div>
         <p className="mt-2 text-xs leading-5 text-ink-muted">
-          Cost is calculated from your Doctor expense ledger. Income and Net Income remain unavailable until an authoritative patient/practice revenue source exists.
+          Income comes only from the practice payment ledger; Cost comes from the Doctor expense ledger. Doctorâ€™s Diary subscription billing is kept separate.
         </p>
       </section>
 

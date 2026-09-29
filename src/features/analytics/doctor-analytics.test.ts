@@ -32,22 +32,20 @@ describe("Doctor Analytics presentation contract", () => {
 
   it("does not treat SaaS subscription payments or AI provider costs as practice finance", () => {
     const source = read("src/features/analytics/doctor-analytics.ts");
-    const view = read("src/features/analytics/components/analytics-dashboard.tsx");
     expect(source).not.toMatch(/subscription_payments|owner_activity_cost|ai_usage/iu);
-    expect(source).toContain('status: "cost-authoritative"');
-    expect(view).toContain("Not configured");
-    expect(source).toContain("subscription payments are Doctor’s Diary SaaS billing");
+    expect(source).toContain('status: "authoritative"');
+    expect(source).toContain('.from("practice_payments")');
+    expect(source).toContain("Doctor’s Diary SaaS subscription billing remains excluded");
   });
 
   it("renders the four Doctor summary metrics as one responsive StatCard family", () => {
     const view = read("src/features/analytics/components/analytics-dashboard.tsx");
     expect(view).toContain("md:grid-cols-2 lg:grid-cols-4");
     expect(view).toContain('<StatCard label="Patient encounters"');
-    expect(view).toContain('<StatCard label="Income" value="—"');
+    expect(view).toContain('<StatCard label="Income" value={`৳${data.financials.income}`}');
     expect(view).toContain('<StatCard label="Cost" value={`−৳${data.financials.cost}`}');
-    expect(view).toContain('<StatCard label="Net income" value="—"');
-    expect(view.match(/hint="Not configured"/gu)).toHaveLength(2);
-    expect(view).toContain("Cost is calculated from your Doctor expense ledger");
+    expect(view).toContain('<StatCard label="Net income" value={`৳${data.financials.netIncome}`}');
+    expect(view).toContain("Income comes only from the practice payment ledger");
     expect(view).not.toContain("{data.financials.reason}");
   });
 

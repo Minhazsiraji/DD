@@ -155,6 +155,13 @@
       "when": 1790657920728,
       "tag": "0021_third_santa_claus",
       "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1790668804130,
+      "tag": "0022_left_gunslinger",
+      "breakpoints": true
     }
   ]
 }

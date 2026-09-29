@@ -15,7 +15,7 @@ export interface DoctorAnalytics {
   locationName: string;
   timeZone: string;
   patientCount: number;
-  financials: { status: "cost-authoritative"; cost: string; income: null; netIncome: null; reason: string; };
+  financials: { status: "authoritative"; cost: string; income: string; netIncome: string; reason: string; };
   encounters: number;
   completedEncounters: number;
   appointments: number;
@@ -107,27 +107,34 @@ export async function getDoctorAnalytics(period: AnalyticsPeriod, requestedScope
   let expenseQuery = supabase.from("doctor_expenses").select("amount,expense_date,practice_location_id").eq("owner_doctor_id", authority.doctorId).in("practice_location_id", locationIds).lt("expense_date", endDateExclusive);
   if (startDate) expenseQuery = expenseQuery.gte("expense_date", startDate);
 
+  let paymentQuery = supabase.from("practice_payments").select("paid_amount,refunded_amount,payment_date,practice_location_id").eq("owner_doctor_id", authority.doctorId).in("practice_location_id", locationIds).lt("payment_date", endDateExclusive);
+  if (startDate) paymentQuery = paymentQuery.gte("payment_date", startDate);
+
   const finalizedQueries = locationIds.map((locationId) =>
     supabase.rpc("finalized_prescriptions_at", {
       p_practice_location_id: locationId,
       p_patient_id: null,
     }),
   );
-  const [appointmentResult, encounterResult, finalizedResults, expenseResult] = await Promise.all([
+  const [appointmentResult, encounterResult, finalizedResults, expenseResult, paymentResult] = await Promise.all([
     appointmentQuery,
     encounterQuery,
     Promise.all(finalizedQueries),
     expenseQuery,
+    paymentQuery,
   ]);
   const finalizedError = finalizedResults.some((result) => result.error);
 
-  if (appointmentResult.error || encounterResult.error || finalizedError || expenseResult.error) {
+  if (appointmentResult.error || encounterResult.error || finalizedError || expenseResult.error || paymentResult.error) {
     console.error("[analytics] primary aggregate read failed");
     return { ok: false, reason: "unavailable" };
   }
 
   const costCents = (expenseResult.data ?? []).reduce((sum, row) => sum + Math.round(Number(row.amount) * 100), 0);
   const cost = (costCents / 100).toFixed(2);
+  const incomeCents = (paymentResult.data ?? []).reduce((sum, row) => sum + Math.round((Number(row.paid_amount) - Number(row.refunded_amount)) * 100), 0);
+  const income = (incomeCents / 100).toFixed(2);
+  const netIncome = ((incomeCents - costCents) / 100).toFixed(2);
 
   const appointments = (appointmentResult.data ?? []) as unknown as {
     id: string;
@@ -236,7 +243,7 @@ export async function getDoctorAnalytics(period: AnalyticsPeriod, requestedScope
       locationName,
       timeZone,
       patientCount: encounters.length,
-      financials: { status: "cost-authoritative", cost, income: null, netIncome: null, reason: "Practice Income is not configured; existing subscription payments are Doctor’s Diary SaaS billing and are excluded." },
+      financials: { status: "authoritative", cost, income, netIncome, reason: "Income is practice payments received minus refunds; Cost is the Doctor expense ledger. Doctor’s Diary SaaS subscription billing remains excluded." },
       encounters: encounters.length,
       completedEncounters: encounters.filter((row) => row.status === "COMPLETED").length,
       appointments: appointments.length,
