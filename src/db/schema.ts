@@ -1965,6 +1965,32 @@ export const doctorExpenses = pgTable(
   ],
 );
 
+export const practicePayments = pgTable(
+  "practice_payments",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    ownerDoctorId: uuid("owner_doctor_id").notNull().references(() => doctorProfiles.id, { onDelete: "cascade" }),
+    practiceLocationId: uuid("practice_location_id").notNull().references(() => practiceLocations.id, { onDelete: "restrict" }),
+    paymentDate: date("payment_date").notNull(),
+    grossAmount: numeric("gross_amount", { precision: 12, scale: 2 }).notNull(),
+    paidAmount: numeric("paid_amount", { precision: 12, scale: 2 }).notNull().default("0"),
+    refundedAmount: numeric("refunded_amount", { precision: 12, scale: 2 }).notNull().default("0"),
+    method: text("method").notNull().default("CASH"),
+    status: text("status").notNull().default("PAID"),
+    note: text("note"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("practice_payments_doctor_date_idx").on(t.ownerDoctorId, t.paymentDate),
+    index("practice_payments_location_date_idx").on(t.practiceLocationId, t.paymentDate),
+    check("practice_payments_amounts", sql`gross_amount >= 0 and paid_amount >= 0 and refunded_amount >= 0 and refunded_amount <= paid_amount`),
+    check("practice_payments_method", sql`method in ('CASH','BKASH','NAGAD','BANGLAQR','CARD','BANK','OTHER')`),
+    check("practice_payments_status", sql`status in ('UNPAID','PARTIAL','PAID','REFUNDED','WAIVED')`),
+    check("practice_payments_note", sql`note is null or length(note) <= 500`),
+  ],
+);
+
 export const subscriptionPayments = pgTable(
   "subscription_payments",
   {
