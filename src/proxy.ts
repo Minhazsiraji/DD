@@ -23,6 +23,8 @@ const PUBLIC_PATHS = [
   "/pricing",
   "/security",
   "/faq",
+  "/privacy",
+  "/terms",
   "/contact",
   "/dr",
   "/login",
@@ -98,6 +100,8 @@ export async function proxy(request: NextRequest) {
     !pathname.startsWith("/pricing") &&
     !pathname.startsWith("/security") &&
     !pathname.startsWith("/faq") &&
+    !pathname.startsWith("/privacy") &&
+    !pathname.startsWith("/terms") &&
     !pathname.startsWith("/contact") &&
     !pathname.startsWith("/dr/") &&
     !pathname.startsWith("/auth/") &&
