@@ -39,6 +39,18 @@ describe("Doctor Analytics presentation contract", () => {
     expect(source).toContain("Financial tracking not configured");
   });
 
+  it("renders the four Doctor summary metrics as one responsive StatCard family", () => {
+    const view = read("src/features/analytics/components/analytics-dashboard.tsx");
+    expect(view).toContain("md:grid-cols-2 lg:grid-cols-4");
+    expect(view).toContain('<StatCard label="Patient encounters"');
+    expect(view).toContain('<StatCard label="Income" value="—"');
+    expect(view).toContain('<StatCard label="Cost" value="—"');
+    expect(view).toContain('<StatCard label="Net income" value="—"');
+    expect(view.match(/hint="Not configured"/gu)).toHaveLength(3);
+    expect(view.match(/Income, Cost and Net Income will be calculated/gu)).toHaveLength(1);
+    expect(view).not.toContain("{data.financials.reason}");
+  });
+
   it("scopes every primary read to the doctor and active chamber", () => {
     const source = read("src/features/analytics/doctor-analytics.ts");
     expect(source.match(/\.eq\("owner_doctor_id", authority\.doctorId\)/gu)?.length).toBeGreaterThanOrEqual(3);
