@@ -137,16 +137,17 @@ export function classifyUpload(input: {
 /**
  * The object key for a new document.
  *
- * `<owning doctor's auth user id>/<patient id>/<random uuid>.<ext>` — the exact
+ * `<owning doctor auth user id>/<patient id>/<location id>/<random uuid>.<ext>` — the exact
  * shape `create_patient_document()` re-derives and refuses to accept anything
  * else for. The original filename appears nowhere in it: a filename must not
  * choose a path.
  */
 export function documentStoragePath(input: {
-  doctorUserId: string;
+  ownerUserId: string;
   patientId: string;
+  locationId: string;
   objectId: string;
   extension: "pdf" | "jpg" | "png";
 }): string {
-  return `${input.doctorUserId}/${input.patientId}/${input.objectId}.${input.extension}`;
+  return `${input.ownerUserId}/${input.patientId}/${input.locationId}/${input.objectId}.${input.extension}`;
 }

@@ -149,3 +149,49 @@ A Postgres enum, mirrored by one TypeScript catalog
 `ALTER TYPE … ADD VALUE` plus one catalog entry — no policy, no query and no
 component changes. The enum is preferred over free text because an invalid type
 should be impossible in the database, not merely unlikely in the form.
+
+## V2 amendment — immutable evidence, delegated intake, durable access audit
+
+V2 supersedes the V1 authority/removal/audit paragraphs above where they differ.
+It is implemented on `feat/documents-v2-immutable-audit` from current main.
+
+A successfully filed document is **write-once evidence**. Its patient, owner,
+location, encounter link, classification, title/notes, storage path, MIME type,
+size, original filename, uploader, creation time and SHA-256 digest cannot be
+edited. A database trigger enforces that invariant even if application code is
+bypassed. Storage has no UPDATE or DELETE policy. SHA-256 is integrity evidence,
+not a claim that the source document is clinically authentic.
+
+Upload is deliberately broader than read. The owning doctor may upload. An
+ACTIVE `ASSISTANT` or `RECEPTIONIST` may upload only at a location where the
+owning doctor is also an ACTIVE DOCTOR. A linked patient account may upload only
+to its own patient record at a linked location. The storage key is therefore
+`<owner auth user>/<patient>/<location>/<random object>.<ext>`. Delegated staff
+upload does **not** grant clinical-document read authority. The owning doctor is
+the primary clinical reader; a linked patient account may read its own document.
+The patient-facing upload UI is deferred until the patient portal exists, but
+the database/storage authority boundary is ready for that caller without a
+future RLS redesign.
+
+Archive remains the only removal from the working record and requires a 5–500
+character explanation. V2 adds append-only `patient_document_events`: every
+ARCHIVED and RESTORED transition remains permanently attributable even after a
+restore clears the row's current archive fields. Restore is doctor-only. An
+uploader may archive what they filed; this does not grant them read access to the
+clinical bytes.
+
+View, download and print are distinct audit actions. The controlled document
+route mints a short-lived signed URL but releases it only after the durable audit
+RPC succeeds. The audit records actor, timestamp, document/patient/owner/location
+identifiers, bounded IP and user-agent; it never records title, filename, notes
+or document type. `printed` means the authenticated user invoked the controlled
+print action; browsers and operating systems do not provide trustworthy proof
+that paper physically emerged from a printer.
+
+The design follows established healthcare-security principles: least privilege,
+audit controls, integrity protection, authentication, transmission security,
+private storage and non-destructive record lifecycle. FHIR `DocumentReference`
+lifecycle concepts informed the decision to retain/supersede/archive rather than
+destruct clinical evidence. This architecture does **not** claim HIPAA, ISO, or
+Bangladesh regulatory certification; retention/erasure periods remain an
+organizational/legal policy decision.

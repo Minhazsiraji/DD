@@ -1,6 +1,6 @@
 import * as React from "react";
 import Link from "next/link";
-import { Eye, Download, Paperclip, Stethoscope, TriangleAlert, Archive } from "lucide-react";
+import { Eye, Download, Printer, Paperclip, Stethoscope, TriangleAlert, Archive } from "lucide-react";
 import { SectionCard } from "@/components/common/section-card";
 import { EmptyState } from "@/components/common/empty-state";
 import { formatDate } from "@/lib/format";
@@ -196,12 +196,13 @@ function DocumentRow({
           View
         </a>
         <a
-          href={`/api/documents/${doc.id}?download=1`}
+          href={`/api/documents/${doc.id}?action=download`}
           className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl border border-hairline px-3 text-[13px] font-semibold text-ink transition-colors hover:bg-surface-muted focus-visible:focus-ring sm:h-10 sm:w-auto"
         >
           <Download className="size-4" aria-hidden="true" />
           Download
         </a>
+        <a href={`/api/documents/${doc.id}?action=print`} target="_blank" rel="noopener noreferrer" className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl border border-hairline px-3 text-[13px] font-semibold text-ink transition-colors hover:bg-surface-muted focus-visible:focus-ring sm:h-10 sm:w-auto"><Printer className="size-4" aria-hidden="true" />Print</a>
         <DocumentRowActions documentId={doc.id} archived={archived} title={doc.title} />
       </div>
     </li>

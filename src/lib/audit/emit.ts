@@ -68,13 +68,15 @@ export type AuditAction =
    * "IMAGING_REPORT for patient X" is a clinical disclosure to someone who may
    * not read the document itself.
    *
-   * `viewed` IS emitted here, and correctly so: reading a record must never
-   * block care.
+   * V2 document view/download/print events are written by the durable access RPC,
+   * not by this best-effort emitter, so released bytes always have an audit row.
    */
   | "document.uploaded"
   | "document.archived"
   | "document.restored"
   | "document.viewed"
+  | "document.downloaded"
+  | "document.printed"
   | "location.created"
   | "location.updated"
   | "location.switched"

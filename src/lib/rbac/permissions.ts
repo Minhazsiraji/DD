@@ -11,7 +11,7 @@
  *      private notes. There is no admin override.
  */
 
-export const LOCATION_ROLES = ["DOCTOR", "RECEPTIONIST", "LOCATION_ADMIN"] as const;
+export const LOCATION_ROLES = ["DOCTOR", "ASSISTANT", "RECEPTIONIST", "LOCATION_ADMIN"] as const;
 export type LocationRole = (typeof LOCATION_ROLES)[number];
 
 export const RESOURCES = [
@@ -82,6 +82,13 @@ const MATRIX: Matrix = {
     ai_assistant: RW,
   },
 
+  ASSISTANT: {
+    practice_location: R, location_member: NONE, doctor_profile: R, patient: R,
+    patient_allergy: NONE, patient_clinical: NONE, patient_contact: R,
+    encounter: NONE, private_notes: NONE, prescription: NONE, investigation_result: NONE,
+    document: ["create"], appointment: R, queue: R, payment: NONE, audit_log: NONE, ai_assistant: NONE,
+  },
+
   RECEPTIONIST: {
     practice_location: R,
     location_member: NONE,
@@ -97,7 +104,7 @@ const MATRIX: Matrix = {
     private_notes: NONE,
     prescription: R, // print/hand over only
     investigation_result: NONE, // metadata surfaces via document, not the result body
-    document: ["read", "create"],
+    document: ["create"],
     appointment: RW,
     queue: RW,
     payment: RW,
@@ -119,7 +126,7 @@ const MATRIX: Matrix = {
     private_notes: NONE, // operational role — no clinical-note access, ever
     prescription: R,
     investigation_result: R,
-    document: RW,
+    document: NONE,
     appointment: RW,
     queue: RW,
     payment: RWD,

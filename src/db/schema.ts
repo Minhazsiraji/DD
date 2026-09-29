@@ -48,6 +48,7 @@ export const authUsers = authSchema.table("users", {
 
 export const locationRole = pgEnum("location_role", [
   "DOCTOR",
+  "ASSISTANT",
   "RECEPTIONIST",
   "LOCATION_ADMIN",
 ]);
@@ -2322,6 +2323,8 @@ export const patientDocuments = pgTable(
     /** Server-determined from the file's own bytes, never from its extension. */
     mimeType: text("mime_type").notNull(),
     sizeBytes: integer("size_bytes").notNull(),
+    /** SHA-256 of the exact stored bytes; immutable integrity evidence. */
+    sha256: text("sha256").notNull(),
     /** Kept for the doctor's benefit only. It confers nothing. */
     originalFilename: text("original_filename").notNull(),
 
@@ -2368,6 +2371,7 @@ export const patientDocuments = pgTable(
     check("patient_documents_title", sql`length(btrim(title)) between 1 and 200`),
     check("patient_documents_notes", sql`notes is null or length(notes) <= 2000`),
     check("patient_documents_size", sql`size_bytes > 0 and size_bytes <= 10485760`),
+    check("patient_documents_sha256", sql`sha256 ~ '^[0-9a-f]{64}$'`),
     check(
       "patient_documents_mime",
       sql`mime_type in ('application/pdf', 'image/jpeg', 'image/png')`,
@@ -2376,7 +2380,7 @@ export const patientDocuments = pgTable(
     check(
       "patient_documents_archive_consistent",
       sql`(archived_at is null and archived_by is null and archive_reason is null)
-          or (archived_at is not null)`,
+          or (archived_at is not null and archived_by is not null and archive_reason is not null and length(btrim(archive_reason)) between 5 and 500)`,
     ),
   ],
 );
@@ -2385,6 +2389,19 @@ export type Profile = typeof profiles.$inferSelect;
 export type DoctorProfile = typeof doctorProfiles.$inferSelect;
 export type PracticeLocation = typeof practiceLocations.$inferSelect;
 export type PracticeLocationMember = typeof practiceLocationMembers.$inferSelect;
+export const patientDocumentEvents = pgTable(
+  "patient_document_events",
+  {
+    seq: bigserial("seq", { mode: "number" }).primaryKey(),
+    documentId: uuid("document_id").notNull().references(() => patientDocuments.id, { onDelete: "restrict" }),
+    eventType: text("event_type").notNull(),
+    actorId: uuid("actor_id").references(() => profiles.id, { onDelete: "set null" }),
+    reason: text("reason"),
+    at: timestamp("at", { withTimezone: true }).notNull().default(sql`clock_timestamp()`),
+  },
+  (t) => [index("patient_document_events_document_idx").on(t.documentId, t.seq), check("patient_document_events_type", sql`event_type in ('ARCHIVED','RESTORED')`), check("patient_document_events_reason", sql`(event_type='ARCHIVED' and reason is not null and length(btrim(reason)) between 5 and 500) or (event_type='RESTORED' and reason is null)`)],
+);
+
 export type AuditEvent = typeof auditEvents.$inferSelect;
 export type Patient = typeof patients.$inferSelect;
 export type PatientAllergy = typeof patientAllergies.$inferSelect;

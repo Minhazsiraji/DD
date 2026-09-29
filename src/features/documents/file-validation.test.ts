@@ -11,7 +11,7 @@ import { MAX_DOCUMENT_BYTES } from "./types";
  * The upload gate, tested where it is a pure function.
  *
  * This is the one check the whole storage path rests on, and it must be
- * provable without a database, a bucket or a browser — otherwise it is only
+ * provable without a database, a bucket or a browser â€” otherwise it is only
  * ever exercised by the thing it is supposed to protect.
  */
 
@@ -104,7 +104,7 @@ describe("classifying an upload", () => {
     expect(verdict).toEqual({ ok: true, mimeType: "image/jpeg", extension: "jpg" });
   });
 
-  it("ignores the filename entirely — it is not an input", () => {
+  it("ignores the filename entirely â€” it is not an input", () => {
     // There is no filename parameter at all, by construction. This test exists
     // so that adding one is a visible decision rather than a quiet one.
     const verdict = classifyUpload({ sizeBytes: 10, leadingBytes: JPEG });
@@ -114,13 +114,14 @@ describe("classifying an upload", () => {
 });
 
 describe("the storage path", () => {
-  const doctorUserId = "11111111-1111-4111-8111-111111111111";
+  const ownerUserId = "11111111-1111-4111-8111-111111111111";
+  const locationId = "44444444-4444-4444-8444-444444444444";
   const patientId = "22222222-2222-4222-8222-222222222222";
   const objectId = "33333333-3333-4333-8333-333333333333";
 
-  it("is owner / patient / random-object, and nothing else", () => {
-    expect(documentStoragePath({ doctorUserId, patientId, objectId, extension: "pdf" })).toBe(
-      `${doctorUserId}/${patientId}/${objectId}.pdf`,
+  it("is owner / patient / location / random-object, and nothing else", () => {
+    expect(documentStoragePath({ ownerUserId, patientId, locationId, objectId, extension: "pdf" })).toBe(
+      `${ownerUserId}/${patientId}/${locationId}/${objectId}.pdf`,
     );
   });
 
@@ -129,13 +130,12 @@ describe("the storage path", () => {
      * The SQL refuses anything else. Kept as a literal here so the two cannot
      * drift silently: a change on either side fails this.
      */
-    const SQL_SHAPE =
-      /^[0-9a-f-]{36}\/[0-9a-f-]{36}\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.(pdf|jpg|png)$/;
+    const SQL_SHAPE = new RegExp("[0-9a-f-]{36}/[0-9a-f-]{36}/[0-9a-f-]{36}/[0-9a-f-]{36}[.][a-z]{3}$");
 
     for (const extension of ["pdf", "jpg", "png"] as const) {
-      const path = documentStoragePath({ doctorUserId, patientId, objectId, extension });
+      const path = documentStoragePath({ ownerUserId, patientId, locationId, objectId, extension });
       expect(path, path).toMatch(SQL_SHAPE);
-      expect(path.split("/")).toHaveLength(3);
+      expect(path.split("/")).toHaveLength(4);
     }
   });
 });

@@ -1,10 +1,10 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { headers } from "next/headers";
 import { z } from "zod";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { requireLocationContext } from "@/lib/auth/session";
-import { emitAudit } from "@/lib/audit/emit";
 import { classifyUpload, documentStoragePath, SNIFF_BYTES } from "./file-validation";
 import { DOCUMENT_BUCKET } from "./queries";
 import {
@@ -18,7 +18,7 @@ import {
  *
  * Two systems, and only one of them can roll back. Postgres can; S3-compatible
  * storage cannot enlist in that rollback. So this is ordered to fail in the
- * direction that does least harm — the object is stored first and the metadata
+ * direction that does least harm â€” the object is stored first and the metadata
  * row second, because a stored object with no row is invisible and recoverable,
  * while a row with no object is a document the record PROMISES and cannot
  * produce. The orphan is then cleaned up, and the cleanup is checked rather
@@ -95,16 +95,25 @@ export async function uploadDocumentAction(
     return { ok: false, fieldErrors: { file: [verdict.message] } };
   }
 
-  const { user, locationId } = await requireLocationContext();
+  const { locationId } = await requireLocationContext();
   const supabase = await createSupabaseServerClient();
 
   /**
    * A fresh random object name, never the uploaded filename. The filename is
    * attacker-controlled text and is kept only as a label the doctor recognises.
    */
+  const { data: uploadContext, error: contextError } = await supabase.rpc("get_patient_document_upload_context", {
+    p_patient_id: input.patientId,
+    p_practice_location_id: locationId,
+  });
+  if (contextError || !uploadContext) return { ok: false, message: GENERIC_REFUSAL };
+  const ownerUserId = String((uploadContext as { owner_user_id?: string }).owner_user_id ?? "");
+  if (!ownerUserId) return { ok: false, message: GENERIC_REFUSAL };
+
   const storagePath = documentStoragePath({
-    doctorUserId: user.id,
+    ownerUserId,
     patientId: input.patientId,
+    locationId,
     objectId: crypto.randomUUID(),
     extension: verdict.extension,
   });
@@ -126,6 +135,10 @@ export async function uploadDocumentAction(
     };
   }
 
+  const sha256 = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", bytes)))
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+
   const { data, error } = await supabase.rpc("create_patient_document", {
     p_patient_id: input.patientId,
     p_practice_location_id: locationId,
@@ -137,17 +150,18 @@ export async function uploadDocumentAction(
     p_storage_path: storagePath,
     p_mime_type: verdict.mimeType,
     p_size_bytes: bytes.byteLength,
+    p_sha256: sha256,
     p_original_filename: file.name,
   });
 
   if (error) {
     /**
-     * The row did not land, so the object is an orphan — invisible to every
+     * The row did not land, so the object is an orphan â€” invisible to every
      * reader, and it must not be left behind. There is no DELETE policy on this
      * bucket, so this WILL fail, and that is deliberate: an orphan nobody can
      * reach is a smaller problem than a delete path that exists. It is logged
      * loudly rather than silently, because a Supabase delete blocked by RLS
-     * removes nothing and raises nothing — an empty list with no error.
+     * removes nothing and raises nothing â€” an empty list with no error.
      */
     const { data: removed, error: removeError } = await supabase.storage
       .from(DOCUMENT_BUCKET)
@@ -155,7 +169,7 @@ export async function uploadDocumentAction(
 
     if (removeError || (removed ?? []).length === 0) {
       console.error(
-        "[documents] ORPHANED OBJECT — metadata write failed and the file is still stored",
+        "[documents] ORPHANED OBJECT â€” metadata write failed and the file is still stored",
         storagePath,
         removeError?.message ?? "delete removed nothing",
       );
@@ -242,12 +256,26 @@ export async function restoreDocumentAction(
  * viewing a record must never block care (ADR 0007). Metadata writes are the
  * fail-closed path; a read is not.
  */
-export async function logDocumentViewAction(documentId: string): Promise<void> {
-  const { locationId } = await requireLocationContext();
-  await emitAudit({
-    action: "document.viewed",
-    resourceType: "patient_document",
-    resourceId: documentId,
-    locationId,
+export type DocumentAccessKind = "viewed" | "downloaded" | "printed";
+
+/** Fail closed: no document bytes are released unless the access audit lands. */
+export async function logDocumentAccessAction(
+  documentId: string,
+  kind: DocumentAccessKind,
+): Promise<boolean> {
+  const supabase = await createSupabaseServerClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return false;
+  const h = await headers();
+  const { error } = await supabase.rpc("log_patient_document_access", {
+    p_document_id: documentId,
+    p_action: `document.${kind}`,
+    p_ip: h.get("x-forwarded-for")?.split(",")[0]?.trim() ?? h.get("x-real-ip"),
+    p_user_agent: h.get("user-agent"),
   });
+  if (error) {
+    console.error("[documents] access audit failed", kind, error.message);
+    return false;
+  }
+  return true;
 }
