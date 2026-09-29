@@ -176,6 +176,8 @@ begin
     values(v_doc.practice_location_id,auth.uid(),'document.archived','patient_document',p_document_id,
       jsonb_build_object('patient_id',v_doc.patient_id,'owner_doctor_id',v_doc.owner_doctor_id));
 end $$;
+revoke all on function public.archive_patient_document(uuid,text) from public,anon;
+grant execute on function public.archive_patient_document(uuid,text) to authenticated;
 
 create or replace function public.restore_patient_document(p_document_id uuid)
 returns void language plpgsql security definer set search_path=public,pg_temp as $$
@@ -191,6 +193,8 @@ begin
     values(v_doc.practice_location_id,auth.uid(),'document.restored','patient_document',p_document_id,
       jsonb_build_object('patient_id',v_doc.patient_id,'owner_doctor_id',v_doc.owner_doctor_id));
 end $$;
+revoke all on function public.restore_patient_document(uuid) from public,anon;
+grant execute on function public.restore_patient_document(uuid) to authenticated;
 
 -- Durable access audit: authorization is proven through the caller's RLS-visible row.
 create or replace function public.log_patient_document_access(p_document_id uuid,p_action text,p_ip text default null,p_user_agent text default null)
@@ -239,6 +243,9 @@ alter table public.patient_documents add constraint patient_documents_archive_co
   (archived_at is null and archived_by is null and archive_reason is null)
   or (archived_at is not null and archived_by is not null and archive_reason is not null and length(btrim(archive_reason)) between 5 and 500)
 );
+
+-- Legacy staff attachment remains authenticated-only; V2 must not leave this SECURITY DEFINER RPC callable by anon.
+revoke execute on function public.staff_attach_document_record(uuid,uuid,uuid,uuid,public.document_type,text,date,text,text,text,integer,text) from public,anon;
 
 -- Assistant needs only operational patient identity to choose the correct upload target.
 -- This does not expose clinical child tables.
