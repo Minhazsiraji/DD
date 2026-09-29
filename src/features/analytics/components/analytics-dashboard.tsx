@@ -52,7 +52,7 @@ export async function AnalyticsDashboard({ outcome, selected, selectedScope }: {
   return (
     <div className="min-w-0 space-y-5 sm:space-y-6">
       <div className="flex min-w-0 flex-wrap items-center justify-between gap-3">
-        <form action="/analytics"><input type="hidden" name="period" value={String(selected)} /><select name="scope" defaultValue={selectedScope} className="min-h-9 rounded-lg border border-hairline bg-white/70 px-3 text-xs font-semibold" aria-label="Analytics chamber scope"><option value="all">All Chambers</option>{chambers.map(c => <option key={c.locationId} value={c.locationId}>{c.locationName}</option>)}</select><button className="ml-2 min-h-9 rounded-lg border border-hairline px-3 text-xs font-semibold">Apply</button></form>
+        <form action="/analytics"><input type="hidden" name="period" value={String(selected)} /><select name="scope" defaultValue={selectedScope} className="min-h-9 rounded-lg border border-hairline bg-white/70 px-3 text-xs font-semibold" aria-label="Analytics chamber scope"><option value="all">All Chambers</option>{chambers.map(c => <option key={c.locationId} value={c.locationId}>{c.locationName}</option>)}</select><button className="ml-2 min-h-9 rounded-lg bg-brand px-4 text-xs font-semibold text-white shadow-soft transition hover:opacity-90 focus-visible:focus-ring">Apply</button></form>
         <div className="flex min-w-0 flex-wrap gap-1 rounded-xl bg-white/55 p-1" aria-label="Analytics date range">
           {ANALYTICS_PERIODS.map((period) => (
             <Link
@@ -78,7 +78,7 @@ export async function AnalyticsDashboard({ outcome, selected, selectedScope }: {
         <div className="grid min-w-0 grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-4">
           <StatCard label="Patient encounters" value={data.patientCount} icon={<Users className="size-5" />} hint="Consultations started in this period" accent="success" />
           <StatCard label="Income" value="—" icon={<WalletCards className="size-5" />} hint="Not configured" />
-          <StatCard label="Cost" value={`৳${data.financials.cost}`} icon={<WalletCards className="size-5" />} hint="Expense ledger" />
+          <StatCard label="Cost" value={`−৳${data.financials.cost}`} icon={<WalletCards className="size-5" />} hint="Expense ledger" accent="danger" />
           <StatCard label="Net income" value="—" icon={<WalletCards className="size-5" />} hint="Not configured" />
         </div>
         <p className="mt-2 text-xs leading-5 text-ink-muted">

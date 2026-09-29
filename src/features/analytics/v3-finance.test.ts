@@ -21,7 +21,7 @@ describe("Analytics V3 finance and scope contract",()=>{
     expect(view).toContain("md:grid-cols-2 lg:grid-cols-4");
     expect(view).toContain('<StatCard label="Patient encounters"');
     expect(view).toContain('<StatCard label="Income" value="—"');
-    expect(view).toContain('<StatCard label="Cost" value={`৳${data.financials.cost}`}');
+    expect(view).toContain('<StatCard label="Cost" value={`−৳${data.financials.cost}`}');
     expect(view).toContain('<StatCard label="Net income" value="—"');
   });
 });
