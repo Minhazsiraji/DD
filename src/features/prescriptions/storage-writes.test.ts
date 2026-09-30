@@ -66,6 +66,18 @@ describe("storage writes", () => {
        * a deliberate addition rather than a widened allowance.
        */
       path.join("features", "doctor", "profile-actions.ts"),
+      /**
+       * Patient documents — `patient-documents`, a fourth trust class.
+       *
+       * It uploads with the DOCTOR'S OWN client, never a service-role one:
+       * unlike `prescription-assets` this bucket has an INSERT policy, and it
+       * pins the first path segment to `auth.uid()`, so the wall is storage RLS
+       * rather than trusted code. Its `remove()` is orphan cleanup after a
+       * failed metadata write and is expected to remove nothing — the bucket
+       * has no DELETE policy — which is why the call site checks the returned
+       * rows instead of the absence of an error (ADR 0015).
+       */
+      path.join("features", "documents", "actions.ts"),
     ];
 
     /**

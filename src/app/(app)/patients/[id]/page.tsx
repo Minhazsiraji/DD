@@ -13,6 +13,7 @@ import { formatAge } from "@/features/patients/identity";
 import { SEX_LABEL, BLOOD_GROUP_LABEL } from "@/features/patients/schema";
 import { cn } from "@/lib/utils";
 import { SafetyList } from "@/features/patients/components/safety-list";
+import { PatientDocuments } from "@/features/documents/components/patient-documents";
 import { DoctorConsultationLauncher } from "@/features/patients/components/doctor-consultation-launcher";
 import {
   getExistingUnscheduledDraftId,
@@ -178,6 +179,7 @@ export default async function PatientProfilePage(props: PageProps<"/patients/[id
             activeLocationId={activeLocationId}
             locations={patient.locations}
           />
+          <PatientDocuments patientId={id} />
         </div>
 
         <div className="space-y-4 sm:space-y-5">

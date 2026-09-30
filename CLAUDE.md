@@ -301,6 +301,19 @@ squeeze — and it hides the bottom nav.
   nothing** — `remove()` returns an empty list with `error === null`. Confirm
   deletion from the returned rows, never from the absence of an error. This
   already reported "Signature removed" while the image was still in the bucket.
+- **A verification script must provoke each refusal inside a SAVEPOINT.** A
+  raised error aborts the whole transaction in Postgres, so the FIRST expected
+  denial takes every check after it — and the suite prints one "aborted" line
+  instead of the thing it was asked to prove. A security suite that stops at
+  the first denial silently stops testing, and it looks like a pass to anyone
+  reading the exit code. `verify-documents.mjs` wraps every probe in
+  `tx.savepoint()` for this reason.
+- **A stranded `idle in transaction (aborted)` backend outlives the script that
+  made it.** The session pooler keeps the server connection after the client
+  process dies, so a suite killed mid-transaction (a dropped DNS lookup will do
+  it) leaves its locks held. The next run of the same suite then fails on
+  `ALTER TABLE audit_events …` with a statement timeout, which reads as a
+  product defect and is not one. Check `pg_stat_activity` before believing it.
 - **Disabled inputs post nothing.** A greyed-out checkbox submits as "off", so
   gating sub-options behind a master toggle silently wipes them on save. Render
   a hidden input carrying the value when a control is disabled.
@@ -329,6 +342,9 @@ squeeze — and it hides the bottom nav.
                                  # suite. Run it with NO QA fixture present — it
                                  # asserts that no `@qa.invalid` user is left over
                                  # and `qa:create` accounts will fail that check.
+    npm run db:verify:documents  # patient documents: two doctors at one
+                                 # hospital, staff, anon; ownership, storage
+                                 # paths, MIME/size, archive and audit
     npm run db:verify:migrations # replays every migration into a throwaway
                                  # database, then rehearses the shape-changing
                                  # one against a database that holds rows
