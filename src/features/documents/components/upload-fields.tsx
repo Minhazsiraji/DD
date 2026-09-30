@@ -31,6 +31,8 @@ const LABEL_CLASS = "mb-1.5 block text-[13px] font-medium text-ink";
 
 export interface UploadFieldsProps {
   disabled: boolean;
+  /** Keep controls successful for FormData while preventing edits during review. */
+  locked?: boolean;
   encounters: EncounterOption[];
 
   documentType: string;
@@ -55,6 +57,8 @@ export function UploadFields(props: UploadFieldsProps) {
   return (
     <fieldset
       disabled={props.disabled}
+      inert={props.locked ? true : undefined}
+      aria-disabled={props.locked || props.disabled || undefined}
       className="clinical-surface space-y-4 rounded-glass-lg p-4 shadow-soft sm:p-5"
     >
       <legend className="sr-only">Document details</legend>

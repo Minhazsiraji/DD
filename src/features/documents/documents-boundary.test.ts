@@ -153,6 +153,17 @@ describe("audit", () => {
   });
 });
 
+describe("upload review submission", () => {
+  it("keeps file and metadata controls successful while the review is locked", () => {
+    const form = source("src/features/documents/components/upload-form.tsx");
+    const fields = source("src/features/documents/components/upload-fields.tsx");
+    expect(form).toContain("disabled={pending}");
+    expect(form).toContain("locked={reviewing}");
+    expect(form).not.toContain("disabled={reviewing || pending}");
+    expect(fields).toContain("inert={props.locked ? true : undefined}");
+  });
+});
+
 describe("the feature keeps its hands off privilege", () => {
   const files = [
     "src/features/documents/actions.ts",

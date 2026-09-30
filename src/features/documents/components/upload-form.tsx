@@ -101,7 +101,8 @@ export function UploadForm({
       </section>
 
       <UploadFields
-        disabled={reviewing || pending}
+        disabled={pending}
+        locked={reviewing}
         encounters={encounters}
         documentType={documentType}
         onDocumentType={setDocumentType}
