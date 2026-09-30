@@ -23,7 +23,7 @@ export const DOCUMENT_URL_TTL_SECONDS = 60;
 const COLUMNS =
   "id, patient_id, document_type, title, document_date, notes, mime_type," +
   " size_bytes, original_filename, encounter_id, archived_at, archive_reason, created_at," +
-  " patients(full_name, patient_number), practice_locations(name)";
+  " patients!patient_documents_patient_id_patients_id_fk(full_name, patient_number), practice_locations(name)";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 function toSummary(row: any): PatientDocumentSummary {
