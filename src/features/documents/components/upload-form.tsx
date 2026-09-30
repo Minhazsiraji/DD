@@ -78,6 +78,8 @@ export function UploadForm({
 
   const canReview = Boolean(file) && !fileError && title.trim().length > 0;
   const type: DocumentType = isDocumentType(documentType) ? documentType : "OTHER";
+  // A server error describes the submitted value; clear it visually once corrected.
+  const titleError = title.trim().length === 0 ? state.fieldErrors?.title?.[0] ?? null : null;
 
   return (
     <form action={submit} className="space-y-4">
@@ -115,7 +117,7 @@ export function UploadForm({
         file={file}
         fileType={fileType}
         fileError={fileError ?? state.fieldErrors?.file?.[0] ?? null}
-        titleError={state.fieldErrors?.title?.[0] ?? null}
+        titleError={titleError}
       />
 
       {reviewing ? (
