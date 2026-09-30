@@ -1,13 +1,16 @@
-import { readFileSync } from "node:fs";
-import path from "node:path";
+import * as fs from "node:fs";
+import * as path from "node:path";
 import { describe, expect, it } from "vitest";
-
-const sql = readFileSync(
+const sql = fs.readFileSync(
   path.resolve(process.cwd(), "supabase/policies/0056_patient_documents_immutable_audit.sql"),
   "utf8",
 );
-const route = readFileSync(
+const route = fs.readFileSync(
   path.resolve(process.cwd(), "src/app/api/documents/[id]/route.ts"),
+  "utf8",
+);
+const filters = fs.readFileSync(
+  path.resolve(process.cwd(), "src/features/documents/components/document-filters.tsx"),
   "utf8",
 );
 
@@ -43,5 +46,13 @@ describe("Documents V2 immutable/audited boundary", () => {
     expect(sql).toContain("sha256");
     const accessFn = sql.slice(sql.indexOf("log_patient_document_access"), sql.indexOf("guard_patient_document_immutability"));
     expect(accessFn).not.toMatch(/title|filename|notes|document_type/);
+  });
+
+  it("keeps desktop filters in one aligned row while preserving mobile/tablet stacking", () => {
+    expect(filters).toContain("grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1.15fr)] lg:items-end");
+    expect(filters).toContain("<label htmlFor=\"document-type\" className=\"sr-only\">");
+    expect(filters).toContain("<label htmlFor=\"document-from\" className=\"sr-only\">");
+    expect(filters).toContain("<label htmlFor=\"document-to\" className=\"sr-only\">");
+    expect(filters).toContain("<span className=\"sr-only\">Status</span>");
   });
 });

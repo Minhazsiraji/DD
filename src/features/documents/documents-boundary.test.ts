@@ -1,5 +1,5 @@
-import { readFileSync } from "node:fs";
-import path from "node:path";
+import * as fs from "node:fs";
+import * as path from "node:path";
 import { describe, expect, it } from "vitest";
 
 /**
@@ -14,7 +14,7 @@ import { describe, expect, it } from "vitest";
  */
 
 function source(file: string): string {
-  return readFileSync(path.resolve(process.cwd(), file), "utf8");
+  return fs.readFileSync(path.resolve(process.cwd(), file), "utf8");
 }
 
 const POLICY = source("supabase/policies/0041_patient_documents.sql");

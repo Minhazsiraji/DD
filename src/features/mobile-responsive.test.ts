@@ -91,7 +91,7 @@ describe("P0 mobile responsive boundaries", () => {
     // Filters stack rather than scroll sideways — a filter you cannot see is a
     // filter that stays wrong.
     expect(filters).toContain("data-mobile-document-filters");
-    expect(filters).toContain("grid min-w-0 grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4");
+    expect(filters).toContain("grid min-w-0 grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1.15fr)] lg:items-end");
     // 16px inputs, or iOS zooms the page on focus and the layout is lost.
     expect(filters).toContain("text-base");
   });

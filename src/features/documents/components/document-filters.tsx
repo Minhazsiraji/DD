@@ -106,16 +106,16 @@ export function DocumentFilters(props: FiltersProps) {
       </div>
 
       {/*
-        One column on a phone, four from `sm`. Stacking rather than scrolling
-        sideways: a filter a doctor cannot see is a filter that stays wrong.
+        One column on a phone, two on tablet, and one aligned row on desktop.
+        Stacking rather than scrolling sideways keeps the mobile view usable.
       */}
       <div
         data-mobile-document-filters
-        className="grid min-w-0 grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4"
+        className="grid min-w-0 grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1.15fr)] lg:items-end"
       >
         <div className="min-w-0">
           <label htmlFor="document-type" className="sr-only">
-            Document type
+            Type
           </label>
           <select
             id="document-type"
@@ -133,7 +133,7 @@ export function DocumentFilters(props: FiltersProps) {
         </div>
 
         <div className="min-w-0">
-          <label htmlFor="document-from" className="mb-1 block text-xs text-ink-muted">
+          <label htmlFor="document-from" className="sr-only">
             Dated from
           </label>
           <input
@@ -146,7 +146,7 @@ export function DocumentFilters(props: FiltersProps) {
         </div>
 
         <div className="min-w-0">
-          <label htmlFor="document-to" className="mb-1 block text-xs text-ink-muted">
+          <label htmlFor="document-to" className="sr-only">
             Dated to
           </label>
           <input
@@ -158,7 +158,8 @@ export function DocumentFilters(props: FiltersProps) {
           />
         </div>
 
-        <div className="flex min-w-0 items-end">
+        <div className="min-w-0">
+          <span className="sr-only">Status</span>
           <label className="flex h-11 w-full min-w-0 cursor-pointer items-center gap-2.5 rounded-xl border border-hairline bg-white px-3 text-sm text-ink focus-within:focus-ring sm:h-10">
             <input
               type="checkbox"
