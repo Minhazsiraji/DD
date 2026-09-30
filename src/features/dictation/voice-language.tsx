@@ -5,7 +5,7 @@ import * as React from "react";
 export interface DictationLanguageOption {
   label: string;
   lang: string;
-  providerLanguage: "en-US" | "bn";
+  providerLanguage: "en-US" | "bn" | "bn-mixed";
 }
 
 /**
@@ -19,10 +19,10 @@ export const DICTATION_LANGUAGES: readonly DictationLanguageOption[] = [
   { label: "বাংলা", lang: "bn-BD", providerLanguage: "bn" },
   // Banglish means natural code-mixed clinical language with each language kept
   // in its native script: English stays English and Bangla stays বাংলা. It is
-  // not Romanized Bangla. Live pilot currently uses the Bengali Nova-3 stream
-  // as the conservative baseline until the mixed-language benchmark qualifies
-  // a provider/configuration at the >=95% clinical-concept target.
-  { label: "Banglish (বাংলা + English)", lang: "bn-BD-mixed", providerLanguage: "bn" },
+  // not Romanized Bangla. The provider still uses Bengali Nova-3 because Deepgram
+  // multilingual code-switching does not currently include Bengali; the distinct
+  // bn-mixed mode enables English clinical keyterms and deterministic script repair.
+  { label: "Banglish (বাংলা + English)", lang: "bn-BD-mixed", providerLanguage: "bn-mixed" },
 ];
 
 export const DEFAULT_DICTATION_LANGUAGE = DICTATION_LANGUAGES[0]!.lang;

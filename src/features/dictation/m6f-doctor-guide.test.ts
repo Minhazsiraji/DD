@@ -63,6 +63,13 @@ describe("Doctor Voice Guide presentation authority", () => {
     expect(text).toMatch(/cannot Finalize, Sign, Complete or Finish/);
   });
 
+  it("keeps every target compact but expandable to all runtime phrases", () => {
+    const component = read("src/features/dictation/components/doctor-voice-guide.tsx");
+    expect(component).toContain("aria-expanded={expanded}");
+    expect(component).toContain("All phrases");
+    expect(component).toContain("examples.map((phrase)");
+  });
+
   it("requires no provider endpoint or patient data", () => {
     const page = read("src/app/(app)/voice-guide/page.tsx");
     const component = read("src/features/dictation/components/doctor-voice-guide.tsx");

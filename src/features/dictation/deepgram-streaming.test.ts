@@ -6,6 +6,7 @@ import {
   DEEPGRAM_MEDIA_TIMESLICE_MS,
   DEEPGRAM_STREAM_MODEL,
   DeepgramTranscriptAssembler,
+  BANGLISH_CLINICAL_KEYTERMS,
   buildDeepgramStreamingUrl,
   deepgramBearerProtocols,
 } from "./deepgram-stream";
@@ -22,7 +23,8 @@ describe("Deepgram Nova-3 selective streaming core", () => {
   it("builds only allowed English and Bengali provider URLs", () => {
     const english = new URL(buildDeepgramStreamingUrl("en-US"));
     const bangla = new URL(buildDeepgramStreamingUrl("bn"));
-    for (const url of [english, bangla]) {
+    const banglish = new URL(buildDeepgramStreamingUrl("bn-mixed"));
+    for (const url of [english, bangla, banglish]) {
       expect(url.origin).toBe("wss://api.deepgram.com");
       expect(url.pathname).toBe("/v1/listen");
       expect(url.searchParams.get("model")).toBe("nova-3");
@@ -31,10 +33,13 @@ describe("Deepgram Nova-3 selective streaming core", () => {
     }
     expect(english.searchParams.get("language")).toBe("en-US");
     expect(bangla.searchParams.get("language")).toBe("bn");
+    expect(banglish.searchParams.get("language")).toBe("bn");
     expect(english.searchParams.get("numerals")).toBe("true");
     expect(bangla.searchParams.has("numerals")).toBe(false);
     expect(english.searchParams.getAll("keyterm")).toEqual(["BP", "blood pressure"]);
     expect(bangla.searchParams.has("keyterm")).toBe(false);
+    expect(banglish.searchParams.getAll("keyterm")).toEqual([...BANGLISH_CLINICAL_KEYTERMS]);
+    expect(banglish.searchParams.getAll("keyterm")).toEqual(expect.arrayContaining(["patient", "fever", "pancreas"]));
     expect(english.searchParams.has("no_delay")).toBe(false);
     expect(bangla.searchParams.has("no_delay")).toBe(false);
     expect(() => buildDeepgramStreamingUrl("fr")).toThrow(/unsupported/);

@@ -11,7 +11,12 @@ export const DEEPGRAM_FIRST_TRANSCRIPT_TIMEOUT_MS = 15000;
 // Allow the provider enough time to flush its final segment after Stop.
 export const DEEPGRAM_FINALIZE_TIMEOUT_MS = 4000;
 
-const ALLOWED_LANGUAGES = new Set(["bn", "en-US"]);
+const ALLOWED_LANGUAGES = new Set(["bn", "bn-mixed", "en-US"]);
+
+export const BANGLISH_CLINICAL_KEYTERMS = [
+  "patient", "fever", "pancreas", "diabetes", "hypertension", "infection",
+  "CBC", "HbA1c", "creatinine", "insulin", "paracetamol", "antibiotic",
+] as const;
 
 /**
  * Build only the provider URL. Clinical context never enters this function.
@@ -21,9 +26,11 @@ const ALLOWED_LANGUAGES = new Set(["bn", "en-US"]);
 export function buildDeepgramStreamingUrl(language: string): string {
   if (!ALLOWED_LANGUAGES.has(language)) throw new Error("unsupported Deepgram language");
 
+  const providerLanguage = language === "bn-mixed" ? "bn" : language;
+
   const params = new URLSearchParams({
     model: DEEPGRAM_STREAM_MODEL,
-    language,
+    language: providerLanguage,
     interim_results: "true",
     endpointing: String(DEEPGRAM_ENDPOINTING_MS),
     utterance_end_ms: String(DEEPGRAM_UTTERANCE_END_MS),
@@ -35,6 +42,9 @@ export function buildDeepgramStreamingUrl(language: string): string {
   // Deepgram's numerals formatter is explicitly supported for en-US. This
   // keeps clinical quantities such as "twelve point five" as "12.5" without
   // changing Bengali provider behavior where the feature is not supported.
+  if (language === "bn-mixed") {
+    for (const term of BANGLISH_CLINICAL_KEYTERMS) params.append("keyterm", term);
+  }
   if (language === "en-US") {
     params.set("numerals", "true");
     // Nova-3 keyterm prompting is intentionally limited to the short clinical
