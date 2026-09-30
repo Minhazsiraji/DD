@@ -66,7 +66,7 @@ drop policy if exists patient_documents_storage_insert on storage.objects;
 create policy patient_documents_storage_insert on storage.objects for insert to authenticated
 with check (
   bucket_id='patient-documents'
-  and array_length(storage.foldername(name),1)=4
+  and array_length(storage.foldername(name),1)=3
   and (storage.foldername(name))[1] = (
     select d.user_id::text from public.patients p join public.doctor_profiles d on d.id=p.owner_doctor_id
     where p.id=((storage.foldername(name))[2])::uuid
