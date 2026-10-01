@@ -1,3 +1,4 @@
+import { preserveBanglishClinicalEnglish } from "./banglish-script";
 import {
   DEEPGRAM_CONNECTION_TIMEOUT_MS,
   DEEPGRAM_FINALIZE_TIMEOUT_MS,
@@ -392,21 +393,23 @@ const deepgramProvider: VoiceTranscriptionProvider = {
         if (message.type !== "Results") return;
         const next = assembler.apply(message as DeepgramResultsMessage);
         if (next?.text) {
-          latestTranscript = next.text;
+          const transcriptText = language === "bn-mixed" ? preserveBanglishClinicalEnglish(next.text) : next.text;
+          latestTranscript = transcriptText;
           if (latency.firstTranscriptMs === undefined) {
             latency.firstTranscriptMs = elapsed(startedAt);
             clearTimer(firstTranscriptTimer);
             firstTranscriptTimer = null;
             emitLatency();
           }
-          callbacks.onTranscript(next);
+          callbacks.onTranscript({ ...next, text: transcriptText });
         }
         if (
           continuous &&
           (message.speech_final === true ||
             (utteranceBoundaryPending && message.from_finalize === true))
         ) {
-          const utterance = assembler.current().trim();
+          const rawUtterance = assembler.current().trim();
+          const utterance = language === "bn-mixed" ? preserveBanglishClinicalEnglish(rawUtterance) : rawUtterance;
           assembler.reset();
           utteranceBoundaryPending = false;
           latestTranscript = "";

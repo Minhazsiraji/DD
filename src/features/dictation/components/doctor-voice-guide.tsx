@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { AudioLines, Search, ShieldCheck } from "lucide-react";
+import { AudioLines, ChevronDown, Search, ShieldCheck } from "lucide-react";
 import { SectionCard, SectionHeader } from "@/components/common/section-card";
 import { cn } from "@/lib/utils";
 import {
@@ -177,21 +177,29 @@ function subscribeToVoicePreferences(onStoreChange: () => void): () => void {
 }
 
 function TargetCard({ entry, language, certification }: { entry: VoiceSurfaceEntry; language: VoiceGuideLanguage; certification?: VoiceGuideCertification }) {
+  const [expanded, setExpanded] = React.useState(false);
   const examples = aliasesForGuideLanguage(entry, language);
   const valueExample = valueExampleForGuide(entry, language);
   return (
     <article className="min-w-0 rounded-xl border border-hairline bg-white/70 p-3">
-      <div className="flex min-w-0 items-start justify-between gap-2">
-        <h4 className="min-w-0 break-words text-sm font-semibold text-ink">{entry.uiLabel}</h4>
-        <span className="shrink-0 rounded-full bg-surface-muted px-2 py-0.5 text-[10px] font-semibold text-ink-muted uppercase">
-          {entry.controlType}
+      <button type="button" className="flex w-full min-w-0 items-start justify-between gap-2 text-left focus-visible:focus-ring" aria-expanded={expanded} onClick={() => setExpanded((value) => !value)}>
+        <span className="min-w-0 break-words text-sm font-semibold text-ink">{entry.uiLabel}</span>
+        <span className="flex shrink-0 items-center gap-1.5">
+          <span className="rounded-full bg-surface-muted px-2 py-0.5 text-[10px] font-semibold text-ink-muted uppercase">{entry.controlType}</span>
+          <ChevronDown className={cn("size-4 text-ink-muted transition-transform", expanded && "rotate-180")} aria-hidden="true" />
         </span>
-      </div>
+      </button>
       <p className="mt-2 break-words text-[13px] font-medium text-brand">“{examples[0] ?? entry.uiLabel}”</p>
       {examples.length > 1 ? (
         <p className="mt-1 break-words text-xs text-ink-muted">Also: {examples.slice(1, 3).join(" · ")}</p>
       ) : null}
       {valueExample ? <p className="mt-2 text-xs leading-5 text-ink-secondary">{valueExample}</p> : null}
+      {expanded ? (
+        <div className="mt-3 rounded-lg border border-hairline bg-surface-muted/60 p-2.5">
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-ink-secondary">All phrases</p>
+          <ul className="mt-2 space-y-1.5">{examples.map((phrase) => <li key={phrase} className="break-words text-xs text-ink">{phrase}</li>)}</ul>
+        </div>
+      ) : null}
       <div className="mt-3 flex flex-wrap gap-1.5 text-[10px] font-semibold text-ink-secondary">
         {certification ? <Tag>{certification.status}</Tag> : null}
         {entry.editable ? <Tag>Dictate value</Tag> : null}
