@@ -310,6 +310,8 @@ export function ConsultationWorkspace({
 
           {readOnly ? null : (
             <M6AVoicePanel
+              encounterId={consultation.id}
+              locationId={consultation.practiceLocationId}
               values={s.values}
               diagnosisDraft={s.editors.diagnosis?.draft ?? null}
               disabled={s.blocked}

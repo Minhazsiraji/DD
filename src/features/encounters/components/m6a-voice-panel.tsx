@@ -17,6 +17,8 @@ import { M6F_CONSULTATION_TARGETS, m6fConsultationTargetForDestination, nextM6FC
 import { parseM6FInvestigationCommand, type M6FInvestigationTarget } from "@/features/dictation/m6f-investigation-controls";
 import { m6fSilenceFinalizeMs, shouldCommitM6FProviderFinal } from "@/features/dictation/m6f-utterance-boundary";
 import { resolveDoctorVoiceUtterance } from "@/features/dictation/m6f-voice-personalization";
+import { ambientDedupKey, applyAmbientCorrection, routeAmbientUtterance, type M6GAmbientRoute } from "@/features/dictation/m6g-ambient-router";
+import { recordM6GAmbientAudit } from "@/features/dictation/m6g-ambient-audit";
 import { SectionCard } from "@/components/common/section-card";
 
 const LABELS: Record<M6DTarget, string> = {
@@ -41,6 +43,8 @@ type LastVoiceChange =
   | { kind: "note"; target: M6DTarget; before: string; after: string }
   | { kind: "diagnosis"; target: "title" | "note"; before: string; after: string }
   | { kind: "investigation"; before: string; after: string };
+
+type AmbientReviewItem = M6GAmbientRoute & { id: string; state: "captured" | "pending" | "rejected" };
 
 async function normalizeTranscript(transcript: string, language: string) {
   if (!LIVE_VOICE_ENABLED || language !== "bn-BD-mixed") return transcript;
@@ -80,6 +84,8 @@ function navigationSection(intent: M6BIntent): M6DTarget | null {
 }
 
 export function M6AVoicePanel({
+  encounterId,
+  locationId,
   values,
   diagnosisDraft,
   disabled,
@@ -92,6 +98,8 @@ export function M6AVoicePanel({
   onSetFollowUpDate,
   onOpenPrescription,
 }: {
+  encounterId: string;
+  locationId: string;
   values: DraftValues;
   diagnosisDraft: FindingDraft | null;
   disabled: boolean;
@@ -110,7 +118,10 @@ export function M6AVoicePanel({
   const [mode, setMode] = React.useState<"guided" | "ambient">("guided");
   const [preview, setPreview] = React.useState("");
   const [status, setStatus] = React.useState("Ready. Start Voice once, then speak naturally or use short commands.");
-  const [ambientDraft, setAmbientDraft] = React.useState("");
+  const [ambientItems, setAmbientItems] = React.useState<AmbientReviewItem[]>([]);
+  const [ambientReviewOpen, setAmbientReviewOpen] = React.useState(false);
+  const [ambientMoveTarget, setAmbientMoveTarget] = React.useState<M6DTarget>("presentIllness");
+  const ambientDedupRef = React.useRef(new Set<string>());
   const [lastChange, setLastChangeState] = React.useState<LastVoiceChange | null>(null);
   const voiceStateRef = React.useRef<M6DVoiceState>(INITIAL_M6D_VOICE_STATE);
   const activeTargetRef = React.useRef<M6FConsultationTarget>("chiefComplaints");
@@ -603,6 +614,81 @@ export function M6AVoicePanel({
     if (priority === "clinical-action" && isM6DDiagnosisIntent(intent)) return applyDiagnosisIntent(intent);
   }
 
+  function addAmbientReviewItem(route: M6GAmbientRoute, state: AmbientReviewItem["state"]) {
+    const key = ambientDedupKey(route);
+    if (ambientDedupRef.current.has(key)) {
+      setStatus("Duplicate ambient statement ignored. Review remains unchanged.");
+      return;
+    }
+    ambientDedupRef.current.add(key);
+    setAmbientItems((current) => [...current, { ...route, id: crypto.randomUUID(), state }]);
+  }
+
+  function applyAmbientRoute(route: M6GAmbientRoute) {
+    if (route.correction) {
+      for (const target of NOTE_TARGETS) {
+        const current = valuesRef.current[target] ?? "";
+        const next = applyAmbientCorrection(current, route.correction);
+        if (next !== null && next !== current) {
+          writeDraft(target, next);
+          addAmbientReviewItem({ ...route, target, risk: "low-risk", reason: `Correction matched editable ${LABELS[target]}.` }, "captured");
+          void recordM6GAmbientAudit({ encounterId, locationId, event: "routing_corrected", target });
+          setStatus(`Ambient correction applied to editable ${LABELS[target]}. Review before finalizing.`);
+          return;
+        }
+      }
+      addAmbientReviewItem(route, "pending");
+      void recordM6GAmbientAudit({ encounterId, locationId, event: "routing_corrected", target: "needs-review" });
+      setStatus("Ambient correction could not be matched safely. It was placed in Needs review.");
+      return;
+    }
+
+    if (route.risk === "low-risk" && NOTE_TARGETS.has(route.target as M6DTarget)) {
+      const target = route.target as M6DTarget;
+      appendDraft(target, route.text);
+      addAmbientReviewItem(route, "captured");
+      setStatus(`Ambient routed to editable ${LABELS[target]}. Clinical actions remain protected.`);
+      return;
+    }
+
+    addAmbientReviewItem(route, "pending");
+    if (route.risk === "proposal") void recordM6GAmbientAudit({ encounterId, locationId, event: "proposal_created", target: route.target });
+    setStatus(route.risk === "proposal"
+      ? "Ambient clinical proposal captured for explicit Doctor review. Nothing was confirmed."
+      : "Ambient item needs Doctor routing review. Nothing was inserted silently.");
+  }
+
+  function editAmbientItem(id: string, text: string) {
+    setAmbientItems((current) => current.map((item) => item.id === id ? { ...item, text } : item));
+  }
+
+  function rejectAmbientItem(id: string) {
+    const rejected = ambientItems.find((item) => item.id === id);
+    setAmbientItems((current) => current.filter((item) => item.id !== id));
+    if (rejected?.risk === "proposal") void recordM6GAmbientAudit({ encounterId, locationId, event: "proposal_rejected", target: rejected.target });
+    setStatus("Ambient item rejected. No clinical record change was made by that review action.");
+  }
+
+  function moveAmbientItem(id: string) {
+    const item = ambientItems.find((candidate) => candidate.id === id);
+    if (!item) return;
+    appendDraft(ambientMoveTarget, item.text);
+    setAmbientItems((current) => current.map((candidate) => candidate.id === id ? { ...candidate, target: ambientMoveTarget, risk: "low-risk", state: "captured", reason: `Doctor routed this item to ${LABELS[ambientMoveTarget]}.` } : candidate));
+    setStatus(`Ambient item moved to editable ${LABELS[ambientMoveTarget]}.`);
+  }
+
+  function reviewAmbientProposal(item: AmbientReviewItem) {
+    if (item.target === "medicine" || item.target === "investigation") {
+      handOffClinicalAction(item.text);
+    } else if (item.target === "diagnosis") {
+      onOpenDiagnosis();
+      requestAnimationFrame(() => focusDestination({ kind: "diagnosis", target: "title" }));
+      setStatus("Diagnosis proposal moved to the existing editable Diagnosis review. Add diagnosis remains explicit.");
+    }
+    void recordM6GAmbientAudit({ encounterId, locationId, event: "proposal_reviewed", target: item.target });
+    setAmbientItems((current) => current.map((candidate) => candidate.id === item.id ? { ...candidate, state: "captured" } : candidate));
+  }
+
   function handleProviderFinal(rawText: string) {
     if (mode !== "guided") return;
     void rawText;
@@ -617,8 +703,7 @@ export function M6AVoicePanel({
     setPreview("");
     const text = await normalizeTranscript(rawText, voiceLanguage.lang);
     if (mode === "ambient") {
-      setAmbientDraft((current) => [current.trim(), text.trim()].filter(Boolean).join(" "));
-      setStatus("Ambient speech prepared for review. No diagnosis, prescription or finalized record was changed.");
+      applyAmbientRoute(routeAmbientUtterance(text));
       if (restart) scheduleRestart();
       return;
     }
@@ -773,13 +858,15 @@ export function M6AVoicePanel({
   function startSession() {
     if (disabled) return;
     commitVoiceState((current) => ({ ...current, session: "listening" }));
-    setStatus(`Listening continuously · target ${SECTION_LABELS[m6dVoiceSection(voiceStateRef.current.destination)]}. Silence finalizes each utterance automatically.`);
+    if (mode === "ambient") void recordM6GAmbientAudit({ encounterId, locationId, event: "session_started" });
+    setStatus(mode === "ambient" ? "Ambient Consultation listening continuously. Low-risk notes route to editable drafts; clinical actions stay in Doctor review." : `Listening continuously · target ${SECTION_LABELS[m6dVoiceSection(voiceStateRef.current.destination)]}. Silence finalizes each utterance automatically.`);
     dictation.start();
   }
 
   function pauseSession(keepCommandListener = false) {
     clearSilenceTimer();
     commitVoiceState((current) => ({ ...current, session: "paused" }));
+    if (mode === "ambient") void recordM6GAmbientAudit({ encounterId, locationId, event: "session_paused" });
     setStatus(keepCommandListener ? "Voice dictation paused. Say Resume to continue." : "Voice session paused.");
     if (providerBusy && !keepCommandListener) dictation.stop();
   }
@@ -787,6 +874,7 @@ export function M6AVoicePanel({
   function resumeSession(keepCurrentSession = false) {
     if (disabled) return;
     commitVoiceState((current) => ({ ...current, session: "listening" }));
+    if (mode === "ambient") void recordM6GAmbientAudit({ encounterId, locationId, event: "session_resumed" });
     setStatus(`Voice session resumed · target ${SECTION_LABELS[m6dVoiceSection(voiceStateRef.current.destination)]}.`);
     if (!keepCurrentSession) dictation.start();
   }
@@ -801,7 +889,7 @@ export function M6AVoicePanel({
     commitVoiceState((current) => ({ ...current, session: "idle", pendingNavigation: null }));
     setPreview("");
     dictation.cancel();
-    setStatus("Voice session ended.");
+    if (mode === "ambient") { void recordM6GAmbientAudit({ encounterId, locationId, event: "session_stopped" }); setAmbientReviewOpen(true); setStatus("Ambient session stopped. Review captured documentation and pending clinical proposals before finalizing the encounter."); } else { setStatus("Voice session ended."); }
   }
 
   function undoLast() {
@@ -817,20 +905,12 @@ export function M6AVoicePanel({
     setStatus(`Last voice change undone in ${LABELS[change.target]}.`);
   }
 
-  function applyAmbientToHistory() {
-    const prepared = ambientDraft.trim();
-    if (!prepared) return;
-    appendDraft("presentIllness", prepared);
-    setAmbientDraft("");
-    setStatus("Ambient-prepared text moved to editable History draft for normal review/autosave.");
-  }
-
   return (
     <div ref={stickyShellRef} className="sticky top-2 z-40 min-w-0">
     <SectionCard data-m6d-voice-assistant data-voice-mode={LIVE_VOICE_ENABLED ? "live-ai" : "mock"} data-silence-finalize-ms={m6fSilenceFinalizeMs(voiceLanguage.lang)} className="max-h-[42vh] min-w-0 overflow-y-auto border-brand/25 p-2.5 sm:max-h-none sm:overflow-visible sm:p-4">
       <div className="flex min-w-0 flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
         <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-2"><Mic2 className="size-4 text-brand" aria-hidden="true" /><h2 className="text-[14px] font-semibold text-ink">Voice Assistant</h2><span className="rounded-full bg-brand/10 px-2 py-0.5 text-[10px] font-semibold text-brand">M6D</span>{sessionActive && !paused ? <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-[#a81c1c]"><span className="size-2 animate-pulse rounded-full bg-[#a81c1c]" />Listening</span> : null}</div>
+          <div className="flex flex-wrap items-center gap-2"><Mic2 className="size-4 text-brand" aria-hidden="true" /><h2 className="text-[14px] font-semibold text-ink">Voice Assistant</h2><span className="rounded-full bg-brand/10 px-2 py-0.5 text-[10px] font-semibold text-brand">{mode === "ambient" ? "M6G" : "M6D"}</span>{sessionActive && !paused ? <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-[#a81c1c]"><span className="size-2 animate-pulse rounded-full bg-[#a81c1c]" />Listening</span> : null}</div>
           <p className="mt-1 hidden text-[11px] text-ink-muted sm:block">Notes may enter editable draft fields directly. Clinical actions still require proposal review and explicit Apply.</p>
         </div>
         <div className="flex min-w-0 flex-wrap items-center gap-2">
@@ -839,8 +919,8 @@ export function M6AVoicePanel({
             <select aria-label="Voice mode" value={mode} disabled={providerBusy} onChange={(e) => setMode(e.target.value as "guided" | "ambient")} className="min-h-11 rounded-xl border border-hairline bg-white px-3 text-[12px] font-semibold text-ink"><option value="guided">Guided Voice</option><option value="ambient">Ambient Consultation</option></select>
           </div>
           <select aria-label="Current voice target" value={activeTarget} disabled={disabled || providerBusy || mode === "ambient"} onChange={(e) => focusM6FTarget(e.target.value as M6FConsultationTarget)} className="min-h-11 min-w-0 max-w-full rounded-xl border border-hairline bg-white px-3 text-[12px] font-semibold text-ink">{M6F_TARGET_OPTIONS.map((entry) => <option key={entry.target} value={entry.target}>{entry.label}</option>)}</select>
-          {!sessionActive ? <button type="button" onClick={startSession} disabled={disabled || !dictation.supported} className="inline-flex min-h-11 items-center gap-1.5 rounded-xl bg-brand px-3 text-[12px] font-semibold text-white disabled:opacity-50"><Play className="size-4" />Start Voice</button> : paused ? <button type="button" onClick={() => resumeSession()} disabled={disabled} className="inline-flex min-h-11 items-center gap-1.5 rounded-xl bg-brand px-3 text-[12px] font-semibold text-white disabled:opacity-50"><Play className="size-4" />Resume</button> : <button type="button" onClick={() => pauseSession()} className="inline-flex min-h-11 items-center gap-1.5 rounded-xl border border-hairline bg-white px-3 text-[12px] font-semibold text-ink"><Pause className="size-4" />Pause</button>}
-          {sessionActive ? <button type="button" onClick={endSession} className="inline-flex min-h-11 items-center gap-1.5 rounded-xl border border-hairline bg-white px-3 text-[12px] font-semibold text-ink"><Square className="size-3.5 fill-current" />End</button> : null}
+          {!sessionActive ? <button type="button" onClick={startSession} disabled={disabled || !dictation.supported} className="inline-flex min-h-11 items-center gap-1.5 rounded-xl bg-brand px-3 text-[12px] font-semibold text-white disabled:opacity-50"><Play className="size-4" />{mode === "ambient" ? "Start Ambient" : "Start Voice"}</button> : paused ? <button type="button" onClick={() => resumeSession()} disabled={disabled} className="inline-flex min-h-11 items-center gap-1.5 rounded-xl bg-brand px-3 text-[12px] font-semibold text-white disabled:opacity-50"><Play className="size-4" />Resume</button> : <button type="button" onClick={() => pauseSession()} className="inline-flex min-h-11 items-center gap-1.5 rounded-xl border border-hairline bg-white px-3 text-[12px] font-semibold text-ink"><Pause className="size-4" />Pause</button>}
+          {sessionActive ? <button type="button" onClick={endSession} className="inline-flex min-h-11 items-center gap-1.5 rounded-xl border border-hairline bg-white px-3 text-[12px] font-semibold text-ink"><Square className="size-3.5 fill-current" />{mode === "ambient" ? "Stop & Review" : "End"}</button> : null}
           <button type="button" onClick={() => applyLocal({ type: "UNDO" })} disabled={!lastChange} className="inline-flex min-h-11 items-center gap-1.5 rounded-xl border border-hairline bg-white px-3 text-[12px] font-semibold text-ink disabled:opacity-45"><Undo2 className="size-4" />Undo</button>
         </div>
       </div>
@@ -855,7 +935,36 @@ export function M6AVoicePanel({
       {preview ? <p role="status" className="mt-2 break-words rounded-xl bg-surface-muted px-3 py-2 text-[12px] text-ink-secondary"><strong>Hearing:</strong> {preview}</p> : null}
       {dictation.error ? <p role="alert" className="mt-2 text-[12px] font-medium text-[#a81c1c]">{dictation.error}</p> : null}
       <p role="status" aria-live="polite" className="mt-2 text-[11px] text-ink-secondary">{status}</p>
-      {mode === "ambient" ? <div className="mt-3 rounded-xl border border-brand/20 bg-brand/5 p-3" data-m6d-ambient-prototype><div className="flex items-center gap-2"><Waves className="size-4 text-brand" /><strong className="text-[12px] text-ink">Ambient prototype</strong></div><p className="mt-1 text-[11px] text-ink-muted">Synthetic speech is prepared in a local review buffer. It does not infer examination findings, diagnose, prescribe or finalize.</p><textarea readOnly value={ambientDraft} rows={3} placeholder="Prepared ambient transcript appears here…" className="mt-2 w-full resize-y rounded-xl border border-hairline bg-white px-3 py-2 text-[13px] leading-relaxed text-ink" /><div className="mt-2 flex flex-wrap gap-2"><button type="button" disabled={!ambientDraft.trim()} onClick={applyAmbientToHistory} className="inline-flex min-h-11 items-center rounded-xl bg-brand px-3 text-[12px] font-semibold text-white disabled:opacity-45">Move to editable History draft</button><button type="button" disabled={!ambientDraft.trim()} onClick={() => setAmbientDraft("")} className="inline-flex min-h-11 items-center rounded-xl border border-hairline bg-white px-3 text-[12px] font-semibold text-ink disabled:opacity-45">Discard prepared text</button></div></div> : null}
+      {mode === "ambient" ? (
+        <div className="mt-3 rounded-xl border border-brand/20 bg-brand/5 p-3" data-m6g-ambient-review>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex items-center gap-2"><Waves className="size-4 text-brand" /><strong className="text-[12px] text-ink">Ambient Consultation - M6G</strong></div>
+            <button type="button" onClick={() => setAmbientReviewOpen((value) => !value)} className="inline-flex min-h-9 items-center rounded-lg border border-hairline bg-white px-2.5 text-[11px] font-semibold text-ink">
+              {ambientReviewOpen ? "Hide review" : `Review ${ambientItems.filter((item) => item.state === "pending").length || ""}`.trim()}
+            </button>
+          </div>
+          <p className="mt-1 text-[11px] text-ink-muted">Low-risk notes may route into editable consultation drafts. Diagnosis, investigations and medicines remain proposals until the Doctor completes the existing protected confirmation workflow.</p>
+          <div className="mt-2 flex flex-wrap gap-2 text-[10px] font-semibold">
+            <span className="rounded-full bg-white px-2 py-1 text-ink-secondary">Captured {ambientItems.filter((item) => item.state === "captured").length}</span>
+            <span className="rounded-full bg-white px-2 py-1 text-ink-secondary">Needs confirmation {ambientItems.filter((item) => item.state === "pending" && item.risk === "proposal").length}</span>
+            <span className="rounded-full bg-white px-2 py-1 text-ink-secondary">Needs review {ambientItems.filter((item) => item.state === "pending" && item.risk === "needs-review").length}</span>
+          </div>
+          {ambientReviewOpen ? (
+            <div className="mt-3 max-h-72 space-y-2 overflow-y-auto" data-m6g-review-panel>
+              {ambientItems.length === 0 ? <p className="rounded-lg bg-white px-3 py-2 text-[11px] text-ink-muted">No ambient items captured yet.</p> : null}
+              {ambientItems.map((item) => (
+                <div key={item.id} className="rounded-xl border border-hairline bg-white p-2.5" data-m6g-review-item data-risk={item.risk}>
+                  <div className="flex flex-wrap items-center justify-between gap-2"><span className="text-[10px] font-semibold uppercase tracking-wide text-ink-muted">{item.state === "captured" ? `Captured - ${item.target}` : item.risk === "proposal" ? `Doctor confirmation - ${item.target}` : "Needs review"}</span>{item.state === "pending" ? <button type="button" onClick={() => rejectAmbientItem(item.id)} className="min-h-9 rounded-lg px-2 text-[11px] font-semibold text-[#a81c1c]">Reject</button> : null}</div>
+                  {item.state === "pending" ? <textarea aria-label="Edit ambient item" value={item.text} onChange={(event) => editAmbientItem(item.id, event.target.value)} rows={2} className="mt-1.5 w-full resize-y rounded-lg border border-hairline px-2.5 py-2 text-[12px] text-ink" /> : <p className="mt-1 break-words text-[12px] text-ink-secondary">{item.text}</p>}
+                  <p className="mt-1 text-[10px] text-ink-muted">{item.reason}</p>
+                  {item.state === "pending" && item.risk === "proposal" ? <button type="button" onClick={() => reviewAmbientProposal(item)} className="mt-2 inline-flex min-h-9 items-center rounded-lg bg-brand px-2.5 text-[11px] font-semibold text-white">Open protected review</button> : null}
+                  {item.state === "pending" && item.risk === "needs-review" ? <div className="mt-2 flex flex-wrap gap-2"><select aria-label="Move ambient item to section" value={ambientMoveTarget} onChange={(event) => setAmbientMoveTarget(event.target.value as M6DTarget)} className="min-h-9 rounded-lg border border-hairline bg-white px-2 text-[11px] text-ink">{Array.from(NOTE_TARGETS).map((target) => <option key={target} value={target}>{LABELS[target]}</option>)}</select><button type="button" onClick={() => moveAmbientItem(item.id)} className="min-h-9 rounded-lg bg-brand px-2.5 text-[11px] font-semibold text-white">Move</button></div> : null}
+                </div>
+              ))}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
       <p className="mt-2 hidden items-start gap-1.5 text-[10px] text-ink-muted sm:flex"><ShieldAlert className="mt-px size-3.5 shrink-0" />A spoken finalize request can only enter the existing protected Review/Finalize path; this assistant cannot sign or finalize.</p>
     </SectionCard>
     </div>
