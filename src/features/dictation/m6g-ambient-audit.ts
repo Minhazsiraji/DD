@@ -12,6 +12,8 @@ const AmbientAuditEvent = z.enum([
   "proposal_reviewed",
   "proposal_rejected",
   "routing_corrected",
+  "draft_applied",
+  "draft_discarded",
 ]);
 
 const AmbientAuditInput = z.object({

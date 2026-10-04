@@ -44,7 +44,7 @@ type LastVoiceChange =
   | { kind: "diagnosis"; target: "title" | "note"; before: string; after: string }
   | { kind: "investigation"; before: string; after: string };
 
-type AmbientReviewItem = M6GAmbientRoute & { id: string; state: "captured" | "pending" | "rejected" };
+type AmbientReviewItem = M6GAmbientRoute & { id: string; state: "captured" | "pending" | "applied" | "rejected"; currentText?: string; proposedText?: string };
 
 async function normalizeTranscript(transcript: string, language: string) {
   if (!LIVE_VOICE_ENABLED || language !== "bn-BD-mixed") return transcript;
@@ -614,7 +614,7 @@ export function M6AVoicePanel({
     if (priority === "clinical-action" && isM6DDiagnosisIntent(intent)) return applyDiagnosisIntent(intent);
   }
 
-  function addAmbientReviewItem(route: M6GAmbientRoute, state: AmbientReviewItem["state"]) {
+  function addAmbientReviewItem(route: M6GAmbientRoute & { currentText?: string; proposedText?: string }, state: AmbientReviewItem["state"]) {
     const key = ambientDedupKey(route);
     if (ambientDedupRef.current.has(key)) {
       setStatus("Duplicate ambient statement ignored. Review remains unchanged.");
@@ -630,10 +630,9 @@ export function M6AVoicePanel({
         const current = valuesRef.current[target] ?? "";
         const next = applyAmbientCorrection(current, route.correction);
         if (next !== null && next !== current) {
-          writeDraft(target, next);
-          addAmbientReviewItem({ ...route, target, risk: "low-risk", reason: `Correction matched editable ${LABELS[target]}.` }, "captured");
+          addAmbientReviewItem({ ...route, target, risk: "needs-review", text: route.text, currentText: current, proposedText: next, reason: `Correction proposes a change to existing ${LABELS[target]} and requires review.` }, "pending");
           void recordM6GAmbientAudit({ encounterId, locationId, event: "routing_corrected", target });
-          setStatus(`Ambient correction applied to editable ${LABELS[target]}. Review before finalizing.`);
+          setStatus(`Ambient correction staged for ${LABELS[target]}. Existing Doctor-entered content was not silently overwritten.`);
           return;
         }
       }
@@ -645,9 +644,8 @@ export function M6AVoicePanel({
 
     if (route.risk === "low-risk" && NOTE_TARGETS.has(route.target as M6DTarget)) {
       const target = route.target as M6DTarget;
-      appendDraft(target, route.text);
       addAmbientReviewItem(route, "captured");
-      setStatus(`Ambient routed to editable ${LABELS[target]}. Clinical actions remain protected.`);
+      setStatus(`Ambient prepared ${LABELS[target]} for the clinical draft. Apply approved draft when ready.`);
       return;
     }
 
@@ -656,6 +654,23 @@ export function M6AVoicePanel({
     setStatus(route.risk === "proposal"
       ? "Ambient clinical proposal captured for explicit Doctor review. Nothing was confirmed."
       : "Ambient item needs Doctor routing review. Nothing was inserted silently.");
+  }
+
+  function applyApprovedAmbientDraft() {
+    const ready = ambientItems.filter((item) => item.state === "captured" && item.risk === "low-risk" && NOTE_TARGETS.has(item.target as M6DTarget));
+    for (const item of ready) appendDraft(item.target as M6DTarget, item.text);
+    setAmbientItems((current) => current.map((item) => ready.some((candidate) => candidate.id === item.id) ? { ...item, state: "applied" } : item));
+    void recordM6GAmbientAudit({ encounterId, locationId, event: "draft_applied" });
+    const protectedCount = ambientItems.filter((item) => item.state === "pending" && item.risk === "proposal").length;
+    const reviewCount = ambientItems.filter((item) => item.state === "pending" && item.risk === "needs-review").length;
+    setStatus(`Applied ${ready.length} safe documentation item(s). Still waiting: ${protectedCount} protected proposal(s). Needs review: ${reviewCount}.`);
+  }
+
+  function discardAmbientDraft() {
+    setAmbientItems([]);
+    ambientDedupRef.current.clear();
+    void recordM6GAmbientAudit({ encounterId, locationId, event: "draft_discarded" });
+    setStatus("Ambient clinical draft discarded. No pending draft documentation was applied.");
   }
 
   function editAmbientItem(id: string, text: string) {
@@ -672,7 +687,7 @@ export function M6AVoicePanel({
   function moveAmbientItem(id: string) {
     const item = ambientItems.find((candidate) => candidate.id === id);
     if (!item) return;
-    appendDraft(ambientMoveTarget, item.text);
+    if (item.proposedText) writeDraft(ambientMoveTarget, item.proposedText); else appendDraft(ambientMoveTarget, item.text);
     setAmbientItems((current) => current.map((candidate) => candidate.id === id ? { ...candidate, target: ambientMoveTarget, risk: "low-risk", state: "captured", reason: `Doctor routed this item to ${LABELS[ambientMoveTarget]}.` } : candidate));
     setStatus(`Ambient item moved to editable ${LABELS[ambientMoveTarget]}.`);
   }
@@ -938,14 +953,14 @@ export function M6AVoicePanel({
       {mode === "ambient" ? (
         <div className="mt-3 rounded-xl border border-brand/20 bg-brand/5 p-3" data-m6g-ambient-review>
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <div className="flex items-center gap-2"><Waves className="size-4 text-brand" /><strong className="text-[12px] text-ink">Ambient Consultation - M6G</strong></div>
+            <div className="flex items-center gap-2"><Waves className="size-4 text-brand" /><strong className="text-[12px] text-ink">Ambient Clinical Draft - M6H</strong></div>
             <button type="button" onClick={() => setAmbientReviewOpen((value) => !value)} className="inline-flex min-h-9 items-center rounded-lg border border-hairline bg-white px-2.5 text-[11px] font-semibold text-ink">
               {ambientReviewOpen ? "Hide review" : `Review ${ambientItems.filter((item) => item.state === "pending").length || ""}`.trim()}
             </button>
           </div>
-          <p className="mt-1 text-[11px] text-ink-muted">Low-risk notes may route into editable consultation drafts. Diagnosis, investigations and medicines remain proposals until the Doctor completes the existing protected confirmation workflow.</p>
+          <p className="mt-1 text-[11px] text-ink-muted">Review the structured draft once, correct exceptions, then apply approved documentation. Diagnosis, investigations and medicines remain protected proposals.</p>
           <div className="mt-2 flex flex-wrap gap-2 text-[10px] font-semibold">
-            <span className="rounded-full bg-white px-2 py-1 text-ink-secondary">Captured {ambientItems.filter((item) => item.state === "captured").length}</span>
+            <span className="rounded-full bg-white px-2 py-1 text-ink-secondary">Ready to apply {ambientItems.filter((item) => item.state === "captured" && item.risk === "low-risk").length}</span>
             <span className="rounded-full bg-white px-2 py-1 text-ink-secondary">Needs confirmation {ambientItems.filter((item) => item.state === "pending" && item.risk === "proposal").length}</span>
             <span className="rounded-full bg-white px-2 py-1 text-ink-secondary">Needs review {ambientItems.filter((item) => item.state === "pending" && item.risk === "needs-review").length}</span>
           </div>
@@ -954,8 +969,8 @@ export function M6AVoicePanel({
               {ambientItems.length === 0 ? <p className="rounded-lg bg-white px-3 py-2 text-[11px] text-ink-muted">No ambient items captured yet.</p> : null}
               {ambientItems.map((item) => (
                 <div key={item.id} className="rounded-xl border border-hairline bg-white p-2.5" data-m6g-review-item data-risk={item.risk}>
-                  <div className="flex flex-wrap items-center justify-between gap-2"><span className="text-[10px] font-semibold uppercase tracking-wide text-ink-muted">{item.state === "captured" ? `Captured - ${item.target}` : item.risk === "proposal" ? `Doctor confirmation - ${item.target}` : "Needs review"}</span>{item.state === "pending" ? <button type="button" onClick={() => rejectAmbientItem(item.id)} className="min-h-9 rounded-lg px-2 text-[11px] font-semibold text-[#a81c1c]">Reject</button> : null}</div>
-                  {item.state === "pending" ? <textarea aria-label="Edit ambient item" value={item.text} onChange={(event) => editAmbientItem(item.id, event.target.value)} rows={2} className="mt-1.5 w-full resize-y rounded-lg border border-hairline px-2.5 py-2 text-[12px] text-ink" /> : <p className="mt-1 break-words text-[12px] text-ink-secondary">{item.text}</p>}
+                  <div className="flex flex-wrap items-center justify-between gap-2"><span className="text-[10px] font-semibold uppercase tracking-wide text-ink-muted">{item.state === "applied" ? `Applied - ${item.target}` : item.state === "captured" ? `Ready to apply - ${item.target}` : item.risk === "proposal" ? `Doctor confirmation - ${item.target}` : "Needs review"}</span>{item.state !== "applied" ? <button type="button" onClick={() => rejectAmbientItem(item.id)} className="min-h-9 rounded-lg px-2 text-[11px] font-semibold text-[#a81c1c]">Reject</button> : null}</div>
+                  {item.currentText && item.proposedText ? <div className="mt-1.5 rounded-lg bg-surface-muted p-2 text-[11px]"><p><strong>Current:</strong> {item.currentText}</p><p className="mt-1"><strong>Ambient correction:</strong> {item.proposedText}</p></div> : null}{item.state !== "applied" ? <textarea aria-label="Edit ambient item" value={item.text} onChange={(event) => editAmbientItem(item.id, event.target.value)} rows={2} className="mt-1.5 w-full resize-y rounded-lg border border-hairline px-2.5 py-2 text-[12px] text-ink" /> : <p className="mt-1 break-words text-[12px] text-ink-secondary">{item.text}</p>}
                   <p className="mt-1 text-[10px] text-ink-muted">{item.reason}</p>
                   {item.state === "pending" && item.risk === "proposal" ? <button type="button" onClick={() => reviewAmbientProposal(item)} className="mt-2 inline-flex min-h-9 items-center rounded-lg bg-brand px-2.5 text-[11px] font-semibold text-white">Open protected review</button> : null}
                   {item.state === "pending" && item.risk === "needs-review" ? <div className="mt-2 flex flex-wrap gap-2"><select aria-label="Move ambient item to section" value={ambientMoveTarget} onChange={(event) => setAmbientMoveTarget(event.target.value as M6DTarget)} className="min-h-9 rounded-lg border border-hairline bg-white px-2 text-[11px] text-ink">{Array.from(NOTE_TARGETS).map((target) => <option key={target} value={target}>{LABELS[target]}</option>)}</select><button type="button" onClick={() => moveAmbientItem(item.id)} className="min-h-9 rounded-lg bg-brand px-2.5 text-[11px] font-semibold text-white">Move</button></div> : null}
@@ -963,6 +978,7 @@ export function M6AVoicePanel({
               ))}
             </div>
           ) : null}
+          {ambientReviewOpen && ambientItems.length > 0 ? <div className="sticky bottom-0 mt-3 flex flex-wrap justify-end gap-2 border-t border-brand/10 bg-brand/5 pt-3" data-m6h-action-bar><button type="button" onClick={discardAmbientDraft} className="min-h-11 rounded-xl border border-hairline bg-white px-3 text-[11px] font-semibold text-ink">Discard draft</button><button type="button" onClick={applyApprovedAmbientDraft} className="min-h-11 rounded-xl bg-brand px-3 text-[11px] font-semibold text-white">Apply approved draft</button></div> : null}
         </div>
       ) : null}
       <p className="mt-2 hidden items-start gap-1.5 text-[10px] text-ink-muted sm:flex"><ShieldAlert className="mt-px size-3.5 shrink-0" />A spoken finalize request can only enter the existing protected Review/Finalize path; this assistant cannot sign or finalize.</p>
