@@ -679,9 +679,14 @@ export function M6AVoicePanel({
 
   function rejectAmbientItem(id: string) {
     const rejected = ambientItems.find((item) => item.id === id);
-    setAmbientItems((current) => current.filter((item) => item.id !== id));
+    setAmbientItems((current) => current.map((item) => item.id === id ? { ...item, state: "rejected" } : item));
     if (rejected?.risk === "proposal") void recordM6GAmbientAudit({ encounterId, locationId, event: "proposal_rejected", target: rejected.target });
     setStatus("Ambient item rejected. No clinical record change was made by that review action.");
+  }
+
+  function restoreAmbientItem(id: string) {
+    setAmbientItems((current) => current.map((item) => item.id === id ? { ...item, state: item.risk === "low-risk" ? "captured" : "pending" } : item));
+    setStatus("Ambient item restored for review.");
   }
 
   function moveAmbientItem(id: string) {
@@ -969,7 +974,7 @@ export function M6AVoicePanel({
               {ambientItems.length === 0 ? <p className="rounded-lg bg-white px-3 py-2 text-[11px] text-ink-muted">No ambient items captured yet.</p> : null}
               {ambientItems.map((item) => (
                 <div key={item.id} className="rounded-xl border border-hairline bg-white p-2.5" data-m6g-review-item data-risk={item.risk}>
-                  <div className="flex flex-wrap items-center justify-between gap-2"><span className="text-[10px] font-semibold uppercase tracking-wide text-ink-muted">{item.state === "applied" ? `Applied - ${item.target}` : item.state === "captured" ? `Ready to apply - ${item.target}` : item.risk === "proposal" ? `Doctor confirmation - ${item.target}` : "Needs review"}</span>{item.state !== "applied" ? <button type="button" onClick={() => rejectAmbientItem(item.id)} className="min-h-9 rounded-lg px-2 text-[11px] font-semibold text-[#a81c1c]">Reject</button> : null}</div>
+                  <div className="flex flex-wrap items-center justify-between gap-2"><span className="text-[10px] font-semibold uppercase tracking-wide text-ink-muted">{item.state === "applied" ? `Applied - ${item.target}` : item.state === "captured" ? `Ready to apply - ${item.target}` : item.risk === "proposal" ? `Doctor confirmation - ${item.target}` : "Needs review"}</span>{item.state === "rejected" ? <button type="button" onClick={() => restoreAmbientItem(item.id)} className="min-h-9 rounded-lg px-2 text-[11px] font-semibold text-brand">Restore</button> : item.state !== "applied" ? <button type="button" onClick={() => rejectAmbientItem(item.id)} className="min-h-9 rounded-lg px-2 text-[11px] font-semibold text-[#a81c1c]">Reject</button> : null}</div>
                   {item.currentText && item.proposedText ? <div className="mt-1.5 rounded-lg bg-surface-muted p-2 text-[11px]"><p><strong>Current:</strong> {item.currentText}</p><p className="mt-1"><strong>Ambient correction:</strong> {item.proposedText}</p></div> : null}{item.state !== "applied" ? <textarea aria-label="Edit ambient item" value={item.text} onChange={(event) => editAmbientItem(item.id, event.target.value)} rows={2} className="mt-1.5 w-full resize-y rounded-lg border border-hairline px-2.5 py-2 text-[12px] text-ink" /> : <p className="mt-1 break-words text-[12px] text-ink-secondary">{item.text}</p>}
                   <p className="mt-1 text-[10px] text-ink-muted">{item.reason}</p>
                   {item.state === "pending" && item.risk === "proposal" ? <button type="button" onClick={() => reviewAmbientProposal(item)} className="mt-2 inline-flex min-h-9 items-center rounded-lg bg-brand px-2.5 text-[11px] font-semibold text-white">Open protected review</button> : null}
