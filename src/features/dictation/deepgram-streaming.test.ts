@@ -39,7 +39,9 @@ describe("Deepgram Nova-3 selective streaming core", () => {
     expect(english.searchParams.getAll("keyterm")).toEqual(["BP", "blood pressure"]);
     expect(bangla.searchParams.has("keyterm")).toBe(false);
     expect(banglish.searchParams.getAll("keyterm")).toEqual([...BANGLISH_CLINICAL_KEYTERMS]);
-    expect(banglish.searchParams.getAll("keyterm")).toEqual(expect.arrayContaining(["patient", "fever", "pancreas"]));
+    expect(banglish.searchParams.getAll("keyterm")).toEqual(expect.arrayContaining([
+      "patient", "fever", "pancreas", "HbA1c", "serum creatinine", "blood pressure", "oxygen saturation", "chest X-ray", "metformin", "amlodipine",
+    ]));
     expect(english.searchParams.has("no_delay")).toBe(false);
     expect(bangla.searchParams.has("no_delay")).toBe(false);
     expect(() => buildDeepgramStreamingUrl("fr")).toThrow(/unsupported/);

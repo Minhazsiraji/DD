@@ -4,6 +4,7 @@ import {
   applyAmbientCorrection,
   isHighRiskAmbientTarget,
   routeAmbientUtterance,
+  routeAmbientUtterances,
 } from "./m6g-ambient-router";
 
 describe("M6G ambient consultation routing", () => {
@@ -38,6 +39,26 @@ describe("M6G ambient consultation routing", () => {
     const route = routeAmbientUtterance(text);
     expect(route).toMatchObject({ target, risk: "proposal" });
     expect(isHighRiskAmbientTarget(route.target)).toBe(true);
+  });
+
+  it.each([
+    ["Temperature 101 F, BP 136 by 84, pulse 96, oxygen saturation 95%", "examination"],
+    ["SpO2 97 percent and pulse 88", "examination"],
+  ])("routes clinical vital context %s to examination", (text, target) => {
+    expect(routeAmbientUtterance(text)).toMatchObject({ target, risk: "low-risk" });
+  });
+
+  it("splits a multi-sentence ambient utterance without changing protected boundaries", () => {
+    const routes = routeAmbientUtterances(
+      "Patient has fever for five days. Temperature 101 F, BP 136 by 84, pulse 96, oxygen saturation 95%. Add CBC and chest X-ray. Assessment suggests lower respiratory infection. Follow-up after five days.",
+    );
+    expect(routes.map((route) => [route.target, route.risk])).toEqual([
+      ["presentIllness", "low-risk"],
+      ["examination", "low-risk"],
+      ["investigation", "proposal"],
+      ["diagnosis", "proposal"],
+      ["nextVisitNote", "low-risk"],
+    ]);
   });
 
   it("does not invent a numeric confidence for uncertain content", () => {

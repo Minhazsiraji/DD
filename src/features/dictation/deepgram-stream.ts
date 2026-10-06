@@ -14,8 +14,12 @@ export const DEEPGRAM_FINALIZE_TIMEOUT_MS = 4000;
 const ALLOWED_LANGUAGES = new Set(["bn", "bn-mixed", "en-US"]);
 
 export const BANGLISH_CLINICAL_KEYTERMS = [
-  "patient", "fever", "pancreas", "diabetes", "hypertension", "infection",
-  "CBC", "HbA1c", "creatinine", "insulin", "paracetamol", "antibiotic",
+  "patient", "fever", "pancreas", "pancreatic", "diabetes", "hypertension", "infection",
+  "CBC", "HbA1c", "creatinine", "serum creatinine", "serum amylase", "serum lipase",
+  "blood pressure", "BP", "pulse", "temperature", "oxygen saturation", "SpO2",
+  "chest X-ray", "productive cough", "shortness of breath", "crepitations", "wheeze",
+  "metformin", "amlodipine", "penicillin", "insulin", "paracetamol", "antibiotic",
+  "epigastric tenderness", "lower respiratory infection", "gallstone",
 ] as const;
 
 /**

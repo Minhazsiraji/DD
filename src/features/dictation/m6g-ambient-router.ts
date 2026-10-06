@@ -16,7 +16,7 @@ export interface M6GAmbientRoute {
 const INVESTIGATION_TERMS = /\b(?:cbc|hba1c|serum\s+amylase|amylase|lipase|x-?ray|ct\s*(?:scan)?|mri|ecg|echo|creatinine|urine|lft|rft|tsh|test|investigation)\b/iu;
 const MEDICINE_TERMS = /\b(?:start|prescribe|medicine|tablet|capsule|syrup|injection|paracetamol|napa|metformin|amlodipine|omeprazole)\b/iu;
 const DIAGNOSIS_TERMS = /\b(?:diagnosis|diagnose|assessment\s+(?:suggests|is|likely)|suggests|impression)\b/iu;
-const EXAM_TERMS = /\b(?:on\s+examination|examination|exam(?:ination)?[- ]?e|tenderness|crepitations?|wheeze|edema|oedema)\b/iu;
+const EXAM_TERMS = /\b(?:on\s+examination|examination|exam(?:ination)?[- ]?e|tenderness|crepitations?|wheeze|edema|oedema|temperature|blood\s+pressure|bp|pulse|oxygen\s+saturation|spo2|sp[oO]₂)\b/iu;
 const FOLLOW_UP_TERMS = /\b(?:follow[- ]?up|review\s+after|come\s+back|din\s+por|days?\s+later)\b/iu;
 const PAST_TERMS = /\b(?:past\s+history|previous\s+history|history\s+of\s+(?:diabetes|hypertension|asthma|surgery)|drug\s+history|allerg(?:y|ic)|family\s+history|social\s+history|smok(?:e|er|ing))\b/iu;
 const HPI_TERMS = /\b(?:for\s+\w+\s+days?|since|radiates?|radiating|vomit(?:ing|ed)?|duration|worse|better|associated|back[- ]?e|dhore|bar\s+hoyeche)\b/iu;
@@ -134,6 +134,21 @@ export function routeAmbientUtterance(rawText: string): M6GAmbientRoute {
     text,
     reason: "No reliable deterministic section match; Doctor must choose the destination.",
   };
+}
+
+/**
+ * Ambient speech can contain several clinical clauses in one provider utterance.
+ * Split only on explicit sentence/strong-punctuation boundaries; each clause is
+ * then routed by the existing conservative router. Guided Voice is unchanged.
+ */
+export function routeAmbientUtterances(rawText: string): M6GAmbientRoute[] {
+  const text = normalized(rawText);
+  const clauses = text
+    .split(/(?<=[.!?।;])\s+/u)
+    .map((value) => value.trim())
+    .filter(Boolean);
+  if (clauses.length <= 1) return [routeAmbientUtterance(text)];
+  return clauses.map((value) => routeAmbientUtterance(value));
 }
 
 export function isHighRiskAmbientTarget(target: M6GAmbientTarget): boolean {

@@ -17,7 +17,7 @@ import { M6F_CONSULTATION_TARGETS, m6fConsultationTargetForDestination, nextM6FC
 import { parseM6FInvestigationCommand, type M6FInvestigationTarget } from "@/features/dictation/m6f-investigation-controls";
 import { m6fSilenceFinalizeMs, shouldCommitM6FProviderFinal } from "@/features/dictation/m6f-utterance-boundary";
 import { resolveDoctorVoiceUtterance } from "@/features/dictation/m6f-voice-personalization";
-import { ambientDedupKey, applyAmbientCorrection, routeAmbientUtterance, type M6GAmbientRoute } from "@/features/dictation/m6g-ambient-router";
+import { ambientDedupKey, applyAmbientCorrection, routeAmbientUtterances, type M6GAmbientRoute } from "@/features/dictation/m6g-ambient-router";
 import { recordM6GAmbientAudit } from "@/features/dictation/m6g-ambient-audit";
 import { SectionCard } from "@/components/common/section-card";
 
@@ -723,7 +723,7 @@ export function M6AVoicePanel({
     setPreview("");
     const text = await normalizeTranscript(rawText, voiceLanguage.lang);
     if (mode === "ambient") {
-      applyAmbientRoute(routeAmbientUtterance(text));
+      for (const route of routeAmbientUtterances(text)) applyAmbientRoute(route);
       if (restart) scheduleRestart();
       return;
     }

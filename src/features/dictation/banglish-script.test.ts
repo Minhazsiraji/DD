@@ -15,4 +15,12 @@ describe("Banglish clinical English preservation", () => {
       preserveBanglishClinicalEnglish("patient fever pancreas CBC"),
     ).toBe("patient fever pancreas CBC");
   });
+
+  it("repairs common mixed-mode medical and vital terms without touching ordinary Bangla", () => {
+    expect(
+      preserveBanglishClinicalEnglish(
+        "ব্লাড প্রেসার 136/84, পালস 96, অক্সিজেন স্যাচুরেশন 95%, সিবিসি, সিরাম ক্রিয়েটিনিন, মেটফরমিন",
+      ),
+    ).toBe("blood pressure 136/84, pulse 96, oxygen saturation 95%, CBC, serum creatinine, metformin");
+  });
 });
